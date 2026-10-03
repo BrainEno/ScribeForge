@@ -126,6 +126,8 @@ def _candidate_crop(
     )
     if not boxes:
         raise ValueError("review candidate requires OCR geometry")
+    if len(boxes) == 1:
+        return boxes[0]
     return _union_boxes(*boxes)
 
 
