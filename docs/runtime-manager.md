@@ -1,6 +1,6 @@
 # Runtime Manager
 
-The Runtime Manager exists so ScribeForge behaves like a normal desktop application, not a Python project.
+The Runtime Manager exists so ScribeForge behaves like a normal desktop application, not a Python project. Normal users should never need to install Python, CUDA toolkits, MinerU, PaddleOCR, virtual environments, or model files manually.
 
 ## User experience target
 
@@ -18,26 +18,54 @@ Ready
 
 Terms such as Python, virtualenv, CUDA wheel, pip, MinerU and PaddleOCR belong in an advanced diagnostics panel, not in the primary setup flow.
 
-## Current backend foundation
+## Managed lifecycle
 
-The core now provides:
+The current lifecycle is:
 
-- hardware profile data and NVIDIA detection;
-- deterministic installation planning;
-- separate private environments for MinerU and PaddleOCR;
-- conservative Paddle CPU/GPU package selection based on driver capability;
-- a preference for a bundled `uv` bootstrap executable;
-- atomic backend install state with failed-step recording;
-- command execution without shell interpolation.
+1. detect hardware;
+2. resolve the bundled `uv` bootstrap tool;
+3. create private MinerU and PaddleOCR environments;
+4. install compatible packages;
+5. prefetch required OCR models;
+6. verify model integrity and runtime startup;
+7. mark the backend `ready` only after health checks pass.
 
-## Next slices
+Progress is emitted as structured runtime events for the future first-run UI. Failures persist the phase and step that failed so the UI can offer **Repair** instead of exposing a Python traceback.
 
-1. Add version/health probes for each installed backend.
-2. Add resumable repair/reinstall behavior and progress events.
-3. Add shared model/cache environment configuration.
-4. Add explicit model prefetch and checksum/version metadata where upstream supports it.
-5. Package the correct `uv` binary with desktop releases.
-6. Expose setup/repair through the desktop first-run wizard.
+## Private storage
+
+All managed data stays under the ScribeForge runtime root:
+
+```text
+runtime/
+  tools/
+    python/
+    uv[.exe]
+  envs/
+    mineru/
+    paddleocr/
+  models/
+    mineru/
+    paddleocr/
+  cache/
+    uv/
+    huggingface/
+    modelscope/
+    paddle/
+  runtime-state.json
+```
+
+Environment variables route MinerU and PaddleX model storage, Hugging Face / ModelScope downloads, Paddle framework data, `uv` cache, and managed Python installations into these directories.
+
+## Model preparation
+
+MinerU uses its official 4.x model commands to download and verify the `standard` tier. PaddleOCR preloads the PP-OCRv6 general OCR pipeline inside its private environment; PaddleX model caching is redirected to `runtime/models/paddleocr`.
+
+Model preparation is explicit during setup rather than being allowed to surprise the user during the first OCR job.
+
+## Repair
+
+`RuntimeManager.repair(plan, backend)` reruns the idempotent installation, model preparation, and health-check lifecycle for one backend only. Repair never deletes source books or project data.
 
 ## Safety rules
 

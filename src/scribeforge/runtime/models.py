@@ -22,10 +22,14 @@ class RuntimeLayout:
         return self.root / "envs" / backend
 
     def python_executable(self, backend: str, os_name: str) -> Path:
+        return self.executable(backend, "python", os_name)
+
+    def executable(self, backend: str, name: str, os_name: str) -> Path:
         environment = self.environment_dir(backend)
         if os_name == "windows":
-            return environment / "Scripts" / "python.exe"
-        return environment / "bin" / "python"
+            suffix = ".exe" if not name.endswith(".exe") else ""
+            return environment / "Scripts" / f"{name}{suffix}"
+        return environment / "bin" / name
 
     @property
     def models_dir(self) -> Path:
@@ -34,6 +38,10 @@ class RuntimeLayout:
     @property
     def cache_dir(self) -> Path:
         return self.root / "cache"
+
+    @property
+    def tools_dir(self) -> Path:
+        return self.root / "tools"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +56,9 @@ class RuntimeBackendPlan:
     environment_dir: Path
     acceleration: str
     steps: tuple[InstallStep, ...]
+    model_steps: tuple[InstallStep, ...] = ()
+    health_checks: tuple[InstallStep, ...] = ()
+    environment: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
