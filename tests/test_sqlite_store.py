@@ -1,13 +1,15 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.storage.sqlite import SQLiteStore
 
 
-def _result(text: str) -> PageOCRResult:
+def _result(text: str, confidence: float | None = 0.93) -> PageOCRResult:
     box = BoundingBox(0.1, 0.2, 0.5, 0.05)
-    token = OCRToken(text=text, confidence=0.93, box=box)
+    token = OCRToken(text=text, confidence=confidence, box=box)
     line = OCRLine(text=text, box=box, tokens=(token,))
     return PageOCRResult(
         page_index=0,
@@ -26,7 +28,7 @@ def _prepared_store(tmp_path: Path) -> tuple[SQLiteStore, int]:
 
 
 def test_initialize_creates_versioned_core_schema(tmp_path: Path) -> None:
-    path = tmp_path / "project.sqlite3"
+    path = tmp_path / "nested" / "project.sqlite3"
     store = SQLiteStore(path)
 
     store.initialize()
@@ -57,6 +59,23 @@ def test_ocr_evidence_round_trips_with_geometry_and_confidence(tmp_path: Path) -
     restored = store.load_ocr_run(run_id)
 
     assert restored == _result("乌鸦")
+
+
+def test_none_token_confidence_round_trips(tmp_path: Path) -> None:
+    store, project_id = _prepared_store(tmp_path)
+
+    run_id = store.record_ocr(project_id, _result("模糊", confidence=None))
+
+    assert store.load_ocr_run(run_id) == _result("模糊", confidence=None)
+
+
+def test_empty_ocr_result_round_trips(tmp_path: Path) -> None:
+    store, project_id = _prepared_store(tmp_path)
+    result = PageOCRResult(0, "fixture", "1.2.3", ())
+
+    run_id = store.record_ocr(project_id, result)
+
+    assert store.load_ocr_run(run_id) == result
 
 
 def test_new_engine_run_never_overwrites_previous_ocr_evidence(tmp_path: Path) -> None:
@@ -99,12 +118,37 @@ def test_decisions_are_append_only_and_keep_evidence_references(tmp_path: Path) 
     assert store.load_ocr_run(run_id).lines[0].text == "乌鸦"
 
 
+def test_list_decisions_is_empty_before_any_decision(tmp_path: Path) -> None:
+    store, project_id = _prepared_store(tmp_path)
+
+    assert store.list_decisions(project_id, 0, 0) == ()
+
+
 def test_page_index_is_unique_within_project(tmp_path: Path) -> None:
     store, project_id = _prepared_store(tmp_path)
 
-    try:
+    with pytest.raises(sqlite3.IntegrityError):
         store.add_page(project_id, 0, "other.png", 1000, 2000)
-    except sqlite3.IntegrityError:
-        pass
-    else:
-        raise AssertionError("duplicate project/page index should fail")
+
+
+def test_invalid_decision_actor_is_rejected(tmp_path: Path) -> None:
+    store, project_id = _prepared_store(tmp_path)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.append_decision(
+            project_id=project_id,
+            page_index=0,
+            pair_index=0,
+            selected_text="x",
+            actor="unknown",
+            evidence_refs=(),
+        )
+
+
+def test_unknown_page_and_run_raise_key_error(tmp_path: Path) -> None:
+    store, project_id = _prepared_store(tmp_path)
+
+    with pytest.raises(KeyError, match="unknown project/page"):
+        store.record_ocr(project_id, PageOCRResult(1, "fixture", "1", ()))
+    with pytest.raises(KeyError, match="unknown OCR run"):
+        store.load_ocr_run(999)
