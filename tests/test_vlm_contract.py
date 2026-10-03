@@ -1,4 +1,3 @@
-import json
 import sys
 from pathlib import Path
 
@@ -29,6 +28,13 @@ def test_literal_policy_forbids_editorial_smoothing() -> None:
     assert "preserve line breaks" in policy
     assert "do not infer" in policy
     assert "uncertain" in policy
+
+
+def test_vlm_reading_rejects_invalid_identity() -> None:
+    with pytest.raises(ValueError, match="indexes"):
+        VLMReading(-1, 0, "model", "1", "x", False)
+    with pytest.raises(ValueError, match="model identity"):
+        VLMReading(0, 0, " ", "1", "x", False)
 
 
 def test_subprocess_vlm_maps_versioned_json_to_reading(tmp_path: Path) -> None:
@@ -80,13 +86,32 @@ def test_subprocess_vlm_rejects_schema_or_identity_mismatch(tmp_path: Path) -> N
         )
 
 
+def test_subprocess_vlm_requires_boolean_uncertainty(tmp_path: Path) -> None:
+    script = tmp_path / "worker.py"
+    script.write_text(
+        "import json\n"
+        "print(json.dumps({'schema_version':1,'model':'fixture-vlm','model_version':'1',"
+        "'page_index':4,'pair_index':2,'text':'x','uncertain':'maybe'}))\n",
+        encoding="utf-8",
+    )
+    image = tmp_path / "crop.png"
+    image.write_bytes(b"fixture")
+
+    with pytest.raises(TypeError, match="boolean"):
+        SubprocessVLMReviewer("fixture-vlm", [sys.executable, str(script)]).transcribe_crop(
+            str(image), 4, 2
+        )
+
+
 class RecordingReviewer:
-    def __init__(self) -> None:
+    def __init__(self, wrong_identity: bool = False) -> None:
         self.calls: list[tuple[str, int, int]] = []
+        self.wrong_identity = wrong_identity
 
     def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
         self.calls.append((image_path, page_index, pair_index))
-        return VLMReading(page_index, pair_index, "fake", "1", "literal", False)
+        returned_pair = pair_index + 1 if self.wrong_identity else pair_index
+        return VLMReading(page_index, returned_pair, "fake", "1", "literal", False)
 
 
 def test_only_review_candidates_are_sent_to_vlm() -> None:
@@ -110,3 +135,10 @@ def test_missing_crop_fails_instead_of_sending_whole_page() -> None:
         review_candidates_with_vlm((_candidate(),), {}, reviewer)
 
     assert reviewer.calls == []
+
+
+def test_candidate_and_vlm_identity_must_match() -> None:
+    reviewer = RecordingReviewer(wrong_identity=True)
+
+    with pytest.raises(ValueError, match="identity"):
+        review_candidates_with_vlm((_candidate(),), {2: "crop.png"}, reviewer)
