@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from scribeforge.domain.risk import ReviewCandidate
 
+_PIXEL_EPSILON = 1e-9
+
 
 @dataclass(frozen=True, slots=True)
 class PixelBox:
@@ -29,6 +31,14 @@ class ReviewCropPlan:
     file_name: str
 
 
+def _floor_pixel(value: float) -> int:
+    return math.floor(value + _PIXEL_EPSILON)
+
+
+def _ceil_pixel(value: float) -> int:
+    return math.ceil(value - _PIXEL_EPSILON)
+
+
 def _pixel_box(
     candidate: ReviewCandidate,
     page_width: int,
@@ -38,15 +48,15 @@ def _pixel_box(
     box = candidate.crop
     horizontal_padding = page_width * padding_fraction
     vertical_padding = page_height * padding_fraction
-    left = max(0, math.floor(box.x * page_width - horizontal_padding))
-    top = max(0, math.floor(box.y * page_height - vertical_padding))
+    left = max(0, _floor_pixel(box.x * page_width - horizontal_padding))
+    top = max(0, _floor_pixel(box.y * page_height - vertical_padding))
     right = min(
         page_width,
-        math.ceil((box.x + box.width) * page_width + horizontal_padding),
+        _ceil_pixel((box.x + box.width) * page_width + horizontal_padding),
     )
     bottom = min(
         page_height,
-        math.ceil((box.y + box.height) * page_height + vertical_padding),
+        _ceil_pixel((box.y + box.height) * page_height + vertical_padding),
     )
     return PixelBox(left, top, right - left, bottom - top)
 
