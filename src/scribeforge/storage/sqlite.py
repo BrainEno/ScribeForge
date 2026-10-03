@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from scribeforge.domain.alignment import (
     AlignmentConflict,
@@ -390,7 +390,7 @@ class SQLiteStore:
         ).fetchone()
         if row is None:
             raise KeyError(f"unknown OCR run: {run_id}")
-        return row
+        return cast(sqlite3.Row, row)
 
     @staticmethod
     def _validate_verification(
