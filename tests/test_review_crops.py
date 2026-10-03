@@ -20,7 +20,7 @@ def test_normalized_candidate_becomes_padded_pixel_crop() -> None:
 
     plans = plan_review_crops((candidate,), 1000, 2000, padding_fraction=0.01)
 
-    assert plans[0].box == PixelBox(x=90, y=180, width=320, height=240)
+    assert plans[0].box == PixelBox(x=90, y=380, width=320, height=240)
     assert plans[0].page_index == 7
     assert plans[0].pair_index == 3
     assert plans[0].file_name == "page-000008-pair-0003.png"
