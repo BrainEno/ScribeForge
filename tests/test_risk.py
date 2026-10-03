@@ -1,10 +1,13 @@
+import pytest
+
 from scribeforge.domain.alignment import align_pages
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.risk import RiskReason, assess_page, review_candidates
 
 
-def _line(text: str, y: float, confidence: float = 0.99) -> OCRLine:
-    box = BoundingBox(0.1, y, 0.8, 0.05)
+def _line(text: str, y: float, confidence: float = 0.99, x: float = 0.1) -> OCRLine:
+    width = 0.8 if x == 0.1 else 0.7
+    box = BoundingBox(x, y, width, 0.05)
     return OCRLine(text, box, (OCRToken(text, confidence, box),))
 
 
@@ -59,6 +62,20 @@ def test_unmatched_line_becomes_review_candidate_with_source_crop() -> None:
     assert candidate.crop == primary.lines[1].box
 
 
+def test_matched_candidate_crop_unions_both_engine_boxes() -> None:
+    primary = _page("mineru", _line("乌鸦", 0.1, x=0.1))
+    secondary = _page("paddleocr", _line("鸟鸦", 0.12, x=0.2))
+    alignment = align_pages(primary, secondary)
+    risks = assess_page(alignment, primary, secondary)
+
+    candidate = review_candidates(alignment, risks, primary, secondary, threshold=0.3)[0]
+
+    assert candidate.crop.x == 0.1
+    assert candidate.crop.y == 0.1
+    assert candidate.crop.width == pytest.approx(0.8)
+    assert candidate.crop.height == pytest.approx(0.07)
+
+
 def test_unicode_replacement_character_is_flagged() -> None:
     primary = _page("mineru", _line("错�字", 0.1))
     secondary = _page("paddleocr", _line("错�字", 0.1))
@@ -69,6 +86,17 @@ def test_unicode_replacement_character_is_flagged() -> None:
     assert RiskReason.UNICODE_ANOMALY in risk.reasons
 
 
+def test_spatial_mismatch_adds_risk_without_rewriting_text() -> None:
+    primary = _page("mineru", _line("同一句。", 0.10))
+    secondary = _page("paddleocr", _line("同一句。", 0.15))
+    alignment = align_pages(primary, secondary)
+
+    risk = assess_page(alignment, primary, secondary)[0]
+
+    assert RiskReason.SPATIAL_MISMATCH in risk.reasons
+    assert alignment.pairs[0].conflicts == ()
+
+
 def test_clean_high_confidence_pair_does_not_enter_review_queue() -> None:
     primary = _page("mineru", _line("完全相同。", 0.1))
     secondary = _page("paddleocr", _line("完全相同。", 0.1))
@@ -77,3 +105,15 @@ def test_clean_high_confidence_pair_does_not_enter_review_queue() -> None:
 
     assert risks[0].score == 0
     assert review_candidates(alignment, risks, primary, secondary, threshold=0.3) == ()
+
+
+def test_review_queue_validates_threshold_and_risk_count() -> None:
+    primary = _page("mineru", _line("相同", 0.1))
+    secondary = _page("paddleocr", _line("相同", 0.1))
+    alignment = align_pages(primary, secondary)
+    risks = assess_page(alignment, primary, secondary)
+
+    with pytest.raises(ValueError, match="threshold"):
+        review_candidates(alignment, risks, primary, secondary, threshold=1.1)
+    with pytest.raises(ValueError, match="match alignment"):
+        review_candidates(alignment, (), primary, secondary)
