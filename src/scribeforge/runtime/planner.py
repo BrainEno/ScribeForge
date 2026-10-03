@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from scribeforge.runtime.environment import build_runtime_environment
 from scribeforge.runtime.models import (
     HardwareProfile,
     InstallStep,
@@ -52,7 +53,7 @@ def _paddle_acceleration(profile: HardwareProfile) -> tuple[str, str, str]:
 
 
 def _venv_steps(
-    backend: str, layout: RuntimeLayout, os_name: str, uv_executable: str
+    backend: str, layout: RuntimeLayout, uv_executable: str
 ) -> tuple[InstallStep, InstallStep]:
     environment = layout.environment_dir(backend)
     return (
@@ -64,13 +65,21 @@ def _venv_steps(
     )
 
 
+def _environment_items(layout: RuntimeLayout) -> tuple[tuple[str, str], ...]:
+    return tuple(build_runtime_environment(layout).items())
+
+
 def build_runtime_plan(
     profile: HardwareProfile,
     layout: RuntimeLayout,
     uv_executable: str = "uv",
 ) -> RuntimePlan:
+    runtime_environment = _environment_items(layout)
+
     mineru_python = layout.python_executable("mineru", profile.os_name)
-    mineru_prefix = _venv_steps("mineru", layout, profile.os_name, uv_executable)
+    mineru_cli = layout.executable("mineru", "mineru-kit", profile.os_name)
+    mineru_main = layout.executable("mineru", "mineru", profile.os_name)
+    mineru_prefix = _venv_steps("mineru", layout, uv_executable)
     mineru = RuntimeBackendPlan(
         name="mineru",
         environment_dir=layout.environment_dir("mineru"),
@@ -90,11 +99,37 @@ def build_runtime_plan(
                 ),
             ),
         ),
+        model_steps=(
+            InstallStep(
+                "standard-models",
+                (str(mineru_cli), "models", "download", "--tier", "standard"),
+            ),
+        ),
+        health_checks=(
+            InstallStep(
+                "model-integrity",
+                (str(mineru_cli), "models", "verify", "--tier", "standard"),
+            ),
+            InstallStep("runtime-version", (str(mineru_main), "version", "--json")),
+        ),
+        environment=runtime_environment,
     )
 
     acceleration, paddle_package, paddle_index = _paddle_acceleration(profile)
     paddle_python = layout.python_executable("paddleocr", profile.os_name)
-    paddle_prefix = _venv_steps("paddleocr", layout, profile.os_name, uv_executable)
+    paddle_prefix = _venv_steps("paddleocr", layout, uv_executable)
+    paddle_prefetch = (
+        "from paddleocr import PaddleOCR; "
+        "PaddleOCR(ocr_version='PP-OCRv6', use_doc_orientation_classify=False, "
+        "use_doc_unwarping=False, use_textline_orientation=False)"
+    )
+    paddle_health = (
+        "import paddle, paddleocr; "
+        "from paddleocr import PaddleOCR; "
+        "PaddleOCR(ocr_version='PP-OCRv6', use_doc_orientation_classify=False, "
+        "use_doc_unwarping=False, use_textline_orientation=False); "
+        "print(paddle.__version__)"
+    )
     paddle = RuntimeBackendPlan(
         name="paddleocr",
         environment_dir=layout.environment_dir("paddleocr"),
@@ -128,6 +163,9 @@ def build_runtime_plan(
                 ),
             ),
         ),
+        model_steps=(InstallStep("pp-ocrv6-models", (str(paddle_python), "-c", paddle_prefetch)),),
+        health_checks=(InstallStep("runtime-and-models", (str(paddle_python), "-c", paddle_health)),),
+        environment=runtime_environment,
     )
 
     return RuntimePlan(root=layout.root, backends=(mineru, paddle))
