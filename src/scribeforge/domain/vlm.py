@@ -6,7 +6,6 @@ from typing import Protocol
 
 from scribeforge.domain.risk import ReviewCandidate
 
-
 LITERAL_TRANSCRIPTION_POLICY = """Transcribe visible text only.
 Preserve punctuation exactly as visible.
 Preserve line breaks exactly as visible.
