@@ -513,7 +513,7 @@ class SQLiteStore:
     def _json_strings(value: Any) -> tuple[str, ...]:
         decoded = json.loads(str(value))
         if not isinstance(decoded, list):
-            raise ValueError("stored JSON list is invalid")
+            raise TypeError("stored JSON list is invalid")
         return tuple(str(item) for item in decoded)
 
     def load_verification(self, verification_id: int) -> VerificationRecord:
