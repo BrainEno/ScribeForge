@@ -1,0 +1,1 @@
+"""Isolated executable OCR workers."""
