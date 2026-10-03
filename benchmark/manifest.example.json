@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "zh-clear-001",
+      "image": "fixtures/zh-clear-001.png",
+      "ground_truth": "fixtures/zh-clear-001.txt",
+      "language": "zh",
+      "tags": ["clear", "body"]
+    }
+  ]
+}
