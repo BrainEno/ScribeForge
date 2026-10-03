@@ -45,6 +45,14 @@ def test_pixel_rounding_never_drops_visible_candidate_area() -> None:
     assert plan.box.height == 1
 
 
+def test_genuine_fractional_boundary_still_rounds_outward() -> None:
+    candidate = _candidate(BoundingBox(0.1014, 0.1014, 0.0012, 0.0012))
+
+    plan = plan_review_crops((candidate,), 1000, 1000, padding_fraction=0)[0]
+
+    assert plan.box == PixelBox(101, 101, 2, 2)
+
+
 def test_crop_planner_rejects_invalid_page_or_padding() -> None:
     candidate = _candidate(BoundingBox(0.1, 0.1, 0.1, 0.1))
 
