@@ -1,0 +1,1 @@
+"""External OCR backend adapters."""
