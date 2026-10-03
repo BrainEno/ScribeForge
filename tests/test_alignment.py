@@ -51,6 +51,28 @@ def test_alignment_preserves_unmatched_line_as_deletion() -> None:
     assert result.pairs[1].conflicts[0].primary_text == "第二行"
 
 
+def test_alignment_preserves_secondary_only_line_as_insertion() -> None:
+    primary = _page("mineru", [("第一行", 0.10)])
+    secondary = _page("paddleocr", [("第一行", 0.10), ("新增行", 0.30)])
+
+    result = align_pages(primary, secondary)
+
+    assert result.pairs[1].primary_line_index is None
+    assert result.pairs[1].conflicts[0].kind is ConflictKind.INSERTION
+    assert result.pairs[1].conflicts[0].secondary_text == "新增行"
+
+
+def test_exact_match_has_no_conflicts() -> None:
+    primary = _page("mineru", [("完全相同。", 0.10)])
+    secondary = _page("paddleocr", [("完全相同。", 0.10)])
+
+    pair = align_pages(primary, secondary).pairs[0]
+
+    assert pair.text_similarity == 1.0
+    assert pair.vertical_distance == 0.0
+    assert pair.conflicts == ()
+
+
 def test_alignment_rejects_different_pages() -> None:
     primary = _page("mineru", [("x", 0.1)])
     secondary = PageOCRResult(1, "paddleocr", "1", ())
