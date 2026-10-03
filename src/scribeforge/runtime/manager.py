@@ -102,7 +102,7 @@ class RuntimeManager:
                 try:
                     self._run_step(step, environment)
                 except Exception as exc:
-                    failed_step = f"{phase}:{step.name}"
+                    failed_step = step.name if phase == "install" else f"{phase}:{step.name}"
                     self._set_status(backend.name, RuntimeStatus("failed", failed_step))
                     self._emit(
                         RuntimeEvent(
