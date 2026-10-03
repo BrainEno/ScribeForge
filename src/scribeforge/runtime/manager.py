@@ -122,10 +122,16 @@ class RuntimeManager:
         self._emit(RuntimeEvent(backend.name, "complete", "ready", None, completed, total))
 
     def _run_step(self, step: InstallStep, environment: dict[str, str]) -> None:
-        if environment:
-            self._executor.run(step.argv, environment)
-        else:
-            self._executor.run(step.argv)
+        for attempt in range(1, step.attempts + 1):
+            try:
+                if environment:
+                    self._executor.run(step.argv, environment)
+                else:
+                    self._executor.run(step.argv)
+                return
+            except Exception:
+                if attempt == step.attempts:
+                    raise
 
     def _emit(self, event: RuntimeEvent) -> None:
         if self._on_event is not None:

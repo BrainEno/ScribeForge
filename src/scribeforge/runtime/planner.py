@@ -57,7 +57,7 @@ def _venv_steps(
 ) -> tuple[InstallStep, InstallStep]:
     environment = layout.environment_dir(backend)
     return (
-        InstallStep("python", (uv_executable, "python", "install", "3.12")),
+        InstallStep("python", (uv_executable, "python", "install", "3.12"), attempts=3),
         InstallStep(
             "environment",
             (uv_executable, "venv", "--python", "3.12", str(environment)),
@@ -97,12 +97,14 @@ def build_runtime_plan(
                     "-U",
                     "mineru>=4.0,<5",
                 ),
+                attempts=3,
             ),
         ),
         model_steps=(
             InstallStep(
                 "standard-models",
                 (str(mineru_cli), "models", "download", "--tier", "standard"),
+                attempts=3,
             ),
         ),
         health_checks=(
@@ -149,6 +151,7 @@ def build_runtime_plan(
                     "-i",
                     paddle_index,
                 ),
+                attempts=3,
             ),
             InstallStep(
                 "install",
@@ -161,10 +164,19 @@ def build_runtime_plan(
                     "-U",
                     "paddleocr>=3,<4",
                 ),
+                attempts=3,
             ),
         ),
-        model_steps=(InstallStep("pp-ocrv6-models", (str(paddle_python), "-c", paddle_prefetch)),),
-        health_checks=(InstallStep("runtime-and-models", (str(paddle_python), "-c", paddle_health)),),
+        model_steps=(
+            InstallStep(
+                "pp-ocrv6-models",
+                (str(paddle_python), "-c", paddle_prefetch),
+                attempts=3,
+            ),
+        ),
+        health_checks=(
+            InstallStep("runtime-and-models", (str(paddle_python), "-c", paddle_health)),
+        ),
         environment=runtime_environment,
     )
 
