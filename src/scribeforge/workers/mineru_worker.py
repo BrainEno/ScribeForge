@@ -14,7 +14,7 @@ def build_command(image: str) -> list[str]:
 
 def extract_lines(raw: Any) -> list[dict[str, Any]]:
     if not isinstance(raw, dict):
-        raise ValueError("unexpected MinerU JSON output")
+        raise TypeError("unexpected MinerU JSON output")
     page = raw.get("page") or raw
     width = float(page.get("width", 1))
     height = float(page.get("height", 1))

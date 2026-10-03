@@ -52,7 +52,7 @@ class SubprocessOCREngine:
     @classmethod
     def _line(cls, raw: Any) -> OCRLine:
         if not isinstance(raw, dict):
-            raise ValueError("OCR worker line must be an object")
+            raise TypeError("OCR worker line must be an object")
         raw_tokens = raw.get("tokens", [])
         tokens = tuple(
             OCRToken(

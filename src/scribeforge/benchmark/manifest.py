@@ -28,20 +28,20 @@ def load_manifest(path: Path) -> BenchmarkManifest:
 
     raw_cases = raw.get("cases")
     if not isinstance(raw_cases, list):
-        raise ValueError("benchmark cases must be a list")
+        raise TypeError("benchmark cases must be a list")
 
     cases: list[BenchmarkCase] = []
     seen: set[str] = set()
     for item in raw_cases:
         if not isinstance(item, dict):
-            raise ValueError("benchmark case must be an object")
+            raise TypeError("benchmark case must be an object")
         case_id = str(item["id"])
         if case_id in seen:
             raise ValueError(f"duplicate benchmark case id: {case_id}")
         seen.add(case_id)
         tags = item.get("tags", [])
         if not isinstance(tags, list):
-            raise ValueError("benchmark tags must be a list")
+            raise TypeError("benchmark tags must be a list")
         cases.append(
             BenchmarkCase(
                 id=case_id,
