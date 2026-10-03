@@ -6,7 +6,11 @@ import pytest
 from scribeforge.adapters.subprocess_vlm import SubprocessVLMReviewer
 from scribeforge.domain.ocr import BoundingBox
 from scribeforge.domain.risk import ReviewCandidate, RiskReason
-from scribeforge.domain.vlm import LITERAL_TRANSCRIPTION_POLICY, VLMReading, review_candidates_with_vlm
+from scribeforge.domain.vlm import (
+    LITERAL_TRANSCRIPTION_POLICY,
+    VLMReading,
+    review_candidates_with_vlm,
+)
 
 
 def _candidate(pair_index: int = 2) -> ReviewCandidate:
