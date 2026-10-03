@@ -48,6 +48,11 @@ class RuntimeLayout:
 class InstallStep:
     name: str
     argv: tuple[str, ...]
+    attempts: int = 1
+
+    def __post_init__(self) -> None:
+        if self.attempts < 1:
+            raise ValueError("attempts must be at least 1")
 
 
 @dataclass(frozen=True, slots=True)
