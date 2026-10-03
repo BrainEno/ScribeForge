@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scribeforge"
+version = "0.1.0"
+description = "Local-first evidence-grade digitization for scanned literature"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
+  "ruff>=0.8",
+  "mypy>=1.13",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scribeforge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --cov=scribeforge --cov-report=term-missing --cov-fail-under=90"
+markers = [
+  "integration: deterministic integration tests",
+  "benchmark: real OCR benchmark corpus",
+  "gpu: requires GPU/model runtime",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["scribeforge"]
