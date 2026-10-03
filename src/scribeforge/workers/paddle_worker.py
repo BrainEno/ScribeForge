@@ -18,7 +18,7 @@ def extract_lines(raw: Any) -> list[dict[str, Any]]:
     if isinstance(raw, list) and len(raw) == 1:
         raw = raw[0]
     if not isinstance(raw, dict):
-        raise ValueError("unexpected PaddleOCR JSON output")
+        raise TypeError("unexpected PaddleOCR JSON output")
     width = float(raw.get("width", raw.get("image_width", 1)))
     height = float(raw.get("height", raw.get("image_height", 1)))
     texts = raw.get("rec_texts", [])
