@@ -32,4 +32,12 @@ The core invokes an isolated local worker with an image crop, page index, pair i
 
 The adapter rejects schema/model/page/pair mismatches. Missing crop evidence is an error: ScribeForge must not silently fall back to sending the full book page merely because a crop was not prepared.
 
+## Resumable review orchestration
+
+`scribeforge.pipeline.vlm_review.review_pending_candidates` is the restartable orchestration boundary for a single page. It asks a `VLMReviewState` for pair indexes that already have durable evidence, skips those pairs, and processes only the remaining review candidates.
+
+Each successful reading is appended to the state immediately before the next crop is sent to the model. If a later crop fails, a retry can resume from the first unfinished pair instead of rerunning successful VLM work. Missing crops are checked only for pending pairs, so already-persisted evidence does not require recreating temporary crop files merely to resume.
+
+The state implementation is deliberately abstract at this layer. The next storage slice will back it with append-only SQLite VLM evidence rather than treating a VLM reading as an accepted text decision.
+
 No concrete VLM runtime is claimed as supported by this slice. A model backend will be added only after pinned local-runtime contract tests are available.
