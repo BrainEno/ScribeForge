@@ -14,6 +14,7 @@ from scribeforge.domain.alignment import (
     LineAlignment,
     PageAlignment,
 )
+from scribeforge.domain.jobs import JobRecord, JobStage, JobState
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.domain.vlm import VLMReading
@@ -53,7 +54,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -87,6 +88,9 @@ class SQLiteStore:
             if version < 3:
                 self._create_v3(connection)
                 connection.execute("PRAGMA user_version = 3")
+            if version < 4:
+                self._create_v4(connection)
+                connection.execute("PRAGMA user_version = 4")
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -249,6 +253,39 @@ class SQLiteStore:
         )
 
     @staticmethod
+    def _create_v4(connection: sqlite3.Connection) -> None:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+                page_id INTEGER REFERENCES pages(id) ON DELETE RESTRICT,
+                stage TEXT NOT NULL CHECK(
+                    stage IN ('import', 'primary_ocr', 'secondary_ocr', 'verify', 'vlm_review')
+                ),
+                state TEXT NOT NULL DEFAULT 'pending' CHECK(
+                    state IN ('pending', 'running', 'succeeded', 'failed')
+                ),
+                attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+                last_error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                started_at TEXT,
+                finished_at TEXT,
+                CHECK(
+                    (stage = 'import' AND page_id IS NULL)
+                    OR
+                    (stage != 'import' AND page_id IS NOT NULL)
+                )
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_scope_stage
+                ON jobs(project_id, stage, COALESCE(page_id, -1));
+            CREATE INDEX IF NOT EXISTS idx_jobs_resumable
+                ON jobs(project_id, state, id);
+            """
+        )
+
+    @staticmethod
     def _last_id(cursor: sqlite3.Cursor) -> int:
         value = cursor.lastrowid
         if value is None:
@@ -290,6 +327,152 @@ class SQLiteStore:
         if row is None:
             raise KeyError(f"unknown project/page: {project_id}/{page_index}")
         return int(row["id"])
+
+    @staticmethod
+    def _require_project(connection: sqlite3.Connection, project_id: int) -> None:
+        row = connection.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"unknown project: {project_id}")
+
+    @staticmethod
+    def _job_record(row: sqlite3.Row) -> JobRecord:
+        return JobRecord(
+            id=int(row["id"]),
+            project_id=int(row["project_id"]),
+            page_index=None if row["page_index"] is None else int(row["page_index"]),
+            stage=JobStage(str(row["stage"])),
+            state=JobState(str(row["state"])),
+            attempts=int(row["attempts"]),
+            last_error=None if row["last_error"] is None else str(row["last_error"]),
+            created_at=str(row["created_at"]),
+            started_at=None if row["started_at"] is None else str(row["started_at"]),
+            finished_at=None if row["finished_at"] is None else str(row["finished_at"]),
+        )
+
+    @staticmethod
+    def _job_row(connection: sqlite3.Connection, job_id: int) -> sqlite3.Row:
+        row = connection.execute(
+            """
+            SELECT jobs.id, jobs.project_id, pages.page_index, jobs.stage, jobs.state,
+                   jobs.attempts, jobs.last_error, jobs.created_at,
+                   jobs.started_at, jobs.finished_at
+            FROM jobs
+            LEFT JOIN pages ON pages.id = jobs.page_id
+            WHERE jobs.id = ?
+            """,
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown job: {job_id}")
+        return cast(sqlite3.Row, row)
+
+    def ensure_job(
+        self,
+        project_id: int,
+        stage: JobStage,
+        *,
+        page_index: int | None = None,
+    ) -> int:
+        if stage.page_scoped and page_index is None:
+            raise ValueError(f"{stage.value} is a page-scoped job stage")
+        if not stage.page_scoped and page_index is not None:
+            raise ValueError(f"{stage.value} is a project-scoped job stage")
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            page_id = (
+                None
+                if page_index is None
+                else self._page_id(connection, project_id, page_index)
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO jobs(project_id, page_id, stage)
+                VALUES (?, ?, ?)
+                """,
+                (project_id, page_id, stage.value),
+            )
+            row = connection.execute(
+                """
+                SELECT id FROM jobs
+                WHERE project_id = ? AND stage = ? AND page_id IS ?
+                """,
+                (project_id, stage.value, page_id),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("failed to create or resolve processing job")
+            return int(row["id"])
+
+    def load_job(self, job_id: int) -> JobRecord:
+        with self._connection() as connection:
+            return self._job_record(self._job_row(connection, job_id))
+
+    def start_job(self, job_id: int) -> JobRecord:
+        with self._connection() as connection:
+            current = self._job_record(self._job_row(connection, job_id))
+            if current.state is JobState.SUCCEEDED:
+                raise ValueError("succeeded job cannot be started again")
+            connection.execute(
+                """
+                UPDATE jobs
+                SET state = 'running', attempts = attempts + 1, last_error = NULL,
+                    started_at = CURRENT_TIMESTAMP, finished_at = NULL
+                WHERE id = ?
+                """,
+                (job_id,),
+            )
+            return self._job_record(self._job_row(connection, job_id))
+
+    def complete_job(self, job_id: int) -> JobRecord:
+        with self._connection() as connection:
+            current = self._job_record(self._job_row(connection, job_id))
+            if current.state is not JobState.RUNNING:
+                raise ValueError("job must be running before it can succeed")
+            connection.execute(
+                """
+                UPDATE jobs
+                SET state = 'succeeded', finished_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (job_id,),
+            )
+            return self._job_record(self._job_row(connection, job_id))
+
+    def fail_job(self, job_id: int, error: str) -> JobRecord:
+        error = error.strip()
+        if not error:
+            raise ValueError("job failure error must not be blank")
+        with self._connection() as connection:
+            current = self._job_record(self._job_row(connection, job_id))
+            if current.state is not JobState.RUNNING:
+                raise ValueError("job must be running before it can fail")
+            connection.execute(
+                """
+                UPDATE jobs
+                SET state = 'failed', last_error = ?, finished_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (error, job_id),
+            )
+            return self._job_record(self._job_row(connection, job_id))
+
+    def list_resumable_jobs(self, project_id: int) -> tuple[JobRecord, ...]:
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            rows = connection.execute(
+                """
+                SELECT jobs.id, jobs.project_id, pages.page_index, jobs.stage, jobs.state,
+                       jobs.attempts, jobs.last_error, jobs.created_at,
+                       jobs.started_at, jobs.finished_at
+                FROM jobs
+                LEFT JOIN pages ON pages.id = jobs.page_id
+                WHERE jobs.project_id = ?
+                  AND jobs.state IN ('pending', 'running', 'failed')
+                ORDER BY jobs.id
+                """,
+                (project_id,),
+            ).fetchall()
+            return tuple(self._job_record(row) for row in rows)
 
     def record_ocr(self, project_id: int, result: PageOCRResult) -> int:
         with self._connection() as connection:
