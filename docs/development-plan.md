@@ -29,8 +29,12 @@ This phase is deliberately early: ordinary users must not be required to install
 `scribeforge process <book.pdf>`
 Import pages incrementally, execute workers, persist each stage, resume interrupted work, retry failed pages.
 
+Phase 1 foundation now includes schema-v4 resumable jobs with project/page scope, attempts, failure details, and durable pending/running/failed state. This is intentionally not presented as a finished CLI: PDF page import, product-level orchestration, worker execution through application-managed runtimes, and the actual `scribeforge process` command still need to be connected to the job state machine.
+
 ## Phase 2 — verification engine
 Spatial/text alignment, disagreement classification, risk scoring, cropped evidence generation, VLM adjudication and human decisions.
+
+The lower-level verification path already has dual-engine alignment/risk scoring, deterministic review crop planning/materialization, literal VLM worker contracts, append-only VLM evidence, and pair-level resume semantics. These pieces will be invoked by the Phase 1 orchestrator rather than exposed as disconnected product commands.
 
 ## Phase 3 — proofreading desktop UI
 Library, job progress, source/text synchronized viewer, conflict queue, keyboard-first review, settings. The first-run runtime wizard is exposed here, backed by the already-tested Phase 0.5 manager.
