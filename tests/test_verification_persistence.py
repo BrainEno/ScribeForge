@@ -26,7 +26,7 @@ def _prepared(tmp_path: Path) -> tuple[SQLiteStore, int, int, int]:
     return store, project_id, primary_id, secondary_id
 
 
-def test_schema_v2_contains_verification_tables(tmp_path: Path) -> None:
+def test_latest_schema_contains_verification_tables(tmp_path: Path) -> None:
     path = tmp_path / "project.sqlite3"
     SQLiteStore(path).initialize()
 
@@ -39,7 +39,7 @@ def test_schema_v2_contains_verification_tables(tmp_path: Path) -> None:
             )
         }
 
-    assert version == 2
+    assert version == 3
     assert {
         "verification_runs",
         "alignments",
@@ -125,5 +125,5 @@ def test_v1_database_migrates_without_losing_existing_project(tmp_path: Path) ->
     SQLiteStore(path).initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
