@@ -16,6 +16,7 @@ from scribeforge.domain.alignment import (
 )
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
+from scribeforge.domain.vlm import VLMReading
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,8 +41,19 @@ class VerificationRecord:
     candidates: tuple[ReviewCandidate, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class VLMReviewRecord:
+    id: int
+    verification_run_id: int
+    pair_index: int
+    crop_path: str
+    crop_sha256: str
+    reading: VLMReading
+    created_at: str
+
+
 class SQLiteStore:
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -72,6 +84,9 @@ class SQLiteStore:
             if version < 2:
                 self._create_v2(connection)
                 connection.execute("PRAGMA user_version = 2")
+            if version < 3:
+                self._create_v3(connection)
+                connection.execute("PRAGMA user_version = 3")
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -208,6 +223,28 @@ class SQLiteStore:
                 ON verification_runs(page_id, id);
             CREATE INDEX IF NOT EXISTS idx_review_candidates_alignment
                 ON review_candidates(alignment_id, id);
+            """
+        )
+
+    @staticmethod
+    def _create_v3(connection: sqlite3.Connection) -> None:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS vlm_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                review_candidate_id INTEGER NOT NULL
+                    REFERENCES review_candidates(id) ON DELETE RESTRICT,
+                model TEXT NOT NULL,
+                model_version TEXT NOT NULL,
+                text TEXT NOT NULL,
+                uncertain INTEGER NOT NULL CHECK(uncertain IN (0, 1)),
+                crop_path TEXT NOT NULL,
+                crop_sha256 TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_vlm_reviews_candidate
+                ON vlm_reviews(review_candidate_id, id);
             """
         )
 
@@ -655,6 +692,136 @@ class SQLiteStore:
                 risks=tuple(risks),
                 candidates=candidates,
             )
+
+    def verification_page_index(self, verification_id: int) -> int:
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT pages.page_index
+                FROM verification_runs
+                JOIN pages ON pages.id = verification_runs.page_id
+                WHERE verification_runs.id = ?
+                """,
+                (verification_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown verification run: {verification_id}")
+            return int(row["page_index"])
+
+    @staticmethod
+    def _review_candidate_for_reading(
+        connection: sqlite3.Connection,
+        verification_id: int,
+        reading: VLMReading,
+    ) -> sqlite3.Row:
+        rows = connection.execute(
+            """
+            SELECT review_candidates.id AS candidate_id, pages.page_index
+            FROM review_candidates
+            JOIN alignments ON alignments.id = review_candidates.alignment_id
+            JOIN verification_runs ON verification_runs.id = alignments.verification_run_id
+            JOIN pages ON pages.id = verification_runs.page_id
+            WHERE verification_runs.id = ? AND alignments.pair_index = ?
+            ORDER BY review_candidates.id
+            """,
+            (verification_id, reading.pair_index),
+        ).fetchall()
+        if not rows:
+            raise ValueError("VLM review requires a matching persisted review candidate")
+        if len(rows) != 1:
+            raise RuntimeError("stored verification has duplicate review candidates for one pair")
+        row = cast(sqlite3.Row, rows[0])
+        if int(row["page_index"]) != reading.page_index:
+            raise ValueError("VLM reading page does not match verification candidate page")
+        return row
+
+    def record_vlm_review(
+        self,
+        verification_id: int,
+        reading: VLMReading,
+        *,
+        crop_path: str,
+        crop_sha256: str,
+    ) -> int:
+        if not crop_path.strip():
+            raise ValueError("VLM review crop path is required")
+        if not crop_sha256.strip():
+            raise ValueError("VLM review crop SHA-256 is required")
+        with self._connection() as connection:
+            candidate = self._review_candidate_for_reading(connection, verification_id, reading)
+            cursor = connection.execute(
+                """
+                INSERT INTO vlm_reviews(
+                    review_candidate_id, model, model_version, text, uncertain,
+                    crop_path, crop_sha256
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(candidate["candidate_id"]),
+                    reading.model,
+                    reading.model_version,
+                    reading.text,
+                    int(reading.uncertain),
+                    crop_path,
+                    crop_sha256,
+                ),
+            )
+            return self._last_id(cursor)
+
+    def list_vlm_reviews(self, verification_id: int) -> tuple[VLMReviewRecord, ...]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT vlm_reviews.id, alignments.pair_index, pages.page_index,
+                       vlm_reviews.model, vlm_reviews.model_version, vlm_reviews.text,
+                       vlm_reviews.uncertain, vlm_reviews.crop_path,
+                       vlm_reviews.crop_sha256, vlm_reviews.created_at
+                FROM vlm_reviews
+                JOIN review_candidates
+                    ON review_candidates.id = vlm_reviews.review_candidate_id
+                JOIN alignments ON alignments.id = review_candidates.alignment_id
+                JOIN verification_runs
+                    ON verification_runs.id = alignments.verification_run_id
+                JOIN pages ON pages.id = verification_runs.page_id
+                WHERE verification_runs.id = ?
+                ORDER BY vlm_reviews.id
+                """,
+                (verification_id,),
+            ).fetchall()
+            return tuple(
+                VLMReviewRecord(
+                    id=int(row["id"]),
+                    verification_run_id=verification_id,
+                    pair_index=int(row["pair_index"]),
+                    crop_path=str(row["crop_path"]),
+                    crop_sha256=str(row["crop_sha256"]),
+                    reading=VLMReading(
+                        page_index=int(row["page_index"]),
+                        pair_index=int(row["pair_index"]),
+                        model=str(row["model"]),
+                        model_version=str(row["model_version"]),
+                        text=str(row["text"]),
+                        uncertain=bool(int(row["uncertain"])),
+                    ),
+                    created_at=str(row["created_at"]),
+                )
+                for row in rows
+            )
+
+    def reviewed_pair_indexes(self, verification_id: int) -> frozenset[int]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT alignments.pair_index
+                FROM vlm_reviews
+                JOIN review_candidates
+                    ON review_candidates.id = vlm_reviews.review_candidate_id
+                JOIN alignments ON alignments.id = review_candidates.alignment_id
+                WHERE alignments.verification_run_id = ?
+                """,
+                (verification_id,),
+            ).fetchall()
+            return frozenset(int(row["pair_index"]) for row in rows)
 
     def append_decision(
         self,
