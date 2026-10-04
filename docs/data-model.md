@@ -21,6 +21,8 @@ Coordinates use a normalized page coordinate system in addition to engine-native
 
 A decision never deletes engine evidence. Corrections create/replace the decision layer while source OCR remains immutable. A VLM reading is evidence, not automatically an accepted decision.
 
+Operational job rows are intentionally mutable because they describe execution state rather than source evidence. Retrying a job updates its state, attempt count, error, and timestamps; it does not overwrite OCR, verification, VLM, or decision evidence.
+
 ## Implemented persistence slices
 
 Schema version 1 persists `projects`, `pages`, `engine_runs`, `ocr_lines`, `ocr_tokens`, and append-only `decisions` with foreign-key protection. Recording another OCR pass creates a new engine run rather than updating old OCR rows. Decision history stores explicit evidence references and does not mutate source OCR text.
@@ -29,4 +31,6 @@ Schema version 2 adds append-only `verification_runs`, `alignments`, `alignment_
 
 Schema version 3 adds append-only `vlm_reviews`. Each row references an existing review candidate, records model/version, literal text, uncertainty, crop path, and the SHA-256 of the exact crop bytes supplied to the model. Re-running a VLM adds another evidence row instead of overwriting prior model output. Version 2 databases migrate forward without deleting verification evidence.
 
-`jobs` and `exports` remain planned and will be added through later versioned migrations rather than destructive database resets.
+Schema version 4 adds resumable `jobs`. Jobs are uniquely scoped by project, stage, and optional page. `import` is project-scoped; OCR, verification, and VLM review stages are page-scoped. A job records `pending`, `running`, `failed`, or `succeeded` state, attempt count, last failure, and start/finish timestamps. `ensure_job` is idempotent for a given scope. Pending, failed, and interrupted-running jobs remain discoverable for resume; succeeded jobs are not restarted accidentally. Version 3 databases migrate forward without deleting existing evidence.
+
+`exports` remains planned and will be added through a later versioned migration rather than a destructive database reset.

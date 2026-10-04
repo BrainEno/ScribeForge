@@ -41,7 +41,7 @@ def test_initialize_creates_versioned_core_schema(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
-    assert version == 3
+    assert version == 4
     assert {
         "projects",
         "pages",
