@@ -60,7 +60,7 @@ def _reading(text: str = "乌鸦。", *, page_index: int = 0, pair_index: int = 
     )
 
 
-def test_schema_v3_contains_append_only_vlm_evidence_table(tmp_path: Path) -> None:
+def test_latest_schema_contains_append_only_vlm_evidence_table(tmp_path: Path) -> None:
     path = tmp_path / "project.sqlite3"
     SQLiteStore(path).initialize()
 
@@ -73,7 +73,7 @@ def test_schema_v3_contains_append_only_vlm_evidence_table(tmp_path: Path) -> No
             )
         }
 
-    assert version == 3
+    assert version == 4
     assert "vlm_reviews" in tables
 
 
@@ -127,7 +127,7 @@ def test_vlm_review_requires_a_matching_persisted_candidate(tmp_path: Path) -> N
     assert store.list_vlm_reviews(verification_id) == ()
 
 
-def test_v2_database_migrates_to_v3_without_losing_project_data(tmp_path: Path) -> None:
+def test_v2_database_migrates_forward_without_losing_project_data(tmp_path: Path) -> None:
     path = tmp_path / "legacy-v2.sqlite3"
     store = SQLiteStore(path)
     with sqlite3.connect(path) as connection:
@@ -142,7 +142,7 @@ def test_v2_database_migrates_to_v3_without_losing_project_data(tmp_path: Path) 
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='vlm_reviews'"
