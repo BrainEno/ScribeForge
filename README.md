@@ -55,7 +55,7 @@ benchmark/             reproducible benchmark fixtures and reports
 
 ## Development status
 
-The repository is currently in **Phase 0 — benchmark and architecture foundation**.
+The repository is in **Phase 1 — resumable CLI**. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager), the low-level verification path, and the Phase 1 import slice (PDF/image page import) are implemented and covered by tests.
 
 See:
 

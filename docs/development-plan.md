@@ -29,7 +29,9 @@ This phase is deliberately early: ordinary users must not be required to install
 `scribeforge process <book.pdf>`
 Import pages incrementally, execute workers, persist each stage, resume interrupted work, retry failed pages.
 
-Phase 1 foundation now includes schema-v4 resumable jobs with project/page scope, attempts, failure details, and durable pending/running/failed state. This is intentionally not presented as a finished CLI: PDF page import, product-level orchestration, worker execution through application-managed runtimes, and the actual `scribeforge process` command still need to be connected to the job state machine.
+Phase 1 foundation includes schema-v4 resumable jobs with project/page scope, attempts, failure details, and durable pending/running/failed state.
+
+The import slice is connected: `PageSource` (domain contract) + `PdfPageSource`/`ImagePageSource` adapters (pdfium/Pillow) + `import_source` orchestration materialize immutable per-page raster assets, persist page evidence, and drive the project-scoped `import` job resumably. The remaining Phase 1 work is product-level orchestration, worker execution through application-managed runtimes, and the actual `scribeforge process` command wired to the job state machine.
 
 ## Phase 2 — verification engine
 Spatial/text alignment, disagreement classification, risk scoring, cropped evidence generation, VLM adjudication and human decisions.
