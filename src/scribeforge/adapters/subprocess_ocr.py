@@ -1,31 +1,53 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 
 
 class SubprocessOCREngine:
-    """Adapter for isolated OCR workers using a versioned JSON stdout contract."""
+    """Adapter for isolated OCR workers using a versioned JSON stdout contract.
 
-    def __init__(self, name: str, command: Sequence[str]) -> None:
+    An optional environment is merged over the process environment, and an
+    optional preflight hook runs before each page so a backend that is no longer
+    healthy fails loudly instead of silently producing wrong evidence.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        command: Sequence[str],
+        *,
+        environment: Mapping[str, str] | None = None,
+        preflight: Callable[[], None] | None = None,
+    ) -> None:
         self._name = name
         self._command = tuple(command)
+        self._environment = None if environment is None else dict(environment)
+        self._preflight = preflight
 
     @property
     def name(self) -> str:
         return self._name
 
     def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        if self._preflight is not None:
+            self._preflight()
+        process_env = None
+        if self._environment:
+            process_env = os.environ.copy()
+            process_env.update(self._environment)
         completed = subprocess.run(
             [*self._command, "--image", image_path, "--page-index", str(page_index)],
             check=True,
             capture_output=True,
             text=True,
             encoding="utf-8",
+            env=process_env,
         )
         raw: Any = json.loads(completed.stdout)
         if not isinstance(raw, dict) or raw.get("schema_version") != 1:

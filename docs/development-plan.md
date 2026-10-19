@@ -33,7 +33,9 @@ Phase 1 foundation includes schema-v4 resumable jobs with project/page scope, at
 
 The import slice is connected: `PageSource` (domain contract) + `PdfPageSource`/`ImagePageSource` adapters (pdfium/Pillow) + `import_source` orchestration materialize immutable per-page raster assets, persist page evidence, and drive the project-scoped `import` job resumably.
 
-The page-granular orchestrator is connected: `process_page`/`process_book` drive PRIMARY_OCR -> SECONDARY_OCR -> VERIFY -> VLM_REVIEW per page through the job state machine, injecting engines and reviewers, persisting each stage before releasing page resources, skipping already-succeeded stages, resuming interrupted ones, and isolating a failed page from the rest of the book. The remaining Phase 1 work is worker execution through application-managed runtimes and the actual `scribeforge process` command wired to the job state machine.
+The page-granular orchestrator is connected: `process_page`/`process_book` drive PRIMARY_OCR -> SECONDARY_OCR -> VERIFY -> VLM_REVIEW per page through the job state machine, injecting engines and reviewers, persisting each stage before releasing page resources, skipping already-succeeded stages, resuming interrupted ones, and isolating a failed page from the rest of the book.
+
+Worker execution now runs through application-managed runtimes: `build_runtime_engine` resolves a backend's managed Python via `RuntimeLayout`, centralizes model/cache directories, and enforces a health check at construction and before every page so a runtime removed mid-book fails loudly. The remaining Phase 1 work is the actual `scribeforge process` command wired to the job state machine.
 
 ## Phase 2 — verification engine
 Spatial/text alignment, disagreement classification, risk scoring, cropped evidence generation, VLM adjudication and human decisions.
