@@ -13,7 +13,7 @@ from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.vlm import VLMReviewer
-from scribeforge.pipeline.adjudication import review_queue
+from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
 from scribeforge.runtime.manager import RuntimeManager
@@ -89,6 +89,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     status.add_argument("--store", type=Path, required=True, help="Project store directory.")
 
+    review = subparsers.add_parser(
+        "review", help="List the page pairs that still need a human decision."
+    )
+    review.add_argument("--store", type=Path, required=True, help="Project store directory.")
+
+    resolve = subparsers.add_parser(
+        "resolve", help="Record a human decision for one page pair."
+    )
+    resolve.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    resolve.add_argument("--page", type=int, required=True, help="Zero-based page index.")
+    resolve.add_argument("--pair", type=int, required=True, help="Zero-based aligned-pair index.")
+    resolve.add_argument(
+        "--text", required=True, help="Literal text the reviewer accepted for the pair."
+    )
+
     return parser
 
 
@@ -104,6 +119,10 @@ def run(
     out = sys.stdout if stdout is None else stdout
     if args.command == "status":
         return _status(args, out)
+    if args.command == "review":
+        return _review(args, out)
+    if args.command == "resolve":
+        return _resolve(args, out)
     factory = default_engine_factory if engine_factory is None else engine_factory
     return _process(args, out, factory)
 
@@ -159,13 +178,11 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
 
 
 def _status(args: argparse.Namespace, out: TextIO) -> int:
-    layout = StoreLayout(args.store)
-    if not layout.db_path.exists():
-        print(f"error: no store found at {layout.db_path}", file=sys.stderr)
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
         return EXIT_FATAL
 
-    store = SQLiteStore(layout.db_path)
-    store.initialize()
     projects = store.list_projects()
     if not projects:
         print("no projects", file=out)
@@ -183,6 +200,87 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                 file=out,
             )
     return EXIT_OK
+
+
+def _review(args: argparse.Namespace, out: TextIO) -> int:
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+
+    projects = store.list_projects()
+    if not projects:
+        print("no projects", file=out)
+        return EXIT_OK
+
+    layout = StoreLayout(args.store)
+    for project in projects:
+        items = review_queue(store, project.id)
+        print(f"project {project.id}: {project.title}", file=out)
+        print(f"review queued: {len(items)}", file=out)
+        for item in items:
+            detail = review_detail(
+                store,
+                project.id,
+                item.page_index,
+                item.pair_index,
+                crops_dir=layout.crops_dir,
+            )
+            reasons = ",".join(reason.value for reason in detail.reasons)
+            print(
+                f"  page {detail.page_index} pair {detail.pair_index} "
+                f"score={detail.score:.2f} reasons={reasons}",
+                file=out,
+            )
+            print(f"    primary={_render_text(detail.primary_text)}", file=out)
+            print(f"    secondary={_render_text(detail.secondary_text)}", file=out)
+            if detail.vlm_text is None:
+                print("    vlm=none", file=out)
+            else:
+                uncertain = "true" if detail.vlm_uncertain else "false"
+                print(f'    vlm="{detail.vlm_text}" uncertain={uncertain}', file=out)
+            print(f"    crop={detail.crop_path or 'none'}", file=out)
+    return EXIT_OK
+
+
+def _resolve(args: argparse.Namespace, out: TextIO) -> int:
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+
+    projects = store.list_projects()
+    if not projects:
+        print("error: no projects in store", file=sys.stderr)
+        return EXIT_FATAL
+
+    try:
+        decision_id = record_human_decision(
+            store, projects[0].id, args.page, args.pair, args.text
+        )
+    except KeyError as exc:
+        message = exc.args[0] if exc.args else exc
+        print(f"error: {message}", file=sys.stderr)
+        return EXIT_FATAL
+
+    print(
+        f"recorded human decision #{decision_id} for page {args.page} pair {args.pair}",
+        file=out,
+    )
+    return EXIT_OK
+
+
+def _open_store(root: Path) -> SQLiteStore | None:
+    layout = StoreLayout(root)
+    if not layout.db_path.exists():
+        return None
+    store = SQLiteStore(layout.db_path)
+    store.initialize()
+    return store
+
+
+def _render_text(text: str | None) -> str:
+    return "none" if text is None else f'"{text}"'
 
 
 def _ensure_project(store: SQLiteStore, book: Path) -> int:

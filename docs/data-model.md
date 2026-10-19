@@ -38,3 +38,5 @@ Schema version 4 adds resumable `jobs`. Jobs are uniquely scoped by project, sta
 ## Decision resolution
 
 The decision layer needs no migration: it writes schema-v1 `decisions` rows through `scribeforge.pipeline.adjudication`. `adjudicate_pair` applies one deterministic rule — independent engine agreement is accepted as `automatic`, a confident non-blank VLM reading is accepted as `vlm`, and every other pair stays unresolved for human review. Each recorded decision cites the verification run, both OCR engine runs, and the VLM reading when one was used. Re-running adjudication is idempotent because a pair that already has a decision is left untouched; source OCR is never rewritten.
+
+A human resolves a pair by appending a `decisions` row with `actor = human` (`record_human_decision`, exposed as `scribeforge resolve`). It cites the same evidence and, being newest, becomes the pair's latest decision while earlier rows are preserved, so a human can correct an `automatic` or `vlm` acceptance without mutating any engine, verification, or VLM evidence row.

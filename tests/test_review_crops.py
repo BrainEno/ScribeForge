@@ -1,6 +1,6 @@
 import pytest
 
-from scribeforge.domain.crops import PixelBox, plan_review_crops
+from scribeforge.domain.crops import PixelBox, plan_review_crops, review_crop_file_name
 from scribeforge.domain.ocr import BoundingBox
 from scribeforge.domain.risk import ReviewCandidate, RiskReason
 
@@ -74,3 +74,13 @@ def test_each_candidate_gets_stable_unique_name() -> None:
         "page-000008-pair-0001.png",
         "page-000008-pair-0009.png",
     ]
+
+
+def test_crop_file_name_is_derivable_and_guards_indexes() -> None:
+    assert review_crop_file_name(7, 3) == "page-000008-pair-0003.png"
+    assert review_crop_file_name(0, 0) == "page-000001-pair-0000.png"
+
+    with pytest.raises(ValueError, match="non-negative"):
+        review_crop_file_name(-1, 0)
+    with pytest.raises(ValueError, match="non-negative"):
+        review_crop_file_name(0, -1)

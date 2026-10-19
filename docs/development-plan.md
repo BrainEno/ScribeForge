@@ -46,6 +46,8 @@ The lower-level verification path already has dual-engine alignment/risk scoring
 
 The decision layer is now wired: `adjudicate_verification` turns each verified pair into an append-only decision. Independent engine agreement is accepted as `automatic`, a confident non-blank VLM reading is accepted as `vlm`, and anything else stays unresolved for human review (`review_queue`). Every decision cites the verification run, both OCR engine runs, and the VLM reading when one was used; source OCR is never rewritten. The orchestrator runs this per page after VLM review, and `scribeforge process`/`status` surface the decision counts and the remaining review queue.
 
+The human loop is now wired end to end: `review_detail` loads the competing evidence for one queued pair (both engine readings, the newest VLM reading, risk score/reasons, the materialized crop path when the crop exists, and the currently accepted text), and `record_human_decision` appends a `human` decision citing that same evidence. `scribeforge review --store <dir>` prints the queued pairs, and `scribeforge resolve --store <dir> --page N --pair N --text <literal>` records the accepted reading; a human decision becomes the pair's newest decision, clears it from the review queue, and survives re-adjudication while the superseded row remains as evidence. Source OCR is never rewritten, and a human may also correct an earlier `automatic`/`vlm` decision on a pair.
+
 ## Phase 3 — proofreading desktop UI
 Library, job progress, source/text synchronized viewer, conflict queue, keyboard-first review, settings. The first-run runtime wizard is exposed here, backed by the already-tested Phase 0.5 manager.
 

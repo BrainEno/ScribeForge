@@ -66,8 +66,11 @@ def _book(tmp_path: Path) -> Path:
     return book
 
 
-def _factory(*, secondary: bool = True, reviewer: object | None = None):
-    chosen_reviewer = FakeReviewer() if reviewer is None else reviewer
+_DEFAULT_REVIEWER = object()
+
+
+def _factory(*, secondary: bool = True, reviewer: object = _DEFAULT_REVIEWER):
+    chosen_reviewer = FakeReviewer() if reviewer is _DEFAULT_REVIEWER else reviewer
 
     def factory(runtime_root: Path) -> Engines:
         secondary_engine = (
@@ -269,3 +272,149 @@ def test_default_engine_factory_builds_ready_runtime_engines(tmp_path: Path) -> 
     assert engines.primary.name == "mineru"
     assert engines.secondary.name == "paddleocr"
     assert engines.reviewer is None
+
+
+def test_review_lists_queued_pairs_with_evidence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    )
+    capsys.readouterr()
+
+    code = run(["review", "--store", str(store_dir)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "review queued: 1" in captured.out
+    assert "page 0 pair 0" in captured.out
+    assert 'primary="鸦"' in captured.out
+    assert 'secondary="雅"' in captured.out
+    assert 'vlm="maybe" uncertain=true' in captured.out
+    assert "page-000001-pair-0000.png" in captured.out
+
+
+def test_review_shows_missing_vlm_and_crop_without_a_reviewer(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(reviewer=None),
+    )
+    capsys.readouterr()
+
+    code = run(["review", "--store", str(store_dir)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "vlm=none" in captured.out
+    assert "crop=none" in captured.out
+
+
+def test_review_handles_an_empty_queue(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(["review", "--store", str(store_dir)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "review queued: 0" in captured.out
+
+
+def test_review_handles_a_store_without_projects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir = tmp_path / "store"
+    SQLiteStore(store_dir / "project.sqlite3").initialize()
+
+    code = run(["review", "--store", str(store_dir)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "no projects" in captured.out.lower()
+
+
+def test_review_rejects_missing_store(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code = run(["review", "--store", str(tmp_path / "missing")])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "no store found" in captured.err.lower()
+
+
+def test_resolve_records_and_clears_a_human_decision(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    )
+    capsys.readouterr()
+
+    code = run(
+        ["resolve", "--store", str(store_dir), "--page", "0", "--pair", "0", "--text", "鸦"]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "recorded human decision" in captured.out
+
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = store.list_projects()[0].id
+    latest = store.latest_decision(project_id, 0, 0)
+    assert latest is not None
+    assert latest.selected_text == "鸦"
+    assert latest.actor == "human"
+
+    assert run(["review", "--store", str(store_dir)]) == 0
+    assert "review queued: 0" in capsys.readouterr().out
+
+
+def test_resolve_rejects_unknown_pair(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        ["resolve", "--store", str(store_dir), "--page", "0", "--pair", "9", "--text", "x"]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "unknown pair" in captured.err.lower()
+
+
+def test_resolve_rejects_missing_store(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code = run(
+        ["resolve", "--store", str(tmp_path / "missing"), "--page", "0", "--pair", "0", "--text", "x"]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "no store found" in captured.err.lower()
+
+
+def test_resolve_rejects_a_store_without_projects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir = tmp_path / "store"
+    SQLiteStore(store_dir / "project.sqlite3").initialize()
+
+    code = run(
+        ["resolve", "--store", str(store_dir), "--page", "0", "--pair", "0", "--text", "x"]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "no projects" in captured.err.lower()
