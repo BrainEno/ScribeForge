@@ -31,7 +31,9 @@ Import pages incrementally, execute workers, persist each stage, resume interrup
 
 Phase 1 foundation includes schema-v4 resumable jobs with project/page scope, attempts, failure details, and durable pending/running/failed state.
 
-The import slice is connected: `PageSource` (domain contract) + `PdfPageSource`/`ImagePageSource` adapters (pdfium/Pillow) + `import_source` orchestration materialize immutable per-page raster assets, persist page evidence, and drive the project-scoped `import` job resumably. The remaining Phase 1 work is product-level orchestration, worker execution through application-managed runtimes, and the actual `scribeforge process` command wired to the job state machine.
+The import slice is connected: `PageSource` (domain contract) + `PdfPageSource`/`ImagePageSource` adapters (pdfium/Pillow) + `import_source` orchestration materialize immutable per-page raster assets, persist page evidence, and drive the project-scoped `import` job resumably.
+
+The page-granular orchestrator is connected: `process_page`/`process_book` drive PRIMARY_OCR -> SECONDARY_OCR -> VERIFY -> VLM_REVIEW per page through the job state machine, injecting engines and reviewers, persisting each stage before releasing page resources, skipping already-succeeded stages, resuming interrupted ones, and isolating a failed page from the rest of the book. The remaining Phase 1 work is worker execution through application-managed runtimes and the actual `scribeforge process` command wired to the job state machine.
 
 ## Phase 2 — verification engine
 Spatial/text alignment, disagreement classification, risk scoring, cropped evidence generation, VLM adjudication and human decisions.
