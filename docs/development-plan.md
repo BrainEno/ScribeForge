@@ -42,7 +42,9 @@ The CLI is wired: `scribeforge process <book>` resolves a per-book store (defaul
 ## Phase 2 — verification engine
 Spatial/text alignment, disagreement classification, risk scoring, cropped evidence generation, VLM adjudication and human decisions.
 
-The lower-level verification path already has dual-engine alignment/risk scoring, deterministic review crop planning/materialization, literal VLM worker contracts, append-only VLM evidence, and pair-level resume semantics. These pieces will be invoked by the Phase 1 orchestrator rather than exposed as disconnected product commands.
+The lower-level verification path already has dual-engine alignment/risk scoring, deterministic review crop planning/materialization, literal VLM worker contracts, append-only VLM evidence, and pair-level resume semantics.
+
+The decision layer is now wired: `adjudicate_verification` turns each verified pair into an append-only decision. Independent engine agreement is accepted as `automatic`, a confident non-blank VLM reading is accepted as `vlm`, and anything else stays unresolved for human review (`review_queue`). Every decision cites the verification run, both OCR engine runs, and the VLM reading when one was used; source OCR is never rewritten. The orchestrator runs this per page after VLM review, and `scribeforge process`/`status` surface the decision counts and the remaining review queue.
 
 ## Phase 3 — proofreading desktop UI
 Library, job progress, source/text synchronized viewer, conflict queue, keyboard-first review, settings. The first-run runtime wizard is exposed here, backed by the already-tested Phase 0.5 manager.

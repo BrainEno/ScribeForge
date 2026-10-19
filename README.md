@@ -55,7 +55,19 @@ benchmark/             reproducible benchmark fixtures and reports
 
 ## Development status
 
-The repository is in **Phase 1 — resumable CLI**. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager), the low-level verification path, and the resumable CLI slices (PDF/image import, page-granular orchestration, runtime-backed workers, and the `scribeforge process`/`status` commands) are implemented and covered by tests.
+The repository is in **Phase 2 — verification engine**, with the Phase 1 resumable CLI complete. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager), the low-level verification path, the resumable CLI slices (PDF/image import, page-granular orchestration, runtime-backed workers, `scribeforge process`/`status`), and the decision layer (deterministic adjudication plus the human review queue) are implemented and covered by tests.
+
+## CLI
+
+```bash
+scribeforge process book.pdf                  # import + process every page
+scribeforge process book.pdf --store store/   # explicit project store
+scribeforge status --store store/             # persisted jobs + review queue
+```
+
+`process` writes a project store beside the book by default (`<book-stem>.scribeforge`). Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
+
+When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR.
 
 See:
 

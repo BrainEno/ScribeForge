@@ -114,3 +114,34 @@ def test_list_jobs_rejects_unknown_project(tmp_path: Path) -> None:
 
     with pytest.raises(KeyError, match="unknown project"):
         store.list_jobs(999)
+
+
+def test_latest_decision_returns_most_recent_or_none(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    store.add_page(project_id, 0, "pages/0.png", 10, 20)
+
+    assert store.latest_decision(project_id, 0, 0) is None
+
+    store.append_decision(
+        project_id=project_id,
+        page_index=0,
+        pair_index=0,
+        selected_text="鸦",
+        actor="automatic",
+        evidence_refs=("engine_run:1",),
+    )
+    second = store.append_decision(
+        project_id=project_id,
+        page_index=0,
+        pair_index=0,
+        selected_text="雅",
+        actor="human",
+        evidence_refs=("engine_run:2",),
+    )
+
+    latest = store.latest_decision(project_id, 0, 0)
+    assert latest is not None
+    assert (latest.id, latest.selected_text, latest.actor) == (second, "雅", "human")
+
+    with pytest.raises(KeyError, match="unknown project/page"):
+        store.latest_decision(project_id, 9, 0)

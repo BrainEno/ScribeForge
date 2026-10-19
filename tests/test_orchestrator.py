@@ -50,6 +50,13 @@ class FakeReviewer:
         return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "verified", False)
 
 
+class UncertainReviewer:
+    def transcribe_crop(
+        self, image_path: str, page_index: int, pair_index: int
+    ) -> VLMReading:
+        return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "maybe", True)
+
+
 def _store(tmp_path: Path) -> tuple[SQLiteStore, int]:
     store = SQLiteStore(tmp_path / "project.sqlite3")
     store.initialize()
@@ -183,6 +190,60 @@ def test_process_page_without_reviewer_defers_vlm_stage(tmp_path: Path) -> None:
     assert outcome.verification_id > 0
     assert outcome.vlm_review_count == 0
     assert JobStage.VLM_REVIEW not in {job.stage for job in store.list_jobs(project_id)}
+
+
+def test_process_page_records_automatic_decision_when_engines_agree(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+
+    outcome = process_page(
+        store, project_id, page,
+        primary_engine=FakeEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "鸦"),
+        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+    )
+
+    assert outcome.decision_count == 1
+    assert outcome.unresolved_pairs == ()
+    assert [
+        (decision.selected_text, decision.actor)
+        for decision in store.list_decisions(project_id, 0, 0)
+    ] == [("鸦", "automatic")]
+
+
+def test_process_page_records_vlm_decision_from_confident_review(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+
+    outcome = process_page(
+        store, project_id, page,
+        primary_engine=FakeEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "雅"),
+        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+    )
+
+    assert outcome.decision_count == 1
+    assert outcome.unresolved_pairs == ()
+    assert [
+        (decision.selected_text, decision.actor)
+        for decision in store.list_decisions(project_id, 0, 0)
+    ] == [("verified", "vlm")]
+
+
+def test_process_page_queues_uncertain_review_for_humans(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+
+    outcome = process_page(
+        store, project_id, page,
+        primary_engine=FakeEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "雅"),
+        reviewer=UncertainReviewer(), crops_dir=tmp_path / "crops",
+    )
+
+    assert outcome.decision_count == 0
+    assert outcome.unresolved_pairs == (0,)
+    assert store.list_decisions(project_id, 0, 0) == ()
 
 
 def test_process_book_isolates_failed_page_and_resumes(tmp_path: Path) -> None:

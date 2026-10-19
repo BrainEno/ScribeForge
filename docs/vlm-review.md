@@ -40,6 +40,6 @@ Each successful reading is appended to the state immediately before the next cro
 
 `SQLiteVLMReviewState` is the durable implementation. Before appending a reading it hashes the exact crop bytes with SHA-256, then stores model identity, literal text, uncertainty, crop path and crop digest in schema-v3 `vlm_reviews`. Re-running a model appends new evidence instead of replacing an earlier reading. Completed-pair lookup is derived from persisted VLM evidence, not process memory.
 
-A VLM review row is still not an accepted text decision. A later deterministic rule or human reviewer must explicitly create the decision layer from cited evidence.
+A VLM review row is still not an accepted text decision. `scribeforge.domain.decisions.adjudicate_pair` is the deterministic rule that turns it into one from cited evidence: a confident non-blank reading becomes a `vlm` decision, while an uncertain or blank reading stays unresolved for human review. Source OCR is never rewritten.
 
 No concrete VLM runtime is claimed as supported by this slice. A model backend will be added only after pinned local-runtime contract tests are available.

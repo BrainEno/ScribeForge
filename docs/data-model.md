@@ -34,3 +34,7 @@ Schema version 3 adds append-only `vlm_reviews`. Each row references an existing
 Schema version 4 adds resumable `jobs`. Jobs are uniquely scoped by project, stage, and optional page. `import` is project-scoped; OCR, verification, and VLM review stages are page-scoped. A job records `pending`, `running`, `failed`, or `succeeded` state, attempt count, last failure, and start/finish timestamps. `ensure_job` is idempotent for a given scope. Pending, failed, and interrupted-running jobs remain discoverable for resume; succeeded jobs are not restarted accidentally. Version 3 databases migrate forward without deleting existing evidence.
 
 `exports` remains planned and will be added through a later versioned migration rather than a destructive database reset.
+
+## Decision resolution
+
+The decision layer needs no migration: it writes schema-v1 `decisions` rows through `scribeforge.pipeline.adjudication`. `adjudicate_pair` applies one deterministic rule — independent engine agreement is accepted as `automatic`, a confident non-blank VLM reading is accepted as `vlm`, and every other pair stays unresolved for human review. Each recorded decision cites the verification run, both OCR engine runs, and the VLM reading when one was used. Re-running adjudication is idempotent because a pair that already has a decision is left untouched; source OCR is never rewritten.

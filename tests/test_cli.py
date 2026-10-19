@@ -53,13 +53,22 @@ class FakeReviewer:
         return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "verified", False)
 
 
+class UncertainReviewer:
+    def transcribe_crop(
+        self, image_path: str, page_index: int, pair_index: int
+    ) -> VLMReading:
+        return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "maybe", True)
+
+
 def _book(tmp_path: Path) -> Path:
     book = tmp_path / "book.png"
     Image.new("RGB", (80, 120), "white").save(book)
     return book
 
 
-def _factory(*, secondary: bool = True):
+def _factory(*, secondary: bool = True, reviewer: object | None = None):
+    chosen_reviewer = FakeReviewer() if reviewer is None else reviewer
+
     def factory(runtime_root: Path) -> Engines:
         secondary_engine = (
             FakeEngine("secondary", "雅") if secondary else ExplodingEngine("secondary")
@@ -67,7 +76,7 @@ def _factory(*, secondary: bool = True):
         return Engines(
             primary=FakeEngine("primary", "鸦"),
             secondary=secondary_engine,
-            reviewer=FakeReviewer(),
+            reviewer=chosen_reviewer,
         )
 
     return factory
@@ -88,6 +97,8 @@ def test_process_command_imports_and_orchestrates(tmp_path: Path, capsys: pytest
     assert code == 0
     assert "imported 1 new page" in captured.out
     assert "0 failed" in captured.out
+    assert "recorded 1 decision(s)" in captured.out
+    assert "0 pair(s) need review" in captured.out
 
     store = SQLiteStore(store_dir / "project.sqlite3")
     projects = store.list_projects()
@@ -120,6 +131,20 @@ def test_process_command_reports_partial_failure(tmp_path: Path, capsys: pytest.
     assert code == 1
     assert "1 failed" in captured.out
     assert "page 0: engine crashed" in captured.out
+
+
+def test_process_command_reports_pairs_needing_review(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    book = _book(tmp_path)
+
+    code = run(
+        ["process", str(book), "--store", str(tmp_path / "store")],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "recorded 0 decision(s)" in captured.out
+    assert "1 pair(s) need review" in captured.out
 
 
 def test_process_command_rejects_missing_book(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -192,6 +217,7 @@ def test_status_reports_jobs_after_processing(tmp_path: Path, capsys: pytest.Cap
     assert "project 1: book" in captured.out
     assert "pages: 1" in captured.out
     assert "primary_ocr [page 0] succeeded" in captured.out
+    assert "review queued: 0" in captured.out
 
 
 def test_status_handles_store_without_projects(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -13,6 +13,7 @@ from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.vlm import VLMReviewer
+from scribeforge.pipeline.adjudication import review_queue
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
 from scribeforge.runtime.manager import RuntimeManager
@@ -149,6 +150,9 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
         f"processed {len(outcome.pages)} page(s), {len(outcome.failed_pages)} failed",
         file=out,
     )
+    decisions = sum(page.decision_count for page in outcome.pages)
+    queued = sum(len(page.unresolved_pairs) for page in outcome.pages)
+    print(f"recorded {decisions} decision(s), {queued} pair(s) need review", file=out)
     for page_index, error in outcome.failed_pages:
         print(f"  page {page_index}: {error}", file=out)
     return EXIT_PARTIAL if outcome.failed_pages else EXIT_OK
@@ -171,6 +175,7 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
         pages = store.list_pages(project.id)
         print(f"project {project.id}: {project.title} ({project.source_uri})", file=out)
         print(f"  pages: {len(pages)}", file=out)
+        print(f"  review queued: {len(review_queue(store, project.id))}", file=out)
         for job in store.list_jobs(project.id):
             scope = "project" if job.page_index is None else f"page {job.page_index}"
             print(
