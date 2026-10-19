@@ -20,6 +20,9 @@ dev = [
   "mypy>=1.13",
 ]
 
+[project.scripts]
+scribeforge = "scribeforge.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/scribeforge"]
 

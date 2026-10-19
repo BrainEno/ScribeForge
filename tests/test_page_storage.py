@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from scribeforge.domain.alignment import LineAlignment, PageAlignment
+from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.risk import PairRisk, RiskReason
 from scribeforge.storage.sqlite import SQLiteStore
@@ -74,3 +75,42 @@ def test_latest_verification_resolves_most_recent_comparison(tmp_path: Path) -> 
 
     with pytest.raises(KeyError, match="unknown verification"):
         store.latest_verification_id(project_id, 1)
+
+
+def test_list_projects_returns_created_projects_in_order(tmp_path: Path) -> None:
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    first = store.create_project("A", "a.pdf", "hash-a")
+    second = store.create_project("B", "b.pdf", "hash-b")
+
+    projects = store.list_projects()
+
+    assert [
+        (project.id, project.title, project.source_uri, project.source_sha256)
+        for project in projects
+    ] == [
+        (first, "A", "a.pdf", "hash-a"),
+        (second, "B", "b.pdf", "hash-b"),
+    ]
+
+
+def test_list_jobs_returns_every_state_in_creation_order(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    store.add_page(project_id, 0, "pages/0.png", 10, 20)
+    import_id = store.ensure_job(project_id, JobStage.IMPORT)
+    ocr_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+    store.start_job(ocr_id)
+
+    jobs = store.list_jobs(project_id)
+
+    assert [(job.id, job.stage, job.state, job.attempts) for job in jobs] == [
+        (import_id, JobStage.IMPORT, JobState.PENDING, 0),
+        (ocr_id, JobStage.PRIMARY_OCR, JobState.RUNNING, 1),
+    ]
+
+
+def test_list_jobs_rejects_unknown_project(tmp_path: Path) -> None:
+    store, _ = _store(tmp_path)
+
+    with pytest.raises(KeyError, match="unknown project"):
+        store.list_jobs(999)

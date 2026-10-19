@@ -169,6 +169,22 @@ def test_process_page_skips_vlm_when_engines_agree(tmp_path: Path) -> None:
     assert _stage_states(store, project_id, 0)[JobStage.VLM_REVIEW] is JobState.SUCCEEDED
 
 
+def test_process_page_without_reviewer_defers_vlm_stage(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+
+    outcome = process_page(
+        store, project_id, page,
+        primary_engine=FakeEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "雅"),
+        crops_dir=tmp_path / "crops",
+    )
+
+    assert outcome.verification_id > 0
+    assert outcome.vlm_review_count == 0
+    assert JobStage.VLM_REVIEW not in {job.stage for job in store.list_jobs(project_id)}
+
+
 def test_process_book_isolates_failed_page_and_resumes(tmp_path: Path) -> None:
     store, project_id = _store(tmp_path)
     _seed_page(store, project_id, tmp_path)

@@ -68,7 +68,7 @@ def process_page(
     *,
     primary_engine: OCREngine,
     secondary_engine: OCREngine,
-    reviewer: VLMReviewer,
+    reviewer: VLMReviewer | None = None,
     crops_dir: Path,
 ) -> PageOutcome:
     """Run every remaining pipeline stage for one page, resumably and page-granular."""
@@ -123,23 +123,29 @@ def process_page(
         lambda: store.latest_verification_id(project_id, page_index),
     )
 
-    def compute_vlm() -> None:
-        record = store.load_verification(verification_id)
-        if not record.candidates:
-            return
-        plans = plan_review_crops(record.candidates, page.width, page.height)
-        crop_paths = materialize_review_crops(Path(image_path), plans, crops_dir)
-        state = SQLiteVLMReviewState(store, verification_id)
-        review_pending_candidates(record.candidates, crop_paths, reviewer, state)
+    if reviewer is None:
+        # No adjudication model is configured yet: leave the VLM stage untouched so a
+        # later run that supplies a reviewer can still perform it.
+        vlm_review_count = 0
+    else:
 
-    vlm_review_count = _run_stage(
-        store,
-        project_id,
-        JobStage.VLM_REVIEW,
-        page_index,
-        compute_vlm,
-        lambda: len(store.reviewed_pair_indexes(verification_id)),
-    )
+        def compute_vlm() -> None:
+            record = store.load_verification(verification_id)
+            if not record.candidates:
+                return
+            plans = plan_review_crops(record.candidates, page.width, page.height)
+            crop_paths = materialize_review_crops(Path(image_path), plans, crops_dir)
+            state = SQLiteVLMReviewState(store, verification_id)
+            review_pending_candidates(record.candidates, crop_paths, reviewer, state)
+
+        vlm_review_count = _run_stage(
+            store,
+            project_id,
+            JobStage.VLM_REVIEW,
+            page_index,
+            compute_vlm,
+            lambda: len(store.reviewed_pair_indexes(verification_id)),
+        )
 
     return PageOutcome(
         page_index=page_index,
@@ -156,7 +162,7 @@ def process_book(
     *,
     primary_engine: OCREngine,
     secondary_engine: OCREngine,
-    reviewer: VLMReviewer,
+    reviewer: VLMReviewer | None = None,
     crops_dir: Path,
 ) -> BookOutcome:
     """Process every imported page; a failed page never stops the rest of the book."""
