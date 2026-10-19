@@ -33,6 +33,16 @@ class DecisionRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class PageRecord:
+    id: int
+    project_id: int
+    page_index: int
+    source_image: str
+    width: int
+    height: int
+
+
+@dataclass(frozen=True, slots=True)
 class VerificationRecord:
     id: int
     primary_run_id: int
@@ -317,6 +327,43 @@ class SQLiteStore:
                 (project_id, page_index, source_image, width, height),
             )
             return self._last_id(cursor)
+
+    def imported_page_indexes(self, project_id: int) -> frozenset[int]:
+        """Return the page indexes already materialized for a project."""
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            rows = connection.execute(
+                "SELECT page_index FROM pages WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+            return frozenset(int(row["page_index"]) for row in rows)
+
+    def list_pages(self, project_id: int) -> tuple[PageRecord, ...]:
+        """Return persisted page evidence ordered by page index."""
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            rows = connection.execute(
+                """
+                SELECT id, project_id, page_index, source_image, width, height
+                FROM pages
+                WHERE project_id = ?
+                ORDER BY page_index
+                """,
+                (project_id,),
+            ).fetchall()
+            return tuple(
+                PageRecord(
+                    id=int(row["id"]),
+                    project_id=int(row["project_id"]),
+                    page_index=int(row["page_index"]),
+                    source_image=str(row["source_image"]),
+                    width=int(row["width"]),
+                    height=int(row["height"]),
+                )
+                for row in rows
+            )
 
     @staticmethod
     def _page_id(connection: sqlite3.Connection, project_id: int, page_index: int) -> int:
