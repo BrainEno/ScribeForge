@@ -365,6 +365,48 @@ class SQLiteStore:
                 for row in rows
             )
 
+    def latest_engine_run(self, project_id: int, page_index: int, engine: str) -> int:
+        """Resolve the newest persisted OCR run for one engine on one page."""
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            row = connection.execute(
+                """
+                SELECT engine_runs.id
+                FROM engine_runs
+                JOIN pages ON pages.id = engine_runs.page_id
+                WHERE pages.project_id = ?
+                  AND pages.page_index = ?
+                  AND engine_runs.engine = ?
+                ORDER BY engine_runs.id DESC
+                LIMIT 1
+                """,
+                (project_id, page_index, engine),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown OCR run for engine {engine} on page {page_index}")
+            return int(row["id"])
+
+    def latest_verification_id(self, project_id: int, page_index: int) -> int:
+        """Resolve the newest persisted verification run for one page."""
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            row = connection.execute(
+                """
+                SELECT verification_runs.id
+                FROM verification_runs
+                JOIN pages ON pages.id = verification_runs.page_id
+                WHERE pages.project_id = ? AND pages.page_index = ?
+                ORDER BY verification_runs.id DESC
+                LIMIT 1
+                """,
+                (project_id, page_index),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown verification run for page {page_index}")
+            return int(row["id"])
+
     @staticmethod
     def _page_id(connection: sqlite3.Connection, project_id: int, page_index: int) -> int:
         row = connection.execute(
