@@ -33,6 +33,15 @@ class DecisionRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectRecord:
+    id: int
+    title: str
+    source_uri: str
+    source_sha256: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class PageRecord:
     id: int
     project_id: int
@@ -310,6 +319,28 @@ class SQLiteStore:
             )
             return self._last_id(cursor)
 
+    def list_projects(self) -> tuple[ProjectRecord, ...]:
+        """Return every persisted project in creation order."""
+
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, title, source_uri, source_sha256, created_at
+                FROM projects
+                ORDER BY id
+                """
+            ).fetchall()
+            return tuple(
+                ProjectRecord(
+                    id=int(row["id"]),
+                    title=str(row["title"]),
+                    source_uri=str(row["source_uri"]),
+                    source_sha256=str(row["source_sha256"]),
+                    created_at=str(row["created_at"]),
+                )
+                for row in rows
+            )
+
     def add_page(
         self,
         project_id: int,
@@ -557,6 +588,25 @@ class SQLiteStore:
                 LEFT JOIN pages ON pages.id = jobs.page_id
                 WHERE jobs.project_id = ?
                   AND jobs.state IN ('pending', 'running', 'failed')
+                ORDER BY jobs.id
+                """,
+                (project_id,),
+            ).fetchall()
+            return tuple(self._job_record(row) for row in rows)
+
+    def list_jobs(self, project_id: int) -> tuple[JobRecord, ...]:
+        """Return every processing job for a project, in creation order."""
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            rows = connection.execute(
+                """
+                SELECT jobs.id, jobs.project_id, pages.page_index, jobs.stage, jobs.state,
+                       jobs.attempts, jobs.last_error, jobs.created_at,
+                       jobs.started_at, jobs.finished_at
+                FROM jobs
+                LEFT JOIN pages ON pages.id = jobs.page_id
+                WHERE jobs.project_id = ?
                 ORDER BY jobs.id
                 """,
                 (project_id,),

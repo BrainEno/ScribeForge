@@ -35,7 +35,9 @@ The import slice is connected: `PageSource` (domain contract) + `PdfPageSource`/
 
 The page-granular orchestrator is connected: `process_page`/`process_book` drive PRIMARY_OCR -> SECONDARY_OCR -> VERIFY -> VLM_REVIEW per page through the job state machine, injecting engines and reviewers, persisting each stage before releasing page resources, skipping already-succeeded stages, resuming interrupted ones, and isolating a failed page from the rest of the book.
 
-Worker execution now runs through application-managed runtimes: `build_runtime_engine` resolves a backend's managed Python via `RuntimeLayout`, centralizes model/cache directories, and enforces a health check at construction and before every page so a runtime removed mid-book fails loudly. The remaining Phase 1 work is the actual `scribeforge process` command wired to the job state machine.
+Worker execution now runs through application-managed runtimes: `build_runtime_engine` resolves a backend's managed Python via `RuntimeLayout`, centralizes model/cache directories, and enforces a health check at construction and before every page so a runtime removed mid-book fails loudly.
+
+The CLI is wired: `scribeforge process <book>` resolves a per-book store (default `<book>.scribeforge`), creates or reuses the project, imports pages, builds runtime-backed engines, and drives the page-granular orchestrator; `scribeforge status --store <dir>` reports persisted jobs. Exit codes are semantic (`0` full success, `1` partial/failed pages, `2` fatal setup/usage error). When no VLM adjudicator is configured the review stage is left unstarted so a later run can still perform it. Phase 1 is complete.
 
 ## Phase 2 — verification engine
 Spatial/text alignment, disagreement classification, risk scoring, cropped evidence generation, VLM adjudication and human decisions.

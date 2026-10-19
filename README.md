@@ -55,7 +55,7 @@ benchmark/             reproducible benchmark fixtures and reports
 
 ## Development status
 
-The repository is in **Phase 1 — resumable CLI**. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager), the low-level verification path, and the Phase 1 import slice (PDF/image page import) are implemented and covered by tests.
+The repository is in **Phase 1 — resumable CLI**. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager), the low-level verification path, and the resumable CLI slices (PDF/image import, page-granular orchestration, runtime-backed workers, and the `scribeforge process`/`status` commands) are implemented and covered by tests.
 
 See:
 
