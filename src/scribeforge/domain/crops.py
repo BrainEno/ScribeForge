@@ -31,6 +31,18 @@ class ReviewCropPlan:
     file_name: str
 
 
+def review_crop_file_name(page_index: int, pair_index: int) -> str:
+    """Return the deterministic crop file name for a page pair.
+
+    Shared by crop materialization and by the human-review surface so a queued
+    pair can be traced back to the exact crop bytes a reviewer should inspect.
+    """
+
+    if page_index < 0 or pair_index < 0:
+        raise ValueError("crop indexes must be non-negative")
+    return f"page-{page_index + 1:06d}-pair-{pair_index:04d}.png"
+
+
 def _floor_pixel(value: float) -> int:
     return math.floor(value + _PIXEL_EPSILON)
 
@@ -78,9 +90,7 @@ def plan_review_crops(
             page_index=candidate.page_index,
             pair_index=candidate.pair_index,
             box=_pixel_box(candidate, page_width, page_height, padding_fraction),
-            file_name=(
-                f"page-{candidate.page_index + 1:06d}-pair-{candidate.pair_index:04d}.png"
-            ),
+            file_name=review_crop_file_name(candidate.page_index, candidate.pair_index),
         )
         for candidate in candidates
     )
