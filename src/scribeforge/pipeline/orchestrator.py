@@ -12,6 +12,7 @@ from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.risk import assess_page, review_candidates
 from scribeforge.domain.vlm import VLMReviewer
+from scribeforge.pipeline.adjudication import adjudicate_verification
 from scribeforge.pipeline.vlm_review import review_pending_candidates
 from scribeforge.storage.sqlite import PageRecord, SQLiteStore
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
@@ -26,6 +27,8 @@ class PageOutcome:
     secondary_run_id: int
     verification_id: int
     vlm_review_count: int
+    decision_count: int
+    unresolved_pairs: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,12 +150,16 @@ def process_page(
             lambda: len(store.reviewed_pair_indexes(verification_id)),
         )
 
+    adjudication = adjudicate_verification(store, project_id, verification_id)
+
     return PageOutcome(
         page_index=page_index,
         primary_run_id=primary_run_id,
         secondary_run_id=secondary_run_id,
         verification_id=verification_id,
         vlm_review_count=vlm_review_count,
+        decision_count=adjudication.recorded,
+        unresolved_pairs=adjudication.unresolved,
     )
 
 

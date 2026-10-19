@@ -1200,3 +1200,33 @@ class SQLiteStore:
                 )
                 for row in rows
             )
+
+    def latest_decision(
+        self, project_id: int, page_index: int, pair_index: int
+    ) -> DecisionRecord | None:
+        """Return the newest accepted decision for a page pair, if any."""
+
+        with self._connection() as connection:
+            page_id = self._page_id(connection, project_id, page_index)
+            row = connection.execute(
+                """
+                SELECT id, selected_text, actor, evidence_refs_json, created_at
+                FROM decisions
+                WHERE page_id = ? AND pair_index = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (page_id, pair_index),
+            ).fetchone()
+            if row is None:
+                return None
+            return DecisionRecord(
+                id=int(row["id"]),
+                project_id=project_id,
+                page_index=page_index,
+                pair_index=pair_index,
+                selected_text=str(row["selected_text"]),
+                actor=str(row["actor"]),
+                evidence_refs=self._json_strings(row["evidence_refs_json"]),
+                created_at=str(row["created_at"]),
+            )
