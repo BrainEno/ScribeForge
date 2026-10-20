@@ -1,0 +1,181 @@
+from __future__ import annotations
+
+import io
+import re
+import zipfile
+from datetime import UTC, datetime
+from pathlib import Path
+from xml.sax.saxutils import escape, quoteattr
+
+from scribeforge.domain.content import VerifiedBook, VerifiedPage
+
+_MIMETYPE = "application/epub+zip"
+_XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>'
+_OPF_NS = "http://www.idpf.org/2007/opf"
+_XHTML_NS = "http://www.w3.org/1999/xhtml"
+_EPUB_NS = "http://www.idpf.org/2007/ops"
+_CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
+_DC_NS = "http://purl.org/dc/elements/1.1/"
+_LANGUAGE_TAG = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
+# Fixed DOS epoch so two runs with the same inputs produce identical bytes.
+_ZIP_DATE = (1980, 1, 1, 0, 0, 0)
+
+
+def _page_file_name(page_index: int) -> str:
+    return f"page-{page_index + 1:06d}.xhtml"
+
+
+def _format_modified(modified: datetime) -> str:
+    if modified.tzinfo is None:
+        raise ValueError("modified time must be timezone-aware")
+    return modified.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _validate_language(language: str) -> str:
+    if not _LANGUAGE_TAG.match(language):
+        raise ValueError(f"invalid language tag: {language!r}")
+    return language
+
+
+def _write(archive: zipfile.ZipFile, name: str, text: str, compression: int) -> None:
+    info = zipfile.ZipInfo(name, date_time=_ZIP_DATE)
+    info.compress_type = compression
+    info.external_attr = 0o644 << 16
+    archive.writestr(info, text.encode("utf-8"))
+
+
+def _container_xml() -> str:
+    return (
+        _XML_DECL
+        + "\n"
+        + f'<container version="1.0" xmlns="{_CONTAINER_NS}">'
+        + "<rootfiles>"
+        + '<rootfile full-path="OEBPS/content.opf" '
+        + 'media-type="application/oebps-package+xml"/>'
+        + "</rootfiles></container>\n"
+    )
+
+
+def _package_xml(
+    book: VerifiedBook,
+    *,
+    identifier: str,
+    language: str,
+    modified: str,
+) -> str:
+    items = [
+        (
+            '<item id="nav" href="nav.xhtml" '
+            'media-type="application/xhtml+xml" properties="nav"/>'
+        )
+    ]
+    spine: list[str] = []
+    for page in book.pages:
+        items.append(
+            f'<item id="page-{page.page_index}" href="{_page_file_name(page.page_index)}" '
+            'media-type="application/xhtml+xml"/>'
+        )
+        spine.append(f'<itemref idref="page-{page.page_index}"/>')
+    return (
+        _XML_DECL
+        + "\n"
+        + f'<package xmlns="{_OPF_NS}" version="3.0" unique-identifier="book-id">'
+        + f'<metadata xmlns:dc="{_DC_NS}">'
+        + f'<dc:identifier id="book-id">{escape(identifier)}</dc:identifier>'
+        + f"<dc:title>{escape(book.title)}</dc:title>"
+        + f"<dc:language>{escape(language)}</dc:language>"
+        + f'<meta property="dcterms:modified">{modified}</meta>'
+        + "</metadata>"
+        + f"<manifest>{''.join(items)}</manifest>"
+        + f"<spine>{''.join(spine)}</spine>"
+        + "</package>\n"
+    )
+
+
+def _nav_xhtml(book: VerifiedBook, language: str) -> str:
+    lang = quoteattr(language)
+    entries = "".join(
+        f'<li><a href="{_page_file_name(page.page_index)}">'
+        f"Page {page.page_index + 1}</a></li>"
+        for page in book.pages
+    )
+    return (
+        _XML_DECL
+        + "\n<!DOCTYPE html>\n"
+        + f'<html xmlns="{_XHTML_NS}" xmlns:epub="{_EPUB_NS}" lang={lang} xml:lang={lang}>'
+        + "<head><title>Contents</title></head>"
+        + f'<body><nav epub:type="toc" id="toc"><h1>Contents</h1><ol>{entries}</ol></nav></body>'
+        + "</html>\n"
+    )
+
+
+def _page_xhtml(page: VerifiedPage, language: str) -> str:
+    lang = quoteattr(language)
+    paragraphs = "".join(f"<p>{escape(text)}</p>" for text in page.lines)
+    index = page.page_index + 1
+    return (
+        _XML_DECL
+        + "\n<!DOCTYPE html>\n"
+        + f'<html xmlns="{_XHTML_NS}" lang={lang} xml:lang={lang}>'
+        + f"<head><title>Page {index}</title></head>"
+        + f"<body><section>{paragraphs}</section></body>"
+        + "</html>\n"
+    )
+
+
+def build_epub(
+    book: VerifiedBook,
+    *,
+    identifier: str,
+    language: str,
+    modified: datetime,
+) -> bytes:
+    """Render a verified book as a deterministic EPUB 3 archive."""
+
+    if not book.pages:
+        raise ValueError("cannot export a book with no pages")
+    if not identifier.strip():
+        raise ValueError("EPUB identifier must not be empty")
+    _validate_language(language)
+    modified_text = _format_modified(modified)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        _write(archive, "mimetype", _MIMETYPE, zipfile.ZIP_STORED)
+        _write(archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED)
+        _write(
+            archive,
+            "OEBPS/content.opf",
+            _package_xml(book, identifier=identifier, language=language, modified=modified_text),
+            zipfile.ZIP_DEFLATED,
+        )
+        _write(archive, "OEBPS/nav.xhtml", _nav_xhtml(book, language), zipfile.ZIP_DEFLATED)
+        for page in book.pages:
+            _write(
+                archive,
+                f"OEBPS/{_page_file_name(page.page_index)}",
+                _page_xhtml(page, language),
+                zipfile.ZIP_DEFLATED,
+            )
+    return buffer.getvalue()
+
+
+def write_epub(
+    book: VerifiedBook,
+    path: Path,
+    *,
+    identifier: str,
+    language: str,
+    modified: datetime,
+) -> Path:
+    """Write an EPUB atomically so an interrupted export never leaves a torn file."""
+
+    data = build_epub(book, identifier=identifier, language=language, modified=modified)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        temporary.write_bytes(data)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path

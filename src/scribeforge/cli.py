@@ -6,14 +6,17 @@ import platform
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
+from scribeforge.adapters.epub import write_epub
 from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
+from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
 from scribeforge.runtime.manager import RuntimeManager
@@ -104,6 +107,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--text", required=True, help="Literal text the reviewer accepted for the pair."
     )
 
+    export = subparsers.add_parser(
+        "export", help="Write the verified text of a project to an EPUB 3 file."
+    )
+    export.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    export.add_argument("--out", type=Path, required=True, help="Destination EPUB file.")
+    export.add_argument(
+        "--language", default="und", help="BCP 47 language tag (default: und)."
+    )
+
     return parser
 
 
@@ -123,6 +135,8 @@ def run(
         return _review(args, out)
     if args.command == "resolve":
         return _resolve(args, out)
+    if args.command == "export":
+        return _export(args, out)
     factory = default_engine_factory if engine_factory is None else engine_factory
     return _process(args, out, factory)
 
@@ -267,6 +281,50 @@ def _resolve(args: argparse.Namespace, out: TextIO) -> int:
         f"recorded human decision #{decision_id} for page {args.page} pair {args.pair}",
         file=out,
     )
+    return EXIT_OK
+
+
+def _export(args: argparse.Namespace, out: TextIO) -> int:
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+
+    projects = store.list_projects()
+    if not projects:
+        print("error: no projects in store", file=sys.stderr)
+        return EXIT_FATAL
+
+    project = projects[0]
+    try:
+        book = assemble_verified_content(store, project.id)
+    except UnresolvedContentError as exc:
+        print(
+            "error: cannot export unresolved content: "
+            f"{len(exc.unresolved_pairs)} unresolved pair(s), "
+            f"{len(exc.unverified_pages)} unverified page(s); "
+            "resolve them with 'scribeforge review'",
+            file=sys.stderr,
+        )
+        return EXIT_FATAL
+
+    if not book.pages:
+        print("error: no pages to export", file=sys.stderr)
+        return EXIT_FATAL
+
+    try:
+        write_epub(
+            book,
+            args.out,
+            identifier=f"urn:scribeforge:{project.source_sha256}",
+            language=args.language,
+            modified=datetime.now(UTC),
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
     return EXIT_OK
 
 

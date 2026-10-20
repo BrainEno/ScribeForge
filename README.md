@@ -66,11 +66,14 @@ scribeforge status --store store/             # persisted jobs + review queue
 scribeforge review --store store/             # pairs awaiting a human decision
 scribeforge resolve --store store/ \
   --page 0 --pair 3 --text "鸦"              # record the accepted reading
+scribeforge export --store store/ --out book.epub   # verified text -> EPUB 3
 ```
 
 `process` writes a project store beside the book by default (`<book-stem>.scribeforge`). Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
 
 When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
+
+`export` writes the accepted decisions as an EPUB 3 file and refuses to run while any page is unverified or any pair is still unresolved, so a partial book can never be exported silently. See [Export](./docs/export.md).
 
 See:
 
@@ -79,6 +82,7 @@ See:
 - [Development plan](./docs/development-plan.md)
 - [TDD policy](./docs/tdd.md)
 - [Data model](./docs/data-model.md)
+- [Export](./docs/export.md)
 
 ## Development bootstrap
 
