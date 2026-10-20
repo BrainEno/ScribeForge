@@ -9,6 +9,8 @@
 - compare A: MinerU, B: Paddle, C: dual-engine diff, D: dual + VLM
 - publish `benchmark_report.md` from real representative pages
 
+Status: `scribeforge benchmark` now validates a corpus, builds only the requested managed backends, scores variants A (MinerU) and B (PaddleOCR) with per-page timing, and writes a deterministic Markdown report naming the manifest SHA-256, with per-case rows (language, tags) next to the aggregate table. The remaining Phase 0 work is the pipeline-level comparison (C and D) and the real run: `benchmark_report.md` stays pending until it is generated from legally usable pages with hand-verified ground truth and installed runtimes.
+
 ## Phase 0.5 — private runtime manager
 This phase is deliberately early: ordinary users must not be required to install Python, MinerU, PaddleOCR, CUDA toolkits, or virtual environments themselves.
 
