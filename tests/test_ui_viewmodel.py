@@ -8,6 +8,7 @@ from scribeforge.domain.alignment import (
     LineAlignment,
     PageAlignment,
 )
+from scribeforge.domain.crops import review_crop_file_name
 from scribeforge.domain.jobs import JobStage
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
@@ -17,7 +18,9 @@ from scribeforge.ui.viewmodel import (
     load_detail,
     load_jobs,
     load_library,
+    load_pair_view,
     load_review_rows,
+    page_image_path,
     render_detail,
 )
 
@@ -31,7 +34,7 @@ def _store(tmp_path: Path) -> tuple[SQLiteStore, int]:
     store = SQLiteStore(tmp_path / "project.sqlite3")
     store.initialize()
     project_id = store.create_project("Book", "book.pdf", "hash")
-    store.add_page(project_id, 0, "pages/0.png", 100, 200)
+    store.add_page(project_id, 0, str(tmp_path / "pages" / "0.png"), 100, 200)
 
     primary_id = store.record_ocr(
         project_id,
@@ -141,6 +144,57 @@ def test_load_detail_reads_the_queued_pair(tmp_path: Path) -> None:
     assert (detail.primary_text, detail.secondary_text) == ("鸦", "雅")
     assert detail.vlm_text is None
     assert detail.accepted_text is None
+
+
+def test_page_image_path_is_none_when_the_asset_is_gone(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+
+    assert page_image_path(store, project_id, 0) is None
+
+
+def test_page_image_path_resolves_the_imported_asset(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    asset = tmp_path / "pages" / "0.png"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"page")
+
+    assert page_image_path(store, project_id, 0) == asset
+
+
+def test_page_image_path_is_none_for_an_unknown_page(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+
+    assert page_image_path(store, project_id, 9) is None
+
+
+def test_load_pair_view_reports_the_missing_images(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    row = load_review_rows(store, project_id)[0]
+
+    view = load_pair_view(store, project_id, row)
+
+    assert view.page_image is None
+    assert view.crop_image is None
+    assert view.sources_label == "no page image, no crop"
+    assert (view.detail.page_index, view.detail.pair_index) == (0, 0)
+
+
+def test_load_pair_view_reports_the_page_asset_and_the_crop(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    asset = tmp_path / "pages" / "0.png"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"page")
+    crops_dir = tmp_path / "crops"
+    crops_dir.mkdir()
+    crop = crops_dir / review_crop_file_name(0, 0)
+    crop.write_bytes(b"crop")
+    row = load_review_rows(store, project_id)[0]
+
+    view = load_pair_view(store, project_id, row, crops_dir=crops_dir)
+
+    assert view.page_image == asset
+    assert view.crop_image == crop
+    assert view.sources_label == "page image, crop"
 
 
 def test_render_detail_lays_out_every_evidence_field() -> None:

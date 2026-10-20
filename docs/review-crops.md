@@ -25,3 +25,5 @@ The adapter:
 - never modifies the source page image.
 
 The returned mapping is keyed by alignment pair index and can be passed directly to the resumable VLM review orchestration. The later SQLite evidence step hashes the exact generated crop bytes before storing the VLM reading.
+
+The desktop shell displays these crops through a separate display-only boundary, `scribeforge.adapters.image_preview.load_preview`, which never writes pixels back. See [Desktop shell](./ui.md).

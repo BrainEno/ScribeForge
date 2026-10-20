@@ -13,14 +13,36 @@ later.
 | Library | one row per project: title, page count, queued pairs, failed job count |
 | Jobs | every persisted job in creation order, e.g. `primary_ocr [page 0] failed attempts=1 error=engine crashed` |
 | Review queue | one row per pair that still lacks an accepted decision: page, pair, risk score, risk reasons |
-| Evidence | for the selected pair: both engine readings, the newest VLM reading (with its uncertainty flag), the materialized crop path when one exists, and the currently accepted text |
+| Pair view | three tabs for the selected pair: `Evidence`, `Page image`, `Crop` |
+
+The `Evidence` tab shows both engine readings, the newest VLM reading (with its
+uncertainty flag), the materialized crop path when one exists, and the currently
+accepted text. The `Page image` and `Crop` tabs show the immutable page raster
+asset and the review crop for that pair, each with its path and displayed size in
+the caption; a missing asset, a missing crop, or an undecodable file is stated in
+the caption rather than hidden.
 
 Selecting a library row loads that project's jobs and queue; selecting a queue
-row loads the pair's evidence. `r` and `F5` reload the library from the store.
+row loads the pair's evidence and imagery. `r` and `F5` reload the library from
+the store.
+
+## Image previews
+
+`scribeforge.adapters.image_preview` is the viewer's image I/O boundary:
+`load_preview(path, box=..., upscale=...)` opens a file, applies the EXIF
+orientation, converts to RGB for display, and fits it into a box. Page images are
+only ever shrunk; crops may be enlarged so small regions stay readable. Missing
+files raise `FileNotFoundError` and undecodable bytes raise `ValueError`, and the
+shell reports either in the caption.
+
+Previews are display-only. They are never written back, never cached into the
+store, and never feed the OCR, verification, decision, or export layers, so the
+source evidence stays untouched.
 
 ## Layering
 
-- `scribeforge.ui.viewmodel` holds every label and row the shell renders. It
+- `scribeforge.ui.viewmodel` holds every label and row the shell renders, plus
+  the paths of the imagery to show (`page_image_path`, `load_pair_view`). It
   imports no GUI framework and is unit tested against a real `SQLiteStore`, so
   the presentation contract is verified without a display.
 - `scribeforge.ui.tk_window` is the Tkinter widget layer. It is display-only code
