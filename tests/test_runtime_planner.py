@@ -22,6 +22,24 @@ def test_windows_nvidia_driver_uses_cu126_paddle_runtime(tmp_path: Path) -> None
     assert any("stable/cu126" in argument for step in paddle.steps for argument in step.argv)
 
 
+def test_new_nvidia_driver_uses_cu129_paddle_runtime(tmp_path: Path) -> None:
+    profile = HardwareProfile(
+        os_name="windows",
+        architecture="x86_64",
+        gpu_name="NVIDIA GeForce RTX 5080",
+        nvidia_driver="617.70",
+        vram_mb=16384,
+        ram_mb=20480,
+    )
+
+    plan = build_runtime_plan(profile, RuntimeLayout(tmp_path))
+
+    paddle = plan.backend("paddleocr")
+    assert paddle.acceleration == "nvidia-cu129"
+    assert any("paddlepaddle-gpu==3.2.0" in argument for step in paddle.steps for argument in step.argv)
+    assert any("stable/cu129" in argument for step in paddle.steps for argument in step.argv)
+
+
 def test_machine_without_nvidia_uses_cpu_paddle_runtime(tmp_path: Path) -> None:
     profile = HardwareProfile(
         os_name="windows",

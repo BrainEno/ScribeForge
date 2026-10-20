@@ -8,39 +8,94 @@ import pytest
 from scribeforge.workers import mineru_worker, paddle_worker
 
 
-def test_mineru_extract_lines_supports_polygon_and_bbox() -> None:
+def test_mineru_extract_lines_reads_middle_json_blocks() -> None:
     raw = {
-        "width": 1000,
-        "height": 2000,
-        "lines": [
-            {"text": "第一行", "polygon": [[100, 200], [300, 200], [300, 260], [100, 260]]},
-            {"text": "第二行", "bbox": [200, 400, 500, 500]},
+        "metadata": {"producer": {"name": "mineru", "version": "4.0.12"}},
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [0.1, 0.2, 0.4, 0.25],
+                        "content": [{"type": "text", "content": "第一行"}],
+                    },
+                    {
+                        "type": "page_footnote",
+                        "bbox": [0.2, 0.8, 0.5, 0.85],
+                        "content": [
+                            {"type": "text", "content": "① 脚注"},
+                            {"type": "text", "content": "续行"},
+                        ],
+                    },
+                ],
+            }
         ],
     }
 
     lines = mineru_worker.extract_lines(raw)
 
-    assert lines[0]["box"] == [0.1, 0.1, 0.2, 0.03]
-    assert lines[1]["box"] == [0.2, 0.2, 0.3, 0.05]
+    assert [line["text"] for line in lines] == ["第一行", "① 脚注", "续行"]
+    assert lines[0]["box"][:2] == [0.1, 0.2]
+    assert lines[0]["box"][2] == pytest.approx(0.3)
+    assert lines[0]["box"][3] == pytest.approx(0.05)
+    assert lines[1]["box"][:2] == [0.2, 0.8]
+    assert lines[1]["box"][2] == pytest.approx(0.3)
 
 
 def test_mineru_extract_lines_rejects_bad_payloads() -> None:
     with pytest.raises(TypeError):
         mineru_worker.extract_lines([])
-    with pytest.raises(ValueError, match="missing geometry"):
-        mineru_worker.extract_lines({"lines": [{"text": "x"}]})
+    with pytest.raises(ValueError, match="pages"):
+        mineru_worker.extract_lines({"pages": []})
+    with pytest.raises(TypeError, match="content"):
+        mineru_worker.extract_lines(
+            {"pages": [{"blocks": [{"bbox": [0, 0, 1, 1], "content": "bad"}]}]}
+        )
+    assert (
+        mineru_worker.extract_lines(
+            {"pages": [{"blocks": [{"bbox": [0, 0, 1, 1], "content": []}]}]}
+        )
+        == []
+    )
+    with pytest.raises(ValueError, match="bbox"):
+        mineru_worker.extract_lines(
+            {
+                "pages": [
+                    {
+                        "blocks": [
+                            {
+                                "bbox": [0, 0, 1],
+                                "content": [{"type": "text", "content": "x"}],
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
 
 
 def test_mineru_main_emits_worker_contract(monkeypatch, capsys, tmp_path: Path) -> None:
     raw = {
-        "version": "4.0.1",
-        "width": 100,
-        "height": 100,
-        "lines": [{"text": "乌鸦", "bbox": [10, 20, 40, 30]}],
+        "metadata": {"producer": {"name": "mineru", "version": "4.0.12"}},
+        "pages": [
+            {
+                "page_idx": 0,
+                "blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [0.1, 0.2, 0.4, 0.25],
+                        "content": [{"type": "text", "content": "乌鸦"}],
+                    }
+                ],
+            }
+        ],
     }
 
-    def fake_run(*args, **kwargs):
-        return SimpleNamespace(stdout=json.dumps(raw))
+    def fake_run(argv, **kwargs):
+        output = Path(argv[argv.index("-o") + 1])
+        (output / "page.json").write_text(json.dumps(raw), encoding="utf-8")
+        return SimpleNamespace(stdout="")
 
     image = tmp_path / "page.png"
     image.write_bytes(b"x")
@@ -51,7 +106,7 @@ def test_mineru_main_emits_worker_contract(monkeypatch, capsys, tmp_path: Path) 
 
     emitted = json.loads(capsys.readouterr().out)
     assert emitted["engine"] == "mineru"
-    assert emitted["engine_version"] == "4.0.1"
+    assert emitted["engine_version"] == "4.0.12"
     assert emitted["page_index"] == 3
     assert emitted["lines"][0]["text"] == "乌鸦"
 
@@ -85,11 +140,32 @@ def test_paddle_extract_lines_rejects_invalid_arrays() -> None:
         paddle_worker.extract_lines({"rec_texts": ["x"], "rec_scores": [0.9], "rec_polys": ["bad"]})
 
 
+def test_paddle_extract_lines_uses_image_size_when_result_omits_it() -> None:
+    raw = {
+        "rec_texts": ["问"],
+        "rec_scores": [0.91],
+        "rec_polys": [[[10, 20], [20, 20], [20, 30], [10, 30]]],
+    }
+
+    lines = paddle_worker.extract_lines(raw, image_size=(100, 200))
+
+    assert lines[0]["box"] == [0.1, 0.1, 0.1, 0.05]
+
+
+def test_paddle_extract_lines_rejects_unknown_page_size() -> None:
+    with pytest.raises(ValueError, match="dimensions"):
+        paddle_worker.extract_lines(
+            {
+                "rec_texts": ["问"],
+                "rec_scores": [0.9],
+                "rec_polys": [[[0, 0], [1, 0], [1, 1], [0, 1]]],
+            }
+        )
+
+
 def test_paddle_main_writes_contract_from_saved_result(monkeypatch, capsys, tmp_path: Path) -> None:
     raw = {
         "version": "3.5.0",
-        "width": 100,
-        "height": 100,
         "rec_texts": ["问"],
         "rec_scores": [0.91],
         "rec_polys": [[[10, 20], [20, 20], [20, 30], [10, 30]]],
@@ -97,12 +173,13 @@ def test_paddle_main_writes_contract_from_saved_result(monkeypatch, capsys, tmp_
 
     def fake_run(argv, **kwargs):
         output = Path(argv[argv.index("--save_path") + 1])
-        output.write_text(json.dumps(raw), encoding="utf-8")
+        (output / "page_res.json").write_text(json.dumps(raw), encoding="utf-8")
         return SimpleNamespace(returncode=0)
 
     image = tmp_path / "page.png"
     image.write_bytes(b"x")
     monkeypatch.setattr(paddle_worker.subprocess, "run", fake_run)
+    monkeypatch.setattr(paddle_worker, "_image_size", lambda path: (100, 200))
     monkeypatch.setattr(sys, "argv", ["paddle-worker", "--image", str(image), "--page-index", "5"])
 
     paddle_worker.main()
@@ -112,3 +189,4 @@ def test_paddle_main_writes_contract_from_saved_result(monkeypatch, capsys, tmp_
     assert emitted["engine_version"] == "3.5.0"
     assert emitted["page_index"] == 5
     assert emitted["lines"][0]["text"] == "问"
+    assert emitted["lines"][0]["box"] == [0.1, 0.1, 0.1, 0.05]
