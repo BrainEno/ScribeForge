@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import platform
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -418,3 +419,111 @@ def test_resolve_rejects_a_store_without_projects(
     captured = capsys.readouterr()
     assert code == 2
     assert "no projects" in captured.err.lower()
+
+
+def test_export_writes_an_epub_from_decided_content(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        ["export", "--store", str(store_dir), "--out", str(out_path), "--language", "zh"]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "exported" in captured.out.lower()
+    with zipfile.ZipFile(out_path) as archive:
+        assert archive.read("mimetype") == b"application/epub+zip"
+        opf = archive.read("OEBPS/content.opf").decode("utf-8")
+    assert "<dc:language>zh</dc:language>" in opf
+    assert "<dc:title>book</dc:title>" in opf
+
+
+def test_export_blocks_on_unresolved_pairs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    )
+    capsys.readouterr()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "unresolved" in captured.err.lower()
+    assert not out_path.exists()
+
+
+def test_export_rejects_missing_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = run(
+        ["export", "--store", str(tmp_path / "missing"), "--out", str(tmp_path / "o.epub")]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "no store found" in captured.err.lower()
+
+
+def test_export_rejects_a_store_without_projects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir = tmp_path / "store"
+    SQLiteStore(store_dir / "project.sqlite3").initialize()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(tmp_path / "o.epub")])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "no projects" in captured.err.lower()
+
+
+def test_export_rejects_a_project_without_pages(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir = tmp_path / "store"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    store.create_project("Empty", "book.pdf", "sha256")
+
+    code = run(["export", "--store", str(store_dir), "--out", str(tmp_path / "o.epub")])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "no pages" in captured.err.lower()
+
+
+def test_export_rejects_an_invalid_language(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(tmp_path / "o.epub"),
+            "--language",
+            "zh zh",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "language" in captured.err.lower()

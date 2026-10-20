@@ -54,5 +54,7 @@ Library, job progress, source/text synchronized viewer, conflict queue, keyboard
 ## Phase 4 — export
 EPUB 3 + DOCX generated from verified structured content, validation tests and metadata editor.
 
+EPUB 3 export is now wired: `assemble_verified_content` composes a `VerifiedBook` from the newest accepted decision for every pair, refusing to assemble while any page is unverified or any pair is unresolved. `scribeforge.adapters.epub` renders that book as a deterministic EPUB 3 archive (stored `mimetype`, container, package, nav, one XHTML per page) with XML-escaped text, and `write_epub` replaces the destination atomically. `scribeforge export --store <dir> --out <file> [--language <tag>]` exits `2` rather than exporting a partial book. DOCX export and the metadata editor remain.
+
 ## Later
 Speech-to-text and text-to-speech may join the same text library only after book digitization is reliable.
