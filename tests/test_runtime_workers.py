@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,54 @@ def test_runtime_environment_merges_model_and_cache_dirs(tmp_path: Path) -> None
 
     assert environment["MINERU_HOME"] == str(layout.models_dir / "mineru")
     assert environment["PADDLE_HOME"] == "override"
+
+
+def test_runtime_environment_exposes_project_sources_to_workers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scribeforge
+
+    layout = _layout(tmp_path)
+    monkeypatch.setenv("PYTHONPATH", "existing-entry")
+
+    environment = runtime_environment(layout)
+
+    entries = environment["PYTHONPATH"].split(os.pathsep)
+    assert entries[0] == str(Path(scribeforge.__file__).resolve().parent.parent)
+    assert entries[1] == "existing-entry"
+
+
+def test_build_runtime_engine_puts_backend_executables_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.adapters import runtime_workers
+
+    layout = _layout(tmp_path)
+    python = layout.root / "envs" / "mineru" / "Scripts" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"")
+    script = tmp_path / "worker.py"
+    script.write_text("", encoding="utf-8")
+    captured: dict[str, dict[str, str]] = {}
+
+    class FakeEngine:
+        def __init__(self, name, command, *, environment, preflight):
+            captured["environment"] = environment
+
+    monkeypatch.setattr(runtime_workers, "SubprocessOCREngine", FakeEngine)
+    monkeypatch.setenv("PATH", "base-path")
+    runtime_workers.build_runtime_engine(
+        layout,
+        "mineru",
+        script,
+        "windows",
+        name="mineru",
+        status=lambda backend: "ready",
+    )
+
+    entries = captured["environment"]["PATH"].split(os.pathsep)
+    assert entries[0] == str(python.parent)
+    assert entries[1] == "base-path"
 
 
 def test_require_backend_ready_rejects_missing_and_not_ready(tmp_path: Path) -> None:

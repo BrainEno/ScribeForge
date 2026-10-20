@@ -31,7 +31,19 @@ def _driver_at_least(driver: str | None, minimum: tuple[int, ...]) -> bool:
 
 
 def _paddle_acceleration(profile: HardwareProfile) -> tuple[str, str, str]:
+    """Pick the PaddlePaddle wheel that can actually run on this machine.
+
+    The CUDA 12.6 build aborts with ``Unsupported GPU architecture`` on Blackwell
+    parts, so drivers from the 570 series onward get the CUDA 12.9 build.
+    """
+
     if profile.gpu_name and profile.nvidia_driver:
+        if _driver_at_least(profile.nvidia_driver, (570, 0)):
+            return (
+                "nvidia-cu129",
+                "paddlepaddle-gpu==3.2.0",
+                "https://www.paddlepaddle.org.cn/packages/stable/cu129/",
+            )
         if _driver_at_least(profile.nvidia_driver, (550, 54, 14)):
             return (
                 "nvidia-cu126",

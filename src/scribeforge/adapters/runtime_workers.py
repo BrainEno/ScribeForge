@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -24,13 +25,28 @@ def worker_command(
     return (str(python), str(worker_script))
 
 
+def _project_sources() -> Path:
+    """Return the directory that holds the ``scribeforge`` package."""
+
+    return Path(__file__).resolve().parents[2]
+
+
 def runtime_environment(
     layout: RuntimeLayout,
     extra: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    """Centralize model/cache directories for a worker backend runtime."""
+    """Centralize model/cache directories and worker imports.
+
+    Workers run inside a managed backend environment that does not install the
+    application itself, so the project sources must be on ``PYTHONPATH``.
+    """
 
     environment = build_runtime_environment(layout)
+    existing = os.environ.get("PYTHONPATH")
+    sources = str(_project_sources())
+    environment["PYTHONPATH"] = (
+        f"{sources}{os.pathsep}{existing}" if existing else sources
+    )
     if extra:
         environment.update(dict(extra))
     return environment
@@ -75,9 +91,15 @@ def build_runtime_engine(
         require_backend_ready(layout, backend, os_name, status)
 
     preflight()
+    python = layout.python_executable(backend, os_name)
+    base_path = os.environ.get("PATH", "")
+    extra = dict(extra_environment or {})
+    extra["PATH"] = f"{python.parent}{os.pathsep}{base_path}" if base_path else str(
+        python.parent
+    )
     return SubprocessOCREngine(
         name,
         worker_command(layout, backend, worker_script, os_name),
-        environment=runtime_environment(layout, extra_environment),
+        environment=runtime_environment(layout, extra),
         preflight=preflight,
     )

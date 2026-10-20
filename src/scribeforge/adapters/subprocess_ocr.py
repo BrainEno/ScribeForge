@@ -47,6 +47,7 @@ class SubprocessOCREngine:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             env=process_env,
         )
         raw: Any = json.loads(completed.stdout)
