@@ -1,52 +1,36 @@
 from __future__ import annotations
 
 import io
-import re
 import zipfile
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
+from scribeforge.adapters.export_common import (
+    XML_DECL,
+    format_modified,
+    validate_identifier,
+    validate_language,
+    write_atomic,
+    write_zip_entry,
+)
 from scribeforge.domain.content import VerifiedBook, VerifiedPage
 
 _MIMETYPE = "application/epub+zip"
-_XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>'
 _OPF_NS = "http://www.idpf.org/2007/opf"
 _XHTML_NS = "http://www.w3.org/1999/xhtml"
 _EPUB_NS = "http://www.idpf.org/2007/ops"
 _CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 _DC_NS = "http://purl.org/dc/elements/1.1/"
-_LANGUAGE_TAG = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
-# Fixed DOS epoch so two runs with the same inputs produce identical bytes.
-_ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 
 
 def _page_file_name(page_index: int) -> str:
     return f"page-{page_index + 1:06d}.xhtml"
 
 
-def _format_modified(modified: datetime) -> str:
-    if modified.tzinfo is None:
-        raise ValueError("modified time must be timezone-aware")
-    return modified.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _validate_language(language: str) -> str:
-    if not _LANGUAGE_TAG.match(language):
-        raise ValueError(f"invalid language tag: {language!r}")
-    return language
-
-
-def _write(archive: zipfile.ZipFile, name: str, text: str, compression: int) -> None:
-    info = zipfile.ZipInfo(name, date_time=_ZIP_DATE)
-    info.compress_type = compression
-    info.external_attr = 0o644 << 16
-    archive.writestr(info, text.encode("utf-8"))
-
-
 def _container_xml() -> str:
     return (
-        _XML_DECL
+        XML_DECL
         + "\n"
         + f'<container version="1.0" xmlns="{_CONTAINER_NS}">'
         + "<rootfiles>"
@@ -77,7 +61,7 @@ def _package_xml(
         )
         spine.append(f'<itemref idref="page-{page.page_index}"/>')
     return (
-        _XML_DECL
+        XML_DECL
         + "\n"
         + f'<package xmlns="{_OPF_NS}" version="3.0" unique-identifier="book-id">'
         + f'<metadata xmlns:dc="{_DC_NS}">'
@@ -100,7 +84,7 @@ def _nav_xhtml(book: VerifiedBook, language: str) -> str:
         for page in book.pages
     )
     return (
-        _XML_DECL
+        XML_DECL
         + "\n<!DOCTYPE html>\n"
         + f'<html xmlns="{_XHTML_NS}" xmlns:epub="{_EPUB_NS}" lang={lang} xml:lang={lang}>'
         + "<head><title>Contents</title></head>"
@@ -114,7 +98,7 @@ def _page_xhtml(page: VerifiedPage, language: str) -> str:
     paragraphs = "".join(f"<p>{escape(text)}</p>" for text in page.lines)
     index = page.page_index + 1
     return (
-        _XML_DECL
+        XML_DECL
         + "\n<!DOCTYPE html>\n"
         + f'<html xmlns="{_XHTML_NS}" lang={lang} xml:lang={lang}>'
         + f"<head><title>Page {index}</title></head>"
@@ -134,24 +118,27 @@ def build_epub(
 
     if not book.pages:
         raise ValueError("cannot export a book with no pages")
-    if not identifier.strip():
-        raise ValueError("EPUB identifier must not be empty")
-    _validate_language(language)
-    modified_text = _format_modified(modified)
+    validate_identifier(identifier)
+    validate_language(language)
+    modified_text = format_modified(modified)
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        _write(archive, "mimetype", _MIMETYPE, zipfile.ZIP_STORED)
-        _write(archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED)
-        _write(
+        write_zip_entry(archive, "mimetype", _MIMETYPE, zipfile.ZIP_STORED)
+        write_zip_entry(
+            archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED
+        )
+        write_zip_entry(
             archive,
             "OEBPS/content.opf",
             _package_xml(book, identifier=identifier, language=language, modified=modified_text),
             zipfile.ZIP_DEFLATED,
         )
-        _write(archive, "OEBPS/nav.xhtml", _nav_xhtml(book, language), zipfile.ZIP_DEFLATED)
+        write_zip_entry(
+            archive, "OEBPS/nav.xhtml", _nav_xhtml(book, language), zipfile.ZIP_DEFLATED
+        )
         for page in book.pages:
-            _write(
+            write_zip_entry(
                 archive,
                 f"OEBPS/{_page_file_name(page.page_index)}",
                 _page_xhtml(page, language),
@@ -170,12 +157,7 @@ def write_epub(
 ) -> Path:
     """Write an EPUB atomically so an interrupted export never leaves a torn file."""
 
-    data = build_epub(book, identifier=identifier, language=language, modified=modified)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    try:
-        temporary.write_bytes(data)
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return path
+    return write_atomic(
+        path,
+        build_epub(book, identifier=identifier, language=language, modified=modified),
+    )
