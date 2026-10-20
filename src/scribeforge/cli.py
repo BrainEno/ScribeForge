@@ -5,7 +5,7 @@ import hashlib
 import platform
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
@@ -115,6 +115,18 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--out", type=Path, required=True, help="Destination EPUB file.")
     export.add_argument(
         "--language", default="und", help="BCP 47 language tag (default: und)."
+    )
+    export.add_argument(
+        "--title", default=None, help="Override the book title (default: project title)."
+    )
+    export.add_argument("--author", default=None, help="Book author metadata.")
+    export.add_argument(
+        "--modified",
+        default=None,
+        help=(
+            "ISO 8601 export timestamp for reproducible builds "
+            "(default: now; naive values are treated as UTC)."
+        ),
     )
 
     return parser
@@ -296,6 +308,20 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         print("error: no projects in store", file=sys.stderr)
         return EXIT_FATAL
 
+    if args.title is not None and not args.title.strip():
+        print("error: title must not be empty", file=sys.stderr)
+        return EXIT_FATAL
+    try:
+        modified = (
+            _parse_modified(args.modified)
+            if args.modified is not None
+            else datetime.now(UTC)
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    author = args.author if args.author and args.author.strip() else None
+
     project = projects[0]
     try:
         book = assemble_verified_content(store, project.id)
@@ -312,6 +338,8 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
     if not book.pages:
         print("error: no pages to export", file=sys.stderr)
         return EXIT_FATAL
+    if args.title is not None:
+        book = replace(book, title=args.title)
 
     suffix = args.out.suffix.lower()
     if suffix == ".epub":
@@ -331,7 +359,8 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             args.out,
             identifier=f"urn:scribeforge:{project.source_sha256}",
             language=args.language,
-            modified=datetime.now(UTC),
+            modified=modified,
+            author=author,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -339,6 +368,17 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
     return EXIT_OK
+
+
+def _parse_modified(value: str) -> datetime:
+    text = value.strip()
+    if text.endswith(("z", "Z")):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f"invalid ISO 8601 timestamp: {value!r}") from exc
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
 def _open_store(root: Path) -> SQLiteStore | None:

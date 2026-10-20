@@ -172,6 +172,30 @@ def test_build_rejects_an_empty_identifier() -> None:
         _build(identifier="   ")
 
 
+def test_core_properties_include_author_when_given() -> None:
+    archive = _archive(_build(author="Ada Lovelace"))
+
+    core = _parse(archive, "docProps/core.xml")
+
+    assert core.find("dc:creator", _CORE).text == "Ada Lovelace"  # type: ignore[union-attr]
+
+
+def test_core_properties_omit_author_when_absent() -> None:
+    archive = _archive(_build())
+
+    core = _parse(archive, "docProps/core.xml")
+
+    assert core.find("dc:creator", _CORE) is None
+
+
+def test_core_properties_escape_the_author() -> None:
+    archive = _archive(_build(author="A & B <C>"))
+
+    core = _parse(archive, "docProps/core.xml")
+
+    assert core.find("dc:creator", _CORE).text == "A & B <C>"  # type: ignore[union-attr]
+
+
 def test_build_rejects_a_book_without_pages() -> None:
     with pytest.raises(ValueError, match="no pages"):
         build_docx(

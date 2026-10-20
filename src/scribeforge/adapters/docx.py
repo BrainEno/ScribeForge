@@ -74,13 +74,16 @@ def _core_properties_xml(
     identifier: str,
     language: str,
     modified: str,
+    author: str | None,
 ) -> str:
+    creator = "" if author is None else f"<dc:creator>{escape(author)}</dc:creator>"
     return (
         XML_DECL
         + "\n"
         + f'<cp:coreProperties xmlns:cp="{_CORE_NS}" xmlns:dc="{_DC_NS}" '
         + f'xmlns:dcterms="{_DCTERMS_NS}" xmlns:xsi="{_XSI_NS}">'
         + f"<dc:title>{escape(book.title)}</dc:title>"
+        + creator
         + f"<dc:identifier>{escape(identifier)}</dc:identifier>"
         + f"<dc:language>{escape(language)}</dc:language>"
         + f'<dcterms:modified xsi:type="dcterms:W3CDTF">{modified}</dcterms:modified>'
@@ -115,6 +118,7 @@ def build_docx(
     identifier: str,
     language: str,
     modified: datetime,
+    author: str | None = None,
 ) -> bytes:
     """Render a verified book as a deterministic WordprocessingML document."""
 
@@ -139,7 +143,11 @@ def build_docx(
             archive,
             "docProps/core.xml",
             _core_properties_xml(
-                book, identifier=identifier, language=language, modified=modified_text
+                book,
+                identifier=identifier,
+                language=language,
+                modified=modified_text,
+                author=author,
             ),
             zipfile.ZIP_DEFLATED,
         )
@@ -153,10 +161,17 @@ def write_docx(
     identifier: str,
     language: str,
     modified: datetime,
+    author: str | None = None,
 ) -> Path:
     """Write a DOCX atomically so an interrupted export never leaves a torn file."""
 
     return write_atomic(
         path,
-        build_docx(book, identifier=identifier, language=language, modified=modified),
+        build_docx(
+            book,
+            identifier=identifier,
+            language=language,
+            modified=modified,
+            author=author,
+        ),
     )

@@ -538,7 +538,9 @@ def test_export_writes_docx_for_a_docx_destination(
     run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
     capsys.readouterr()
 
-    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+    code = run(
+        ["export", "--store", str(store_dir), "--out", str(out_path), "--author", "Ada Lovelace"]
+    )
 
     captured = capsys.readouterr()
     assert code == 0
@@ -546,6 +548,138 @@ def test_export_writes_docx_for_a_docx_destination(
     with zipfile.ZipFile(out_path) as archive:
         assert archive.namelist()[0] == "[Content_Types].xml"
         assert "word/document.xml" in archive.namelist()
+        core = archive.read("docProps/core.xml").decode("utf-8")
+    assert "<dc:creator>Ada Lovelace</dc:creator>" in core
+
+
+def test_export_overrides_title_and_author(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--title",
+            "My Book",
+            "--author",
+            "Ada Lovelace",
+        ]
+    )
+
+    assert code == 0
+    with zipfile.ZipFile(out_path) as archive:
+        opf = archive.read("OEBPS/content.opf").decode("utf-8")
+    assert "<dc:title>My Book</dc:title>" in opf
+    assert "<dc:creator>Ada Lovelace</dc:creator>" in opf
+
+
+def test_export_accepts_an_explicit_modified_timestamp(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--modified",
+            "2020-01-02T03:04:05Z",
+        ]
+    )
+
+    assert code == 0
+    with zipfile.ZipFile(out_path) as archive:
+        opf = archive.read("OEBPS/content.opf").decode("utf-8")
+    assert "2020-01-02T03:04:05Z" in opf
+
+
+def test_export_treats_a_naive_modified_timestamp_as_utc(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--modified",
+            "2020-01-02T03:04:05",
+        ]
+    )
+
+    assert code == 0
+    with zipfile.ZipFile(out_path) as archive:
+        opf = archive.read("OEBPS/content.opf").decode("utf-8")
+    assert "2020-01-02T03:04:05Z" in opf
+
+
+def test_export_rejects_an_invalid_modified_timestamp(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--modified",
+            "not-a-date",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "timestamp" in captured.err.lower()
+    assert not out_path.exists()
+
+
+def test_export_rejects_a_blank_title(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        ["export", "--store", str(store_dir), "--out", str(out_path), "--title", "   "]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "title" in captured.err.lower()
+    assert not out_path.exists()
 
 
 def test_export_rejects_an_unknown_extension(
