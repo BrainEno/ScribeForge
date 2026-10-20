@@ -70,15 +70,19 @@ def _book(tmp_path: Path) -> Path:
 _DEFAULT_REVIEWER = object()
 
 
-def _factory(*, secondary: bool = True, reviewer: object = _DEFAULT_REVIEWER):
+def _factory(
+    *, secondary: bool = True, reviewer: object = _DEFAULT_REVIEWER, text: str | None = None
+):
     chosen_reviewer = FakeReviewer() if reviewer is _DEFAULT_REVIEWER else reviewer
 
     def factory(runtime_root: Path) -> Engines:
         secondary_engine = (
-            FakeEngine("secondary", "雅") if secondary else ExplodingEngine("secondary")
+            FakeEngine("secondary", text if text is not None else "雅")
+            if secondary
+            else ExplodingEngine("secondary")
         )
         return Engines(
-            primary=FakeEngine("primary", "鸦"),
+            primary=FakeEngine("primary", text if text is not None else "鸦"),
             secondary=secondary_engine,
             reviewer=chosen_reviewer,
         )
@@ -527,6 +531,26 @@ def test_export_rejects_an_invalid_language(
     captured = capsys.readouterr()
     assert code == 2
     assert "language" in captured.err.lower()
+
+
+def test_export_rejects_text_xml_cannot_represent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(text="bad \x0b text"),
+    )
+    capsys.readouterr()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "U+000B" in captured.err
+    assert not out_path.exists()
 
 
 def test_export_writes_docx_for_a_docx_destination(

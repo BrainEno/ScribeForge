@@ -53,6 +53,10 @@ Text is XML-escaped, so source characters such as `<` and `&` survive unchanged.
 Page documents are named from the source page index, which keeps the mapping back
 to page evidence stable.
 
+XML 1.0 cannot represent most C0 control characters or lone surrogates. Both
+exporters reject such a value (`ValueError` naming the page and line) instead of
+writing an archive no reader can open; nothing is silently stripped or replaced.
+
 ## DOCX mapping
 
 `scribeforge.adapters.docx` writes a deterministic WordprocessingML package with
@@ -68,6 +72,7 @@ the minimal OPC parts:
 An accepted empty line becomes `<w:p/>`; text keeps `xml:space="preserve"` so
 leading and trailing spaces survive. Pages are separated by an explicit
 `<w:br w:type="page"/>` paragraph, so even a blank page occupies its own page.
+Values XML cannot represent are rejected for the same reason as in EPUB.
 
 Determinism (fixed zip timestamps and entry order) and atomic replacement are
 shared with EPUB through `scribeforge.adapters.export_common`.
@@ -100,5 +105,5 @@ values are interpreted as UTC. Supplying it makes the build reproducible: the
 same book and metadata produce byte-identical output.
 
 Exit codes: `0` written, `2` unverified content, missing store/project, no pages,
-unsupported extension, or invalid metadata (empty title, unsafe language tag,
-unparseable timestamp).
+unsupported extension, invalid metadata (empty title, unsafe language tag,
+unparseable timestamp), or source text XML cannot represent.

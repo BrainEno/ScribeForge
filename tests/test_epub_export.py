@@ -173,6 +173,42 @@ def test_package_escapes_the_author() -> None:
     assert opf.find("o:metadata/dc:creator", _OPF_NS).text == "A & B <C>"  # type: ignore[union-attr]
 
 
+def test_build_rejects_text_that_xml_cannot_represent() -> None:
+    book = VerifiedBook("Title", (VerifiedPage(0, ("fine", "bad \x0b char")),))
+
+    with pytest.raises(ValueError, match=r"page 0 line 1.*U\+000B"):
+        build_epub(book, identifier="urn:test", language="zh", modified=_MODIFIED)
+
+
+def test_build_rejects_a_title_that_xml_cannot_represent() -> None:
+    book = VerifiedBook("Bad \x00 title", (VerifiedPage(0, ("ok",)),))
+
+    with pytest.raises(ValueError, match=r"title.*U\+0000"):
+        build_epub(book, identifier="urn:test", language="zh", modified=_MODIFIED)
+
+
+def test_build_rejects_an_author_that_xml_cannot_represent() -> None:
+    with pytest.raises(ValueError, match=r"author.*U\+001F"):
+        _build(author="bad \x1f author")
+
+
+def test_build_rejects_an_identifier_that_xml_cannot_represent() -> None:
+    with pytest.raises(ValueError, match=r"identifier.*U\+0000"):
+        _build(identifier="urn:test:\x00")
+
+
+def test_build_accepts_xml_whitespace_characters() -> None:
+    book = VerifiedBook("Title", (VerifiedPage(0, ("a\tb", "c\nd")),))
+
+    archive = _archive(
+        build_epub(book, identifier="urn:test", language="zh", modified=_MODIFIED)
+    )
+
+    page = _parse(archive, "OEBPS/page-000001.xhtml")
+    paragraphs = [element.text or "" for element in page.findall(".//x:p", _XHTML_NS)]
+    assert paragraphs == ["a\tb", "c\nd"]
+
+
 def test_write_epub_replaces_the_target_atomically(tmp_path: Path) -> None:
     path = tmp_path / "out" / "book.epub"
 
