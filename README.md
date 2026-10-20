@@ -79,7 +79,7 @@ When two engines agree a decision is recorded as `automatic`; a confident VLM re
 
 `export` writes the accepted decisions as an EPUB 3 or DOCX file (chosen by the destination extension) and refuses to run while any page is unverified or any pair is still unresolved, so a partial book can never be exported silently. `--title` and `--author` override the export metadata (the author becomes `dc:creator` in both formats), and `--modified` pins the timestamp for byte-reproducible builds. Every build is re-read and checked against the accepted text before it is written. See [Export](./docs/export.md).
 
-`ui` opens a read-only desktop shell over the store: library with job progress, the review queue, and the evidence for the selected pair. The presentation logic is framework-independent and unit tested; the Tkinter layer is display-only. See [Desktop shell](./docs/ui.md).
+`ui` opens a read-only desktop shell over the store: library with job progress, the review queue, and a pair view with the evidence plus the page raster and review crop for the selected pair. The presentation logic is framework-independent and unit tested; the Tkinter layer is display-only. See [Desktop shell](./docs/ui.md).
 
 See:
 

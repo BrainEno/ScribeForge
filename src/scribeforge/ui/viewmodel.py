@@ -137,6 +137,50 @@ def load_detail(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class PairView:
+    """Everything the shell shows for one queued pair: evidence and imagery."""
+
+    detail: ReviewDetail
+    page_image: Path | None
+    crop_image: Path | None
+
+    @property
+    def sources_label(self) -> str:
+        page = "page image" if self.page_image is not None else "no page image"
+        crop = "crop" if self.crop_image is not None else "no crop"
+        return f"{page}, {crop}"
+
+
+def page_image_path(
+    store: SQLiteStore, project_id: int, page_index: int
+) -> Path | None:
+    """Absolute path of a page's immutable raster asset, when it still exists."""
+
+    for page in store.list_pages(project_id):
+        if page.page_index == page_index:
+            path = Path(page.source_image)
+            return path if path.is_file() else None
+    return None
+
+
+def load_pair_view(
+    store: SQLiteStore,
+    project_id: int,
+    row: ReviewRow,
+    *,
+    crops_dir: Path | None = None,
+) -> PairView:
+    """Load the evidence and the available imagery for one queued pair."""
+
+    detail = load_detail(store, project_id, row, crops_dir=crops_dir)
+    return PairView(
+        detail=detail,
+        page_image=page_image_path(store, project_id, row.page_index),
+        crop_image=None if detail.crop_path is None else Path(detail.crop_path),
+    )
+
+
 def render_detail(detail: ReviewDetail) -> str:
     """Render the evidence panel text for one pair."""
 

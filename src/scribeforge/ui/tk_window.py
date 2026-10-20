@@ -11,12 +11,15 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import ttk
 
+from PIL import ImageTk
+
+from scribeforge.adapters.image_preview import load_preview
 from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.ui.viewmodel import (
     ReviewRow,
-    load_detail,
     load_jobs,
     load_library,
+    load_pair_view,
     load_review_rows,
     render_detail,
 )
@@ -34,6 +37,7 @@ class ScribeForgeWindow:
         self._projects: dict[str, int] = {}
         self._queue: dict[str, ReviewRow] = {}
         self._project_id: int | None = None
+        self._photos: dict[ttk.Label, ImageTk.PhotoImage] = {}
 
         root.title("ScribeForge")
         root.geometry("1180x680")
@@ -77,10 +81,29 @@ class ScribeForgeWindow:
         panes.add(review_frame, weight=1)
 
         detail_frame = ttk.Frame(panes)
-        ttk.Label(detail_frame, text="Evidence").pack(anchor="w")
-        self.detail = tk.Text(detail_frame, wrap="word", width=48, state="disabled")
+        ttk.Label(detail_frame, text="Pair view").pack(anchor="w")
+        notebook = ttk.Notebook(detail_frame)
+        notebook.pack(fill="both", expand=True)
+
+        evidence_tab = ttk.Frame(notebook)
+        self.detail = tk.Text(evidence_tab, wrap="word", width=48, state="disabled")
         self.detail.pack(fill="both", expand=True)
-        panes.add(detail_frame, weight=1)
+        notebook.add(evidence_tab, text="Evidence")
+
+        page_tab = ttk.Frame(notebook)
+        self.page_caption = ttk.Label(page_tab, text="no page image", anchor="w")
+        self.page_caption.pack(fill="x")
+        self.page_image = ttk.Label(page_tab)
+        self.page_image.pack(fill="both", expand=True)
+        notebook.add(page_tab, text="Page image")
+
+        crop_tab = ttk.Frame(notebook)
+        self.crop_caption = ttk.Label(crop_tab, text="no crop", anchor="w")
+        self.crop_caption.pack(fill="x")
+        self.crop_image = ttk.Label(crop_tab)
+        self.crop_image.pack(fill="both", expand=True)
+        notebook.add(crop_tab, text="Crop")
+        panes.add(detail_frame, weight=2)
 
         self.status = ttk.Label(root, text="", anchor="w")
         self.status.pack(fill="x", padx=8, pady=(0, 8))
@@ -108,6 +131,7 @@ class ScribeForgeWindow:
             self.jobs.delete(0, "end")
             self.review.delete(*self.review.get_children())
             self.status.configure(text="no projects in this store")
+            self._clear_images("no page image", "no crop")
             self._set_detail("no projects in this store")
             return
         first = self.library.get_children()[0]
@@ -137,6 +161,7 @@ class ScribeForgeWindow:
             self._queue[item] = queued
         self.status.configure(text=f"{len(rows)} pair(s) queued for review")
         if not rows:
+            self._clear_images("no page image for this page", "no crop for this pair")
             self._set_detail("nothing queued for review")
             return
         first = self.review.get_children()[0]
@@ -157,10 +182,72 @@ class ScribeForgeWindow:
     def _show_pair(self, row: ReviewRow) -> None:
         if self._project_id is None:
             return
-        detail = load_detail(
+        view = load_pair_view(
             self._store, self._project_id, row, crops_dir=self._crops_dir
         )
-        self._set_detail(render_detail(detail))
+        self._set_detail(render_detail(view.detail))
+        self._show_image(
+            self.page_image,
+            self.page_caption,
+            view.page_image,
+            box=(560, 720),
+            upscale=False,
+            missing="no page image for this page",
+        )
+        self._show_image(
+            self.crop_image,
+            self.crop_caption,
+            view.crop_image,
+            box=(560, 240),
+            upscale=True,
+            missing="no crop for this pair",
+        )
+        self.status.configure(
+            text=f"page {row.page_index} pair {row.pair_index} — {view.sources_label}"
+        )
+
+    def _show_image(
+        self,
+        holder: ttk.Label,
+        caption: ttk.Label,
+        path: Path | None,
+        *,
+        box: tuple[int, int],
+        upscale: bool,
+        missing: str,
+    ) -> None:
+        holder.configure(image="")
+        self._photos.pop(holder, None)
+        if path is None:
+            caption.configure(text=missing)
+            return
+        try:
+            preview = load_preview(path, box=box, upscale=upscale)
+        except (OSError, ValueError) as exc:
+            caption.configure(text=f"cannot read {path.name}: {exc}")
+            return
+        photo = ImageTk.PhotoImage(preview)
+        self._photos[holder] = photo
+        holder.configure(image=photo)
+        caption.configure(text=f"{path}  ({preview.width}×{preview.height})")
+
+    def _clear_images(self, page_note: str, crop_note: str) -> None:
+        self._show_image(
+            self.page_image,
+            self.page_caption,
+            None,
+            box=(560, 720),
+            upscale=False,
+            missing=page_note,
+        )
+        self._show_image(
+            self.crop_image,
+            self.crop_caption,
+            None,
+            box=(560, 240),
+            upscale=True,
+            missing=crop_note,
+        )
 
     def _set_detail(self, text: str) -> None:
         self.detail.configure(state="normal")
