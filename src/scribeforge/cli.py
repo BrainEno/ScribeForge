@@ -108,6 +108,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--text", required=True, help="Literal text the reviewer accepted for the pair."
     )
 
+    ui = subparsers.add_parser(
+        "ui", help="Open the read-only desktop shell for a project store."
+    )
+    ui.add_argument("--store", type=Path, required=True, help="Project store directory.")
+
     export = subparsers.add_parser(
         "export", help="Write the verified text of a project to an EPUB 3 file."
     )
@@ -150,6 +155,8 @@ def run(
         return _resolve(args, out)
     if args.command == "export":
         return _export(args, out)
+    if args.command == "ui":
+        return _ui(args)
     factory = default_engine_factory if engine_factory is None else engine_factory
     return _process(args, out, factory)
 
@@ -379,6 +386,17 @@ def _parse_modified(value: str) -> datetime:
     except ValueError as exc:
         raise ValueError(f"invalid ISO 8601 timestamp: {value!r}") from exc
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def _ui(args: argparse.Namespace) -> int:
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+
+    from scribeforge.ui.app import run_ui
+
+    return run_ui(store, crops_dir=StoreLayout(args.store).crops_dir)
 
 
 def _open_store(root: Path) -> SQLiteStore | None:
