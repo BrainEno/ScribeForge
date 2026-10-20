@@ -5,10 +5,18 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from scribeforge.domain.content import VerifiedBook
+
 XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>'
 # Fixed DOS epoch so two exports with the same inputs produce identical bytes.
 ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 _LANGUAGE_TAG = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
+# XML 1.0 forbids most C0 controls and lone surrogates. Writing them would emit an
+# archive that no reader can parse, so the exporters reject them instead of
+# silently dropping characters from the source text.
+_XML_INVALID = re.compile(
+    r"[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]"
+)
 
 
 def format_modified(modified: datetime) -> str:
@@ -27,10 +35,33 @@ def validate_language(language: str) -> str:
     return language
 
 
+def require_xml_text(value: str, *, context: str) -> str:
+    """Reject characters XML 1.0 cannot represent instead of corrupting the export."""
+
+    match = _XML_INVALID.search(value)
+    if match is not None:
+        raise ValueError(
+            f"{context} contains a character XML cannot represent: "
+            f"U+{ord(match.group()):04X}"
+        )
+    return value
+
+
 def validate_identifier(identifier: str) -> str:
     if not identifier.strip():
         raise ValueError("export identifier must not be empty")
-    return identifier
+    return require_xml_text(identifier, context="identifier")
+
+
+def validate_book_text(book: VerifiedBook, *, author: str | None) -> None:
+    """Check every string the export will encode, naming the offending source line."""
+
+    require_xml_text(book.title, context="book title")
+    if author is not None:
+        require_xml_text(author, context="author")
+    for page in book.pages:
+        for line_index, line in enumerate(page.lines):
+            require_xml_text(line, context=f"page {page.page_index} line {line_index}")
 
 
 def write_zip_entry(

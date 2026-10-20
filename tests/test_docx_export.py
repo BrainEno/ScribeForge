@@ -206,6 +206,36 @@ def test_build_rejects_a_book_without_pages() -> None:
         )
 
 
+def test_build_rejects_text_that_xml_cannot_represent() -> None:
+    book = VerifiedBook("Title", (VerifiedPage(0, ("fine", "bad \x00 char")),))
+
+    with pytest.raises(ValueError, match=r"page 0 line 1.*U\+0000"):
+        build_docx(book, identifier="urn:test", language="zh", modified=_MODIFIED)
+
+
+def test_build_rejects_a_title_that_xml_cannot_represent() -> None:
+    book = VerifiedBook("Bad \x0b title", (VerifiedPage(0, ("ok",)),))
+
+    with pytest.raises(ValueError, match=r"title.*U\+000B"):
+        build_docx(book, identifier="urn:test", language="zh", modified=_MODIFIED)
+
+
+def test_build_rejects_an_author_that_xml_cannot_represent() -> None:
+    with pytest.raises(ValueError, match=r"author.*U\+001F"):
+        _build(author="bad \x1f author")
+
+
+def test_build_accepts_xml_whitespace_characters() -> None:
+    book = VerifiedBook("Title", (VerifiedPage(0, ("a\tb", "c\nd")),))
+
+    archive = _archive(
+        build_docx(book, identifier="urn:test", language="zh", modified=_MODIFIED)
+    )
+
+    document = _parse(archive, "word/document.xml")
+    assert _paragraphs(document) == ["a\tb", "c\nd"]
+
+
 def test_write_docx_replaces_the_target_atomically(tmp_path: Path) -> None:
     path = tmp_path / "out" / "book.docx"
 

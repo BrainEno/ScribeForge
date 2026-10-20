@@ -9,6 +9,7 @@ from xml.sax.saxutils import escape
 from scribeforge.adapters.export_common import (
     XML_DECL,
     format_modified,
+    validate_book_text,
     validate_identifier,
     validate_language,
     write_atomic,
@@ -126,6 +127,7 @@ def build_docx(
         raise ValueError("cannot export a book with no pages")
     validate_identifier(identifier)
     validate_language(language)
+    validate_book_text(book, author=author)
     modified_text = format_modified(modified)
 
     buffer = io.BytesIO()
