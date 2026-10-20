@@ -46,6 +46,7 @@ def _package_xml(
     identifier: str,
     language: str,
     modified: str,
+    author: str | None,
 ) -> str:
     items = [
         (
@@ -60,6 +61,7 @@ def _package_xml(
             'media-type="application/xhtml+xml"/>'
         )
         spine.append(f'<itemref idref="page-{page.page_index}"/>')
+    creator = "" if author is None else f"<dc:creator>{escape(author)}</dc:creator>"
     return (
         XML_DECL
         + "\n"
@@ -67,6 +69,7 @@ def _package_xml(
         + f'<metadata xmlns:dc="{_DC_NS}">'
         + f'<dc:identifier id="book-id">{escape(identifier)}</dc:identifier>'
         + f"<dc:title>{escape(book.title)}</dc:title>"
+        + creator
         + f"<dc:language>{escape(language)}</dc:language>"
         + f'<meta property="dcterms:modified">{modified}</meta>'
         + "</metadata>"
@@ -113,6 +116,7 @@ def build_epub(
     identifier: str,
     language: str,
     modified: datetime,
+    author: str | None = None,
 ) -> bytes:
     """Render a verified book as a deterministic EPUB 3 archive."""
 
@@ -131,7 +135,13 @@ def build_epub(
         write_zip_entry(
             archive,
             "OEBPS/content.opf",
-            _package_xml(book, identifier=identifier, language=language, modified=modified_text),
+            _package_xml(
+                book,
+                identifier=identifier,
+                language=language,
+                modified=modified_text,
+                author=author,
+            ),
             zipfile.ZIP_DEFLATED,
         )
         write_zip_entry(
@@ -154,10 +164,17 @@ def write_epub(
     identifier: str,
     language: str,
     modified: datetime,
+    author: str | None = None,
 ) -> Path:
     """Write an EPUB atomically so an interrupted export never leaves a torn file."""
 
     return write_atomic(
         path,
-        build_epub(book, identifier=identifier, language=language, modified=modified),
+        build_epub(
+            book,
+            identifier=identifier,
+            language=language,
+            modified=modified,
+            author=author,
+        ),
     )

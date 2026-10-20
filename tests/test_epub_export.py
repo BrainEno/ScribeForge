@@ -149,6 +149,30 @@ def test_build_rejects_an_empty_identifier() -> None:
         _build(identifier="   ")
 
 
+def test_package_includes_author_when_given() -> None:
+    archive = _archive(_build(author="Ada Lovelace"))
+
+    opf = _parse(archive, "OEBPS/content.opf")
+
+    assert opf.find("o:metadata/dc:creator", _OPF_NS).text == "Ada Lovelace"  # type: ignore[union-attr]
+
+
+def test_package_omits_author_when_absent() -> None:
+    archive = _archive(_build())
+
+    opf = _parse(archive, "OEBPS/content.opf")
+
+    assert opf.find("o:metadata/dc:creator", _OPF_NS) is None
+
+
+def test_package_escapes_the_author() -> None:
+    archive = _archive(_build(author="A & B <C>"))
+
+    opf = _parse(archive, "OEBPS/content.opf")
+
+    assert opf.find("o:metadata/dc:creator", _OPF_NS).text == "A & B <C>"  # type: ignore[union-attr]
+
+
 def test_write_epub_replaces_the_target_atomically(tmp_path: Path) -> None:
     path = tmp_path / "out" / "book.epub"
 
