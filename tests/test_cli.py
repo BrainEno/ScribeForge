@@ -533,6 +533,37 @@ def test_export_rejects_an_invalid_language(
     assert "language" in captured.err.lower()
 
 
+def test_ui_command_requires_an_existing_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = run(["ui", "--store", str(tmp_path / "missing")])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "no store found" in captured.err
+
+
+def test_ui_command_dispatches_to_the_desktop_shell(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+    seen: list[Path | None] = []
+
+    def fake(store: SQLiteStore, *, crops_dir: Path | None = None) -> int:
+        seen.append(crops_dir)
+        return 0
+
+    monkeypatch.setattr("scribeforge.ui.app.run_ui", fake)
+
+    code = run(["ui", "--store", str(store_dir)])
+
+    assert code == 0
+    assert seen == [store_dir / "crops"]
+
+
 def test_export_rejects_text_xml_cannot_represent(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

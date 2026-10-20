@@ -35,6 +35,12 @@ markers = [
   "gpu: requires GPU/model runtime",
 ]
 
+[tool.coverage.run]
+# The Tkinter widget layer is display-only code with no unit-testable logic
+# (all presentation logic lives in scribeforge.ui.viewmodel) and CI has no
+# display; it is smoke-tested by launching the app.
+omit = ["src/scribeforge/ui/tk_window.py"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100
