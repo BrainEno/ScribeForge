@@ -236,6 +236,18 @@ def test_build_accepts_xml_whitespace_characters() -> None:
     assert _paragraphs(document) == ["a\tb", "c\nd"]
 
 
+def test_build_docx_rechecks_the_rendered_archive(monkeypatch: pytest.MonkeyPatch) -> None:
+    checked: list[int] = []
+    monkeypatch.setattr(
+        "scribeforge.adapters.docx.check_docx",
+        lambda data, book: checked.append(len(data)),
+    )
+
+    data = _build()
+
+    assert checked == [len(data)]
+
+
 def test_write_docx_replaces_the_target_atomically(tmp_path: Path) -> None:
     path = tmp_path / "out" / "book.docx"
 

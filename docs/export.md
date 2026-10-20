@@ -87,6 +87,23 @@ same book, title, author, identifier, language, and timestamp are byte-identical
 Both writers go through a temporary file and `Path.replace`, so an interrupted
 export never leaves a torn file at the destination.
 
+## Self-check
+
+`scribeforge.adapters.export_check` re-reads the rendered bytes before they are
+returned, and both builders run it automatically:
+
+- the archive opens, every entry passes its CRC check, and every XML part parses;
+- EPUB: `mimetype` is first and stored, the container points at an existing
+  package, every manifest target exists, the spine matches the verified page
+  order, and each XHTML page reproduces its accepted lines exactly;
+- DOCX: `[Content_Types].xml` is first, every part has a content type, every
+  relationship target exists, page breaks match the page count, and each page
+  reproduces its accepted lines exactly;
+- the package title equals the book title.
+
+A mismatch raises `ExportIntegrityError` (a `ValueError`), so `export` exits `2`
+instead of writing a file whose text drifted from the accepted decisions.
+
 ## CLI
 
 ```bash

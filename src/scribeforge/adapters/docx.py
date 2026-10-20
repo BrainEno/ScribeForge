@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from scribeforge.adapters.export_check import check_docx
 from scribeforge.adapters.export_common import (
     XML_DECL,
     format_modified,
@@ -153,7 +154,9 @@ def build_docx(
             ),
             zipfile.ZIP_DEFLATED,
         )
-    return buffer.getvalue()
+    data = buffer.getvalue()
+    check_docx(data, book)
+    return data
 
 
 def write_docx(
