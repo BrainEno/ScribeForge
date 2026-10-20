@@ -527,3 +527,39 @@ def test_export_rejects_an_invalid_language(
     captured = capsys.readouterr()
     assert code == 2
     assert "language" in captured.err.lower()
+
+
+def test_export_writes_docx_for_a_docx_destination(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.docx"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "exported" in captured.out.lower()
+    with zipfile.ZipFile(out_path) as archive:
+        assert archive.namelist()[0] == "[Content_Types].xml"
+        assert "word/document.xml" in archive.namelist()
+
+
+def test_export_rejects_an_unknown_extension(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.txt"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "unsupported" in captured.err.lower()
+    assert not out_path.exists()

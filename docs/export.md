@@ -52,6 +52,25 @@ Text is XML-escaped, so source characters such as `<` and `&` survive unchanged.
 Page documents are named from the source page index, which keeps the mapping back
 to page evidence stable.
 
+## DOCX mapping
+
+`scribeforge.adapters.docx` writes a deterministic WordprocessingML package with
+the minimal OPC parts:
+
+| Entry | Purpose |
+| --- | --- |
+| `[Content_Types].xml` | first part; declares the main-document and core-properties content types |
+| `_rels/.rels` | package relationships to `word/document.xml` and `docProps/core.xml` |
+| `word/document.xml` | one `<w:p>` per accepted line, page breaks between pages, trailing `<w:sectPr/>` |
+| `docProps/core.xml` | title, identifier, language, `dcterms:modified` |
+
+An accepted empty line becomes `<w:p/>`; text keeps `xml:space="preserve"` so
+leading and trailing spaces survive. Pages are separated by an explicit
+`<w:br w:type="page"/>` paragraph, so even a blank page occupies its own page.
+
+Determinism (fixed zip timestamps and entry order) and atomic replacement are
+shared with EPUB through `scribeforge.adapters.export_common`.
+
 ## Determinism
 
 The zip uses a fixed DOS epoch for every entry and a fixed entry order, and the
@@ -65,8 +84,12 @@ export never leaves a torn EPUB at the destination.
 
 ```bash
 scribeforge export --store store/ --out book.epub
+scribeforge export --store store/ --out book.docx
 scribeforge export --store store/ --out book.epub --language zh
 ```
 
+The format is chosen from the destination extension: `.epub` writes EPUB 3,
+`.docx` writes WordprocessingML. Any other extension is rejected.
+
 Exit codes: `0` written, `2` unverified content, missing store/project, no pages,
-or invalid metadata.
+unsupported extension, or invalid metadata.

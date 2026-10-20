@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
+from scribeforge.adapters.docx import write_docx
 from scribeforge.adapters.epub import write_epub
 from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
@@ -312,8 +313,20 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         print("error: no pages to export", file=sys.stderr)
         return EXIT_FATAL
 
+    suffix = args.out.suffix.lower()
+    if suffix == ".epub":
+        writer = write_epub
+    elif suffix == ".docx":
+        writer = write_docx
+    else:
+        print(
+            f"error: unsupported export extension {suffix or '(none)'}; use .epub or .docx",
+            file=sys.stderr,
+        )
+        return EXIT_FATAL
+
     try:
-        write_epub(
+        writer(
             book,
             args.out,
             identifier=f"urn:scribeforge:{project.source_sha256}",
