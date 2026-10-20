@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
+from scribeforge.adapters.export_check import check_epub
 from scribeforge.adapters.export_common import (
     XML_DECL,
     format_modified,
@@ -156,7 +157,9 @@ def build_epub(
                 _page_xhtml(page, language),
                 zipfile.ZIP_DEFLATED,
             )
-    return buffer.getvalue()
+    data = buffer.getvalue()
+    check_epub(data, book)
+    return data
 
 
 def write_epub(
