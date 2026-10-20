@@ -4,12 +4,19 @@ import json
 import platform
 import sys
 import zipfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
-from scribeforge.cli import Engines, default_engine_factory, main, run
+from scribeforge.cli import (
+    Engines,
+    default_benchmark_engine_factory,
+    default_engine_factory,
+    main,
+    run,
+)
 from scribeforge.domain.jobs import JobStage
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.vlm import VLMReading
@@ -752,3 +759,271 @@ def test_export_rejects_an_unknown_extension(
     assert code == 2
     assert "unsupported" in captured.err.lower()
     assert not out_path.exists()
+
+
+def _corpus(tmp_path: Path) -> tuple[Path, Path]:
+    root = tmp_path / "corpus"
+    root.mkdir()
+    (root / "page.png").write_bytes(b"image")
+    (root / "truth.txt").write_text("鸦\n", encoding="utf-8")
+    manifest = root / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "id": "zh-1",
+                        "image": "page.png",
+                        "ground_truth": "truth.txt",
+                        "language": "zh",
+                        "tags": ["clear"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return root, manifest
+
+
+def _benchmark_factory(
+    texts: dict[str, str] | None = None,
+) -> object:
+    chosen = {"mineru": "鸦", "paddleocr": "雅"} if texts is None else texts
+
+    def factory(runtime_root: Path, backends: Sequence[str]) -> tuple[FakeEngine, ...]:
+        return tuple(FakeEngine(name, chosen[name]) for name in backends)
+
+    return factory
+
+
+def test_benchmark_requires_a_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(tmp_path / "missing.json"),
+            "--out",
+            str(out_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "manifest not found" in captured.err
+    assert not out_path.exists()
+
+
+def test_benchmark_rejects_an_invalid_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    out_path = tmp_path / "report.md"
+
+    code = run(["benchmark", "--manifest", str(manifest), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "invalid manifest" in captured.err
+    assert not out_path.exists()
+
+
+def test_benchmark_reports_corpus_problems(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "corpus"
+    root.mkdir()
+    manifest = root / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "id": "zh-1",
+                        "image": "missing.png",
+                        "ground_truth": "missing.txt",
+                        "language": "zh",
+                        "tags": [],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        ["benchmark", "--manifest", str(manifest), "--out", str(out_path)],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "case zh-1" in captured.err
+    assert "missing.png" in captured.err
+    assert not out_path.exists()
+
+
+def test_benchmark_writes_a_report_for_every_engine(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        ["benchmark", "--manifest", str(manifest), "--out", str(out_path)],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "2 variant(s)" in captured.out
+    text = out_path.read_text(encoding="utf-8")
+    assert "- corpus:" in text
+    assert "- manifest sha256: `" in text
+    assert "| mineru |" in text
+    assert "| paddleocr |" in text
+    assert "| zh-1 | zh | clear |" in text
+
+
+def test_benchmark_selects_a_named_engine(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--engine",
+            "paddleocr",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    assert code == 0
+    text = out_path.read_text(encoding="utf-8")
+    assert "| paddleocr |" in text
+    assert "| mineru |" not in text
+
+
+def test_benchmark_rejects_an_unknown_engine(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--engine",
+            "surya",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "unknown benchmark engine: surya" in captured.err
+    assert not out_path.exists()
+
+
+def test_benchmark_reports_a_missing_backend(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    def factory(runtime_root: Path, backends: Sequence[str]) -> tuple[FakeEngine, ...]:
+        raise RuntimeError("backend mineru is not ready (state=missing)")
+
+    code = run(
+        ["benchmark", "--manifest", str(manifest), "--out", str(out_path)],
+        benchmark_engine_factory=factory,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "not ready" in captured.err
+    assert not out_path.exists()
+
+
+def test_benchmark_reports_an_engine_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    def factory(runtime_root: Path, backends: Sequence[str]) -> tuple[FakeEngine, ...]:
+        return (ExplodingEngine("mineru"),)
+
+    code = run(
+        ["benchmark", "--manifest", str(manifest), "--out", str(out_path)],
+        benchmark_engine_factory=factory,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "benchmark run failed" in captured.err
+    assert not out_path.exists()
+
+
+def test_benchmark_reports_an_unwritable_destination(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+
+    code = run(
+        ["benchmark", "--manifest", str(manifest), "--out", str(tmp_path)],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "cannot write report" in captured.err
+
+
+def test_default_benchmark_engine_factory_builds_only_requested_backends(
+    tmp_path: Path,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    layout = RuntimeLayout(root=runtime_root)
+    os_name = platform.system().lower()
+    for backend in ("mineru", "paddleocr"):
+        python = layout.python_executable(backend, os_name)
+        python.parent.mkdir(parents=True, exist_ok=True)
+        python.write_bytes(b"")
+    state = {
+        "schema_version": 1,
+        "backends": {
+            "mineru": {"state": "ready"},
+            "paddleocr": {"state": "ready"},
+        },
+    }
+    (runtime_root / "runtime-state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    engines = default_benchmark_engine_factory(runtime_root, ("paddleocr",))
+
+    assert [engine.name for engine in engines] == ["paddleocr"]
+
+
+def test_default_benchmark_engine_factory_rejects_an_unknown_backend(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="unknown benchmark engine"):
+        default_benchmark_engine_factory(tmp_path / "runtime", ("surya",))

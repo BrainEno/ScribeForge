@@ -14,6 +14,10 @@ from scribeforge.adapters.docx import write_docx
 from scribeforge.adapters.epub import write_epub
 from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
+from scribeforge.benchmark.corpus import validate_corpus
+from scribeforge.benchmark.manifest import load_manifest
+from scribeforge.benchmark.report import render_report
+from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
@@ -39,6 +43,12 @@ class Engines:
 
 
 EngineFactory = Callable[[Path], Engines]
+BenchmarkEngineFactory = Callable[[Path, Sequence[str]], tuple[OCREngine, ...]]
+
+_BENCHMARK_BACKENDS = {
+    "mineru": "mineru_worker.py",
+    "paddleocr": "paddle_worker.py",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +144,35 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    benchmark = subparsers.add_parser(
+        "benchmark", help="Score OCR engines against a benchmark corpus manifest."
+    )
+    benchmark.add_argument(
+        "--manifest", type=Path, required=True, help="Benchmark manifest JSON file."
+    )
+    benchmark.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Corpus root (default: the manifest directory).",
+    )
+    benchmark.add_argument(
+        "--out", type=Path, required=True, help="Destination Markdown report."
+    )
+    benchmark.add_argument(
+        "--runtime-root",
+        type=Path,
+        default=None,
+        help="Managed runtime root (default: <root>/runtime).",
+    )
+    benchmark.add_argument(
+        "--engine",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Backend to score, repeatable (default: mineru and paddleocr).",
+    )
+
     return parser
 
 
@@ -141,6 +180,7 @@ def run(
     argv: Sequence[str],
     *,
     engine_factory: EngineFactory | None = None,
+    benchmark_engine_factory: BenchmarkEngineFactory | None = None,
     stdout: TextIO | None = None,
 ) -> int:
     """Execute a CLI invocation; injectable for deterministic tests."""
@@ -157,6 +197,13 @@ def run(
         return _export(args, out)
     if args.command == "ui":
         return _ui(args)
+    if args.command == "benchmark":
+        benchmark_factory = (
+            default_benchmark_engine_factory
+            if benchmark_engine_factory is None
+            else benchmark_engine_factory
+        )
+        return _benchmark(args, out, benchmark_factory)
     factory = default_engine_factory if engine_factory is None else engine_factory
     return _process(args, out, factory)
 
@@ -388,6 +435,65 @@ def _parse_modified(value: str) -> datetime:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
+def _benchmark(
+    args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFactory
+) -> int:
+    manifest_path: Path = args.manifest
+    if not manifest_path.is_file():
+        print(f"error: manifest not found: {manifest_path}", file=sys.stderr)
+        return EXIT_FATAL
+    try:
+        manifest = load_manifest(manifest_path)
+    except (KeyError, TypeError, ValueError) as exc:
+        print(f"error: invalid manifest: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    root: Path = args.root if args.root is not None else manifest_path.parent
+    problems = validate_corpus(manifest, root)
+    if problems:
+        for problem in problems:
+            print(f"error: case {problem.case_id}: {problem.problem}", file=sys.stderr)
+        return EXIT_FATAL
+
+    backends: list[str] = list(args.engine) if args.engine else ["mineru", "paddleocr"]
+    unknown = [backend for backend in backends if backend not in _BENCHMARK_BACKENDS]
+    if unknown:
+        print(f"error: unknown benchmark engine: {unknown[0]}", file=sys.stderr)
+        return EXIT_FATAL
+
+    runtime_root: Path = (
+        args.runtime_root if args.runtime_root is not None else root / "runtime"
+    )
+    try:
+        engines = factory(runtime_root, tuple(backends))
+    except Exception as exc:  # noqa: BLE001 - a missing backend must fail as fatal
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    try:
+        reports = tuple(run_benchmark(manifest, root, engine) for engine in engines)
+    except Exception as exc:  # noqa: BLE001 - an engine failure must fail as fatal
+        print(f"error: benchmark run failed: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    report_text = render_report(
+        reports,
+        corpus=str(manifest_path),
+        manifest_sha256=_file_sha256(manifest_path),
+        generated_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    try:
+        args.out.write_text(report_text, encoding="utf-8")
+    except OSError as exc:
+        print(f"error: cannot write report: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    print(
+        f"wrote benchmark report for {len(reports)} variant(s) to {args.out}",
+        file=out,
+    )
+    return EXIT_OK
+
+
 def _ui(args: argparse.Namespace) -> int:
     store = _open_store(args.store)
     if store is None:
@@ -459,6 +565,39 @@ def default_engine_factory(runtime_root: Path) -> Engines:
         status=status,
     )
     return Engines(primary=primary, secondary=secondary, reviewer=None)
+
+
+def default_benchmark_engine_factory(
+    runtime_root: Path, backends: Sequence[str]
+) -> tuple[OCREngine, ...]:
+    """Build only the requested benchmark backends from managed runtimes.
+
+    Benchmarking MinerU alone must not require a PaddleOCR install, so this
+    factory never constructs a backend that was not asked for.
+    """
+
+    unknown = [backend for backend in backends if backend not in _BENCHMARK_BACKENDS]
+    if unknown:
+        raise ValueError(f"unknown benchmark engine: {unknown[0]}")
+
+    layout = RuntimeLayout(root=runtime_root)
+    manager = RuntimeManager(runtime_root)
+    os_name = platform.system().lower()
+
+    def status(backend: str) -> str:
+        return manager.status(backend).state
+
+    return tuple(
+        build_runtime_engine(
+            layout,
+            backend,
+            _worker_script(_BENCHMARK_BACKENDS[backend]),
+            os_name,
+            name=backend,
+            status=status,
+        )
+        for backend in backends
+    )
 
 
 def _worker_script(name: str) -> Path:
