@@ -164,7 +164,7 @@ def _download_bytes(url: str) -> bytes:
             length = response.headers.get("Content-Length")
             if length is not None and int(length) > _MAX_UV_DOWNLOAD_BYTES:
                 raise RuntimeToolMissing("the uv bootstrap archive exceeds the size limit")
-            data = response.read(_MAX_UV_DOWNLOAD_BYTES + 1)
+            data = cast(bytes, response.read(_MAX_UV_DOWNLOAD_BYTES + 1))
     except RuntimeToolMissing:
         raise
     except (OSError, ValueError) as exc:
@@ -178,7 +178,7 @@ def _extract_uv_binary(archive: bytes, asset_name: str, executable_name: str) ->
     try:
         if asset_name.endswith(".zip"):
             with zipfile.ZipFile(io.BytesIO(archive)) as package:
-                candidates = [
+                zip_candidates = [
                     item
                     for item in package.infolist()
                     if PurePosixPath(item.filename).name == executable_name
@@ -187,13 +187,13 @@ def _extract_uv_binary(archive: bytes, asset_name: str, executable_name: str) ->
                     and not PurePosixPath(item.filename).is_absolute()
                     and ".." not in PurePosixPath(item.filename).parts
                 ]
-                if not candidates:
+                if not zip_candidates:
                     raise RuntimeToolMissing("the verified uv archive contains no executable")
-                if len(candidates) != 1:
+                if len(zip_candidates) != 1:
                     raise RuntimeToolMissing("the verified uv archive contains ambiguous executables")
-                return package.read(candidates[0])
+                return package.read(zip_candidates[0])
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as package:
-            candidates = [
+            tar_candidates = [
                 item
                 for item in package.getmembers()
                 if PurePosixPath(item.name).name == executable_name
@@ -202,11 +202,11 @@ def _extract_uv_binary(archive: bytes, asset_name: str, executable_name: str) ->
                 and not PurePosixPath(item.name).is_absolute()
                 and ".." not in PurePosixPath(item.name).parts
             ]
-            if not candidates:
+            if not tar_candidates:
                 raise RuntimeToolMissing("the verified uv archive contains no executable")
-            if len(candidates) != 1:
+            if len(tar_candidates) != 1:
                 raise RuntimeToolMissing("the verified uv archive contains ambiguous executables")
-            extracted = package.extractfile(candidates[0])
+            extracted = package.extractfile(tar_candidates[0])
             if extracted is None:
                 raise RuntimeToolMissing("could not read the uv executable from its archive")
             with extracted:
