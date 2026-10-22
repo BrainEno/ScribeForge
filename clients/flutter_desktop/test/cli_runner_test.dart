@@ -10,6 +10,13 @@ void main() {
       );
     });
 
+    test('requests a JSON project audit for the selected store', () {
+      expect(
+        ScribeForgeCli.auditArguments(storePath: '/tmp/My Book.scribeforge'),
+        <String>['audit', '--store', '/tmp/My Book.scribeforge', '--json'],
+      );
+    });
+
     test('keeps store and source paths as separate relink arguments', () {
       expect(
         ScribeForgeCli.relinkSourceArguments(

@@ -28,6 +28,7 @@ from scribeforge.pipeline.adjudication import record_human_decision, review_deta
 from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
+from scribeforge.project_audit import audit_project_store
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime.paths import default_runtime_root, runtime_root_for_store
@@ -128,6 +129,15 @@ def build_parser() -> argparse.ArgumentParser:
     relink.add_argument("--store", type=Path, required=True, help="Project store directory.")
     relink.add_argument(
         "--source", type=Path, required=True, help="Moved source PDF or page image."
+    )
+
+    audit = subparsers.add_parser(
+        "audit",
+        help="Check project database integrity and referenced source assets without repairing them.",
+    )
+    audit.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    audit.add_argument(
+        "--json", action="store_true", help="Emit a stable JSON audit report."
     )
 
     review = subparsers.add_parser(
@@ -242,6 +252,8 @@ def run(
         return _status(args, out)
     if args.command == "relink-source":
         return _relink_source(args, out)
+    if args.command == "audit":
+        return _audit_project(args, out)
     if args.command == "review":
         return _review(args, out)
     if args.command == "resolve":
@@ -446,6 +458,34 @@ def _relink_source(args: argparse.Namespace, out: TextIO) -> int:
         file=out,
     )
     return EXIT_OK
+
+
+def _audit_project(args: argparse.Namespace, out: TextIO) -> int:
+    report = audit_project_store(args.store)
+    payload = report.to_dict()
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True), file=out)
+    else:
+        state = "healthy" if report.healthy else "findings detected"
+        print(f"Project audit: {state}", file=out)
+        print(
+            f"projects={report.project_count} pages={report.page_count} "
+            f"sqlite={report.sqlite_integrity} foreign_key_violations="
+            f"{report.foreign_key_violations}",
+            file=out,
+        )
+        if not report.findings:
+            print("No issues found.", file=out)
+        for finding in report.findings:
+            location = f" ({finding.path})" if finding.path else ""
+            print(
+                f"[{finding.severity}] {finding.code}: {finding.message}{location}",
+                file=out,
+            )
+
+    if any(finding.severity == "fatal" for finding in report.findings):
+        return EXIT_FATAL
+    return EXIT_PARTIAL if report.findings else EXIT_OK
 
 
 def _review(args: argparse.Namespace, out: TextIO) -> int:

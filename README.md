@@ -88,6 +88,7 @@ scribeforge setup --runtime-root runtime/     # choose a private runtime directo
 scribeforge process book.pdf                  # import + process every page
 scribeforge process book.pdf --store store/   # explicit project store
 scribeforge status --store store/             # persisted jobs + review queue
+scribeforge audit --store store/ --json        # read-only project integrity audit
 scribeforge review --store store/             # pairs awaiting a human decision
 scribeforge resolve --store store/ \
   --page 0 --pair 3 --text "鸦"              # record the accepted reading
@@ -103,6 +104,8 @@ scribeforge benchmark --manifest benchmark/manifest.json \
 ```
 
 `process` writes a project store beside the book by default (`<book-stem>.scribeforge`). OCR runtimes are shared in the per-user application data folder by default; `setup`, `process`, and `benchmark` accept `--runtime-root` to override it. Run `scribeforge setup` once to install the private Python environments and OCR models. Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
+
+Run `scribeforge audit --store store/ --json` before archiving or resuming a project to check SQLite integrity, foreign-key references, source-file SHA-256, and whether every imported page image still exists. The audit opens SQLite read-only and never repairs or changes evidence. Exit code 0 means no findings, 1 means audit findings need attention, and 2 means the audit could not read the project database.
 
 When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
 
