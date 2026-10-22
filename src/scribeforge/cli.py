@@ -29,6 +29,12 @@ from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verif
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
 from scribeforge.project_audit import audit_project_store
+from scribeforge.project_backup import (
+    ProjectBackupError,
+    create_project_backup,
+    restore_project_backup,
+    verify_project_backup,
+)
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime.paths import default_runtime_root, runtime_root_for_store
@@ -139,6 +145,30 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument(
         "--json", action="store_true", help="Emit a stable JSON audit report."
     )
+
+    backup = subparsers.add_parser(
+        "backup",
+        help="Create a verified, self-contained archive of a project store.",
+    )
+    backup.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    backup.add_argument("--out", type=Path, required=True, help="Destination ZIP archive.")
+    backup.add_argument(
+        "--overwrite", action="store_true", help="Replace an existing archive atomically."
+    )
+    backup.add_argument("--json", action="store_true", help="Emit a JSON backup report.")
+
+    verify_backup = subparsers.add_parser(
+        "verify-backup", help="Verify backup manifest, file hashes, and SQLite integrity."
+    )
+    verify_backup.add_argument("--backup", type=Path, required=True, help="Backup ZIP archive.")
+    verify_backup.add_argument("--json", action="store_true", help="Emit a JSON verification report.")
+
+    restore = subparsers.add_parser(
+        "restore", help="Restore a verified backup into a new project directory."
+    )
+    restore.add_argument("--backup", type=Path, required=True, help="Backup ZIP archive.")
+    restore.add_argument("--to", type=Path, required=True, help="New destination directory.")
+    restore.add_argument("--json", action="store_true", help="Emit a JSON restore report.")
 
     review = subparsers.add_parser(
         "review", help="List the page pairs that still need a human decision."
@@ -254,6 +284,12 @@ def run(
         return _relink_source(args, out)
     if args.command == "audit":
         return _audit_project(args, out)
+    if args.command == "backup":
+        return _backup_project(args, out)
+    if args.command == "verify-backup":
+        return _verify_project_backup(args, out)
+    if args.command == "restore":
+        return _restore_project_backup(args, out)
     if args.command == "review":
         return _review(args, out)
     if args.command == "resolve":
@@ -486,6 +522,63 @@ def _audit_project(args: argparse.Namespace, out: TextIO) -> int:
     if any(finding.severity == "fatal" for finding in report.findings):
         return EXIT_FATAL
     return EXIT_PARTIAL if report.findings else EXIT_OK
+
+
+def _backup_project(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        report = create_project_backup(args.store, args.out, overwrite=args.overwrite)
+    except (ProjectBackupError, FileExistsError, OSError) as exc:
+        print(f"error: could not create project backup: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out)
+    else:
+        print(
+            f"created verified backup {report['archive']} "
+            f"({report['file_count']} files, {report['total_bytes']} bytes)",
+            file=out,
+        )
+    return EXIT_OK
+
+
+def _verify_project_backup(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        report = verify_project_backup(args.backup)
+    except (ProjectBackupError, OSError) as exc:
+        print(f"error: backup verification failed: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out)
+    else:
+        print(
+            f"verified backup {report['archive']}: {report['file_count']} files, "
+            f"{report['total_bytes']} bytes; SQLite {report['sqlite_integrity']}",
+            file=out,
+        )
+        for warning in report.get("audit_warnings", []):
+            if isinstance(warning, dict):
+                print(f"[warning] {warning.get('code')}: {warning.get('message')}", file=out)
+    return EXIT_OK
+
+
+def _restore_project_backup(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        report = restore_project_backup(args.backup, args.to)
+    except (ProjectBackupError, FileExistsError, OSError) as exc:
+        print(f"error: could not restore project backup: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out)
+    else:
+        print(
+            f"restored verified backup to {report['store']} "
+            f"({report['project_count']} projects, {report['page_count']} pages)",
+            file=out,
+        )
+        for warning in report.get("audit_warnings", []):
+            if isinstance(warning, dict):
+                print(f"[warning] {warning.get('code')}: {warning.get('message')}", file=out)
+    return EXIT_OK if report["healthy"] else EXIT_PARTIAL
 
 
 def _review(args: argparse.Namespace, out: TextIO) -> int:
