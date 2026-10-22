@@ -116,7 +116,7 @@ scribeforge status --store "D:\Books\My Book.scribeforge"
 在重新运行 OCR、归档或迁移项目之前，可以执行只读审计：
 
 ```powershell
-scribeforge audit --store "D:\\Books\\My Book.scribeforge" --json
+scribeforge audit --store "D:\Books\My Book.scribeforge" --json
 ```
 
 审计会检查 SQLite 完整性、外键引用、源文件是否存在及其 SHA-256 是否与记录一致，以及每一页导入图像是否仍然存在。源 PDF 不在原路径或哈希不匹配时会给出警告；数据库损坏、外键错误或页面图像缺失会报告错误。审计不会修复数据库、重写路径或删除证据。
