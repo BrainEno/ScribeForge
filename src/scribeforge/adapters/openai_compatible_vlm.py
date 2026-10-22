@@ -69,11 +69,14 @@ def _completion_url(endpoint: str, *, allow_remote: bool) -> str:
         raise ValueError("VLM endpoint URL must not embed credentials")
     if parsed.query or parsed.fragment:
         raise ValueError("VLM endpoint URL must not include a query or fragment")
-    if not allow_remote and not _is_loopback(parsed.hostname):
+    local_endpoint = _is_loopback(parsed.hostname)
+    if not local_endpoint and not allow_remote:
         raise ValueError(
             "non-loopback VLM endpoints are disabled by default; "
             "set allow_remote=True only when you explicitly intend to send review crops remotely"
         )
+    if not local_endpoint and parsed.scheme != "https":
+        raise ValueError("remote VLM endpoints must use HTTPS")
 
     path = parsed.path.rstrip("/")
     if not path.endswith("/chat/completions"):

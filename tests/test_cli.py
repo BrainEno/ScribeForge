@@ -1630,3 +1630,32 @@ def test_benchmark_include_vlm_adds_variant_d(
     assert "### dual-engine\n" in report
     assert "### dual-engine+vlm" in report
     assert "| dual-engine+vlm |" in report
+
+
+
+def test_process_requires_configured_api_key_environment_variable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MISSING_VLM_TOKEN", raising=False)
+    book = _book(tmp_path)
+
+    code = run(
+        [
+            "process",
+            str(book),
+            "--store",
+            str(tmp_path / "store"),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-vision",
+            "--vlm-api-key-env",
+            "MISSING_VLM_TOKEN",
+        ],
+        engine_factory=_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "environment variable is not set" in captured.err
+    assert not (tmp_path / "store" / "project.sqlite3").exists()

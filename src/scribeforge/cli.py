@@ -131,12 +131,14 @@ def _configured_vlm_reviewer(
         raise ValueError("--vlm-model must not be empty")
 
     api_key = None
-    if api_key_env:
+    if api_key_env is not None:
         if not api_key_env.strip():
             raise ValueError("--vlm-api-key-env must name an environment variable")
         if api_key_env not in os.environ:
             raise ValueError(f"VLM API key environment variable is not set: {api_key_env}")
         api_key = os.environ[api_key_env]
+        if not api_key.strip():
+            raise ValueError(f"VLM API key environment variable is empty: {api_key_env}")
 
     return OpenAICompatibleVLMReviewer(
         endpoint=endpoint,

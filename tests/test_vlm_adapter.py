@@ -62,7 +62,7 @@ def vlm_server():
     _ResponseHandler.finish_reason = "stop"
     _ResponseHandler.response_status = 200
     _ResponseHandler.redirect_url = None
-    _ResponseHandler.response_content = '{"text":"one\\\\ntwo","uncertain":false}'
+    _ResponseHandler.response_content = '{"text":"one\\ntwo","uncertain":false}'
     server = ThreadingHTTPServer(("127.0.0.1", 0), _ResponseHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -213,3 +213,24 @@ def test_reviewer_validates_timeout_and_model_identity() -> None:
             endpoint="http://127.0.0.1:1234/v1",
             model="  ",
         )
+
+
+
+def test_remote_endpoint_requires_https_even_when_opted_in() -> None:
+    with pytest.raises(ValueError, match="HTTPS"):
+        OpenAICompatibleVLMReviewer(
+            endpoint="http://vision.example.test/v1",
+            model="vision-model",
+            allow_remote=True,
+        )
+
+
+def test_reviewer_accepts_a_complete_chat_completions_url(tmp_path: Path, vlm_server) -> None:
+    base, handler = vlm_server
+    endpoint = base + "/chat/completions"
+    reviewer = OpenAICompatibleVLMReviewer(endpoint=endpoint, model="fixture-vision")
+
+    reading = reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
+
+    assert reading.text == "one\ntwo"
+    assert handler.request_path == "/v1/chat/completions"
