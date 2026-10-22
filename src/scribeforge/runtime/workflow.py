@@ -4,11 +4,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from scribeforge.runtime.manager import CommandExecutor, RuntimeEvent, RuntimeManager, RuntimeStatus
+from scribeforge.runtime.manager import (
+    CommandExecutor,
+    RuntimeEvent,
+    RuntimeManager,
+    RuntimeStatus,
+)
 from scribeforge.runtime.models import HardwareProfile, RuntimeLayout
 from scribeforge.runtime.planner import build_runtime_plan
 from scribeforge.runtime.probe import probe_hardware
-from scribeforge.runtime.tools import RuntimeToolMissing, ensure_uv_executable, resolve_uv_executable
+from scribeforge.runtime.tools import (
+    RuntimeToolMissing,
+    ensure_uv_executable,
+    resolve_uv_executable,
+)
 
 
 @dataclass(frozen=True, slots=True)

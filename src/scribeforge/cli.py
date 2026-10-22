@@ -515,7 +515,11 @@ def _benchmark(
 
 
 def _setup(args: argparse.Namespace) -> int:
-    from scribeforge.ui.runtime_window import run_runtime_setup
+    try:
+        from scribeforge.ui.runtime_window import run_runtime_setup
+    except ImportError as exc:
+        print(f"error: the runtime setup wizard needs Tkinter ({exc})", file=sys.stderr)
+        return EXIT_FATAL
 
     runtime_root: Path = (
         args.runtime_root if args.runtime_root is not None else default_runtime_root()

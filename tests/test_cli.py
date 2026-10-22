@@ -547,8 +547,13 @@ def test_setup_command_opens_the_runtime_wizard_with_requested_root(
     import types
 
     seen: list[Path] = []
+
+    def fake_setup(root: Path) -> int:
+        seen.append(root)
+        return 0
+
     module = types.ModuleType("scribeforge.ui.runtime_window")
-    module.run_runtime_setup = lambda root: seen.append(root) or 0
+    module.run_runtime_setup = fake_setup
     monkeypatch.setitem(sys.modules, "scribeforge.ui.runtime_window", module)
 
     runtime_root = tmp_path / "private-runtime"
