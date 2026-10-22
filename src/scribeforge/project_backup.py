@@ -373,8 +373,7 @@ def _validate_archive_path(value: str) -> None:
     if (
         not value
         or "\\" in value
-        or value.startswith("/")
-        or value.startswith("\\")
+        or value.startswith(("/", "\\"))
         or ":" in value.split("/", maxsplit=1)[0]
     ):
         raise ProjectBackupError(f"unsafe archive path: {value!r}")
