@@ -8,6 +8,7 @@ import sqlite3
 import stat
 import tempfile
 import zipfile
+from contextlib import closing
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -206,7 +207,7 @@ def restore_project_backup(backup_path: Path, target_path: Path) -> dict[str, An
 
 def _snapshot_database(source_path: Path, destination_path: Path) -> None:
     try:
-        with sqlite3.connect(source_path, timeout=10) as source:
+        with closing(sqlite3.connect(source_path, timeout=10)) as source:
             table_exists = source.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'"
             ).fetchone()
@@ -218,7 +219,7 @@ def _snapshot_database(source_path: Path, destination_path: Path) -> None:
                     raise ProjectBackupError(
                         f"project has {running} running job(s); wait for processing to finish before backup"
                     )
-            with sqlite3.connect(destination_path) as destination:
+            with closing(sqlite3.connect(destination_path)) as destination:
                 source.backup(destination)
     except sqlite3.Error as exc:
         raise ProjectBackupError(f"could not create a consistent SQLite snapshot: {exc}") from exc
@@ -381,7 +382,7 @@ def _remap_page_assets(database: Path, destination_root: Path, archive_names: It
 def _validate_sqlite_database(path: Path) -> tuple[str, int]:
     try:
         database_uri = f"{path.resolve().as_uri()}?mode=ro"
-        with sqlite3.connect(database_uri, uri=True) as connection:
+        with closing(sqlite3.connect(database_uri, uri=True)) as connection:
             integrity_rows = connection.execute("PRAGMA integrity_check").fetchall()
             integrity = "; ".join(str(row[0]) for row in integrity_rows)
             if integrity_rows != [("ok",)] and not (
