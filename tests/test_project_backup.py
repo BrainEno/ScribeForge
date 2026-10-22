@@ -178,7 +178,7 @@ def _digest(data: bytes) -> str:
 def test_cli_backup_verify_restore_json_round_trip(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    store_dir, source = _prepared_store(tmp_path)
+    store_dir, _source = _prepared_store(tmp_path)
     archive = tmp_path / "Book.zip"
     target = tmp_path / "restored-from-cli.scribeforge"
 
