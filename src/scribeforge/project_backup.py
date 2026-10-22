@@ -74,7 +74,7 @@ def create_project_backup(
             file_map[relative] = candidate
 
         sources = _prepare_source_files(snapshot, root, file_map)
-        files = []
+        files: list[dict[str, Any]] = []
         for relative, source_file in sorted(file_map.items()):
             size, digest = _file_fingerprint(source_file)
             files.append({"path": relative, "size": size, "sha256": digest})
