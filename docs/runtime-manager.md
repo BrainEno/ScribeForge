@@ -1,8 +1,14 @@
 # Runtime Manager
 
-The Runtime Manager exists so ScribeForge behaves like a normal desktop application, not a Python project. Normal users should never need to install Python, CUDA toolkits, MinerU, PaddleOCR, virtual environments, or model files manually.
+The Runtime Manager exists so ScribeForge behaves like a normal desktop application, not a Python project. Users should not need to install Python, CUDA toolkits, MinerU, PaddleOCR, virtual environments, or model files manually. Runtime setup requires an internet connection for the initial bootstrap, packages, and model downloads.
 
-## User experience target
+## User experience
+
+Run `scribeforge setup` before the first book is processed. The standalone
+wizard does not require a project store; it detects hardware, shows each backend
+state, and offers install-all plus per-backend repair actions. Downloads and model
+initialization run outside the Tk event loop, and phase/status messages are
+streamed into the activity panel.
 
 On first launch the user should see setup progress such as:
 
@@ -30,14 +36,23 @@ The current lifecycle is:
 6. verify model integrity and runtime startup;
 7. mark the backend `ready` only after health checks pass.
 
-Progress is emitted as structured runtime events for the future first-run UI. Failures persist the phase and step that failed so the UI can offer **Repair** instead of exposing a Python traceback.
+Progress is emitted as structured runtime events to the setup UI. Failures persist
+the phase and step that failed so the UI can offer **Repair**. Command output is
+captured and surfaced as a bounded error detail instead of depending on a console
+window being available.
+
+When `uv` is not already bundled or on the developer's PATH, setup downloads the
+platform-specific archive from the official Astral `uv` GitHub release, verifies
+the release API's SHA-256 digest, and writes only the executable into
+`runtime/tools`. It does not run a remote installer script or modify global
+Python environments.
 
 ## Private storage
 
 All managed data stays under the ScribeForge runtime root:
 
 ```text
-runtime/
+<per-user application data>/ScribeForge/runtime/
   tools/
     python/
     uv[.exe]
@@ -63,9 +78,15 @@ MinerU uses its official 4.x model commands to download and verify the `standard
 
 Model preparation is explicit during setup rather than being allowed to surprise the user during the first OCR job.
 
-## Repair
+## Install and repair
 
-`RuntimeManager.repair(plan, backend)` reruns the idempotent installation, model preparation, and health-check lifecycle for one backend only. Repair never deletes source books or project data.
+`scribeforge setup` opens the wizard at the per-user runtime path. Pass
+`--runtime-root <path>` to override it; `process` and `benchmark` use the same
+per-user default unless overridden. **Install / repair all** runs both backend
+lifecycles independently: a failure in one backend is persisted and reported, but
+does not prevent the other backend from completing. The per-backend buttons replay
+only the selected backend's installation, model preparation, and health checks.
+Repair never deletes source books or project data.
 
 ## Safety rules
 

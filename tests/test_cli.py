@@ -540,6 +540,22 @@ def test_export_rejects_an_invalid_language(
     assert "language" in captured.err.lower()
 
 
+def test_setup_command_opens_the_runtime_wizard_with_requested_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import types
+    import sys
+
+    seen: list[Path] = []
+    module = types.ModuleType("scribeforge.ui.runtime_window")
+    module.run_runtime_setup = lambda root: seen.append(root) or 0
+    monkeypatch.setitem(sys.modules, "scribeforge.ui.runtime_window", module)
+
+    runtime_root = tmp_path / "private-runtime"
+    assert run(["setup", "--runtime-root", str(runtime_root)]) == 0
+    assert seen == [runtime_root]
+
+
 def test_ui_command_requires_an_existing_store(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from scribeforge.runtime.manager import RuntimeEvent, RuntimeManager, RuntimeStatus
+from scribeforge.runtime.manager import CommandExecutor, RuntimeEvent, RuntimeManager, RuntimeStatus
 from scribeforge.runtime.models import HardwareProfile, RuntimeLayout
 from scribeforge.runtime.planner import build_runtime_plan
 from scribeforge.runtime.probe import probe_hardware
@@ -21,6 +21,7 @@ class RuntimeOverview:
 
 HardwareProbe = Callable[[], HardwareProfile]
 UvEnsurer = Callable[[Path, str, str], str]
+UvResolver = Callable[[Path, str], str]
 
 
 class RuntimeSetupWorkflow:
@@ -32,21 +33,25 @@ class RuntimeSetupWorkflow:
         *,
         hardware_probe: HardwareProbe = probe_hardware,
         uv_ensurer: UvEnsurer = ensure_uv_executable,
+        uv_resolver: UvResolver = resolve_uv_executable,
+        executor: CommandExecutor | None = None,
     ) -> None:
         self.root = root
         self._hardware_probe = hardware_probe
         self._uv_ensurer = uv_ensurer
+        self._uv_resolver = uv_resolver
+        self._executor = executor
 
     def inspect(self) -> RuntimeOverview:
         profile = self._hardware_probe()
         layout = RuntimeLayout(self.root)
         try:
-            resolve_uv_executable(layout.tools_dir, profile.os_name)
+            self._uv_resolver(layout.tools_dir, profile.os_name)
         except RuntimeToolMissing:
             uv_available = False
         else:
             uv_available = True
-        manager = RuntimeManager(self.root)
+        manager = RuntimeManager(self.root, executor=self._executor)
         return RuntimeOverview(
             hardware=profile,
             uv_available=uv_available,
@@ -61,7 +66,7 @@ class RuntimeSetupWorkflow:
         layout = RuntimeLayout(self.root)
         uv = self._uv_ensurer(layout.tools_dir, profile.os_name, profile.architecture)
         plan = build_runtime_plan(profile, layout, uv)
-        RuntimeManager(self.root, on_event=on_event).install(plan)
+        RuntimeManager(self.root, executor=self._executor, on_event=on_event).install(plan)
 
     def repair(
         self,
@@ -73,4 +78,6 @@ class RuntimeSetupWorkflow:
         layout = RuntimeLayout(self.root)
         uv = self._uv_ensurer(layout.tools_dir, profile.os_name, profile.architecture)
         plan = build_runtime_plan(profile, layout, uv)
-        RuntimeManager(self.root, on_event=on_event).repair(plan, backend)
+        RuntimeManager(self.root, executor=self._executor, on_event=on_event).repair(
+            plan, backend
+        )

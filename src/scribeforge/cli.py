@@ -256,7 +256,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
             "not ready" in message.lower() or "uv bootstrap tool" in message.lower()
         ):
             message += (
-                f"; run 'scribeforge setup --runtime-root "{runtime_root}"' "
+                f"; run `scribeforge setup --runtime-root \\\"{runtime_root}\\\"` "
                 "and retry"
             )
         print(f"error: {message}", file=sys.stderr)
