@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/services/cli_runner.dart';
+import 'package:scribeforge_desktop/services/settings_store.dart';
 
 void main() {
   group('ScribeForgeCli path and argument helpers', () {
@@ -137,6 +138,78 @@ void main() {
           '/tmp/My Book.scribeforge',
           '--source',
           '/archive/My Book.pdf',
+        ],
+      );
+    });
+
+    test('builds process arguments with opt-in VLM configuration only when enabled', () {
+      expect(
+        ScribeForgeCli.processArguments(
+          pdfPath: '/tmp/My Book.pdf',
+          storePath: '/tmp/My Book.scribeforge',
+        ),
+        <String>[
+          'process',
+          '/tmp/My Book.pdf',
+          '--store',
+          '/tmp/My Book.scribeforge',
+        ],
+      );
+      expect(
+        ScribeForgeCli.processArguments(
+          pdfPath: '/tmp/My Book.pdf',
+          storePath: '/tmp/My Book.scribeforge',
+          vlmSettings: const DesktopVlmSettings(
+            enabled: true,
+            endpoint: 'http://127.0.0.1:1234/v1',
+            model: 'local-vision-model',
+            apiKeyEnvironmentVariable: 'SCRIBE_VLM_TOKEN',
+            timeoutSeconds: 35,
+          ),
+        ),
+        <String>[
+          'process',
+          '/tmp/My Book.pdf',
+          '--store',
+          '/tmp/My Book.scribeforge',
+          '--vlm-endpoint',
+          'http://127.0.0.1:1234/v1',
+          '--vlm-model',
+          'local-vision-model',
+          '--vlm-api-key-env',
+          'SCRIBE_VLM_TOKEN',
+          '--vlm-timeout',
+          '35.0',
+        ],
+      );
+    });
+
+    test('builds VLM preflight arguments without embedding secret values', () {
+      expect(
+        ScribeForgeCli.vlmCheckArguments(
+          imagePath: '/tmp/Review crop.png',
+          vlmSettings: const DesktopVlmSettings(
+            endpoint: 'https://vision.example.test/v1',
+            model: 'vision-model',
+            apiKeyEnvironmentVariable: 'SCRIBE_VLM_TOKEN',
+            timeoutSeconds: 30,
+            allowRemote: true,
+          ),
+        ),
+        <String>[
+          'vlm-check',
+          '--image',
+          '/tmp/Review crop.png',
+          '--vlm-endpoint',
+          'https://vision.example.test/v1',
+          '--vlm-model',
+          'vision-model',
+          '--vlm-api-key-env',
+          'SCRIBE_VLM_TOKEN',
+          '--vlm-timeout',
+          '30.0',
+          '--allow-remote-vlm',
+          '--json',
         ],
       );
     });

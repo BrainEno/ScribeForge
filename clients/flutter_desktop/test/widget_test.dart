@@ -32,6 +32,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('CLI executable'), findsOneWidget);
     expect(find.text('Runtime & Models'), findsOneWidget);
+    expect(find.text('VLM review'), findsOneWidget);
+    await tester.tap(find.text('VLM review'));
+    await tester.pumpAndSettle();
+    expect(find.text('VLM review settings'), findsOneWidget);
+    expect(find.text('OpenAI-compatible endpoint'), findsOneWidget);
+    expect(find.text('Vision model'), findsOneWidget);
+    expect(find.text('Test with image…'), findsOneWidget);
 
     expect(tester.takeException(), isNull);
   });
