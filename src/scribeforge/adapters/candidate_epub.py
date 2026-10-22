@@ -4,9 +4,8 @@ import io
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from xml.etree import ElementTree
-
 from xml.sax.saxutils import escape, quoteattr
+from xml.etree import ElementTree
 
 from scribeforge.adapters.export_common import (
     XML_DECL,
