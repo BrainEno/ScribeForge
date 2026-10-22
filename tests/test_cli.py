@@ -455,6 +455,83 @@ def test_export_writes_an_epub_from_decided_content(
     assert "<dc:title>book</dc:title>" in opf
 
 
+def test_export_candidates_keeps_raw_engine_outputs_separate_from_verified_export(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+    out_dir = tmp_path / "candidates"
+
+    code = run(
+        [
+            "export-candidates",
+            "--store",
+            str(store_dir),
+            "--out-dir",
+            str(out_dir),
+            "--engine",
+            "primary",
+            "--engine",
+            "secondary",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "unverified primary candidate" in captured.out
+    manifest = json.loads((out_dir / "candidate-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["verification_status"] == "unverified"
+    assert [item["engine"] for item in manifest["candidates"]] == ["primary", "secondary"]
+    assert manifest["candidates"][0]["page_runs"][0]["run_id"] > 0
+    with zipfile.ZipFile(out_dir / "candidate-primary.epub") as archive:
+        package = archive.read("OEBPS/content.opf").decode("utf-8")
+        page = archive.read("OEBPS/page-000001.xhtml").decode("utf-8")
+    assert "UNVERIFIED OCR CANDIDATE" in package
+    assert "<p>鸦</p>" in page
+    with zipfile.ZipFile(out_dir / "candidate-secondary.epub") as archive:
+        page = archive.read("OEBPS/page-000001.xhtml").decode("utf-8")
+    assert "<p>雅</p>" in page
+
+    verified_path = tmp_path / "verified.epub"
+    assert run(["export", "--store", str(store_dir), "--out", str(verified_path)]) == 0
+    with zipfile.ZipFile(verified_path) as archive:
+        verified_page = archive.read("OEBPS/page-000001.xhtml").decode("utf-8")
+    assert "<p>verified</p>" in verified_page
+    assert "<p>鸦</p>" not in verified_page
+
+
+def test_export_candidates_fails_without_all_requested_engine_pages(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+    out_dir = tmp_path / "candidates"
+
+    code = run(
+        [
+            "export-candidates",
+            "--store",
+            str(store_dir),
+            "--out-dir",
+            str(out_dir),
+            "--engine",
+            "mineru",
+            "--engine",
+            "secondary",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "could not build every OCR candidate" in captured.err
+    assert not (out_dir / "candidate-secondary.epub").exists()
+    assert not (out_dir / "candidate-manifest.json").exists()
+
+
 def test_export_blocks_on_unresolved_pairs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
