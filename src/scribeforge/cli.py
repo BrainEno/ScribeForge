@@ -15,8 +15,8 @@ from typing import TextIO
 
 from scribeforge.adapters.candidate_epub import build_candidate_epub
 from scribeforge.adapters.docx import write_docx
-from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReviewer
 from scribeforge.adapters.epub import write_epub
+from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReviewer
 from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.benchmark.corpus import validate_corpus
