@@ -1004,7 +1004,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                   value: 'cli',
                   child: Row(
                     children: [
-                      Icon(Icons.terminal_outlined, size: 18),
+                      Icon(Icons.code_outlined, size: 18),
                       SizedBox(width: 10),
                       Text('CLI executable'),
                     ],
