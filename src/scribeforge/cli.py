@@ -955,14 +955,14 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
     layout = RuntimeLayout(runtime_root)
     profile = overview.hardware
     backends: dict[str, dict[str, object]] = {}
-    for name, status in (
+    for name, backend_status in (
         ("mineru", overview.mineru),
         ("paddleocr", overview.paddleocr),
     ):
         environment = layout.environment_dir(name)
         backends[name] = {
-            "state": status.state,
-            "failed_step": status.failed_step,
+            "state": backend_status.state,
+            "failed_step": backend_status.failed_step,
             "environment_path": str(environment),
             "environment_exists": environment.is_dir(),
         }
@@ -1008,9 +1008,10 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
             f"RAM: {profile.ram_mb} MiB" if profile.ram_mb is not None else "RAM: unknown",
             file=out,
         )
-        for name, status in backends.items():
-            suffix = f" (failed step: {status['failed_step']})" if status["failed_step"] else ""
-            print(f"{name}: {status['state']}{suffix}", file=out)
+        for name, backend_report in backends.items():
+            failed_step = backend_report["failed_step"]
+            suffix = f" (failed step: {failed_step})" if failed_step else ""
+            print(f"{name}: {backend_report['state']}{suffix}", file=out)
         print(f"Models: {paths['models']}", file=out)
         print(f"Cache: {paths['cache']}", file=out)
     return EXIT_OK
