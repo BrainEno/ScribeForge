@@ -341,6 +341,24 @@ class SQLiteStore:
                 for row in rows
             )
 
+    def relink_project_source(
+        self, project_id: int, source_uri: str, *, expected_sha256: str
+    ) -> None:
+        """Change only the source path when the stored content identity still matches."""
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE projects
+                SET source_uri = ?
+                WHERE id = ? AND source_sha256 = ?
+                """,
+                (source_uri, project_id, expected_sha256),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(
+                    "cannot relink source: project is missing or recorded SHA-256 changed"
+                )
+
     def add_page(
         self,
         project_id: int,
