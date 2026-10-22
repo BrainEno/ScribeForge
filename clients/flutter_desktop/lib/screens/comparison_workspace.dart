@@ -857,6 +857,216 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     }
   }
 
+  Future<void> _exportVerifiedBook() async {
+    final storePath = _activeStorePath;
+    final status = _projectStatus;
+    if (storePath.isEmpty || status == null || !_projectSourceMatches) {
+      _message(
+        'Open a project whose source path and SHA-256 match before exporting.',
+      );
+      return;
+    }
+
+    final titleController = TextEditingController(text: status.title);
+    final authorController = TextEditingController();
+    final languageController = TextEditingController(text: 'und');
+    final modifiedController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    var format = 'epub';
+
+    try {
+      final metadata = await showDialog<Map<String, String>>(
+        context: context,
+        builder: (_) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Export verified book'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: format,
+                        decoration: const InputDecoration(
+                          labelText: 'Output format',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'epub',
+                            child: Text('EPUB 3 (.epub)'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'docx',
+                            child: Text('Word document (.docx)'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => format = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: titleController,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Book title',
+                        ),
+                        validator: (value) =>
+                            value?.trim().isNotEmpty == true
+                                ? null
+                                : 'Enter a book title.',
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: authorController,
+                        decoration: const InputDecoration(
+                          labelText: 'Author (optional)',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: languageController,
+                        decoration: const InputDecoration(
+                          labelText: 'Language tag',
+                          hintText: 'zh-Hant, en, ja, or und',
+                          helperText:
+                              'Use a BCP 47 language tag; und means unknown.',
+                        ),
+                        validator: (value) =>
+                            value?.trim().isNotEmpty == true
+                                ? null
+                                : 'Enter a language tag, or use und.',
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: modifiedController,
+                        decoration: const InputDecoration(
+                          labelText: 'Fixed modification time (optional)',
+                          hintText: '2026-10-22T00:00:00Z',
+                          helperText:
+                              'ISO 8601 timestamp for reproducible exports. Leave blank to use the current time.',
+                        ),
+                        validator: (value) {
+                          final raw = value?.trim() ?? '';
+                          if (raw.isEmpty || DateTime.tryParse(raw) != null) {
+                            return null;
+                          }
+                          return 'Use a valid ISO 8601 timestamp.';
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Only accepted verification decisions are exported. '
+                          'The CLI rejects incomplete pages or unresolved review '
+                          'pairs; the A/B candidate EPUBs are never treated as final text.',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF68766F)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.icon(
+                onPressed: () {
+                  if (!(formKey.currentState?.validate() ?? false)) return;
+                  Navigator.of(dialogContext).pop(<String, String>{
+                    'format': format,
+                    'title': titleController.text.trim(),
+                    'author': authorController.text.trim(),
+                    'language': languageController.text.trim(),
+                    'modified': modifiedController.text.trim(),
+                  });
+                },
+                icon: const Icon(Icons.file_download_outlined),
+                label: const Text('Choose output folder'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (metadata == null || !mounted) return;
+
+      final outputDirectory = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Choose an export destination folder',
+      );
+      if (outputDirectory == null || !mounted) return;
+
+      final selectedFormat = metadata['format']!;
+      final fileName =
+          '${_safeFileName(metadata['title']!)}.$selectedFormat';
+      final outputPath = ScribeForgeCli.joinPath(outputDirectory, fileName);
+      if (await File(outputPath).exists()) {
+        if (!mounted) return;
+        final overwrite = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Replace existing export?'),
+            content: Text(
+              'The file already exists:\n\n$outputPath\n\n'
+              'Replace it only after the new document has been validated?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Replace file'),
+              ),
+            ],
+          ),
+        );
+        if (overwrite != true || !mounted) return;
+      }
+
+      final exitCode = await _runCli(
+        title: 'Export verified book',
+        arguments: ScribeForgeCli.exportArguments(
+          storePath: storePath,
+          outputPath: outputPath,
+          title: metadata['title']!,
+          language: metadata['language']!,
+          author: metadata['author'],
+          modified: metadata['modified'],
+        ),
+      );
+      if (!mounted || exitCode != 0) return;
+      _message(
+        'Verified ${selectedFormat.toUpperCase()} exported to $outputPath',
+      );
+    } on Object catch (error) {
+      if (mounted) {
+        _message('Could not export the verified book: $error');
+      }
+    } finally {
+      titleController.dispose();
+      authorController.dispose();
+      languageController.dispose();
+      modifiedController.dispose();
+    }
+  }
+
+  String _safeFileName(String value) {
+    final safe = value
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+        .trim();
+    return safe.isEmpty ? 'ScribeForge export' : safe;
+  }
+
   int get _pageCount {
     final pdfCount = _pdfPageCount;
     if (pdfCount != null) return pdfCount;
@@ -1054,6 +1264,13 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               onPressed: _busy || _statusLoading || _pdfPath == null || !_projectSourceMatches || _projectStatus == null ? null : _buildCandidates,
               icon: const Icon(Icons.auto_stories_outlined),
               label: const Text('Build A/B EPUBs'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy || _statusLoading || _projectStatus == null || !_projectSourceMatches
+                  ? null
+                  : _exportVerifiedBook,
+              icon: const Icon(Icons.file_download_done_outlined),
+              label: const Text('Export verified book'),
             ),
             if (_projectStoreExplicit && _projectStatus != null && !_projectSourceMatches)
               OutlinedButton.icon(

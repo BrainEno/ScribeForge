@@ -25,6 +25,7 @@ void main() {
     expect(find.text('Set up OCR'), findsOneWidget);
     expect(find.text('Run OCR'), findsOneWidget);
     expect(find.text('Build A/B EPUBs'), findsOneWidget);
+    expect(find.text('Export verified book'), findsOneWidget);
     expect(find.text('Human evaluation'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

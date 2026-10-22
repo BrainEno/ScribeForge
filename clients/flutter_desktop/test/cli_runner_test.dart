@@ -60,6 +60,55 @@ void main() {
       );
     });
 
+    test('builds verified EPUB/DOCX export arguments and optional metadata safely', () {
+      expect(
+        ScribeForgeCli.exportArguments(
+          storePath: '/tmp/My Book.scribeforge',
+          outputPath: '/tmp/Verified Book.epub',
+          title: 'Verified Book',
+          author: 'A. Writer',
+          language: 'zh-Hant',
+          modified: '2026-10-22T00:00:00Z',
+        ),
+        <String>[
+          'export',
+          '--store',
+          '/tmp/My Book.scribeforge',
+          '--out',
+          '/tmp/Verified Book.epub',
+          '--language',
+          'zh-Hant',
+          '--title',
+          'Verified Book',
+          '--author',
+          'A. Writer',
+          '--modified',
+          '2026-10-22T00:00:00Z',
+        ],
+      );
+      expect(
+        ScribeForgeCli.exportArguments(
+          storePath: '/tmp/My Book.scribeforge',
+          outputPath: '/tmp/Book.docx',
+          title: 'Book',
+          language: 'und',
+          author: '  ',
+          modified: '',
+        ),
+        <String>[
+          'export',
+          '--store',
+          '/tmp/My Book.scribeforge',
+          '--out',
+          '/tmp/Book.docx',
+          '--language',
+          'und',
+          '--title',
+          'Book',
+        ],
+      );
+    });
+
     test('keeps store and source paths as separate relink arguments', () {
       expect(
         ScribeForgeCli.relinkSourceArguments(
