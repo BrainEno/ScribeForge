@@ -14,7 +14,9 @@ class EvaluationStore {
     }
     try {
       final raw = jsonDecode(await file.readAsString());
-      if (raw is! Map<String, dynamic> || raw['schema_version'] != 1) return null;
+      if (raw is! Map<String, dynamic> || raw['schema_version'] != 1) {
+        return null;
+      }
       return raw;
     } on FormatException {
       return null;

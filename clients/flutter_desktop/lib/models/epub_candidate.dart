@@ -52,7 +52,9 @@ class EpubCandidate {
   EpubPage? pageForSourceIndex(int zeroBasedIndex) {
     if (isSourcePageAligned) {
       for (final page in pages) {
-        if (page.sourcePageIndex == zeroBasedIndex) return page;
+        if (page.sourcePageIndex == zeroBasedIndex) {
+          return page;
+        }
       }
       return null;
     }
@@ -82,7 +84,9 @@ class EpubCandidate {
 
     String readEntry(String name) {
       final entry = entries[name];
-      if (entry == null) throw FormatException('EPUB is missing $name');
+      if (entry == null) {
+        throw FormatException('EPUB is missing $name');
+      }
       if (entry.size > 32 * 1024 * 1024) {
         throw FormatException('EPUB entry is too large: $name');
       }
@@ -138,7 +142,9 @@ class EpubCandidate {
     final pages = <EpubPage>[];
     for (final id in itemIds) {
       final href = manifest[id];
-      if (href == null) continue;
+      if (href == null) {
+        continue;
+      }
       final document = XmlDocument.parse(readEntry(href));
       final root = document.rootElement;
       final chapterTitle = _descendants(root)
@@ -187,10 +193,16 @@ Iterable<XmlElement> _descendants(XmlElement root) sync* {
 }
 
 String _extractText(XmlNode node) {
-  if (node is XmlText) return node.value;
-  if (node is! XmlElement) return '';
+  if (node is XmlText) {
+    return node.value;
+  }
+  if (node is! XmlElement) {
+    return '';
+  }
   final tag = node.name.local.toLowerCase();
-  if (const {'script', 'style', 'head', 'svg', 'noscript'}.contains(tag)) return '';
+  if (const {'script', 'style', 'head', 'svg', 'noscript'}.contains(tag)) {
+    return '';
+  }
   final children = node.children.map(_extractText).join();
   if (const {
     'p', 'div', 'section', 'article', 'li', 'blockquote', 'h1', 'h2', 'h3',
@@ -206,7 +218,9 @@ String _resolveZipPath(String opfPath, String href) {
   final pieces = <String>[];
   final parent = opfPath.split('/')..removeLast();
   for (final part in [...parent, ...decoded.split('/')]) {
-    if (part.isEmpty || part == '.') continue;
+    if (part.isEmpty || part == '.') {
+      continue;
+    }
     if (part == '..') {
       if (pieces.isEmpty) {
         throw const FormatException('EPUB resource escapes the archive root.');

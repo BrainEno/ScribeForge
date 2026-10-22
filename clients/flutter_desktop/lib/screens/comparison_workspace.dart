@@ -43,7 +43,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       type: FileType.custom,
       allowedExtensions: extensions,
     );
-    if (file == null) return null;
+    if (file == null) {
+      return null;
+    }
     final path = file.path;
     if (path == null || path.isEmpty) {
       _message('The file picker did not return a local path.');
@@ -73,7 +75,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
         _winner = null;
       });
       final saved = await EvaluationStore.read(path);
-      if (!mounted || saved == null) return;
+      if (!mounted || saved == null) {
+        return;
+      }
       final source = saved['source_pdf'];
       final sourceMap = source is Map ? Map<String, dynamic>.from(source) : null;
       final currentHash = await EvaluationStore.fingerprint(path);
@@ -125,7 +129,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   Future<EpubCandidate?> _restoreCandidate(Map<String, dynamic>? record) async {
     final path = record?['path'];
     final hash = record?['sha256'];
-    if (path is! String || hash is! String) return null;
+    if (path is! String || hash is! String) {
+      return null;
+    }
     try {
       final candidate = await EpubCandidate.load(path);
       return candidate.sha256 == hash ? candidate : null;
@@ -144,7 +150,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
         _notice = null;
       });
       final candidate = await EpubCandidate.load(path);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         if (left) {
           _a = candidate;
@@ -410,7 +418,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                       }
                     });
                   }
-                  if (count == 0) return const Center(child: Text('PDF has no pages.'));
+                  if (count == 0) {
+                    return const Center(child: Text('PDF has no pages.'));
+                  }
                   return ColoredBox(
                     color: const Color(0xFFE8ECEA),
                     child: PdfPageView(
