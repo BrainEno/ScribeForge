@@ -147,6 +147,17 @@ def test_load_detail_reads_the_queued_pair(tmp_path: Path) -> None:
     assert detail.accepted_text is None
 
 
+def test_load_detail_exposes_source_and_engine_line_boxes(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    row = load_review_rows(store, project_id)[0]
+
+    detail = load_detail(store, project_id, row)
+
+    assert detail.source_box == BoundingBox(0.1, 0.1, 0.5, 0.05)
+    assert detail.primary_box == BoundingBox(0.1, 0.1, 0.5, 0.05)
+    assert detail.secondary_box == BoundingBox(0.1, 0.1, 0.5, 0.05)
+
+
 def test_page_image_path_is_none_when_the_asset_is_gone(tmp_path: Path) -> None:
     store, project_id = _store(tmp_path)
 
