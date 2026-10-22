@@ -1,11 +1,11 @@
-"Corpus validation for the real-page benchmark.
+"""Corpus validation for the real-page benchmark.
 
 A benchmark result is evidence only if every case actually has the page image and
 the manually verified ground truth the manifest claims. Validation runs before any
 engine is started, so a typo cannot silently shrink the corpus. File references
 must resolve inside the selected corpus root; a manifest cannot read arbitrary
 files through absolute paths, traversal, or escaping symlinks.
-"
+"""
 
 from __future__ import annotations
 
