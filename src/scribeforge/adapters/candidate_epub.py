@@ -4,7 +4,7 @@ import io
 import zipfile
 from datetime import datetime
 from pathlib import Path
-import xml.etree.ElementTree as ElementTree
+from xml.etree import ElementTree
 from xml.sax.saxutils import escape, quoteattr
 
 from scribeforge.adapters.export_common import (
