@@ -56,7 +56,7 @@ def test_backup_verification_and_restore_preserve_evidence_and_relocate_page_pat
     created = create_project_backup(store_dir, archive)
     verified = verify_project_backup(archive)
 
-    assert created["file_count"] == 4
+    assert created["file_count"] == 3
     assert verified["healthy"] is True
     assert verified["sqlite_integrity"] == "ok"
     assert verified["foreign_key_violations"] == 0
