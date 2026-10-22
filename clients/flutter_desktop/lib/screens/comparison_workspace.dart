@@ -430,6 +430,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   Future<int?> _runCli({
     required String title,
     required List<String> arguments,
+    bool auditMode = false,
   }) async {
     final executable = _cliExecutable.trim();
     if (executable.isEmpty) {
@@ -510,11 +511,19 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
         arguments: arguments,
         onOutput: (chunk) => output.value += chunk,
       );
-      state.value = switch (exitCode) {
-        0 => 'Completed successfully (exit code 0).',
-        1 => 'Completed with page-level failures (exit code 1). You can retry.',
-        _ => 'Command failed (exit code $exitCode). See the log above.',
-      };
+      if (auditMode) {
+        state.value = switch (exitCode) {
+          0 => 'Audit completed: no findings (exit code 0).',
+          1 => 'Audit completed: findings detected. Review the report above.',
+          _ => 'Audit could not complete (exit code $exitCode). See the log above.',
+        };
+      } else {
+        state.value = switch (exitCode) {
+          0 => 'Completed successfully (exit code 0).',
+          1 => 'Completed with page-level failures (exit code 1). You can retry.',
+          _ => 'Command failed (exit code $exitCode). See the log above.',
+        };
+      }
       output.value += '\n\nExit code: $exitCode\n';
       if (mounted) {
         setState(() {
@@ -647,6 +656,19 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
 
   Future<void> _setupRuntimes() async {
     await _runCli(title: 'OCR runtime setup', arguments: const ['setup']);
+  }
+
+  Future<void> _auditProject() async {
+    final storePath = _activeStorePath;
+    if (storePath.isEmpty) {
+      _message('Open a ScribeForge project before running the integrity audit.');
+      return;
+    }
+    await _runCli(
+      title: 'Project integrity audit',
+      arguments: ScribeForgeCli.auditArguments(storePath: storePath),
+      auditMode: true,
+    );
   }
 
   Future<void> _runOcr() async {
@@ -869,6 +891,12 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               icon: const Icon(Icons.folder_open_outlined),
               label: const Text('Open project'),
             ),
+            if (_projectStoreExplicit || _projectStatus != null)
+              OutlinedButton.icon(
+                onPressed: _busy || _statusLoading ? null : _auditProject,
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('Audit project'),
+              ),
             FilledButton.tonalIcon(
               onPressed: _busy || _statusLoading ? null : _openPdf,
               icon: const Icon(Icons.picture_as_pdf_outlined),
