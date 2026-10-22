@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 from scribeforge.cli import run
-from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.project_audit import audit_project_store
+from scribeforge.storage.sqlite import SQLiteStore
 
 
 def _sha256(path: Path) -> str:
