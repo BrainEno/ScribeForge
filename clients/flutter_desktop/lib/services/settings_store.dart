@@ -47,19 +47,19 @@ class DesktopSettingsStore {
     if (Platform.isWindows) {
       final appData = env['APPDATA'];
       final base = appData == null || appData.isEmpty
-          ? '${home}${Platform.pathSeparator}AppData${Platform.pathSeparator}Roaming'
+          ? '$home${Platform.pathSeparator}AppData${Platform.pathSeparator}Roaming'
           : appData;
-      return Directory('${base}${Platform.pathSeparator}ScribeForge');
+      return Directory('$base${Platform.pathSeparator}ScribeForge');
     }
     if (Platform.isMacOS) {
       return Directory(
-        '${home}${Platform.pathSeparator}Library${Platform.pathSeparator}Application Support${Platform.pathSeparator}ScribeForge',
+        '$home${Platform.pathSeparator}Library${Platform.pathSeparator}Application Support${Platform.pathSeparator}ScribeForge',
       );
     }
     final xdg = env['XDG_CONFIG_HOME'];
     final base = xdg != null && xdg.startsWith('/')
         ? xdg
-        : '${home}${Platform.pathSeparator}.config';
-    return Directory('${base}${Platform.pathSeparator}scribeforge');
+        : '$home${Platform.pathSeparator}.config';
+    return Directory('$base${Platform.pathSeparator}scribeforge');
   }
 }
