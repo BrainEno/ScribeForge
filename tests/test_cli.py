@@ -20,8 +20,8 @@ from scribeforge.cli import (
 from scribeforge.domain.jobs import JobStage
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.vlm import VLMReading
-from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime import probe as runtime_probe
+from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.storage.sqlite import SQLiteStore
 
 
