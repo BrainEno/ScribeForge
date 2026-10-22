@@ -23,6 +23,7 @@ from scribeforge.ui.viewmodel import (
     page_image_path,
     render_detail,
     resolve_review_row,
+    render_conflict_side,
 )
 
 
@@ -293,3 +294,51 @@ def test_resolve_review_row_rejects_a_stale_queue_item(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="no longer queued"):
         resolve_review_row(store, project_id, row, "different")
+
+
+
+def test_render_conflict_side_highlights_substitution_without_rewriting_text() -> None:
+    conflict = AlignmentConflict(
+        ConflictKind.SUBSTITUTION, "X", "Y", 2, 3, 2, 3
+    )
+
+    rendered = render_conflict_side("abXcd", (conflict,), primary=True)
+
+    assert rendered.text == "abXcd"
+    assert [(span.start, span.end, span.kind) for span in rendered.spans] == [
+        (2, 3, ConflictKind.SUBSTITUTION)
+    ]
+
+
+def test_render_conflict_side_marks_an_empty_insertion_side() -> None:
+    conflict = AlignmentConflict(
+        ConflictKind.INSERTION, "", "b", 1, 1, 1, 2
+    )
+
+    primary = render_conflict_side("acd", (conflict,), primary=True)
+    secondary = render_conflict_side("abcd", (conflict,), primary=False)
+
+    assert primary.text == "a∅cd"
+    assert [(span.start, span.end, span.kind) for span in primary.spans] == [
+        (1, 2, ConflictKind.INSERTION)
+    ]
+    assert secondary.text == "abcd"
+    assert [(span.start, span.end, span.kind) for span in secondary.spans] == [
+        (1, 2, ConflictKind.INSERTION)
+    ]
+
+
+def test_render_conflict_side_marks_punctuation_and_unmatched_lines() -> None:
+    punctuation = AlignmentConflict(
+        ConflictKind.PUNCTUATION, "，", "。", 1, 2, 1, 2
+    )
+
+    rendered = render_conflict_side("甲，乙", (punctuation,), primary=True)
+    missing = render_conflict_side(None, (punctuation,), primary=False)
+
+    assert rendered.text == "甲，乙"
+    assert [(span.start, span.end, span.kind) for span in rendered.spans] == [
+        (1, 2, ConflictKind.PUNCTUATION)
+    ]
+    assert missing.text == "∅ (no aligned line)"
+    assert missing.spans == ()
