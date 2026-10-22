@@ -13,6 +13,7 @@ from pathlib import Path
 from scribeforge.domain.jobs import JobState
 from scribeforge.pipeline.adjudication import (
     ReviewDetail,
+    record_human_decision,
     review_detail,
     review_queue,
 )
@@ -120,6 +121,29 @@ def load_review_rows(store: SQLiteStore, project_id: int) -> tuple[ReviewRow, ..
             reasons=tuple(reason.value for reason in item.reasons),
         )
         for item in review_queue(store, project_id)
+    )
+
+
+def resolve_review_row(
+    store: SQLiteStore,
+    project_id: int,
+    row: ReviewRow,
+    selected_text: str,
+) -> int:
+    """Record a human decision for a pair that is still awaiting review.
+
+    The decision is append-only and cites the newest persisted evidence. A stale
+    queue row is rejected rather than silently creating a second decision.
+    The selected text is stored literally, including whitespace.
+    """
+
+    if not any(
+        item.page_index == row.page_index and item.pair_index == row.pair_index
+        for item in load_review_rows(store, project_id)
+    ):
+        raise ValueError("review item is no longer queued")
+    return record_human_decision(
+        store, project_id, row.page_index, row.pair_index, selected_text
     )
 
 

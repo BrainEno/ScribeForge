@@ -1,10 +1,9 @@
 # Desktop shell
 
-The desktop shell (`scribeforge ui --store <dir>`) is a **read-only** view over an
-existing project store. It is the first Phase 3 slice: it shows what the pipeline
-already persisted and never edits it. Recording decisions from the UI, the
-source/text synchronized viewer, the first-run runtime wizard, and settings come
-later.
+The desktop shell (`scribeforge ui --store <dir>`) is an interactive human-review
+surface over an existing project store. It can append an accepted decision for a
+queued pair, but it never edits source OCR, engine output, alignment, VLM
+readings, or page images. Decisions remain a separate, append-only evidence layer.
 
 ## Layout
 
@@ -21,6 +20,16 @@ accepted text. The `Page image` and `Crop` tabs show the immutable page raster
 asset and the review crop for that pair, each with its path and displayed size in
 the caption; a missing asset, a missing crop, or an undecodable file is stated in
 the caption rather than hidden.
+
+The decision controls can explicitly accept the primary reading (`1`), secondary
+reading (`2`), or VLM reading (`3`), or save literal custom text with
+`Ctrl+Enter`. Empty custom text requires confirmation because it records a
+deletion-like reading. The VLM button is available only when a VLM reading exists;
+uncertain readings are still shown and may be selected deliberately by the human.
+After a decision, the library counts and queue reload from SQLite, and the next
+remaining queued pair is selected. `n` advances to the next queued pair and
+`r`/`F5` refreshes the view. These shortcuts do not intercept text entered in
+the custom-text field.
 
 Selecting a library row loads that project's jobs and queue; selecting a queue
 row loads the pair's evidence and imagery. `r` and `F5` reload the library from
@@ -41,13 +50,13 @@ source evidence stays untouched.
 
 ## Layering
 
-- `scribeforge.ui.viewmodel` holds every label and row the shell renders, plus
-  the paths of the imagery to show (`page_image_path`, `load_pair_view`). It
-  imports no GUI framework and is unit tested against a real `SQLiteStore`, so
-  the presentation contract is verified without a display.
-- `scribeforge.ui.tk_window` is the Tkinter widget layer. It is display-only code
-  excluded from coverage (`.github/workflows/ci.yml` runs on a headless runner)
-  and is smoke-tested by launching the app.
+- `scribeforge.ui.viewmodel` holds labels, evidence rows, image paths, and the
+  tested `resolve_review_row` application action. It imports no GUI framework
+  and is unit tested against a real `SQLiteStore`, so the decision contract is
+  verified without a display.
+- `scribeforge.ui.tk_window` owns the Tkinter widgets and keyboard bindings.
+  Its presentation layer remains excluded from coverage because CI is headless;
+  the decision/persistence behavior is covered through the view-model tests.
 - `scribeforge.ui.app` resolves the Tkinter layer lazily, so every other command
   keeps working on Python builds without Tkinter and on machines with no display.
   A missing Tkinter reports `error: the desktop UI needs Tkinter (...)` and exits
