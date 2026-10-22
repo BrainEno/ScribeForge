@@ -44,7 +44,7 @@ scribeforge benchmark \
 The command:
 
 1. loads and validates the manifest;
-2. checks every case before starting an engine: a missing or empty image and a missing or blank UTF-8 ground truth are all reported, so a typo cannot silently shrink the corpus;
+2. checks every case before starting an engine: manifest image and ground-truth paths must be relative and resolve inside the selected corpus root (absolute paths, parent traversal and symlinks escaping the root are rejected); missing or empty images and missing or blank UTF-8 ground truth are all reported, so a typo cannot silently shrink the corpus;
 3. builds only the requested backends from managed runtimes; an unavailable backend fails loudly instead of degrading evidence;
 4. scores each requested engine for CER, WER, punctuation accuracy, missing/extra lines, per-case duration, and pages/minute;
 5. with `--include-pipeline`, also processes every case through the production alignment, risk assessment, verification, and conservative decision stages in an isolated temporary SQLite project;
