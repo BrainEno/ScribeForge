@@ -21,6 +21,7 @@ from scribeforge.domain.jobs import JobStage
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.vlm import VLMReading
 from scribeforge.runtime.models import RuntimeLayout
+from scribeforge.runtime import probe as runtime_probe
 from scribeforge.storage.sqlite import SQLiteStore
 
 
@@ -1347,3 +1348,70 @@ def test_relink_source_rejects_multi_project_store(
     assert code == 2
     assert "multiple projects" in captured.err.lower()
     assert [project.title for project in store.list_projects()] == ["One", "Two"]
+
+
+
+def test_runtime_status_json_reports_managed_backend_state_read_only(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    state_path = runtime_root / "runtime-state.json"
+    state = {
+        "schema_version": 1,
+        "backends": {
+            "mineru": {"state": "ready", "failed_step": None},
+            "paddleocr": {"state": "failed", "failed_step": "models:download"},
+        },
+    }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    before = state_path.read_bytes()
+    monkeypatch.setattr(runtime_probe, "_nvidia_profile", lambda: None)
+    monkeypatch.setattr(runtime_probe, "_ram_mb", lambda: 16 * 1024)
+
+    code = run(
+        [
+            "runtime-status",
+            "--runtime-root",
+            str(runtime_root),
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    report = json.loads(captured.out)
+    assert report["schema_version"] == 1
+    assert report["runtime_root"] == str(runtime_root)
+    assert report["runtime_root_exists"] is True
+    assert report["hardware"]["gpu_name"] is None
+    assert report["hardware"]["ram_mb"] == 16 * 1024
+    assert report["backends"]["mineru"]["state"] == "ready"
+    assert report["backends"]["paddleocr"]["state"] == "failed"
+    assert report["backends"]["paddleocr"]["failed_step"] == "models:download"
+    assert report["paths"]["models"] == str(runtime_root / "models")
+    assert state_path.read_bytes() == before
+
+
+def test_runtime_status_json_reports_missing_backends(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_root = tmp_path / "runtime-missing"
+    monkeypatch.setattr(runtime_probe, "_nvidia_profile", lambda: None)
+    monkeypatch.setattr(runtime_probe, "_ram_mb", lambda: None)
+
+    code = run(
+        ["runtime-status", "--runtime-root", str(runtime_root), "--json"]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    report = json.loads(captured.out)
+    assert report["runtime_root_exists"] is False
+    assert report["backends"]["mineru"]["state"] == "missing"
+    assert report["backends"]["paddleocr"]["state"] == "missing"
+    assert report["backends"]["mineru"]["environment_exists"] is False
