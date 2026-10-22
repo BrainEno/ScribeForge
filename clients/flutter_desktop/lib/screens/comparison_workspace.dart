@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -184,10 +185,12 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   }
 
   Future<void> _openProjectStore() async {
-    final directoryPath = await FilePicker.platform.getDirectoryPath(
+    final directoryPath = await FilePicker.getDirectoryPath(
       dialogTitle: 'Open ScribeForge project folder',
     );
-    if (directoryPath == null || !mounted) return;
+    if (directoryPath == null || !mounted) {
+      return;
+    }
     setState(() {
       _statusLoading = true;
       _projectStatusMessage = 'Reading the selected project store…';
