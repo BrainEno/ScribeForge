@@ -221,6 +221,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit a stable JSON status report."
     )
 
+    vlm_check = subparsers.add_parser(
+        "vlm-check",
+        help="Test a configured VLM endpoint with an explicit image without writing project data.",
+    )
+    vlm_check.add_argument(
+        "--image", type=Path, required=True, help="Image/crop to send for one diagnostic transcription."
+    )
+    vlm_check.add_argument(
+        "--json", action="store_true", help="Emit a machine-readable diagnostic result."
+    )
+    _add_vlm_arguments(vlm_check)
+
     status = subparsers.add_parser(
         "status", help="Show the persisted processing jobs of a project store."
     )
@@ -387,6 +399,8 @@ def run(
         return _setup(args)
     if args.command == "runtime-status":
         return _runtime_status(args, out)
+    if args.command == "vlm-check":
+        return _vlm_check(args, out)
     if args.command == "status":
         return _status(args, out)
     if args.command == "relink-source":
@@ -1087,6 +1101,56 @@ def _benchmark(
         file=out,
     )
     return EXIT_OK
+
+
+def _vlm_check(args: argparse.Namespace, out: TextIO) -> int:
+    """Run one explicit crop/image diagnostic without opening or changing a project."""
+    image_path: Path = args.image
+    if not image_path.is_file():
+        print(f"error: VLM check image not found: {image_path}", file=sys.stderr)
+        return EXIT_FATAL
+
+    try:
+        reviewer = _configured_vlm_reviewer(args)
+    except ValueError as exc:
+        print(f"error: VLM configuration: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    if reviewer is None:
+        print(
+            "error: VLM configuration: --vlm-endpoint and --vlm-model are required",
+            file=sys.stderr,
+        )
+        return EXIT_FATAL
+
+    try:
+        reading = reviewer.transcribe_crop(str(image_path.resolve()), page_index=0, pair_index=0)
+    except Exception as exc:  # noqa: BLE001 - diagnostics must surface adapter/server failures
+        print(f"error: VLM check failed: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    status = "uncertain" if reading.uncertain else (
+        "blank" if not reading.text.strip() else "transcribed"
+    )
+    report: dict[str, object] = {
+        "schema_version": 1,
+        "status": status,
+        "image": str(image_path.resolve()),
+        "model": reading.model,
+        "model_version": reading.model_version,
+        "text": reading.text,
+        "uncertain": reading.uncertain,
+    }
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out)
+    else:
+        print(f"VLM check: {status}", file=out)
+        print(f"Model: {reading.model} ({reading.model_version})", file=out)
+        print(f"Image: {image_path.resolve()}", file=out)
+        print(f"Transcription: {reading.text!r}", file=out)
+        if status != "transcribed":
+            print("This result is diagnostic only; it has not been accepted as project text.", file=out)
+
+    return EXIT_OK if status == "transcribed" else EXIT_PARTIAL
 
 
 def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:

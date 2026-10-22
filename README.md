@@ -85,6 +85,7 @@ The repository is in **Phase 3 — desktop UI**, with Phases 1, 2, and 4 complet
 ```bash
 scribeforge setup                             # first-run runtime/model setup wizard
 scribeforge runtime-status --json                 # inspect backend readiness and hardware
+scribeforge vlm-check --image crop.png --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model --json # test a VLM endpoint; no project data is changed
 scribeforge setup --runtime-root runtime/     # choose a private runtime directory
 scribeforge process book.pdf                  # import + process every page
 scribeforge process book.pdf --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model # optional local crop review

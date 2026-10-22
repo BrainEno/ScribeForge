@@ -1772,3 +1772,74 @@ def test_vlm_check_requires_explicit_endpoint_and_model(
     captured = capsys.readouterr()
     assert code == 2
     assert "vlm-endpoint and --vlm-model are required" in captured.err
+
+
+
+def test_vlm_check_fails_closed_when_the_endpoint_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = _book(tmp_path)
+
+    class BrokenReviewer:
+        def transcribe_crop(
+            self, image_path: str, page_index: int, pair_index: int
+        ) -> VLMReading:
+            raise RuntimeError("synthetic endpoint timeout")
+
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: BrokenReviewer(),
+    )
+
+    code = run(
+        [
+            "vlm-check",
+            "--image",
+            str(image),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-model",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "VLM check failed" in captured.err
+    assert "synthetic endpoint timeout" in captured.err
+
+
+def test_vlm_check_reports_blank_text_as_partial_not_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = _book(tmp_path)
+
+    class BlankReviewer:
+        def transcribe_crop(
+            self, image_path: str, page_index: int, pair_index: int
+        ) -> VLMReading:
+            return VLMReading(page_index, pair_index, "fixture-model", "fixture-v1", "  ", False)
+
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: BlankReviewer(),
+    )
+
+    code = run(
+        [
+            "vlm-check",
+            "--image",
+            str(image),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-model",
+            "--json",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert report["status"] == "blank"
+    assert report["text"] == "  "
+    assert report["uncertain"] is False
