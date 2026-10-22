@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
@@ -40,14 +38,13 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   }
 
   Future<String?> _pick(String title, List<String> extensions) async {
-    final files = await FilePicker.pickFiles(
+    final file = await FilePicker.pickFile(
       dialogTitle: title,
       type: FileType.custom,
       allowedExtensions: extensions,
-      allowMultiple: false,
     );
-    if (files.isEmpty) return null;
-    final path = files.first.path;
+    if (file == null) return null;
+    final path = file.path;
     if (path == null || path.isEmpty) {
       _message('The file picker did not return a local path.');
       return null;

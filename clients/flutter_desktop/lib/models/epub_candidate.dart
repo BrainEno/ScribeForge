@@ -87,7 +87,6 @@ class EpubCandidate {
         throw FormatException('EPUB entry is too large: $name');
       }
       final content = entry.readBytes();
-      if (content == null) throw FormatException('Could not read EPUB entry: $name');
       return utf8.decode(content, allowMalformed: true);
     }
 
