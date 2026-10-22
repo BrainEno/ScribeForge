@@ -8,8 +8,8 @@ import sqlite3
 import stat
 import tempfile
 import zipfile
-from contextlib import closing
 from collections.abc import Iterable
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
