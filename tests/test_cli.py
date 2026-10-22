@@ -234,6 +234,70 @@ def test_status_reports_jobs_after_processing(tmp_path: Path, capsys: pytest.Cap
     assert "primary_ocr [page 0] succeeded" in captured.out
     assert "review queued: 0" in captured.out
 
+def test_status_json_reports_page_progress_and_review_counts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    assert run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(),
+    ) == 0
+    capsys.readouterr()
+
+    code = run(["status", "--store", str(store_dir), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    payload = json.loads(captured.out)
+    assert payload["schema_version"] == 1
+    assert payload["store"] == str(store_dir)
+    assert len(payload["projects"]) == 1
+    project = payload["projects"][0]
+    assert project["title"] == "book"
+    assert project["pages_total"] == 1
+    assert project["pages_with_both_ocr_success"] == 1
+    assert project["review_queued"] == 0
+    assert project["job_counts"]["failed"] == 0
+    assert project["failed_jobs"] == []
+
+
+def test_status_json_includes_failed_job_details(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    assert run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(secondary=False),
+    ) == 1
+    capsys.readouterr()
+
+    code = run(["status", "--store", str(store_dir), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    project = json.loads(captured.out)["projects"][0]
+    assert project["pages_total"] == 1
+    assert project["pages_with_both_ocr_success"] == 0
+    assert project["job_counts"]["failed"] == 1
+    assert project["failed_jobs"][0]["stage"] == "secondary_ocr"
+    assert project["failed_jobs"][0]["page_index"] == 0
+    assert project["failed_jobs"][0]["last_error"] == "engine crashed"
+
+
+def test_status_json_emits_empty_project_collection(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir = tmp_path / "store"
+    SQLiteStore(store_dir / "project.sqlite3").initialize()
+
+    code = run(["status", "--store", str(store_dir), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert json.loads(captured.out)["projects"] == []
+
 
 def test_status_handles_store_without_projects(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     store_dir = tmp_path / "store"

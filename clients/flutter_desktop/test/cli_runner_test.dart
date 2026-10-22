@@ -3,6 +3,13 @@ import 'package:scribeforge_desktop/services/cli_runner.dart';
 
 void main() {
   group('ScribeForgeCli path and argument helpers', () {
+    test('requests structured JSON for project status', () {
+      expect(
+        ScribeForgeCli.statusArguments(storePath: '/tmp/My Book.scribeforge'),
+        <String>['status', '--store', '/tmp/My Book.scribeforge', '--json'],
+      );
+    });
+
     test('uses the source PDF stem for the project store', () {
       expect(
         ScribeForgeCli.defaultStorePath('books/My Book.pdf'),

@@ -117,6 +117,9 @@ def build_parser() -> argparse.ArgumentParser:
         "status", help="Show the persisted processing jobs of a project store."
     )
     status.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    status.add_argument(
+        "--json", action="store_true", help="Emit a stable JSON summary for desktop clients."
+    )
 
     review = subparsers.add_parser(
         "review", help="List the page pairs that still need a human decision."
@@ -311,6 +314,56 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     projects = store.list_projects()
+    if args.json:
+        summaries: list[dict[str, object]] = []
+        for project in projects:
+            pages = store.list_pages(project.id)
+            jobs = store.list_jobs(project.id)
+            state_counts = {
+                state: sum(job.state.value == state for job in jobs)
+                for state in ("pending", "running", "succeeded", "failed")
+            }
+            successful_pages: dict[str, set[int]] = {}
+            for job in jobs:
+                if job.page_index is not None and job.state.value == "succeeded":
+                    successful_pages.setdefault(job.stage.value, set()).add(job.page_index)
+            dual_ocr_pages = (
+                successful_pages.get("primary_ocr", set())
+                & successful_pages.get("secondary_ocr", set())
+            )
+            failed_jobs = [
+                {
+                    "stage": job.stage.value,
+                    "page_index": job.page_index,
+                    "attempts": job.attempts,
+                    "last_error": job.last_error,
+                }
+                for job in reversed(jobs)
+                if job.state.value == "failed"
+            ][:20]
+            summaries.append(
+                {
+                    "id": project.id,
+                    "title": project.title,
+                    "source_uri": project.source_uri,
+                    "source_sha256": project.source_sha256,
+                    "pages_total": len(pages),
+                    "pages_with_both_ocr_success": len(dual_ocr_pages),
+                    "review_queued": len(review_queue(store, project.id)),
+                    "job_counts": state_counts,
+                    "failed_jobs": failed_jobs,
+                }
+            )
+        print(
+            json.dumps(
+                {"schema_version": 1, "store": str(args.store), "projects": summaries},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            file=out,
+        )
+        return EXIT_OK
+
     if not projects:
         print("no projects", file=out)
         return EXIT_OK
