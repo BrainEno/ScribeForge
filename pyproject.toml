@@ -38,7 +38,10 @@ markers = [
 [tool.coverage.run]
 # Tkinter widget code is excluded because CI has no display; decision persistence
 # and presentation logic live in the framework-independent view-model.
-omit = ["src/scribeforge/ui/tk_window.py"]
+omit = [
+  "src/scribeforge/ui/tk_window.py",
+  "src/scribeforge/ui/runtime_window.py",
+]
 
 [tool.ruff]
 target-version = "py311"

@@ -26,6 +26,7 @@ from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import RuntimeLayout
+from scribeforge.runtime.paths import default_runtime_root, runtime_root_for_store
 from scribeforge.storage.sqlite import SQLiteStore
 
 EXIT_OK = 0
@@ -95,7 +96,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--runtime-root",
         type=Path,
         default=None,
-        help="Managed runtime root (default: <store>/runtime).",
+        help="Managed runtime root (default: the per-user ScribeForge runtime folder).",
+    )
+
+    setup = subparsers.add_parser(
+        "setup", help="Open the first-run wizard for private OCR runtimes and models."
+    )
+    setup.add_argument(
+        "--runtime-root",
+        type=Path,
+        default=None,
+        help="Private runtime directory (default: the per-user ScribeForge runtime folder).",
     )
 
     status = subparsers.add_parser(
@@ -187,6 +198,8 @@ def run(
 
     args = build_parser().parse_args(list(argv))
     out = sys.stdout if stdout is None else stdout
+    if args.command == "setup":
+        return _setup(args)
     if args.command == "status":
         return _status(args, out)
     if args.command == "review":
@@ -220,14 +233,14 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
 
     store_root: Path = args.store if args.store is not None else default_store_dir(book)
     layout = StoreLayout(store_root)
+    runtime_root: Path = (
+        args.runtime_root if args.runtime_root is not None else runtime_root_for_store(layout.root)
+    )
     try:
         store = SQLiteStore(layout.db_path)
         store.initialize()
         project_id = _ensure_project(store, book)
         imported = import_source(store, project_id, open_page_source(book), layout.assets_dir)
-        runtime_root: Path = (
-            args.runtime_root if args.runtime_root is not None else layout.root / "runtime"
-        )
         engines = factory(runtime_root)
         outcome = process_book(
             store,
@@ -238,7 +251,12 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
             crops_dir=layout.crops_dir,
         )
     except Exception as exc:  # noqa: BLE001 - report any setup/stage failure as a fatal exit
-        print(f"error: {exc}", file=sys.stderr)
+        message = str(exc)
+        if factory is default_engine_factory and (
+            "not ready" in message.lower() or "uv bootstrap tool" in message.lower()
+        ):
+            message += f'; run scribeforge setup --runtime-root="{runtime_root}" and retry'
+        print(f"error: {message}", file=sys.stderr)
         return EXIT_FATAL
 
     print(
@@ -462,7 +480,7 @@ def _benchmark(
         return EXIT_FATAL
 
     runtime_root: Path = (
-        args.runtime_root if args.runtime_root is not None else root / "runtime"
+        args.runtime_root if args.runtime_root is not None else default_runtime_root()
     )
     try:
         engines = factory(runtime_root, tuple(backends))
@@ -492,6 +510,19 @@ def _benchmark(
         file=out,
     )
     return EXIT_OK
+
+
+def _setup(args: argparse.Namespace) -> int:
+    try:
+        from scribeforge.ui.runtime_window import run_runtime_setup
+    except ImportError as exc:
+        print(f"error: the runtime setup wizard needs Tkinter ({exc})", file=sys.stderr)
+        return EXIT_FATAL
+
+    runtime_root: Path = (
+        args.runtime_root if args.runtime_root is not None else default_runtime_root()
+    )
+    return run_runtime_setup(runtime_root)
 
 
 def _ui(args: argparse.Namespace) -> int:

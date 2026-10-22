@@ -23,7 +23,7 @@ This phase is deliberately early: ordinary users must not be required to install
 - centralize model/cache directories
 - add backend health checks and repair/reinstall actions
 - prefetch required OCR models before the first book is processed
-- later surface all of this through a first-run wizard and Settings > Runtime & Models
+- expose all of this through the standalone first-run wizard; a persistent Settings > Runtime & Models entry in the review shell remains
 
 **Gate:** OCR integration used by the product must run through application-managed runtimes rather than assuming developer-installed model stacks.
 
@@ -56,7 +56,7 @@ Library, job progress, source/text synchronized viewer, conflict queue, keyboard
 The desktop shell now has keyboard-first human decision entry: `scribeforge ui --store <dir>` opens a desktop window with the library (title, page count, queued pairs, failed jobs), the persisted job list, the review queue, and a pair view with an evidence tab and image tabs for the immutable page raster and the review crop (display-only previews through `scribeforge.adapters.image_preview`). Presentation logic lives in `scribeforge.ui.viewmodel`, which imports no GUI framework and is unit tested against a real `SQLiteStore`; `scribeforge.ui.tk_window` is the Tkinter widget layer, imported lazily so other commands work without Tkinter or a display and excluded from coverage (headless CI). The selected conflict now synchronizes to the page raster: selecting a queue row
 switches to the source page with the candidate region highlighted, and explicit
 shortcuts focus the primary or secondary OCR line geometry on a transient preview.
-No source asset or evidence is modified. A side-by-side character-diff tab renders the persisted primary/secondary alignment ranges with distinct marks for substitution, insertion, deletion, and punctuation, including visible empty-side markers. Clicking a marked conflict selects it in both panes and focuses the corresponding engine's OCR line on the source-page preview. The source outline is deliberately line-level because persisted geometry is line-level; the UI does not imply pixel-accurate character boxes. A richer synchronized transcript/image editing surface, first-run runtime wizard, and settings remain.
+No source asset or evidence is modified. A side-by-side character-diff tab renders the persisted primary/secondary alignment ranges with distinct marks for substitution, insertion, deletion, and punctuation, including visible empty-side markers. Clicking a marked conflict selects it in both panes and focuses the corresponding engine's OCR line on the source-page preview. The source outline is deliberately line-level because persisted geometry is line-level; the UI does not imply pixel-accurate character boxes. A richer synchronized transcript/image editing surface and an in-shell Settings > Runtime & Models entry remain. The standalone `scribeforge setup` wizard now detects hardware, shows persisted backend states, downloads and verifies the private `uv` bootstrap when needed, installs models in a background worker, and offers per-backend repair.
 
 ## Phase 4 — export
 EPUB 3 + DOCX generated from verified structured content, validation tests and metadata editor.

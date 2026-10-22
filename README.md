@@ -55,11 +55,13 @@ benchmark/             reproducible benchmark fixtures and reports
 
 ## Development status
 
-The repository is in **Phase 3 — desktop UI**, with Phases 1, 2, and 4 complete. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager), the low-level verification path, the resumable CLI slices (PDF/image import, page-granular orchestration, runtime-backed workers, `scribeforge process`/`status`), the decision layer (deterministic adjudication plus the human review queue), and EPUB/DOCX export with integrity self-checks are implemented and covered by tests.
+The repository is in **Phase 3 — desktop UI**, with Phases 1, 2, and 4 complete. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager plus a first-run setup wizard), the low-level verification path, the resumable CLI slices (PDF/image import, page-granular orchestration, runtime-backed workers, `scribeforge process`/`status`), the decision layer (deterministic adjudication plus the human review queue), and EPUB/DOCX export with integrity self-checks are implemented and covered by tests.
 
 ## CLI
 
 ```bash
+scribeforge setup                             # first-run runtime/model setup wizard
+scribeforge setup --runtime-root runtime/     # choose a private runtime directory
 scribeforge process book.pdf                  # import + process every page
 scribeforge process book.pdf --store store/   # explicit project store
 scribeforge status --store store/             # persisted jobs + review queue
@@ -75,7 +77,7 @@ scribeforge benchmark --manifest benchmark/manifest.json \
   --out benchmark/benchmark_report.md         # score MinerU + PaddleOCR
 ```
 
-`process` writes a project store beside the book by default (`<book-stem>.scribeforge`). Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
+`process` writes a project store beside the book by default (`<book-stem>.scribeforge`). OCR runtimes are shared in the per-user application data folder by default; `setup`, `process`, and `benchmark` accept `--runtime-root` to override it. Run `scribeforge setup` once to install the private Python environments and OCR models. Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
 
 When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
 
