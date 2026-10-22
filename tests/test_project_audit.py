@@ -9,7 +9,7 @@ import pytest
 
 from scribeforge.cli import run
 from scribeforge.storage.sqlite import SQLiteStore
-from scribeforge.support.project_audit import audit_project_store
+from scribeforge.project_audit import audit_project_store
 
 
 def _sha256(path: Path) -> str:
@@ -116,7 +116,7 @@ def test_audit_cli_emits_stable_json_and_zero_exit_for_healthy_project(
 
 
 def test_audit_cli_returns_partial_for_findings_and_fatal_for_missing_store(
-    tmp_path: Path, capsys: object
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     store_dir, source = _store_with_source(tmp_path)
     source.write_bytes(b"changed")
