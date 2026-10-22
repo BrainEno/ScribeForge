@@ -39,7 +39,7 @@ void main() {
   });
 
   test('falls back to the default if settings JSON is malformed', () async {
-    await File(temporary.path + Platform.pathSeparator + 'settings.json')
+    await File('${temporary.path}${Platform.pathSeparator}settings.json')
         .writeAsString('{not json');
 
     expect(
@@ -71,7 +71,7 @@ void main() {
     expect(vlm.allowRemote, isFalse);
     expect(await loadedStore.loadCliExecutable(), r'C:\Tools\ScribeForge\scribeforge.exe');
 
-    final saved = await File(temporary.path + Platform.pathSeparator + 'settings.json')
+    final saved = await File('${temporary.path}${Platform.pathSeparator}settings.json')
         .readAsString();
     expect(saved, contains('SCRIBE_VLM_TOKEN'));
     expect(saved, isNot(contains('"api_key"')));
