@@ -27,6 +27,12 @@ void main() {
     expect(find.text('Build A/B EPUBs'), findsOneWidget);
     expect(find.text('Export verified book'), findsOneWidget);
     expect(find.text('Human evaluation'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('CLI executable'), findsOneWidget);
+    expect(find.text('Runtime & Models'), findsOneWidget);
+
     expect(tester.takeException(), isNull);
   });
 }
