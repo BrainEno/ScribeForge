@@ -8,7 +8,7 @@ on:
 # Push and pull_request both fire for a PR branch. Share one slot so duplicate
 # Flutter SDK downloads do not contend and older commits stop consuming runners.
 concurrency:
-  group: flutter-desktop-${{ github.head_ref || github.ref }}
+  group: flutter-desktop-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
