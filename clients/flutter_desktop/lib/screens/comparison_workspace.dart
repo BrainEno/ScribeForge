@@ -1,0 +1,631 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:pdfrx/pdfrx.dart';
+
+import '../models/epub_candidate.dart';
+import '../models/text_diff.dart';
+import '../services/evaluation_store.dart';
+
+class ComparisonWorkspace extends StatefulWidget {
+  const ComparisonWorkspace({super.key});
+
+  @override
+  State<ComparisonWorkspace> createState() => _ComparisonWorkspaceState();
+}
+
+class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
+  String? _pdfPath;
+  int? _pdfPageCount;
+  int _page = 0;
+  EpubCandidate? _a;
+  EpubCandidate? _b;
+  String? _aPath;
+  String? _bPath;
+  String? _winner;
+  final Map<int, String> _decisions = <int, String>{};
+  final _labelA = TextEditingController(text: 'Candidate A');
+  final _labelB = TextEditingController(text: 'Candidate B');
+  final _notes = TextEditingController();
+  bool _busy = false;
+  String? _notice;
+
+  @override
+  void dispose() {
+    _labelA.dispose();
+    _labelB.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  Future<String?> _pick(String title, List<String> extensions) async {
+    final files = await FilePicker.pickFiles(
+      dialogTitle: title,
+      type: FileType.custom,
+      allowedExtensions: extensions,
+      allowMultiple: false,
+    );
+    if (files.isEmpty) return null;
+    final path = files.first.path;
+    if (path == null || path.isEmpty) {
+      _message('The file picker did not return a local path.');
+      return null;
+    }
+    return path;
+  }
+
+  Future<void> _openPdf() async {
+    try {
+      final path = await _pick('Open original PDF', const ['pdf']);
+      if (path == null || !mounted) return;
+      setState(() {
+        _busy = true;
+        _notice = null;
+        _pdfPath = path;
+        _pdfPageCount = null;
+        _page = 0;
+        _decisions.clear();
+        _winner = null;
+      });
+      final saved = await EvaluationStore.read(path);
+      if (!mounted || saved == null) return;
+      final source = saved['source_pdf'];
+      final sourceMap = source is Map ? Map<String, dynamic>.from(source) : null;
+      final currentHash = await EvaluationStore.fingerprint(path);
+      if (sourceMap?['path'] != path || sourceMap?['sha256'] != currentHash) {
+        setState(() => _notice = 'Previous evaluation does not match this PDF; ratings were not restored.');
+        return;
+      }
+      final rawA = saved['candidate_a'];
+      final rawB = saved['candidate_b'];
+      final recordA = rawA is Map ? Map<String, dynamic>.from(rawA) : null;
+      final recordB = rawB is Map ? Map<String, dynamic>.from(rawB) : null;
+      final candidateA = await _restoreCandidate(recordA);
+      final candidateB = await _restoreCandidate(recordB);
+      if ((recordA != null && candidateA == null) || (recordB != null && candidateB == null)) {
+        setState(() => _notice = 'A candidate EPUB is missing or changed; old ratings were not restored.');
+        return;
+      }
+      final decisions = <int, String>{};
+      final rawDecisions = saved['page_decisions'];
+      if (rawDecisions is Map) {
+        for (final item in rawDecisions.entries) {
+          final key = int.tryParse(item.key.toString());
+          if (key != null && item.value is String) decisions[key] = item.value as String;
+        }
+      }
+      _labelA.text = recordA?['label'] as String? ?? 'Candidate A';
+      _labelB.text = recordB?['label'] as String? ?? 'Candidate B';
+      _notes.text = saved['notes'] as String? ?? '';
+      setState(() {
+        _a = candidateA;
+        _b = candidateB;
+        _aPath = recordA?['path'] as String?;
+        _bPath = recordB?['path'] as String?;
+        _winner = saved['overall_winner'] as String?;
+        _decisions
+          ..clear()
+          ..addAll(decisions);
+        _notice = 'Restored the previous human evaluation for unchanged input files.';
+      });
+    } on Object catch (error) {
+      if (mounted) _message('Could not open the PDF: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<EpubCandidate?> _restoreCandidate(Map<String, dynamic>? record) async {
+    final path = record?['path'];
+    final hash = record?['sha256'];
+    if (path is! String || hash is! String) return null;
+    try {
+      final candidate = await EpubCandidate.load(path);
+      return candidate.sha256 == hash ? candidate : null;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> _openEpub({required bool left}) async {
+    try {
+      final path = await _pick(left ? 'Open EPUB candidate A' : 'Open EPUB candidate B',
+          const ['epub']);
+      if (path == null || !mounted) return;
+      setState(() {
+        _busy = true;
+        _notice = null;
+      });
+      final candidate = await EpubCandidate.load(path);
+      if (!mounted) return;
+      setState(() {
+        if (left) {
+          _a = candidate;
+          _aPath = path;
+          _labelA.text = candidate.title;
+        } else {
+          _b = candidate;
+          _bPath = path;
+          _labelB.text = candidate.title;
+        }
+        _winner = null;
+        _decisions.clear();
+        _notice = 'Candidate changed. Previous ratings were cleared.';
+      });
+    } on Object catch (error) {
+      if (mounted) _message('Could not open EPUB: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  int get _pageCount {
+    final pdfCount = _pdfPageCount;
+    if (pdfCount != null) return pdfCount;
+    final a = _a?.pages.length ?? 0;
+    final b = _b?.pages.length ?? 0;
+    return a > b ? a : b;
+  }
+
+  EpubPage? _pageFor(EpubCandidate? candidate) =>
+      candidate?.pageForSourceIndex(_page);
+
+  void _message(String message) {
+    if (!mounted) return;
+    setState(() => _notice = message);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _save() async {
+    if (_pdfPath == null || _a == null || _b == null) {
+      _message('Open a source PDF and both EPUB candidates before saving.');
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final path = await EvaluationStore.save(
+        sourcePdfPath: _pdfPath!,
+        candidateAPath: _aPath,
+        candidateBPath: _bPath,
+        candidateALabel: _labelA.text.trim().isEmpty ? 'Candidate A' : _labelA.text.trim(),
+        candidateBLabel: _labelB.text.trim().isEmpty ? 'Candidate B' : _labelB.text.trim(),
+        pageDecisions: _decisions,
+        overallWinner: _winner,
+        notes: _notes.text,
+      );
+      if (mounted) _message('Evaluation saved: $path');
+    } on Object catch (error) {
+      if (mounted) _message('Could not save evaluation: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pageA = _pageFor(_a);
+    final pageB = _pageFor(_b);
+    final aligned = (_a?.isSourcePageAligned ?? true) && (_b?.isSourcePageAligned ?? true);
+    final rows = pageA == null || pageB == null
+        ? const <TextDiffRow>[]
+        : diffLines(pageA.lines, pageB.lines);
+    final summary = summarizeDiff(
+      rows,
+      pageA?.lines ?? const <String>[],
+      pageB?.lines ?? const <String>[],
+    );
+
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            _header(),
+            _toolbar(),
+            if (_notice != null) _noticeBar(_notice!),
+            _pageToolbar(summary, aligned),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(flex: 10, child: _pdfPanel()),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 10,
+                      child: _epubPanel(left: true, candidate: _a, page: pageA, rows: rows),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 10,
+                      child: _epubPanel(left: false, candidate: _b, page: pageB, rows: rows),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            _evaluationPanel(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header() => Container(
+        height: 60,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(bottom: BorderSide(color: Color(0xFFE2E7E4))),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2EC),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Icon(Icons.menu_book_rounded, color: Color(0xFF236B5D)),
+            ),
+            const SizedBox(width: 10),
+            const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('ScribeForge', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                Text('PDF + EPUB CANDIDATE COMPARISON',
+                    style: TextStyle(fontSize: 9, letterSpacing: 1.1, color: Color(0xFF718079))),
+              ],
+            ),
+            const Spacer(),
+            const Icon(Icons.shield_outlined, size: 16, color: Color(0xFF236B5D)),
+            const SizedBox(width: 6),
+            const Text('Local files · Human decision',
+                style: TextStyle(fontSize: 11, color: Color(0xFF235E52))),
+          ],
+        ),
+      );
+
+  Widget _toolbar() => Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.tonalIcon(
+              onPressed: _busy ? null : _openPdf,
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              label: Text(_pdfPath == null ? 'Open source PDF' : _basename(_pdfPath!)),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _openEpub(left: true),
+              icon: const Icon(Icons.menu_book_outlined),
+              label: Text(_aPath == null ? 'Open Candidate A EPUB' : 'Replace A · ${_basename(_aPath!)}'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : () => _openEpub(left: false),
+              icon: const Icon(Icons.menu_book_outlined),
+              label: Text(_bPath == null ? 'Open Candidate B EPUB' : 'Replace B · ${_basename(_bPath!)}'),
+            ),
+            if (_busy)
+              const SizedBox(width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+          ],
+        ),
+      );
+
+  Widget _noticeBar(String message) => Container(
+        width: double.infinity,
+        margin: const EdgeInsets.fromLTRB(14, 0, 14, 7),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: message.contains('changed') || message.contains('not restored')
+              ? const Color(0xFFFFF2DD)
+              : const Color(0xFFEAF4F0),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Row(children: [
+          const Icon(Icons.info_outline, size: 16),
+          const SizedBox(width: 7),
+          Expanded(child: Text(message, style: const TextStyle(fontSize: 11))),
+          IconButton(
+            onPressed: () => setState(() => _notice = null),
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, size: 15),
+          ),
+        ]),
+      );
+
+  Widget _pageToolbar(TextDiffSummary summary, bool aligned) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 9),
+        child: Row(children: [
+          const Text('COMPARE', style: TextStyle(fontSize: 10, letterSpacing: 1.1,
+              color: Color(0xFF718079), fontWeight: FontWeight.w800)),
+          const SizedBox(width: 12),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: _page > 0 ? () => setState(() => _page--) : null,
+            icon: const Icon(Icons.chevron_left),
+          ),
+          Text(_pageCount > 0 ? 'Page ${_page + 1} / $_pageCount' : 'Page —',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            onPressed: _pageCount > 0 && _page < _pageCount - 1
+                ? () => setState(() => _page++)
+                : null,
+            icon: const Icon(Icons.chevron_right),
+          ),
+          if (_a != null && _b != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: const Color(0xFFE8EFEB),
+                  borderRadius: BorderRadius.circular(18)),
+              child: Text('${summary.changedRows} differing rows · ${summary.sharedLines} identical',
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF53675E))),
+            ),
+          const Spacer(),
+          if (!aligned)
+            const Tooltip(
+              message: 'At least one EPUB is chapter-based. Its page mapping is approximate.',
+              child: Row(children: [
+                Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFF94601A)),
+                SizedBox(width: 5),
+                Text('Chapter mapping is approximate', style: TextStyle(fontSize: 10)),
+              ]),
+            ),
+        ]),
+      );
+
+  Widget _pdfPanel() => _panelCard(
+        title: 'Original scan',
+        subtitle: 'Immutable PDF source',
+        icon: Icons.picture_as_pdf_outlined,
+        child: _pdfPath == null
+            ? _empty('Open the original PDF',
+                'Compare omissions, punctuation, layout and reading order against this page.')
+            : PdfDocumentViewBuilder.file(
+                _pdfPath!,
+                builder: (context, document) {
+                  if (document == null) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final count = document.pages.length;
+                  if (_pdfPageCount != count) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted && _pdfPageCount != count) {
+                        setState(() {
+                          _pdfPageCount = count;
+                          _page = _page.clamp(0, count > 0 ? count - 1 : 0);
+                        });
+                      }
+                    });
+                  }
+                  if (count == 0) return const Center(child: Text('PDF has no pages.'));
+                  return ColoredBox(
+                    color: const Color(0xFFE8ECEA),
+                    child: PdfPageView(
+                      document: document,
+                      pageNumber: _page.clamp(0, count - 1) + 1,
+                      alignment: Alignment.topCenter,
+                    ),
+                  );
+                },
+              ),
+        footer: _pdfPath,
+      );
+
+  Widget _epubPanel({
+    required bool left,
+    required EpubCandidate? candidate,
+    required EpubPage? page,
+    required List<TextDiffRow> rows,
+  }) {
+    final accent = left ? const Color(0xFF1F7867) : const Color(0xFF7B5DAA);
+    final label = left ? _labelA : _labelB;
+    final letter = left ? 'A' : 'B';
+    return _panelCard(
+      title: left ? 'Candidate A' : 'Candidate B',
+      subtitle: 'Human review · raw text comparison',
+      icon: Icons.menu_book_outlined,
+      accent: accent,
+      footer: left ? _aPath : _bPath,
+      headerExtra: candidate == null
+          ? null
+          : Text('${candidate.pages.length} spine items',
+              style: const TextStyle(fontSize: 10, color: Color(0xFF718079))),
+      child: candidate == null
+          ? _empty('Load EPUB candidate $letter',
+              'The two EPUB candidates remain separate; no automatic winner is inferred.')
+          : page == null
+              ? _empty('No item for source page ${_page + 1}',
+                  candidate.isSourcePageAligned
+                      ? 'This candidate lacks an XHTML item for this source page.'
+                      : 'Try another page; this EPUB is chapter-based.')
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 0, 10, 7),
+                      child: TextField(
+                        controller: label,
+                        onChanged: (_) => setState(() {}),
+                        decoration: const InputDecoration(
+                          hintText: 'Candidate label',
+                          isDense: true,
+                          prefixIcon: Icon(Icons.edit_outlined, size: 16),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                      color: const Color(0xFFF6F8F6),
+                      child: Text(page.title,
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF68766F))),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(8),
+                        itemCount: rows.isEmpty ? page.lines.length : rows.length,
+                        itemBuilder: (context, index) {
+                          if (rows.isEmpty) return _line(page.lines[index], false, absent: false);
+                          final row = rows[index];
+                          final text = left ? row.left : row.right;
+                          return _line(text ?? '∅  [no corresponding line]', row.changed,
+                              absent: text == null);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+    );
+  }
+
+  Widget _line(String text, bool changed, {required bool absent}) => Container(
+        margin: const EdgeInsets.only(bottom: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: changed ? const Color(0xFFFFF2DB) : Colors.transparent,
+          borderRadius: BorderRadius.circular(5),
+          border: changed
+              ? const Border(left: BorderSide(color: Color(0xFFD49A36), width: 3))
+              : null,
+        ),
+        child: SelectableText(text, style: TextStyle(
+          fontSize: 12,
+          height: 1.5,
+          color: absent ? const Color(0xFF989F9B) : const Color(0xFF27332D),
+          fontStyle: absent ? FontStyle.italic : FontStyle.normal,
+        )),
+      );
+
+  Widget _panelCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Widget child,
+    String? footer,
+    Color accent = const Color(0xFF536575),
+    Widget? headerExtra,
+  }) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(11, 11, 11, 9),
+              child: Row(children: [
+                Icon(icon, size: 18, color: accent),
+                const SizedBox(width: 7),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: const TextStyle(fontSize: 10, color: Color(0xFF7D8983))),
+                  ],
+                )),
+                if (headerExtra != null) headerExtra,
+              ]),
+            ),
+            const Divider(height: 1),
+            Expanded(child: child),
+            if (footer != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+                color: const Color(0xFFF8F9F8),
+                child: Text(footer, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 9, color: Color(0xFF8A9690))),
+              ),
+          ],
+        ),
+      );
+
+  Widget _empty(String title, String detail) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.document_scanner_outlined, size: 34, color: Color(0xFFB2BEB8)),
+            const SizedBox(height: 10),
+            Text(title, textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(detail, textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 11, height: 1.45, color: Color(0xFF7D8983))),
+          ]),
+        ),
+      );
+
+  Widget _evaluationPanel() => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 9, 14, 11),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: Color(0xFFE2E7E4))),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: [
+              const Icon(Icons.fact_check_outlined, size: 18, color: Color(0xFF236B5D)),
+              const SizedBox(width: 7),
+              const Text('Human evaluation', style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(width: 12),
+              const Text('This page:', style: TextStyle(fontSize: 11, color: Color(0xFF718079))),
+              const SizedBox(width: 5),
+              _chip('A better', 'a', _decisions[_page], (v) => setState(() => _decisions[_page] = v)),
+              _chip('B better', 'b', _decisions[_page], (v) => setState(() => _decisions[_page] = v)),
+              _chip('Tie', 'tie', _decisions[_page], (v) => setState(() => _decisions[_page] = v)),
+              _chip('Review later', 'review', _decisions[_page], (v) => setState(() => _decisions[_page] = v)),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: _busy || _pdfPath == null || _a == null || _b == null ? null : _save,
+                icon: const Icon(Icons.save_outlined, size: 16),
+                label: const Text('Save evaluation'),
+              ),
+            ]),
+            const SizedBox(height: 5),
+            Row(children: [
+              const SizedBox(width: 110, child: Text('Whole-book winner', style: TextStyle(fontSize: 11))),
+              _chip('Candidate A', 'a', _winner, (v) => setState(() => _winner = v)),
+              _chip('Candidate B', 'b', _winner, (v) => setState(() => _winner = v)),
+              _chip('No clear winner', 'tie', _winner, (v) => setState(() => _winner = v)),
+              _chip('More review', 'review', _winner, (v) => setState(() => _winner = v)),
+              const SizedBox(width: 10),
+              Expanded(child: SizedBox(height: 36, child: TextField(
+                controller: _notes,
+                decoration: const InputDecoration(
+                  hintText: 'Notes: missing lines, punctuation, order, layout…',
+                  prefixIcon: Icon(Icons.notes_outlined, size: 17),
+                ),
+              ))),
+            ]),
+            const SizedBox(height: 4),
+            Text(
+              _pdfPath == null
+                  ? 'Open a PDF and two EPUBs. The app records human choices; it does not infer an automatic winner.'
+                  : 'Review data is saved beside the PDF with SHA-256 fingerprints.',
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, color: Color(0xFF7D8983)),
+            ),
+          ],
+        ),
+      );
+
+  Widget _chip(String label, String value, String? selected, ValueChanged<String> onSelected) =>
+      Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: ChoiceChip(
+          label: Text(label, style: const TextStyle(fontSize: 10)),
+          selected: selected == value,
+          onSelected: (_) => onSelected(value),
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+        ),
+      );
+
+  String _basename(String path) => path.replaceAll('\\', '/').split('/').last;
+}
