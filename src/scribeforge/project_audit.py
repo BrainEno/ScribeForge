@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,7 +74,7 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
 
     try:
         database_uri = f"{database.as_uri()}?mode=ro"
-        with sqlite3.connect(database_uri, uri=True) as connection:
+        with closing(sqlite3.connect(database_uri, uri=True)) as connection:
             connection.row_factory = sqlite3.Row
             integrity_rows = connection.execute("PRAGMA integrity_check").fetchall()
             integrity_results = [str(row[0]) for row in integrity_rows]
