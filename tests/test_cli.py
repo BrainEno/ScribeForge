@@ -1849,7 +1849,7 @@ def test_vlm_check_reports_blank_text_as_partial_not_success(
 def test_benchmark_rejects_manifest_paths_that_escape_corpus_root_before_starting_engines(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root, manifest = _corpus(tmp_path)
+    _root, manifest = _corpus(tmp_path)
     (tmp_path / "outside.png").write_bytes(b"image")
     (tmp_path / "outside.txt").write_text("outside text", encoding="utf-8")
     data = json.loads(manifest.read_text(encoding="utf-8"))
