@@ -10,6 +10,14 @@ dist/
 build/
 *.egg-info/
 
+# Flutter / Dart generated artifacts
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/.packages
+clients/flutter_desktop/windows/
+clients/flutter_desktop/macos/
+clients/flutter_desktop/linux/
+
 # Local models, caches and book projects
 models/
 cache/

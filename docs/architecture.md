@@ -9,7 +9,7 @@ Convert scanned literary books into verified structured text with provenance. Ac
 3. **Adapters** — MinerU, PaddleOCR, later Surya/VLM.
 4. **Persistence** — SQLite project database plus immutable source assets.
 5. **Export** — EPUB 3 and DOCX from verified text only.
-6. **Desktop UI** — read-only shell over the store plus the CLI; presentation logic is framework-independent and communicates with workers rather than loading models in the UI process.
+6. **Desktop UI** — the Flutter comparison workspace opens immutable source PDFs and separate raw-OCR EPUB candidates, with human evaluation sidecars; the Python/Tkinter shell remains the lower-level evidence/character-conflict reviewer. Both UIs stay outside OCR model processes. Candidate EPUB export is a separate unverified layer; the trusted EPUB/DOCX exporter still reads accepted decisions only.
 
 ## Pipeline
 IMPORT -> PREPROCESS -> PRIMARY_OCR -> SECONDARY_OCR -> ALIGN -> RISK -> VLM_REVIEW -> HUMAN_REVIEW -> EXPORT
