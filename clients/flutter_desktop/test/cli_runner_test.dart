@@ -3,22 +3,6 @@ import 'package:scribeforge_desktop/services/cli_runner.dart';
 
 void main() {
   group('ScribeForgeCli path and argument helpers', () {
-    test('requests structured JSON for runtime status', () {
-      expect(
-        ScribeForgeCli.runtimeStatusArguments(),
-        <String>['runtime-status', '--json'],
-      );
-      expect(
-        ScribeForgeCli.runtimeStatusArguments(runtimeRoot: '/tmp/ScribeForge runtime'),
-        <String>[
-          'runtime-status',
-          '--runtime-root',
-          '/tmp/ScribeForge runtime',
-          '--json',
-        ],
-      );
-    });
-
     test('requests structured JSON for project status', () {
       expect(
         ScribeForgeCli.statusArguments(storePath: '/tmp/My Book.scribeforge'),

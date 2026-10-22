@@ -19,16 +19,6 @@ class ScribeForgeCli {
   static List<String> auditArguments({required String storePath}) =>
       <String>['audit', '--store', storePath, '--json'];
 
-  static List<String> runtimeStatusArguments({String? runtimeRoot}) =>
-      <String>[
-        'runtime-status',
-        if (runtimeRoot != null && runtimeRoot.trim().isNotEmpty) ...[
-          '--runtime-root',
-          runtimeRoot.trim(),
-        ],
-        '--json',
-      ];
-
   static List<String> backupArguments({
     required String storePath,
     required String outputPath,

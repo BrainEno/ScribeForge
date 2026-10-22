@@ -1415,3 +1415,78 @@ def test_runtime_status_json_reports_missing_backends(
     assert report["backends"]["mineru"]["state"] == "missing"
     assert report["backends"]["paddleocr"]["state"] == "missing"
     assert report["backends"]["mineru"]["environment_exists"] is False
+
+
+
+def test_benchmark_include_pipeline_reports_conservative_unresolved_pairs(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "corpus"
+    root.mkdir()
+    Image.new("RGB", (80, 120), "white").save(root / "page.png")
+    (root / "truth.txt").write_text("鸦", encoding="utf-8")
+    manifest = root / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "id": "zh-1",
+                        "image": "page.png",
+                        "ground_truth": "truth.txt",
+                        "language": "zh",
+                        "tags": ["clear"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--include-pipeline",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    report = out_path.read_text(encoding="utf-8")
+    assert code == 0
+    assert "### dual-engine" in report
+    assert "Accepted pairs" in report
+    assert "Unresolved pairs" in report
+    assert "| zh-1 | zh | clear | 1.0000 |" in report
+    assert "| 1 | 0 |" in report
+
+
+def test_benchmark_pipeline_requires_both_backends(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--engine",
+            "mineru",
+            "--include-pipeline",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "requires both mineru and paddleocr" in captured.err.lower()
+    assert not out_path.exists()

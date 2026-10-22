@@ -11,7 +11,6 @@ import '../models/text_diff.dart';
 import '../services/cli_runner.dart';
 import '../services/evaluation_store.dart';
 import '../services/settings_store.dart';
-import 'runtime_models_dialog.dart';
 
 class ComparisonWorkspace extends StatefulWidget {
   const ComparisonWorkspace({super.key});
@@ -382,16 +381,6 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     }
   }
 
-
-  Future<void> _openRuntimeModels() async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => RuntimeModelsDialog(
-        executable: _cliExecutable,
-        onOpenSetup: _setupRuntimes,
-      ),
-    );
-  }
 
   Future<void> _editSettings() async {
     final controller = TextEditingController(text: _cliExecutable);
@@ -1199,38 +1188,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                     style: TextStyle(fontSize: 9, letterSpacing: 1.1, color: Color(0xFF718079))),
               ],
             ),
-            PopupMenuButton<String>(
-              tooltip: 'Settings',
-              onSelected: (value) {
-                if (_busy) return;
-                if (value == 'runtime-models') {
-                  unawaited(_openRuntimeModels());
-                } else if (value == 'cli') {
-                  unawaited(_editSettings());
-                }
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem<String>(
-                  value: 'cli',
-                  child: Row(
-                    children: [
-                      Icon(Icons.code_outlined, size: 18),
-                      SizedBox(width: 10),
-                      Text('CLI executable'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem<String>(
-                  value: 'runtime-models',
-                  child: Row(
-                    children: [
-                      Icon(Icons.memory_outlined, size: 18),
-                      SizedBox(width: 10),
-                      Text('Runtime & Models'),
-                    ],
-                  ),
-                ),
-              ],
+            IconButton(
+              tooltip: 'CLI settings',
+              onPressed: _busy ? null : _editSettings,
               icon: const Icon(Icons.settings_outlined, size: 19),
             ),
             const Spacer(),

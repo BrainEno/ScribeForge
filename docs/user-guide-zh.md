@@ -186,7 +186,7 @@ flutter run -d windows
 5. 在 **Human evaluation** 中选择本页更好的版本、平局或稍后复核。
 6. 评估完整本书后选择总体偏好，写上缺行、错字、标点或阅读顺序等备注，再点击 **Save evaluation**。
 
-支持 OCR 工作流的版本还可以在界面内点击 **Set up OCR**、**Run OCR**、**Build A/B EPUBs**。右上角 **Settings** 菜单提供两个入口：**CLI executable** 用于设置 CLI 可执行文件（默认是 scribeforge；若找不到它，填写完整路径，例如 `D:\\ScribeForge\\.venv\\Scripts\\scribeforge.exe`），**Runtime & Models** 用于只读查看 GPU/驱动/显存/内存、MinerU 与 PaddleOCR 的安装状态、失败步骤，以及模型、缓存和运行环境目录。点击 **Install / repair…** 会打开现有运行时向导，可安装或修复对应后端。CLI 路径会保存到当前用户的应用配置目录。
+支持 OCR 工作流的版本还可以在界面内点击 **Set up OCR**、**Run OCR**、**Build A/B EPUBs**。第一次使用时，通过右上角设置图标确认 CLI 可执行文件：默认是 scribeforge；若应用找不到它，填写完整路径，例如 D:\ScribeForge\.venv\Scripts\scribeforge.exe。该设置会保存到当前用户的应用配置目录。
 
 选择 PDF 后，页面上方会出现项目状态条：显示总页数、两套 OCR 都已成功的页数、任务成功/待处理/运行中/失败数量，以及待人工复核的数量。点击刷新图标可重新读取状态；出现失败任务时，可点击 **Retry failed pages** 重试。该操作会复用 CLI 的可恢复处理流程，不会删除已有页面证据。项目状态只有在源 PDF 的路径与 SHA-256 均匹配时才允许继续处理。如果只是移动了 PDF：先点击 **Open project** 打开原来的 `.scribeforge` 目录，再点击 **Open source PDF** 选择移动后的文件；确认路径或哈希不匹配后，点击 **Relink source PDF**。程序会重新计算 SHA-256，只有与项目中记录的哈希完全相同才更新源路径；该操作不修改哈希、OCR 运行记录、页面和人工校对证据。若文件内容不同，重新关联会失败，请为修改后的 PDF 使用新的项目目录。
 
