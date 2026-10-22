@@ -34,6 +34,30 @@ class ScribeForgeCli {
         '--json',
       ];
 
+  static List<String> exportArguments({
+    required String storePath,
+    required String outputPath,
+    required String title,
+    required String language,
+    String? author,
+    String? modified,
+  }) =>
+      <String>[
+        'export',
+        '--store',
+        storePath,
+        '--out',
+        outputPath,
+        '--language',
+        language,
+        '--title',
+        title,
+        if (author != null && author.trim().isNotEmpty) '--author',
+        if (author != null && author.trim().isNotEmpty) author.trim(),
+        if (modified != null && modified.trim().isNotEmpty) '--modified',
+        if (modified != null && modified.trim().isNotEmpty) modified.trim(),
+      ];
+
   static List<String> verifyBackupArguments({required String backupPath}) =>
       <String>['verify-backup', '--backup', backupPath, '--json'];
 
