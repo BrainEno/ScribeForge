@@ -1606,7 +1606,8 @@ def test_benchmark_include_vlm_adds_variant_d(
         "scribeforge.cli.OpenAICompatibleVLMReviewer",
         lambda **_kwargs: FakeReviewer(),
     )
-    _root, manifest = _corpus(tmp_path)
+    root, manifest = _corpus(tmp_path)
+    Image.new("RGB", (80, 120), "white").save(root / "page.png")
     out_path = tmp_path / "report.md"
 
     code = run(
