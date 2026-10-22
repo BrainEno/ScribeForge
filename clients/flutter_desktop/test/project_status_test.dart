@@ -58,13 +58,13 @@ void main() {
       "store": "store",
       "projects": [
         {
-          "id": 1, "title": "First", "source_uri": "/books/first.pdf",
+          "id": 1, "title": "First", "source_uri": "/books/first.pdf", "source_sha256": "first-hash",
           "pages_total": 1, "pages_with_both_ocr_success": 1, "review_queued": 0,
           "job_counts": {"pending": 0, "running": 0, "succeeded": 3, "failed": 0},
           "failed_jobs": []
         },
         {
-          "id": 2, "title": "Second", "source_uri": "/books/second.pdf",
+          "id": 2, "title": "Second", "source_uri": "/books/second.pdf", "source_sha256": "second-hash",
           "pages_total": 2, "pages_with_both_ocr_success": 0, "review_queued": 1,
           "job_counts": {"pending": 1, "running": 0, "succeeded": 1, "failed": 1},
           "failed_jobs": []
@@ -94,8 +94,16 @@ void main() {
     {
       "schema_version": 1,
       "projects": [
-        {"id": 1, "source_uri": "/a.pdf"},
-        {"id": 2, "source_uri": "/b.pdf"}
+        {
+          "id": 1, "title": "A", "source_uri": "/a.pdf", "source_sha256": "a",
+          "pages_total": 1, "pages_with_both_ocr_success": 0, "review_queued": 0,
+          "job_counts": {"pending": 0, "running": 0, "succeeded": 0, "failed": 0}, "failed_jobs": []
+        },
+        {
+          "id": 2, "title": "B", "source_uri": "/b.pdf", "source_sha256": "b",
+          "pages_total": 1, "pages_with_both_ocr_success": 0, "review_queued": 0,
+          "job_counts": {"pending": 0, "running": 0, "succeeded": 0, "failed": 0}, "failed_jobs": []
+        }
       ]
     }
     ''';
@@ -103,6 +111,23 @@ void main() {
       ProjectStatusSnapshot.fromJsonText(
         unmatched,
         sourcePath: '/books/novel.pdf',
+      ),
+      isNull,
+    );
+  });
+
+
+  test('identifies source path and SHA-256 mismatches instead of reusing status', () {
+    final projects = ProjectStatusSnapshot.listFromJsonText(payload);
+    final status = projects.single;
+
+    expect(status.sourcePathMatches('/books/other.pdf'), isFalse);
+    expect(status.sourceHashMatches('changed-hash'), isFalse);
+    expect(status.sourceHashMatches('abc'), isTrue);
+    expect(
+      ProjectStatusSnapshot.fromJsonText(
+        payload,
+        sourcePath: '/books/other.pdf',
       ),
       isNull,
     );

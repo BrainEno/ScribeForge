@@ -20,6 +20,10 @@ class ComparisonWorkspace extends StatefulWidget {
 
 class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   String? _pdfPath;
+  String? _projectStorePath;
+  bool _projectStoreExplicit = false;
+  bool _projectSourceMatches = true;
+  String? _projectSourceMismatchMessage;
   int? _pdfPageCount;
   int _page = 0;
   EpubCandidate? _a;
@@ -81,72 +85,173 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     try {
       final path = await _pick('Open original PDF', const ['pdf']);
       if (path == null || !mounted) return;
-      setState(() {
-        _busy = true;
-        _notice = null;
-        _pdfPath = path;
-        _pdfPageCount = null;
-        _page = 0;
-        _a = null;
-        _b = null;
-        _aPath = null;
-        _bPath = null;
-        _labelA.text = 'Candidate A';
-        _labelB.text = 'Candidate B';
-        _notes.clear();
-        _decisions.clear();
-        _winner = null;
-      });
-      unawaited(_refreshProjectStatus());
+      final keepSelectedStore = _projectStoreExplicit && _projectStorePath != null;
+      await _loadSourcePdf(
+        path,
+        storePath: keepSelectedStore
+            ? _projectStorePath!
+            : ScribeForgeCli.defaultStorePath(path),
+        explicitStore: keepSelectedStore,
+      );
+    } on Object catch (error) {
+      if (mounted) _message('Could not open the PDF: $error');
+    }
+  }
+
+  Future<void> _loadSourcePdf(
+    String path, {
+    required String storePath,
+    required bool explicitStore,
+  }) async {
+    ++_statusRequestVersion;
+    setState(() {
+      _busy = true;
+      _notice = null;
+      _pdfPath = path;
+      _projectStorePath = storePath;
+      _projectStoreExplicit = explicitStore;
+      _projectStatus = null;
+      _projectStatusMessage = 'Checking the project against this PDF…';
+      _projectSourceMatches = true;
+      _projectSourceMismatchMessage = null;
+      _pdfPageCount = null;
+      _page = 0;
+      _a = null;
+      _b = null;
+      _aPath = null;
+      _bPath = null;
+      _labelA.text = 'Candidate A';
+      _labelB.text = 'Candidate B';
+      _notes.clear();
+      _decisions.clear();
+      _winner = null;
+    });
+    try {
       final saved = await EvaluationStore.read(path);
-      if (!mounted || saved == null) {
-        return;
-      }
-      final source = saved['source_pdf'];
-      final sourceMap = source is Map ? Map<String, dynamic>.from(source) : null;
-      final currentHash = await EvaluationStore.fingerprint(path);
-      if (sourceMap?['path'] != path || sourceMap?['sha256'] != currentHash) {
-        setState(() => _notice = 'Previous evaluation does not match this PDF; ratings were not restored.');
-        return;
-      }
-      final rawA = saved['candidate_a'];
-      final rawB = saved['candidate_b'];
-      final recordA = rawA is Map ? Map<String, dynamic>.from(rawA) : null;
-      final recordB = rawB is Map ? Map<String, dynamic>.from(rawB) : null;
-      final candidateA = await _restoreCandidate(recordA);
-      final candidateB = await _restoreCandidate(recordB);
-      if ((recordA != null && candidateA == null) || (recordB != null && candidateB == null)) {
-        setState(() => _notice = 'A candidate EPUB is missing or changed; old ratings were not restored.');
-        return;
-      }
-      final decisions = <int, String>{};
-      final rawDecisions = saved['page_decisions'];
-      if (rawDecisions is Map) {
-        for (final item in rawDecisions.entries) {
-          final key = int.tryParse(item.key.toString());
-          if (key != null && item.value is String) {
-            decisions[key] = item.value as String;
+      if (mounted && saved != null) {
+        final source = saved['source_pdf'];
+        final sourceMap = source is Map ? Map<String, dynamic>.from(source) : null;
+        final currentHash = await EvaluationStore.fingerprint(path);
+        if (sourceMap?['path'] != path || sourceMap?['sha256'] != currentHash) {
+          setState(() =>
+              _notice = 'Previous evaluation does not match this PDF; ratings were not restored.');
+        } else {
+          final rawA = saved['candidate_a'];
+          final rawB = saved['candidate_b'];
+          final recordA = rawA is Map ? Map<String, dynamic>.from(rawA) : null;
+          final recordB = rawB is Map ? Map<String, dynamic>.from(rawB) : null;
+          final candidateA = await _restoreCandidate(recordA);
+          final candidateB = await _restoreCandidate(recordB);
+          if (mounted &&
+              !((recordA != null && candidateA == null) ||
+                  (recordB != null && candidateB == null))) {
+            final decisions = <int, String>{};
+            final rawDecisions = saved['page_decisions'];
+            if (rawDecisions is Map) {
+              for (final item in rawDecisions.entries) {
+                final key = int.tryParse(item.key.toString());
+                if (key != null && item.value is String) {
+                  decisions[key] = item.value as String;
+                }
+              }
+            }
+            _labelA.text = recordA?['label'] as String? ?? 'Candidate A';
+            _labelB.text = recordB?['label'] as String? ?? 'Candidate B';
+            _notes.text = saved['notes'] as String? ?? '';
+            setState(() {
+              _a = candidateA;
+              _b = candidateB;
+              _aPath = recordA?['path'] as String?;
+              _bPath = recordB?['path'] as String?;
+              _winner = saved['overall_winner'] as String?;
+              _decisions
+                ..clear()
+                ..addAll(decisions);
+              _notice = 'Restored the previous human evaluation for unchanged input files.';
+            });
+          } else if (mounted) {
+            setState(() => _notice =
+                'A candidate EPUB is missing or changed; old ratings were not restored.');
           }
         }
       }
-      _labelA.text = recordA?['label'] as String? ?? 'Candidate A';
-      _labelB.text = recordB?['label'] as String? ?? 'Candidate B';
-      _notes.text = saved['notes'] as String? ?? '';
-      setState(() {
-        _a = candidateA;
-        _b = candidateB;
-        _aPath = recordA?['path'] as String?;
-        _bPath = recordB?['path'] as String?;
-        _winner = saved['overall_winner'] as String?;
-        _decisions
-          ..clear()
-          ..addAll(decisions);
-        _notice = 'Restored the previous human evaluation for unchanged input files.';
-      });
     } on Object catch (error) {
-      if (mounted) _message('Could not open the PDF: $error');
+      if (mounted) _message('Could not restore the previous evaluation: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+    await _refreshProjectStatus();
+  }
+
+  Future<void> _openProjectStore() async {
+    final directoryPath = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Open ScribeForge project folder',
+    );
+    if (directoryPath == null || !mounted) return;
+    setState(() {
+      _statusLoading = true;
+      _projectStatusMessage = 'Reading the selected project store…';
+    });
+    try {
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+      final exitCode = await ScribeForgeCli.run(
+        executable: _cliExecutable.trim(),
+        arguments: ScribeForgeCli.statusArguments(storePath: directoryPath),
+        onOutput: stdout.write,
+        onError: stderr.write,
+      );
+      if (!mounted) return;
+      if (exitCode != 0) {
+        final detail = stderr.toString().trim();
+        throw StateError(detail.isEmpty
+            ? 'ScribeForge could not read this folder as a project store (exit code $exitCode).'
+            : _firstLine(detail));
+      }
+      final projects = ProjectStatusSnapshot.listFromJsonText(stdout.toString());
+      if (projects.isEmpty) {
+        _message('The selected folder has no ScribeForge project yet.');
+        return;
+      }
+      if (projects.length != 1) {
+        _message(
+          'This folder contains ${projects.length} projects. Processing currently requires one dedicated project per store; choose the specific project folder.',
+        );
+        return;
+      }
+      final project = projects.single;
+      final sourceFile = File(project.sourceUri);
+      final recordedPath = sourceFile.isAbsolute
+          ? sourceFile.path
+          : sourceFile.absolute.path;
+      final exists = await File(recordedPath).exists();
+      if (!mounted) return;
+      setState(() {
+        _projectStorePath = directoryPath;
+        _projectStoreExplicit = true;
+        _projectStatus = project;
+        _projectSourceMatches = false;
+        _projectSourceMismatchMessage = exists
+            ? 'Project selected. Loading its recorded source PDF for identity checks…'
+            : 'The recorded source PDF was not found at "$recordedPath". Choose the original PDF manually; processing stays disabled until path and SHA-256 both match.';
+        _projectStatusMessage = null;
+        _notice = 'Opened project store: $directoryPath';
+      });
+      if (exists) {
+        await _loadSourcePdf(
+          recordedPath,
+          storePath: directoryPath,
+          explicitStore: true,
+        );
+      } else {
+        _message('Project store opened, but its recorded source PDF could not be located.');
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        _message('Could not open project store: ${_firstLine(error.toString())}');
+      }
+    } finally {
+      if (mounted) setState(() => _statusLoading = false);
     }
   }
 
@@ -356,6 +461,10 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   }
 
 
+  String get _activeStorePath =>
+      _projectStorePath ??
+      (_pdfPath == null ? '' : ScribeForgeCli.defaultStorePath(_pdfPath!));
+
   Future<void> _refreshProjectStatus() async {
     final pdf = _pdfPath;
     if (pdf == null) return;
@@ -364,35 +473,74 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       _statusLoading = true;
       _projectStatusMessage = 'Refreshing local project status…';
     });
-    final storePath = ScribeForgeCli.defaultStorePath(pdf);
     final stdout = StringBuffer();
     final stderr = StringBuffer();
     try {
       final exitCode = await ScribeForgeCli.run(
         executable: _cliExecutable.trim(),
-        arguments: ScribeForgeCli.statusArguments(storePath: storePath),
+        arguments: ScribeForgeCli.statusArguments(storePath: _activeStorePath),
         onOutput: stdout.write,
         onError: stderr.write,
       );
       if (!mounted || requestVersion != _statusRequestVersion) return;
       if (exitCode == 0) {
-        final status = ProjectStatusSnapshot.fromJsonText(
-          stdout.toString(),
-          sourcePath: pdf,
-        );
+        final projects = ProjectStatusSnapshot.listFromJsonText(stdout.toString());
+        if (projects.isEmpty) {
+          setState(() {
+            _projectStatus = null;
+            _projectSourceMatches = !_projectStoreExplicit;
+            _projectSourceMismatchMessage = _projectStoreExplicit
+                ? 'The selected project store no longer contains a project. Select an existing store or switch back to the default store.'
+                : null;
+            _projectStatusMessage = _projectStoreExplicit
+                ? 'No project was found in the selected store.'
+                : 'No processing project yet. Choose Run OCR to create one.';
+          });
+          return;
+        }
+        if (projects.length != 1) {
+          setState(() {
+            _projectStatus = null;
+            _projectSourceMatches = false;
+            _projectSourceMismatchMessage =
+                'This store contains multiple projects. Processing is blocked because page assets currently require a dedicated store per project.';
+            _projectStatusMessage = null;
+          });
+          return;
+        }
+        final status = projects.single;
+        final currentHash = await EvaluationStore.fingerprint(pdf);
+        if (!mounted || requestVersion != _statusRequestVersion) return;
+        final pathMatches = status.sourcePathMatches(pdf);
+        final hashMatches = status.sourceHashMatches(currentHash);
+        final sourceMatches = pathMatches && hashMatches;
         setState(() {
           _projectStatus = status;
-          _projectStatusMessage = status == null
-              ? 'No matching project is stored here yet. Run OCR to create or resume a project.'
-              : null;
+          _projectSourceMatches = sourceMatches;
+          _projectSourceMismatchMessage = sourceMatches
+              ? null
+              : !pathMatches && !hashMatches
+                  ? 'Source path and SHA-256 differ from this project. Open the recorded source PDF or select a new project store; OCR and candidate export are blocked.'
+                  : !pathMatches
+                      ? 'Source path differs from the project record. Open the recorded source PDF or choose a new project store; processing is blocked.'
+                      : 'Source PDF contents have changed since this project was created (SHA-256 mismatch). Use a new project store for the modified PDF; existing evidence is preserved.';
+          _projectStatusMessage = null;
         });
       } else {
         final combined = stderr.toString().trim();
         final noStore = combined.toLowerCase().contains('no store found');
         setState(() {
           _projectStatus = null;
+          _projectSourceMatches = !_projectStoreExplicit && noStore;
+          _projectSourceMismatchMessage = _projectSourceMatches
+              ? null
+              : _projectStoreExplicit && noStore
+                  ? 'The explicitly selected project store is missing its database.'
+                  : null;
           _projectStatusMessage = noStore
-              ? 'No processing project yet. Choose Run OCR to create one.'
+              ? _projectStoreExplicit
+                  ? 'Selected project store not found or incomplete.'
+                  : 'No processing project yet. Choose Run OCR to create one.'
               : combined.isEmpty
                   ? 'The CLI returned exit code $exitCode while reading project status.'
                   : 'Could not read project status: ${_firstLine(combined)}';
@@ -402,6 +550,8 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       if (!mounted || requestVersion != _statusRequestVersion) return;
       setState(() {
         _projectStatus = null;
+        _projectSourceMatches = false;
+        _projectSourceMismatchMessage = null;
         _projectStatusMessage =
             'Status unavailable. Check the CLI path in settings. ${_firstLine(error.toString())}';
       });
@@ -427,7 +577,11 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       _message('Open the original PDF before starting OCR.');
       return;
     }
-    final storePath = ScribeForgeCli.defaultStorePath(pdf);
+    if (!_projectSourceMatches) {
+      _message(_projectSourceMismatchMessage ?? 'The selected source does not match this project.');
+      return;
+    }
+    final storePath = _activeStorePath;
     final exitCode = await _runCli(
       title: 'Process source PDF',
       arguments: ScribeForgeCli.processArguments(
@@ -451,7 +605,11 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       _message('Open the original PDF before generating candidates.');
       return;
     }
-    final storePath = ScribeForgeCli.defaultStorePath(pdf);
+    if (!_projectSourceMatches || _projectStatus == null) {
+      _message(_projectSourceMismatchMessage ?? 'Run OCR in a valid project before generating candidates.');
+      return;
+    }
+    final storePath = _activeStorePath;
     final outputDirectory = ScribeForgeCli.candidateOutputDirectoryForPdf(pdf);
     final exitCode = await _runCli(
       title: 'Build OCR candidate EPUBs',
@@ -628,8 +786,13 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
           spacing: 8,
           runSpacing: 8,
           children: [
+            OutlinedButton.icon(
+              onPressed: _busy || _statusLoading ? null : _openProjectStore,
+              icon: const Icon(Icons.folder_open_outlined),
+              label: const Text('Open project'),
+            ),
             FilledButton.tonalIcon(
-              onPressed: _busy ? null : _openPdf,
+              onPressed: _busy || _statusLoading ? null : _openPdf,
               icon: const Icon(Icons.picture_as_pdf_outlined),
               label: Text(_pdfPath == null ? 'Open source PDF' : _basename(_pdfPath!)),
             ),
@@ -649,12 +812,12 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               label: const Text('Set up OCR'),
             ),
             OutlinedButton.icon(
-              onPressed: _busy || _pdfPath == null ? null : _runOcr,
+              onPressed: _busy || _statusLoading || _pdfPath == null || !_projectSourceMatches ? null : _runOcr,
               icon: const Icon(Icons.document_scanner_outlined),
               label: const Text('Run OCR'),
             ),
             FilledButton.tonalIcon(
-              onPressed: _busy || _pdfPath == null ? null : _buildCandidates,
+              onPressed: _busy || _statusLoading || _pdfPath == null || !_projectSourceMatches || _projectStatus == null ? null : _buildCandidates,
               icon: const Icon(Icons.auto_stories_outlined),
               label: const Text('Build A/B EPUBs'),
             ),
@@ -704,6 +867,16 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                   ],
                 ),
                 const SizedBox(height: 4),
+                if (!_projectSourceMatches && _projectSourceMismatchMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Text(
+                      _projectSourceMismatchMessage!,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 10, color: Color(0xFF9A4E12), fontWeight: FontWeight.w600),
+                    ),
+                  ),
                 if (status == null)
                   Text(
                     _projectStatusMessage ?? 'Status has not been loaded yet.',
@@ -761,9 +934,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
             onPressed: _statusLoading || _busy ? null : _refreshProjectStatus,
             icon: const Icon(Icons.refresh, size: 18),
           ),
-          if (failed > 0)
+          if (failed > 0 && _projectSourceMatches)
             OutlinedButton.icon(
-              onPressed: _busy ? null : _runOcr,
+              onPressed: _busy || _statusLoading ? null : _runOcr,
               icon: const Icon(Icons.replay, size: 15),
               label: const Text('Retry failed pages'),
             ),

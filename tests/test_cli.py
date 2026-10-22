@@ -199,6 +199,60 @@ def test_process_command_is_resumable_across_runs(tmp_path: Path) -> None:
     assert len(projects) == 1
     assert [page.page_index for page in store.list_pages(projects[0].id)] == [0]
 
+def test_process_rejects_a_different_pdf_for_an_existing_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first = _book(tmp_path)
+    second = tmp_path / "second.png"
+    Image.new("RGB", (80, 120), "white").save(second)
+    store_dir = tmp_path / "shared-store"
+
+    assert run(["process", str(first), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    capsys.readouterr()
+
+    code = run(["process", str(second), "--store", str(store_dir)], engine_factory=_factory())
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "source mismatch" in captured.err.lower()
+    assert "source path differs" in captured.err.lower()
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    projects = store.list_projects()
+    assert len(projects) == 1
+    assert projects[0].source_uri == str(first.resolve())
+
+
+def test_process_rejects_source_content_changed_after_import(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+
+    assert run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    capsys.readouterr()
+    Image.new("RGB", (81, 120), "white").save(book)
+
+    code = run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "source sha-256 differs" in captured.err.lower()
+    assert "evidence was not modified" in captured.err.lower()
+
+
+def test_process_resolves_relative_source_paths_before_persisting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    book = _book(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    store_dir = tmp_path / "store"
+
+    code = run(["process", "book.png", "--store", str(store_dir)], engine_factory=_factory())
+
+    assert code == 0
+    project = SQLiteStore(store_dir / "project.sqlite3").list_projects()[0]
+    assert project.source_uri == str(book.resolve())
+
 
 def test_process_command_fails_when_runtime_not_installed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     book = _book(tmp_path)

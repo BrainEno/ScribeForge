@@ -762,10 +762,35 @@ def _render_text(text: str | None) -> str:
 
 
 def _ensure_project(store: SQLiteStore, book: Path) -> int:
+    source_path = book.resolve()
+    source_sha256 = _file_sha256(source_path)
     existing = store.list_projects()
-    if existing:
-        return existing[0].id
-    return store.create_project(book.stem, str(book), _file_sha256(book))
+    if not existing:
+        return store.create_project(book.stem, str(source_path), source_sha256)
+    if len(existing) != 1:
+        raise ValueError(
+            "project store contains multiple projects, but processing requires a dedicated "
+            "single-project store; select the correct project store or create a new one"
+        )
+
+    project = existing[0]
+    recorded_path = Path(project.source_uri).resolve()
+    path_matches = recorded_path == source_path
+    hash_matches = project.source_sha256 == source_sha256
+    if not path_matches or not hash_matches:
+        mismatch: list[str] = []
+        if not path_matches:
+            mismatch.append("source path differs")
+        if not hash_matches:
+            mismatch.append("source SHA-256 differs")
+        raise ValueError(
+            "source mismatch for existing project store ("
+            + " and ".join(mismatch)
+            + f"). Recorded source: {project.source_uri}; requested source: {source_path}. "
+            "Use the original source PDF or choose a new --store directory. "
+            "Existing processing evidence was not modified."
+        )
+    return project.id
 
 
 def _file_sha256(path: Path) -> str:

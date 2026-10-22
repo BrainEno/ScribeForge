@@ -45,6 +45,7 @@ class ProjectStatusSnapshot {
     required this.projectId,
     required this.title,
     required this.sourceUri,
+    required this.sourceSha256,
     required this.pagesTotal,
     required this.pagesWithBothOcrSuccess,
     required this.reviewQueued,
@@ -58,6 +59,7 @@ class ProjectStatusSnapshot {
   final int projectId;
   final String title;
   final String sourceUri;
+  final String? sourceSha256;
   final int pagesTotal;
   final int pagesWithBothOcrSuccess;
   final int reviewQueued;
@@ -77,10 +79,13 @@ class ProjectStatusSnapshot {
   String get jobsLabel =>
       '$succeededJobs succeeded · $pendingJobs pending · $runningJobs running · $failedJobs failed';
 
-  static ProjectStatusSnapshot? fromJsonText(
-    String raw, {
-    required String sourcePath,
-  }) {
+  bool sourcePathMatches(String path) =>
+      _normalizedPath(sourceUri) == _normalizedPath(path);
+
+  bool sourceHashMatches(String? hash) =>
+      sourceSha256 != null && hash != null && sourceSha256 == hash;
+
+  static List<ProjectStatusSnapshot> listFromJsonText(String raw) {
     final decoded = jsonDecode(raw);
     if (decoded is! Map<String, dynamic> || decoded['schema_version'] != 1) {
       throw const FormatException('Unsupported ScribeForge status JSON schema.');
@@ -89,27 +94,28 @@ class ProjectStatusSnapshot {
     if (rawProjects is! List) {
       throw const FormatException('Status JSON is missing the projects collection.');
     }
-    final projects = rawProjects
+    return rawProjects
         .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
+        .map((item) => _fromProject(Map<String, dynamic>.from(item)))
         .toList(growable: false);
-    if (projects.isEmpty) return null;
+  }
 
-    final expectedPath = _normalizedPath(sourcePath);
-    final matching = projects.where((project) {
-      final sourceUri = project['source_uri'];
-      return sourceUri is String && _normalizedPath(sourceUri) == expectedPath;
-    }).toList(growable: false);
-    final selected = matching.length == 1
-        ? matching.single
-        : projects.length == 1
-            ? projects.single
-            : null;
-    if (selected == null) return null;
+  static ProjectStatusSnapshot? fromJsonText(
+    String raw, {
+    required String sourcePath,
+  }) {
+    final projects = listFromJsonText(raw);
+    final matching = projects
+        .where((project) => project.sourcePathMatches(sourcePath))
+        .toList(growable: false);
+    return matching.length == 1 ? matching.single : null;
+  }
 
+  static ProjectStatusSnapshot _fromProject(Map<String, dynamic> selected) {
     final id = selected['id'];
     final title = selected['title'];
     final sourceUri = selected['source_uri'];
+    final sourceSha256 = selected['source_sha256'];
     final pagesTotal = selected['pages_total'];
     final pagesWithBothOcrSuccess = selected['pages_with_both_ocr_success'];
     final reviewQueued = selected['review_queued'];
@@ -118,6 +124,7 @@ class ProjectStatusSnapshot {
     if (id is! int ||
         title is! String ||
         sourceUri is! String ||
+        (sourceSha256 != null && sourceSha256 is! String) ||
         pagesTotal is! int ||
         pagesWithBothOcrSuccess is! int ||
         reviewQueued is! int ||
@@ -142,6 +149,7 @@ class ProjectStatusSnapshot {
       projectId: id,
       title: title,
       sourceUri: sourceUri,
+      sourceSha256: sourceSha256 as String?,
       pagesTotal: pagesTotal,
       pagesWithBothOcrSuccess: pagesWithBothOcrSuccess,
       reviewQueued: reviewQueued,
