@@ -111,3 +111,22 @@ def test_pipeline_benchmark_can_score_vlm_adjudicated_conflicts(tmp_path: Path) 
     assert report.cases[0].accepted_pairs == 1
     assert report.cases[0].unresolved_pairs == 0
     assert report.cases[0].cer == 0.0
+
+
+def test_pipeline_benchmark_fails_closed_when_a_page_pipeline_fails(
+    tmp_path: Path,
+) -> None:
+    import pytest
+
+    class ExplodingEngine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            raise RuntimeError("synthetic OCR failure")
+
+    root, manifest = _corpus(tmp_path, "expected")
+    with pytest.raises(RuntimeError, match="case case-1 pipeline failed"):
+        run_pipeline_benchmark(
+            manifest,
+            root,
+            ExplodingEngine("mineru", "left"),
+            FakeEngine("paddleocr", "right"),
+        )
