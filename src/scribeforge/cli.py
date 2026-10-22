@@ -954,7 +954,7 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
 
     layout = RuntimeLayout(runtime_root)
     profile = overview.hardware
-    backends = {}
+    backends: dict[str, dict[str, object]] = {}
     for name, status in (
         ("mineru", overview.mineru),
         ("paddleocr", overview.paddleocr),
