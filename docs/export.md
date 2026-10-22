@@ -16,6 +16,23 @@ The assembled model is deliberately minimal:
 - `VerifiedPage(page_index, lines)` — accepted lines in reading order.
 - `VerifiedBook(title, pages)` — pages in page order.
 
+## Raw OCR candidate EPUBs
+
+`scribeforge export-candidates --store <dir> --out-dir <dir>` creates separate
+EPUB candidates from each requested engine's latest persisted raw OCR run for
+every imported page. The defaults are `mineru` and `paddleocr`; use repeatable
+`--engine NAME` arguments for another engine name stored in a test or custom
+pipeline. A candidate is labelled **UNVERIFIED OCR CANDIDATE** in EPUB metadata,
+uses one XHTML spine item per original source page, and includes an adjacent
+`candidate-manifest.json` with source SHA-256, engine versions, per-page run IDs
+and exported EPUB hashes. All requested candidates must be buildable before any
+candidate file is written. Missing engine output on any page is a fatal error:
+the command never silently produces a shorter book.
+
+These files deliberately contain raw model output, not the accepted decision
+layer. They are separate from `scribeforge export`, which continues to block
+until the complete book has been verified and accepted.
+
 ## Partial books are blocked
 
 Assembly refuses to produce a partial book. It raises `UnresolvedContentError`
