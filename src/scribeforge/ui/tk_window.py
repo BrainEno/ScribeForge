@@ -366,7 +366,11 @@ class ScribeForgeWindow:
             state="normal" if detail is not None and detail.primary_box is not None else "disabled"
         )
         self.focus_secondary_button.configure(
-            state="normal" if detail is not None and detail.secondary_box is not None else "disabled"
+            state=(
+                "normal"
+                if detail is not None and detail.secondary_box is not None
+                else "disabled"
+            )
         )
 
     def _clear_comparison(self) -> None:
