@@ -40,9 +40,9 @@ def render_report(
         "",
         (
             "| Variant | Cases | Mean CER | Mean WER | Punctuation | Missing | Extra "
-            "| Elapsed s | Pages/min |"
+            "| Accepted pairs | Unresolved pairs | Elapsed s | Pages/min |"
         ),
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for report in reports:
         aggregate = report.aggregate
@@ -51,6 +51,8 @@ def render_report(
             f"{aggregate.mean_cer:.4f} | {aggregate.mean_wer:.4f} | "
             f"{aggregate.mean_punctuation_accuracy:.4f} | "
             f"{aggregate.missing_lines} | {aggregate.extra_lines} | "
+            f"{aggregate.accepted_pairs if aggregate.accepted_pairs is not None else '-'} | "
+            f"{aggregate.unresolved_pairs if aggregate.unresolved_pairs is not None else '-'} | "
             f"{aggregate.elapsed_seconds:.3f} | {aggregate.pages_per_minute:.2f} |"
         )
 
@@ -61,9 +63,9 @@ def render_report(
             "",
             (
                 "| Case | Language | Tags | CER | WER | Punctuation | Missing | Extra "
-                "| Seconds |"
+                "| Accepted pairs | Unresolved pairs | Seconds |"
             ),
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for case in report.cases:
             tags = ",".join(case.tags) if case.tags else "-"
@@ -71,6 +73,8 @@ def render_report(
                 f"| {case.case_id} | {case.language} | {tags} | {case.cer:.4f} | "
                 f"{case.wer:.4f} | {case.punctuation_accuracy:.4f} | "
                 f"{case.missing_lines} | {case.extra_lines} | "
+                f"{case.accepted_pairs if case.accepted_pairs is not None else '-'} | "
+                f"{case.unresolved_pairs if case.unresolved_pairs is not None else '-'} | "
                 f"{case.elapsed_seconds:.3f} |"
             )
         lines.append("")

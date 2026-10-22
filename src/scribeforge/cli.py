@@ -19,6 +19,7 @@ from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.benchmark.corpus import validate_corpus
 from scribeforge.benchmark.manifest import load_manifest
+from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
 from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
@@ -274,6 +275,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="NAME",
         help="Backend to score, repeatable (default: mineru and paddleocr).",
+    )
+    benchmark.add_argument(
+        "--include-pipeline",
+        action="store_true",
+        help="Also score variant C through alignment, risk assessment and conservative decisions.",
     )
 
     return parser
@@ -901,6 +907,15 @@ def _benchmark(
         return EXIT_FATAL
 
     backends: list[str] = list(args.engine) if args.engine else ["mineru", "paddleocr"]
+    if args.include_pipeline and (
+        len(backends) != 2 or set(backends) != set(_BENCHMARK_BACKENDS)
+    ):
+        print(
+            "error: --include-pipeline requires both mineru and paddleocr exactly once",
+            file=sys.stderr,
+        )
+        return EXIT_FATAL
+
     unknown = [backend for backend in backends if backend not in _BENCHMARK_BACKENDS]
     if unknown:
         print(f"error: unknown benchmark engine: {unknown[0]}", file=sys.stderr)
@@ -915,8 +930,27 @@ def _benchmark(
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
     try:
-        reports = tuple(run_benchmark(manifest, root, engine) for engine in engines)
-    except Exception as exc:  # noqa: BLE001 - an engine failure must fail as fatal
+        reports_list = [run_benchmark(manifest, root, engine) for engine in engines]
+        if args.include_pipeline:
+            engines_by_name = {engine.name: engine for engine in engines}
+            missing = [
+                name for name in ("mineru", "paddleocr") if name not in engines_by_name
+            ]
+            if missing:
+                raise ValueError(
+                    "benchmark factory did not provide required backend(s): "
+                    + ", ".join(missing)
+                )
+            reports_list.append(
+                run_pipeline_benchmark(
+                    manifest,
+                    root,
+                    engines_by_name["mineru"],
+                    engines_by_name["paddleocr"],
+                )
+            )
+        reports = tuple(reports_list)
+    except Exception as exc:  # noqa: BLE001 - engine/pipeline failure must fail as fatal
         print(f"error: benchmark run failed: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
