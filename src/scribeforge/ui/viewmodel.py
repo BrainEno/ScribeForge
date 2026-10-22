@@ -28,6 +28,7 @@ class DiffSpan:
     start: int
     end: int
     kind: ConflictKind
+    conflict_index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,20 +56,21 @@ def render_conflict_side(
     ranges = sorted(
         (
             (
+                index,
                 conflict.primary_start if primary else conflict.secondary_start,
                 conflict.primary_end if primary else conflict.secondary_end,
                 conflict.kind,
             )
-            for conflict in conflicts
+            for index, conflict in enumerate(conflicts)
         ),
-        key=lambda item: (item[0], item[1]),
+        key=lambda item: (item[1], item[2], item[0]),
     )
     pieces: list[str] = []
     spans: list[DiffSpan] = []
     cursor = 0
     output_length = 0
 
-    for raw_start, raw_end, kind in ranges:
+    for conflict_index, raw_start, raw_end, kind in ranges:
         if raw_start < cursor and raw_end <= cursor:
             continue
         start = max(cursor, min(len(text), raw_start))
@@ -80,14 +82,14 @@ def render_conflict_side(
         if end == start:
             marker = "∅"
             pieces.append(marker)
-            spans.append(DiffSpan(output_length, output_length + len(marker), kind))
+            spans.append(DiffSpan(output_length, output_length + len(marker), kind, conflict_index))
             output_length += len(marker)
             cursor = start
             continue
 
         changed = text[start:end]
         pieces.append(changed)
-        spans.append(DiffSpan(output_length, output_length + len(changed), kind))
+        spans.append(DiffSpan(output_length, output_length + len(changed), kind, conflict_index))
         output_length += len(changed)
         cursor = end
 

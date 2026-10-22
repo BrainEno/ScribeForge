@@ -12,7 +12,7 @@ readings, or page images. Decisions remain a separate, append-only evidence laye
 | Library | one row per project: title, page count, queued pairs, failed job count |
 | Jobs | every persisted job in creation order, e.g. `primary_ocr [page 0] failed attempts=1 error=engine crashed` |
 | Review queue | one row per pair that still lacks an accepted decision: page, pair, risk score, risk reasons |
-| Pair view | three tabs for the selected pair: `Evidence`, `Page image`, `Crop` |
+| Pair view | four tabs for the selected pair: `Evidence`, `Compare`, `Page image`, `Crop` |
 
 The `Evidence` tab shows both engine readings, the newest VLM reading (with its
 uncertainty flag), the materialized crop path when one exists, and the currently
@@ -26,7 +26,14 @@ with its own vertical scrollbar. Stored character conflict ranges are highlighte
 by type: replacement, insertion, deletion, and punctuation. An empty side of an insertion/deletion uses a visible
 empty-set marker, and a line missing from one engine is labelled as unaligned. The
 comparison uses persisted alignment offsets rather than running a new diff in
-the UI, so it does not silently change the evidence being reviewed.
+the UI, so it does not silently change the evidence being reviewed. Click any
+highlighted span to select that specific persisted conflict and open the page
+image with the corresponding primary or secondary OCR line highlighted. The
+selected conflict is emphasized in both comparison panes. Source focus currently
+uses the stored line bounding box: it narrows the review to the correct OCR line,
+but does not claim pixel-accurate character localization. Character-level source
+boxes would require OCR engines to persist character/token geometry at matching
+granularity.
 
 Selecting a queued pair now moves the `Page image` tab to the source page and
 draws a display-only outline around the persisted candidate region. The pair region

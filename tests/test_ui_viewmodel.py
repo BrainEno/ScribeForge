@@ -331,6 +331,23 @@ def test_render_conflict_side_marks_an_empty_insertion_side() -> None:
     ]
 
 
+def test_render_conflict_side_preserves_original_conflict_indices_when_sorted() -> None:
+    conflicts = (
+        AlignmentConflict(ConflictKind.PUNCTUATION, "，", "。", 3, 4, 3, 4),
+        AlignmentConflict(ConflictKind.SUBSTITUTION, "X", "Y", 1, 2, 1, 2),
+    )
+
+    rendered = render_conflict_side("aXb，c", conflicts, primary=True)
+
+    assert [
+        (span.start, span.end, span.kind, span.conflict_index)
+        for span in rendered.spans
+    ] == [
+        (1, 2, ConflictKind.SUBSTITUTION, 1),
+        (3, 4, ConflictKind.PUNCTUATION, 0),
+    ]
+
+
 def test_render_conflict_side_marks_punctuation_and_unmatched_lines() -> None:
     punctuation = AlignmentConflict(
         ConflictKind.PUNCTUATION, "，", "。", 1, 2, 1, 2

@@ -47,6 +47,8 @@ class ScribeForgeWindow:
         self._current_detail: ReviewDetail | None = None
         self._current_page_image: Path | None = None
         self._photos: dict[ttk.Label, ImageTk.PhotoImage] = {}
+        self._selected_conflict_index: int | None = None
+        self._comparison_presentations: dict[str, DiffPresentation] = {}
 
         root.title("ScribeForge")
         root.geometry("1180x680")
@@ -193,6 +195,9 @@ class ScribeForgeWindow:
             widget.tag_configure("insertion", background="#dcfce7")
             widget.tag_configure("deletion", background="#ffedd5")
             widget.tag_configure("punctuation", background="#dbeafe")
+            widget.tag_configure(
+                "selected_conflict", background="#fde047", foreground="#111827", underline=True
+            )
         ttk.Label(
             compare_tab,
             text="Red: replacement   Green: insertion   Orange: deletion   Blue: punctuation",
@@ -375,6 +380,8 @@ class ScribeForgeWindow:
 
     def _clear_comparison(self) -> None:
         """Avoid showing stale OCR from the last item when the queue is empty."""
+        self._selected_conflict_index = None
+        self._comparison_presentations.clear()
         empty = DiffPresentation("No pair selected", ())
         self._set_comparison_text(self.primary_compare, empty)
         self._set_comparison_text(self.secondary_compare, empty)
@@ -474,7 +481,7 @@ class ScribeForgeWindow:
         """Select the source tab; tkinter's dynamic select method is untyped."""
         cast(Any, self._notebook).select(self._page_tab)
 
-    def _focus_source(self, target: str) -> None:
+    def _focus_source(self, target: str, *, status_text: str | None = None) -> None:
         """Show the source page with the selected OCR geometry overlaid."""
         detail = self._current_detail
         if detail is None:
@@ -489,6 +496,8 @@ class ScribeForgeWindow:
             return
         box, color, label = focus
         if box is None:
+            if status_text is not None:
+                self.status.configure(text=f"{status_text} — no source geometry for this side")
             return
         self._show_image(
             self.page_image,
@@ -502,7 +511,7 @@ class ScribeForgeWindow:
             focus_label=label,
         )
         self._select_page_tab()
-        self.status.configure(text=f"source focus: {label}")
+        self.status.configure(text=status_text or f"source focus: {label}")
 
     def _shortcut_focus(self, target: str) -> str | None:
         if self._root.focus_get() is self.custom_entry:
@@ -589,16 +598,23 @@ class ScribeForgeWindow:
         secondary = render_conflict_side(
             detail.secondary_text, detail.conflicts, primary=False
         )
-        self._set_comparison_text(self.primary_compare, primary)
-        self._set_comparison_text(self.secondary_compare, secondary)
+        self._selected_conflict_index = None
+        self._comparison_presentations = {
+            "primary": primary,
+            "secondary": secondary,
+        }
+        self._set_comparison_text(self.primary_compare, primary, side="primary")
+        self._set_comparison_text(self.secondary_compare, secondary, side="secondary")
         count = len(detail.conflicts)
         self.compare_summary.configure(
-            text=f"{count} character-level conflict(s) from persisted alignment"
+            text=(
+                f"{count} character-level conflict(s) from persisted alignment — "
+                "click a highlighted span to focus its source line"
+            )
         )
 
-    @staticmethod
     def _set_comparison_text(
-        widget: tk.Text, presentation: DiffPresentation
+        self, widget: tk.Text, presentation: DiffPresentation, *, side: str | None = None
     ) -> None:
         widget.configure(state="normal")
         widget.delete("1.0", "end")
@@ -607,7 +623,47 @@ class ScribeForgeWindow:
             start = f"1.0+{span.start}c"
             end = f"1.0+{span.end}c"
             widget.tag_add(span.kind.value, start, end)
+            if side is not None:
+                index_tag = f"conflict-index-{span.conflict_index}"
+                widget.tag_add(index_tag, start, end)
+                widget.tag_bind(
+                    index_tag,
+                    "<Button-1>",
+                    lambda event, selected_side=side, index=span.conflict_index: (
+                        self._on_conflict_click(selected_side, index)
+                    ),
+                )
         widget.configure(state="disabled")
+
+    def _on_conflict_click(self, side: str, conflict_index: int) -> str:
+        """Select one persisted diff and focus that engine's source line."""
+        detail = self._current_detail
+        if detail is None or not 0 <= conflict_index < len(detail.conflicts):
+            return "break"
+        self._selected_conflict_index = conflict_index
+        for compare_side, widget in (
+            ("primary", self.primary_compare),
+            ("secondary", self.secondary_compare),
+        ):
+            widget.tag_remove("selected_conflict", "1.0", "end")
+            presentation = self._comparison_presentations.get(compare_side)
+            if presentation is None:
+                continue
+            for span in presentation.spans:
+                if span.conflict_index == conflict_index:
+                    widget.tag_add(
+                        "selected_conflict",
+                        f"1.0+{span.start}c",
+                        f"1.0+{span.end}c",
+                    )
+                    widget.tag_raise("selected_conflict")
+        conflict = detail.conflicts[conflict_index]
+        summary = (
+            f"conflict {conflict_index + 1}/{len(detail.conflicts)} "
+            f"({conflict.kind.value}); {side} OCR line focused"
+        )
+        self._focus_source(side, status_text=f"{summary} — source geometry is line-level")
+        return "break"
 
     def _set_detail(self, text: str) -> None:
         self.detail.configure(state="normal")
