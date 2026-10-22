@@ -12,6 +12,7 @@ import '../services/cli_runner.dart';
 import '../services/evaluation_store.dart';
 import '../services/settings_store.dart';
 import 'runtime_models_dialog.dart';
+import 'vlm_settings_dialog.dart';
 
 class ComparisonWorkspace extends StatefulWidget {
   const ComparisonWorkspace({super.key});
@@ -39,6 +40,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   final _notes = TextEditingController();
   final _settingsStore = DesktopSettingsStore();
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
+  DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   ProjectStatusSnapshot? _projectStatus;
   String? _projectStatusMessage;
   bool _statusLoading = false;
@@ -54,8 +56,12 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
 
   Future<void> _loadSettings() async {
     final executable = await _settingsStore.loadCliExecutable();
+    final vlmSettings = await _settingsStore.loadVlmSettings();
     if (!mounted) return;
-    setState(() => _cliExecutable = executable);
+    setState(() {
+      _cliExecutable = executable;
+      _vlmSettings = vlmSettings;
+    });
   }
 
   @override
@@ -438,6 +444,30 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     }
   }
 
+  Future<void> _editVlmSettings() async {
+    final value = await showDialog<DesktopVlmSettings>(
+      context: context,
+      builder: (_) => VlmSettingsDialog(
+        executable: _cliExecutable,
+        initial: _vlmSettings,
+      ),
+    );
+    if (value == null) return;
+    try {
+      await _settingsStore.saveVlmSettings(value);
+    } on Object catch (error) {
+      if (mounted) _message('Could not save VLM settings: $error');
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _vlmSettings = value);
+    _message(
+      value.enabled
+          ? 'VLM review is enabled for future OCR runs.'
+          : 'VLM settings saved; VLM review remains disabled.',
+    );
+  }
+
   Future<int?> _runCli({
     required String title,
     required List<String> arguments,
@@ -805,11 +835,16 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       return;
     }
     final storePath = _activeStorePath;
+    if (_vlmSettings.enabled && !_vlmSettings.isConfigured) {
+      _message('VLM review is enabled but its endpoint or model is missing. Open Settings → VLM review.');
+      return;
+    }
     final exitCode = await _runCli(
-      title: 'Process source PDF',
+      title: _vlmSettings.enabled ? 'Process source PDF with VLM review' : 'Process source PDF',
       arguments: ScribeForgeCli.processArguments(
         pdfPath: pdf,
         storePath: storePath,
+        vlmSettings: _vlmSettings,
       ),
     );
     if (!mounted || exitCode == null) return;
@@ -1207,6 +1242,8 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                   unawaited(_openRuntimeModels());
                 } else if (value == 'cli') {
                   unawaited(_editSettings());
+                } else if (value == 'vlm') {
+                  unawaited(_editVlmSettings());
                 }
               },
               itemBuilder: (_) => const [
@@ -1227,6 +1264,16 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                       Icon(Icons.memory_outlined, size: 18),
                       SizedBox(width: 10),
                       Text('Runtime & Models'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem<String>(
+                  value: 'vlm',
+                  child: Row(
+                    children: [
+                      Icon(Icons.visibility_outlined, size: 18),
+                      SizedBox(width: 10),
+                      Text('VLM review'),
                     ],
                   ),
                 ),

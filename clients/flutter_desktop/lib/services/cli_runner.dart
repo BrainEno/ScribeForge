@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'settings_store.dart';
+
 class ScribeForgeCli {
   static const String defaultExecutable = 'scribeforge';
 
@@ -99,8 +101,48 @@ class ScribeForgeCli {
   static List<String> processArguments({
     required String pdfPath,
     required String storePath,
+    DesktopVlmSettings? vlmSettings,
+  }) {
+    final arguments = <String>['process', pdfPath, '--store', storePath];
+    if (vlmSettings != null && vlmSettings.enabled) {
+      arguments.addAll(_vlmArguments(vlmSettings));
+    }
+    return arguments;
+  }
+
+  static List<String> vlmCheckArguments({
+    required String imagePath,
+    required DesktopVlmSettings vlmSettings,
   }) =>
-      <String>['process', pdfPath, '--store', storePath];
+      <String>[
+        'vlm-check',
+        '--image',
+        imagePath,
+        ..._vlmArguments(vlmSettings),
+        '--json',
+      ];
+
+  static List<String> _vlmArguments(DesktopVlmSettings settings) {
+    if (!settings.isConfigured) {
+      throw ArgumentError('VLM endpoint and model must both be configured.');
+    }
+    if (!settings.timeoutSeconds.isFinite || settings.timeoutSeconds <= 0) {
+      throw ArgumentError('VLM timeout must be finite and greater than zero.');
+    }
+    return <String>[
+      '--vlm-endpoint',
+      settings.endpoint.trim(),
+      '--vlm-model',
+      settings.model.trim(),
+      if (settings.apiKeyEnvironmentVariable.trim().isNotEmpty) ...[
+        '--vlm-api-key-env',
+        settings.apiKeyEnvironmentVariable.trim(),
+      ],
+      '--vlm-timeout',
+      settings.timeoutSeconds.toString(),
+      if (settings.allowRemote) '--allow-remote-vlm',
+    ];
+  }
 
   static List<String> exportCandidateArguments({
     required String storePath,
