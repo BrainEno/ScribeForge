@@ -264,6 +264,75 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     }
   }
 
+  Future<void> _relinkSourcePdf() async {
+    final status = _projectStatus;
+    final storePath = _activeStorePath;
+    if (!_projectStoreExplicit || status == null || storePath.isEmpty) {
+      _message('Open an existing project store before re-linking its source PDF.');
+      return;
+    }
+
+    final sourcePath = await _pick(
+      'Select the moved original PDF',
+      const ['pdf'],
+    );
+    if (sourcePath == null || !mounted) return;
+
+    String canonicalSourcePath;
+    try {
+      canonicalSourcePath = await File(sourcePath).resolveSymbolicLinks();
+    } on Object catch (error) {
+      _message('Could not resolve the selected PDF path: $error');
+      return;
+    }
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Verify and relink source PDF?'),
+        content: const Text(
+          'ScribeForge will calculate the selected PDF’s SHA-256 and compare it '
+          'with the project record. The source path will change only if the hashes '
+          'match exactly. A different file is rejected; OCR results and review '
+          'evidence are never overwritten by this operation.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Verify and relink'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final exitCode = await _runCli(
+      title: 'Relink source PDF',
+      arguments: ScribeForgeCli.relinkSourceArguments(
+        storePath: storePath,
+        sourcePath: canonicalSourcePath,
+      ),
+    );
+    if (!mounted || exitCode != 0) return;
+
+    setState(() {
+      _pdfPath = canonicalSourcePath;
+      _projectStorePath = storePath;
+      _projectStoreExplicit = true;
+      _projectSourceMatches = true;
+      _projectSourceMismatchMessage = null;
+      _projectStatusMessage = 'Verifying the updated source identity…';
+      _notice =
+          'Source path relinked after SHA-256 verification. Existing OCR evidence was preserved.';
+    });
+    await _refreshProjectStatus();
+  }
+
   Future<EpubCandidate?> _restoreCandidate(Map<String, dynamic>? record) async {
     final path = record?['path'];
     final hash = record?['sha256'];
@@ -830,6 +899,12 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               icon: const Icon(Icons.auto_stories_outlined),
               label: const Text('Build A/B EPUBs'),
             ),
+            if (_projectStoreExplicit && _projectStatus != null && !_projectSourceMatches)
+              OutlinedButton.icon(
+                onPressed: _busy || _statusLoading ? null : _relinkSourcePdf,
+                icon: const Icon(Icons.link_outlined),
+                label: const Text('Relink source PDF'),
+              ),
             if (_busy)
               const SizedBox(width: 20, height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2)),
