@@ -199,7 +199,7 @@ def test_cli_backup_verify_restore_json_round_trip(
     assert restore_code == 0
     assert restore_payload["healthy"] is True
     restored_project = SQLiteStore(target / "project.sqlite3").list_projects()[0]
-    assert restored_project.source_uri == str(source.resolve())
+    assert restored_project.source_uri == str((target / "source" / "project-1" / "Book.pdf").resolve())
 
 
 def test_cli_backup_refuses_overwrite_and_restore_never_replaces_directory(
