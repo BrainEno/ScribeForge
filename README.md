@@ -50,7 +50,8 @@ src/scribeforge/       Python core
 tests/                 unit / integration / contract tests
 docs/                  architecture, TDD rules, data model, roadmap
 benchmark/             reproducible benchmark fixtures and reports
-.github/workflows/     CI enforcement
+clients/flutter_desktop/ Flutter desktop PDF + EPUB comparison workspace
+.github/workflows/     Python + Flutter CI enforcement
 ```
 
 ## Development status
@@ -70,6 +71,8 @@ scribeforge resolve --store store/ \
   --page 0 --pair 3 --text "鸦"              # record the accepted reading
 scribeforge export --store store/ --out book.epub   # verified text -> EPUB 3
 scribeforge export --store store/ --out book.docx   # verified text -> DOCX
+scribeforge export-candidates --store store/ --out-dir comparison/ # raw OCR EPUB candidates
+cd clients/flutter_desktop && flutter run -d windows # Flutter comparison UI
 scribeforge export --store store/ --out book.epub \
   --title "书名" --author "作者" --modified 2026-10-20T00:00:00Z
 scribeforge ui --store store/                 # keyboard-first desktop review shell
@@ -81,9 +84,11 @@ scribeforge benchmark --manifest benchmark/manifest.json \
 
 When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
 
-`export` writes the accepted decisions as an EPUB 3 or DOCX file (chosen by the destination extension) and refuses to run while any page is unverified or any pair is still unresolved, so a partial book can never be exported silently. `--title` and `--author` override the export metadata (the author becomes `dc:creator` in both formats), and `--modified` pins the timestamp for byte-reproducible builds. Every build is re-read and checked against the accepted text before it is written. See [Export](./docs/export.md).
+`export-candidates` writes explicitly **unverified** raw OCR outputs for each requested engine (MinerU and PaddleOCR by default), preserving the source page index in each XHTML spine item. It also writes a `candidate-manifest.json` with source hash, engine version, run IDs, candidate hashes and paths. These files are for visual comparison only and are never accepted by the verified export pipeline. `export` writes the accepted decisions as an EPUB 3 or DOCX file (chosen by the destination extension) and refuses to run while any page is unverified or any pair is still unresolved, so a partial book can never be exported silently. `--title` and `--author` override the export metadata (the author becomes `dc:creator` in both formats), and `--modified` pins the timestamp for byte-reproducible builds. Every build is re-read and checked against the accepted text before it is written. See [Export](./docs/export.md).
 
 `ui` opens the desktop review shell over the store: library/job status, an unresolved-pair queue, evidence, page raster, and review crop. Selecting a conflict focuses its region on the source-page preview; `a`/`d` locate the primary/secondary OCR line, while `p` restores the pair region. The `Compare` tab displays both OCR lines side by side and highlights persisted character-level substitutions, insertions, deletions, and punctuation differences. Reviewers can explicitly accept either OCR reading or a VLM reading, or enter literal corrected text; keyboard shortcuts (`1`, `2`, `3`, `n`, `Ctrl+Enter`) keep the common path fast. Source highlights are drawn only on transient previews, and each decision appends a human record with evidence references. See [Desktop shell](./docs/ui.md).
+
+`clients/flutter_desktop` is the Flutter-first desktop comparison surface: the original PDF is shown beside two EPUB candidates, changed lines are highlighted, and reviewers can save per-page preferences, an overall winner, and notes. Prepare candidate files using `scribeforge export-candidates`, then follow [Flutter Desktop](./clients/flutter_desktop/README.md) to generate platform runners and launch it. The first version compares extracted EPUB text rather than reproducing all EPUB CSS/layout, and chapter-based EPUBs are aligned approximately. On Windows, enable Developer Mode before compiling `pdfrx`, which uses native asset symlinks. Human review choices are stored beside the PDF with input hashes; the UI never decides a winner automatically.
 
 `benchmark` validates a corpus manifest (every case needs a non-empty page image and hand-verified ground truth), builds only the requested managed backends, and scores each one for CER, WER, punctuation, missing/extra lines, per-page time, and pages/minute. It writes a deterministic Markdown report naming the manifest SHA-256, with per-case rows so an aggregate gain cannot hide a hard-page regression. Variants A (MinerU) and B (PaddleOCR) are runnable; the pipeline comparison (C/D) and the real-corpus report remain. See [Benchmark](./benchmark/README.md).
 
@@ -96,6 +101,7 @@ See:
 - [Data model](./docs/data-model.md)
 - [Export](./docs/export.md)
 - [Desktop shell](./docs/ui.md)
+- [Flutter Desktop comparison client](./clients/flutter_desktop/README.md)
 
 ## Development bootstrap
 

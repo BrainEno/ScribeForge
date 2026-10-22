@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import platform
+import re
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -10,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
+from scribeforge.adapters.candidate_epub import build_candidate_epub
 from scribeforge.adapters.docx import write_docx
 from scribeforge.adapters.epub import write_epub
 from scribeforge.adapters.runtime_workers import build_runtime_engine
@@ -18,6 +21,7 @@ from scribeforge.benchmark.corpus import validate_corpus
 from scribeforge.benchmark.manifest import load_manifest
 from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
+from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
@@ -155,6 +159,28 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    candidates = subparsers.add_parser(
+        "export-candidates",
+        help="Export unverified raw OCR candidates for side-by-side EPUB comparison.",
+    )
+    candidates.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    candidates.add_argument(
+        "--out-dir", type=Path, required=True, help="Directory for candidate EPUBs and manifest."
+    )
+    candidates.add_argument(
+        "--project-id", type=int, default=None, help="Project ID (required when store has multiple projects)."
+    )
+    candidates.add_argument(
+        "--engine",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="OCR engine name, repeatable (default: mineru and paddleocr).",
+    )
+    candidates.add_argument(
+        "--language", default="und", help="BCP 47 language tag (default: und)."
+    )
+
     benchmark = subparsers.add_parser(
         "benchmark", help="Score OCR engines against a benchmark corpus manifest."
     )
@@ -208,6 +234,8 @@ def run(
         return _resolve(args, out)
     if args.command == "export":
         return _export(args, out)
+    if args.command == "export-candidates":
+        return _export_candidates(args, out)
     if args.command == "ui":
         return _ui(args)
     if args.command == "benchmark":
@@ -439,6 +467,137 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    return EXIT_OK
+
+
+def _export_candidates(args: argparse.Namespace, out: TextIO) -> int:
+    """Export raw per-engine EPUB candidates without confusing them with verified exports."""
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+
+    projects = store.list_projects()
+    if not projects:
+        print("error: no projects in store", file=sys.stderr)
+        return EXIT_FATAL
+    selected_project = None
+    if args.project_id is None:
+        if len(projects) != 1:
+            print(
+                "error: store contains multiple projects; choose one with --project-id",
+                file=sys.stderr,
+            )
+            return EXIT_FATAL
+        selected_project = projects[0]
+    else:
+        selected_project = next(
+            (item for item in projects if item.id == args.project_id), None
+        )
+        if selected_project is None:
+            print(f"error: unknown project ID: {args.project_id}", file=sys.stderr)
+            return EXIT_FATAL
+
+    project = selected_project
+    pages = store.list_pages(project.id)
+    if not pages:
+        print("error: project has no imported pages", file=sys.stderr)
+        return EXIT_FATAL
+    engines: list[str] = list(args.engine) if args.engine else ["mineru", "paddleocr"]
+    if not engines or len(set(engines)) != len(engines):
+        print("error: candidate engine names must be non-empty and unique", file=sys.stderr)
+        return EXIT_FATAL
+    invalid = [name for name in engines if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name)]
+    if invalid:
+        print(f"error: invalid candidate engine name: {invalid[0]!r}", file=sys.stderr)
+        return EXIT_FATAL
+
+    modified = datetime.now(UTC)
+    candidate_payloads: list[tuple[str, bytes, dict[str, object]]] = []
+    try:
+        for engine in engines:
+            candidate_pages: list[OcrCandidatePage] = []
+            run_manifest: list[dict[str, object]] = []
+            for page in pages:
+                run_id = store.latest_engine_run(project.id, page.page_index, engine)
+                result = store.load_ocr_run(run_id)
+                candidate_pages.append(
+                    OcrCandidatePage(
+                        page_index=page.page_index,
+                        run_id=run_id,
+                        engine_version=result.engine_version,
+                        lines=tuple(line.text for line in result.lines),
+                    )
+                )
+                run_manifest.append(
+                    {
+                        "page_index": page.page_index,
+                        "run_id": run_id,
+                        "engine_version": result.engine_version,
+                    }
+                )
+            candidate = OcrCandidateBook(
+                source_title=project.title,
+                engine=engine,
+                pages=tuple(candidate_pages),
+            )
+            data = build_candidate_epub(
+                candidate,
+                identifier=f"urn:scribeforge:candidate:{project.source_sha256}:{engine}",
+                language=args.language,
+                modified=modified,
+            )
+            candidate_payloads.append(
+                (
+                    engine,
+                    data,
+                    {
+                        "engine": engine,
+                        "engine_versions": list(candidate.engine_versions),
+                        "path": str(args.out_dir / f"candidate-{engine}.epub"),
+                        "sha256": hashlib.sha256(data).hexdigest(),
+                        "verification_status": "unverified",
+                        "page_runs": run_manifest,
+                    },
+                )
+            )
+    except (KeyError, ValueError, OSError) as exc:
+        print(f"error: could not build every OCR candidate: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    manifest = {
+        "schema_version": 1,
+        "project_id": project.id,
+        "source_title": project.title,
+        "source_uri": project.source_uri,
+        "source_sha256": project.source_sha256,
+        "created_at": modified.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "verification_status": "unverified",
+        "candidates": [item[2] for item in candidate_payloads],
+    }
+    try:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        for engine, data, _item in candidate_payloads:
+            from scribeforge.adapters.export_common import write_atomic
+
+            write_atomic(args.out_dir / f"candidate-{engine}.epub", data)
+        manifest_path = args.out_dir / "candidate-manifest.json"
+        temporary = manifest_path.with_name(f".{manifest_path.name}.tmp")
+        try:
+            temporary.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(manifest_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"error: cannot write candidate exports: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    for engine, _data, item in candidate_payloads:
+        print(f"exported unverified {engine} candidate to {item['path']}", file=out)
+    print(f"wrote candidate manifest to {args.out_dir / 'candidate-manifest.json'}", file=out)
     return EXIT_OK
 
 
