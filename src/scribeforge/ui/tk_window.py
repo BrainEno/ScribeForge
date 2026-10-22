@@ -10,6 +10,7 @@ from __future__ import annotations
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
+from typing import Any, cast
 
 from PIL import ImageDraw, ImageTk
 
@@ -288,7 +289,7 @@ class ScribeForgeWindow:
             upscale=True,
             missing="no crop for this pair",
         )
-        self._notebook.select(self._page_tab)
+        self._select_page_tab()
         self.status.configure(
             text=(
                 f"page {row.page_index} pair {row.pair_index} — "
@@ -410,6 +411,10 @@ class ScribeForgeWindow:
         self.review.see(next_item)
         return "break"
 
+    def _select_page_tab(self) -> None:
+        """Select the source tab; tkinter's dynamic select method is untyped."""
+        cast(Any, self._notebook).select(self._page_tab)
+
     def _focus_source(self, target: str) -> None:
         """Show the source page with the selected OCR geometry overlaid."""
         detail = self._current_detail
@@ -437,7 +442,7 @@ class ScribeForgeWindow:
             focus_color=color,
             focus_label=label,
         )
-        self._notebook.select(self._page_tab)
+        self._select_page_tab()
         self.status.configure(text=f"source focus: {label}")
 
     def _shortcut_focus(self, target: str) -> str | None:
