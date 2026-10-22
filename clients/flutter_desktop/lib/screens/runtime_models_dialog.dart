@@ -218,17 +218,26 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
       );
 
   Widget _backendTile(String name, RuntimeBackendSnapshot? backend) {
-    final state = backend?.state ?? 'unknown';
+    final reportedState = backend?.state ?? 'unknown';
+    final folderMissing = backend != null && !backend.environmentExists;
+    final state = reportedState == 'ready' && folderMissing
+        ? 'missing-folder'
+        : reportedState;
+    final statusLabel = state == 'missing-folder'
+        ? 'READY STATE · FOLDER MISSING'
+        : state.toUpperCase();
     final color = switch (state) {
       'ready' => const Color(0xFF237354),
       'failed' => const Color(0xFFAE5425),
-      'installing' || 'models' || 'health' => const Color(0xFF94601A),
+      'installing' || 'models' || 'health' || 'missing-folder' =>
+        const Color(0xFF94601A),
       _ => const Color(0xFF68766F),
     };
     final icon = switch (state) {
       'ready' => Icons.check_circle_outline,
       'failed' => Icons.error_outline,
       'installing' || 'models' || 'health' => Icons.downloading_outlined,
+      'missing-folder' => Icons.warning_amber_outlined,
       _ => Icons.radio_button_unchecked,
     };
     return Container(
@@ -256,6 +265,18 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 10, color: Color(0xFF68766F)),
                 ),
+                if (backend != null)
+                  Text(
+                    folderMissing
+                        ? 'Environment directory not found'
+                        : 'Environment directory exists',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: folderMissing
+                          ? const Color(0xFF94601A)
+                          : const Color(0xFF68766F),
+                    ),
+                  ),
                 if (backend?.failedStep != null)
                   Text(
                     'Failed step: ${backend!.failedStep}',
@@ -266,7 +287,7 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
           ),
           const SizedBox(width: 10),
           Text(
-            state.toUpperCase(),
+            statusLabel,
             style: TextStyle(
               color: color,
               fontSize: 10,
