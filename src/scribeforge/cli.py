@@ -255,9 +255,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
         if factory is default_engine_factory and (
             "not ready" in message.lower() or "uv bootstrap tool" in message.lower()
         ):
-            message += (
-                f"""; run scribeforge setup --runtime-root="{runtime_root}" and retry"""
-            )
+            message += f'; run scribeforge setup --runtime-root="{runtime_root}" and retry'
         print(f"error: {message}", file=sys.stderr)
         return EXIT_FATAL
 
