@@ -1,0 +1,32 @@
+name: Flutter Desktop
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  flutter-desktop:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/flutter_desktop
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+      - name: Generate native desktop runners
+        run: flutter create --platforms=windows,macos,linux --project-name scribeforge_desktop .
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format Dart source
+        run: dart format lib test
+      - name: Analyze Flutter client
+        run: flutter analyze
+      - name: Run Flutter tests
+        run: flutter test
