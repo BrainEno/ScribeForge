@@ -626,13 +626,14 @@ class ScribeForgeWindow:
             if side is not None:
                 index_tag = f"conflict-index-{span.conflict_index}"
                 widget.tag_add(index_tag, start, end)
-                widget.tag_bind(
-                    index_tag,
-                    "<Button-1>",
-                    lambda event, selected_side=side, index=span.conflict_index: (
-                        self._on_conflict_click(selected_side, index)
-                    ),
-                )
+                def on_conflict_click(
+                    event: object,
+                    selected_side: str = side,
+                    index: int = span.conflict_index,
+                ) -> str:
+                    return self._on_conflict_click(selected_side, index)
+
+                widget.tag_bind(index_tag, "<Button-1>", on_conflict_click)
         widget.configure(state="disabled")
 
     def _on_conflict_click(self, side: str, conflict_index: int) -> str:
