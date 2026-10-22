@@ -21,7 +21,15 @@ class SubprocessExecutor:
         if env:
             process_env = os.environ.copy()
             process_env.update(env)
-        subprocess.run(argv, check=True, env=process_env)
+        subprocess.run(
+            argv,
+            check=True,
+            env=process_env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,8 +66,16 @@ class RuntimeManager:
 
     def install(self, plan: RuntimePlan) -> None:
         self._root.mkdir(parents=True, exist_ok=True)
+        failures: list[str] = []
         for backend in plan.backends:
-            self._run_backend(backend)
+            try:
+                self._run_backend(backend)
+            except RuntimeInstallError as exc:
+                # One broken backend should not prevent the other OCR engine
+                # from being installed and usable.
+                failures.append(str(exc))
+        if failures:
+            raise RuntimeInstallError("; ".join(failures))
 
     def repair(self, plan: RuntimePlan, backend: str) -> None:
         self._root.mkdir(parents=True, exist_ok=True)
@@ -114,7 +130,17 @@ class RuntimeManager:
                             total,
                         )
                     )
-                    raise RuntimeInstallError(f"{backend.name}:{failed_step}") from exc
+                    detail = ""
+                    if isinstance(exc, subprocess.CalledProcessError):
+                        detail = (exc.stderr or exc.stdout or "").strip()
+                    if not detail:
+                        detail = str(exc).strip()
+                    if len(detail) > 1200:
+                        detail = detail[-1200:]
+                    suffix = f": {detail}" if detail else ""
+                    raise RuntimeInstallError(
+                        f"{backend.name}:{failed_step}{suffix}"
+                    ) from exc
                 completed += 1
             self._emit(RuntimeEvent(backend.name, phase, "completed", None, completed, total))
 
