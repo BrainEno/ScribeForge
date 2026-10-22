@@ -72,6 +72,7 @@ def create_project_backup(
                 )
             file_map[relative] = candidate
 
+        sources = _prepare_source_files(snapshot, root, file_map)
         files = []
         for relative, source_file in sorted(file_map.items()):
             size, digest = _file_fingerprint(source_file)
@@ -83,6 +84,7 @@ def create_project_backup(
             "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "source_store": str(root),
             "files": files,
+            "sources": sources,
             "audit_warnings": [
                 finding.to_dict() for finding in audit.findings if finding.severity == "warning"
             ],
@@ -173,6 +175,7 @@ def restore_project_backup(backup_path: Path, target_path: Path) -> dict[str, An
         database = stage / "project.sqlite3"
         archived_names = {str(record["path"]) for record in files}
         _remap_page_assets(database, stage, archived_names)
+        _remap_project_sources(database, stage, manifest["sources"])
         audit = audit_project_store(stage)
         blocking = [
             finding for finding in audit.findings if finding.severity in {"fatal", "error"}
@@ -183,6 +186,7 @@ def restore_project_backup(backup_path: Path, target_path: Path) -> dict[str, An
 
         # Store paths in SQLite must refer to the final target, not the staging directory.
         _remap_page_assets(database, target, archived_names)
+        _remap_project_sources(database, target, manifest["sources"])
         _validate_sqlite_database(database)
         stage.rename(target)
     except Exception:
@@ -261,6 +265,7 @@ def _verify_archive(
                 or not isinstance(manifest.get("source_store"), str)
                 or not isinstance(manifest.get("created_at"), str)
                 or not isinstance(manifest.get("files"), list)
+                or not isinstance(manifest.get("sources"), list)
             ):
                 raise ProjectBackupError("unsupported or invalid ScribeForge backup manifest")
 
@@ -299,6 +304,33 @@ def _verify_archive(
                 raise ProjectBackupError("archive members do not match the backup manifest")
             if "project.sqlite3" not in file_names:
                 raise ProjectBackupError("backup does not contain project.sqlite3")
+
+            records_by_name = {str(record["path"]): record for record in files}
+            source_projects: set[int] = set()
+            for source in manifest["sources"]:
+                if not isinstance(source, dict):
+                    raise ProjectBackupError("backup manifest contains an invalid source record")
+                project_id = source.get("project_id")
+                source_member = source.get("archive_path")
+                original_path = source.get("original_path")
+                source_sha256 = source.get("sha256")
+                if (
+                    not isinstance(project_id, int)
+                    or project_id < 1
+                    or project_id in source_projects
+                    or not isinstance(original_path, str)
+                    or not original_path
+                    or not isinstance(source_member, str)
+                    or not isinstance(source_sha256, str)
+                ):
+                    raise ProjectBackupError("backup manifest contains an invalid source record")
+                _validate_archive_path(source_member)
+                record = records_by_name.get(source_member)
+                if record is None or record["sha256"] != source_sha256:
+                    raise ProjectBackupError(
+                        f"backup source record does not match archived bytes: {source_member}"
+                    )
+                source_projects.add(project_id)
 
             info_by_name = {item.filename: item for item in infos}
             for record in files:
@@ -432,3 +464,89 @@ def _stream_file_to_zip(
             size += len(chunk)
     if size != expected_size or digest.hexdigest() != expected_sha256:
         raise ProjectBackupError(f"project file changed while backing up: {source_path}")
+
+
+
+def _prepare_source_files(
+    snapshot_path: Path, store_root: Path, file_map: dict[str, Path]
+) -> list[dict[str, Any]]:
+    """Include each original source document after checking its recorded identity."""
+    try:
+        with closing(sqlite3.connect(snapshot_path)) as connection:
+            projects = connection.execute(
+                "SELECT id, source_uri, source_sha256 FROM projects ORDER BY id"
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise ProjectBackupError(f"could not inspect project sources: {exc}") from exc
+    if not projects:
+        raise ProjectBackupError("project store contains no project to back up")
+
+    source_records: list[dict[str, Any]] = []
+    reserved: dict[str, str] = {}
+    for project_id_raw, source_uri_raw, expected_hash_raw in projects:
+        project_id = int(project_id_raw)
+        source_path = Path(str(source_uri_raw)).expanduser().resolve()
+        if not source_path.is_file():
+            raise ProjectBackupError(
+                f"source file for project {project_id} is missing: {source_path}; "
+                "restore the original file or use relink-source before backing up"
+            )
+        actual_size, actual_hash = _file_fingerprint(source_path)
+        expected_hash = str(expected_hash_raw)
+        if actual_hash != expected_hash:
+            raise ProjectBackupError(
+                f"source SHA-256 mismatch for project {project_id}: {source_path}; "
+                "use the original source or relink a byte-identical file before backing up"
+            )
+
+        try:
+            relative_to_store = source_path.relative_to(store_root).as_posix()
+        except ValueError:
+            relative_to_store = ""
+        if relative_to_store and relative_to_store in file_map:
+            archive_path = relative_to_store
+        else:
+            filename = source_path.name or f"source-{project_id}.pdf"
+            archive_path = f"source/project-{project_id}/{filename}"
+            existing = reserved.get(archive_path)
+            if existing is not None and existing != str(source_path):
+                raise ProjectBackupError(f"source archive path collision: {archive_path}")
+            reserved[archive_path] = str(source_path)
+            file_map[archive_path] = source_path
+
+        source_records.append(
+            {
+                "project_id": project_id,
+                "original_path": str(source_path),
+                "archive_path": archive_path,
+                "sha256": expected_hash,
+                "size": actual_size,
+            }
+        )
+    return source_records
+
+
+def _remap_project_sources(
+    database: Path, destination_root: Path, source_records: list[dict[str, Any]]
+) -> None:
+    """Point restored projects at their archived source documents, preserving hashes."""
+    try:
+        with closing(sqlite3.connect(database)) as connection:
+            for source in source_records:
+                member = str(source["archive_path"])
+                target = str((destination_root / PurePosixPath(member)).resolve())
+                cursor = connection.execute(
+                    """
+                    UPDATE projects
+                    SET source_uri = ?
+                    WHERE id = ? AND source_sha256 = ?
+                    """,
+                    (target, int(source["project_id"]), str(source["sha256"])),
+                )
+                if cursor.rowcount != 1:
+                    raise ProjectBackupError(
+                        "backup source record does not match a restored project: "
+                        f"{source['project_id']}"
+                    )
+    except sqlite3.Error as exc:
+        raise ProjectBackupError(f"could not relocate restored source files: {exc}") from exc
