@@ -991,7 +991,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                   });
                 },
                 icon: const Icon(Icons.file_download_outlined),
-                label: const Text('Choose destination'),
+                label: const Text('Choose output folder'),
               ),
             ],
           ),
@@ -999,28 +999,38 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       );
       if (metadata == null || !mounted) return;
 
-      final selectedPath = await FilePicker.saveFile(
-        dialogTitle: 'Export verified ${metadata['format']!.toUpperCase()}',
-        fileName:
-            '${_safeFileName(metadata['title']!)}.${metadata['format']}',
-        type: FileType.custom,
-        allowedExtensions: <String>[metadata['format']!],
+      final outputDirectory = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Choose an export destination folder',
       );
-      if (selectedPath == null || !mounted) return;
+      if (outputDirectory == null || !mounted) return;
 
       final selectedFormat = metadata['format']!;
-      var outputPath = selectedPath;
-      final lowerPath = outputPath.toLowerCase();
-      if (lowerPath.endsWith('.epub') || lowerPath.endsWith('.docx')) {
-        if (!lowerPath.endsWith('.$selectedFormat')) {
-          _message(
-            'The destination extension does not match the selected '
-            '${selectedFormat.toUpperCase()} format.',
-          );
-          return;
-        }
-      } else {
-        outputPath = '$outputPath.$selectedFormat';
+      final fileName =
+          '${_safeFileName(metadata['title']!)}.${selectedFormat}';
+      final outputPath = ScribeForgeCli.joinPath(outputDirectory, fileName);
+      if (await File(outputPath).exists()) {
+        if (!mounted) return;
+        final overwrite = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Replace existing export?'),
+            content: Text(
+              'The file already exists:\n\n$outputPath\n\n'
+              'Replace it only after the new document has been validated?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Replace file'),
+              ),
+            ],
+          ),
+        );
+        if (overwrite != true || !mounted) return;
       }
 
       final exitCode = await _runCli(
