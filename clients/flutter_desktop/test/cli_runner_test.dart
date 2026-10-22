@@ -17,6 +17,49 @@ void main() {
       );
     });
 
+    test('builds backup, verification and restore arguments without splitting paths', () {
+      expect(
+        ScribeForgeCli.backupArguments(
+          storePath: '/tmp/My Book.scribeforge',
+          outputPath: '/backup/My Book.zip',
+        ),
+        <String>[
+          'backup',
+          '--store',
+          '/tmp/My Book.scribeforge',
+          '--out',
+          '/backup/My Book.zip',
+          '--json',
+        ],
+      );
+      expect(
+        ScribeForgeCli.backupArguments(
+          storePath: '/tmp/My Book.scribeforge',
+          outputPath: '/backup/My Book.zip',
+          overwrite: true,
+        ),
+        contains('--overwrite'),
+      );
+      expect(
+        ScribeForgeCli.verifyBackupArguments(backupPath: '/backup/My Book.zip'),
+        <String>['verify-backup', '--backup', '/backup/My Book.zip', '--json'],
+      );
+      expect(
+        ScribeForgeCli.restoreBackupArguments(
+          backupPath: '/backup/My Book.zip',
+          targetPath: '/restored/My Book.scribeforge',
+        ),
+        <String>[
+          'restore',
+          '--backup',
+          '/backup/My Book.zip',
+          '--to',
+          '/restored/My Book.scribeforge',
+          '--json',
+        ],
+      );
+    });
+
     test('keeps store and source paths as separate relink arguments', () {
       expect(
         ScribeForgeCli.relinkSourceArguments(
