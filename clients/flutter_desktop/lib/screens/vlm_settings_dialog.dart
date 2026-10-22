@@ -237,7 +237,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.network_check_outlined),
+                        : const Icon(Icons.fact_check_outlined),
                     label: Text(
                       _testing ? 'Testing endpoint…' : 'Test with image…',
                     ),
