@@ -1490,3 +1490,75 @@ def test_benchmark_pipeline_requires_both_backends(
     assert code == 2
     assert "requires both mineru and paddleocr" in captured.err.lower()
     assert not out_path.exists()
+
+
+def test_benchmark_include_vlm_requires_pipeline_and_explicit_endpoint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--include-vlm",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--include-vlm requires --include-pipeline" in captured.err
+    assert not out_path.exists()
+
+
+def test_benchmark_include_vlm_requires_endpoint_and_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--include-pipeline",
+            "--include-vlm",
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--vlm-model is required" in captured.err
+    assert not out_path.exists()
+
+
+def test_process_requires_vlm_endpoint_and_model_together(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    code = run(
+        [
+            "process",
+            str(book),
+            "--store",
+            str(tmp_path / "store"),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+        ],
+        engine_factory=_factory(),
+    )
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--vlm-model is required" in captured.err
+    assert not (tmp_path / "store" / "project.sqlite3").exists()
