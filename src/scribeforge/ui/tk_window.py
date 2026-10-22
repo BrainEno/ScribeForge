@@ -164,14 +164,28 @@ class ScribeForgeWindow:
         compare_panes.pack(fill="both", expand=True, padx=4, pady=4)
         primary_frame = ttk.LabelFrame(compare_panes, text="Primary OCR")
         secondary_frame = ttk.LabelFrame(compare_panes, text="Secondary OCR")
+        primary_text_frame = ttk.Frame(primary_frame)
+        secondary_text_frame = ttk.Frame(secondary_frame)
         self.primary_compare = tk.Text(
-            primary_frame, wrap="word", width=24, height=12, state="disabled"
+            primary_text_frame, wrap="word", width=24, height=12, state="disabled"
         )
         self.secondary_compare = tk.Text(
-            secondary_frame, wrap="word", width=24, height=12, state="disabled"
+            secondary_text_frame, wrap="word", width=24, height=12, state="disabled"
         )
-        self.primary_compare.pack(fill="both", expand=True)
-        self.secondary_compare.pack(fill="both", expand=True)
+        primary_scroll = ttk.Scrollbar(
+            primary_text_frame, orient="vertical", command=self.primary_compare.yview
+        )
+        secondary_scroll = ttk.Scrollbar(
+            secondary_text_frame, orient="vertical", command=self.secondary_compare.yview
+        )
+        self.primary_compare.configure(yscrollcommand=primary_scroll.set)
+        self.secondary_compare.configure(yscrollcommand=secondary_scroll.set)
+        self.primary_compare.pack(side="left", fill="both", expand=True)
+        primary_scroll.pack(side="right", fill="y")
+        self.secondary_compare.pack(side="left", fill="both", expand=True)
+        secondary_scroll.pack(side="right", fill="y")
+        primary_text_frame.pack(fill="both", expand=True)
+        secondary_text_frame.pack(fill="both", expand=True)
         compare_panes.add(primary_frame, weight=1)
         compare_panes.add(secondary_frame, weight=1)
         for widget in (self.primary_compare, self.secondary_compare):
@@ -355,11 +369,19 @@ class ScribeForgeWindow:
             state="normal" if detail is not None and detail.secondary_box is not None else "disabled"
         )
 
+    def _clear_comparison(self) -> None:
+        """Avoid showing stale OCR from the last item when the queue is empty."""
+        empty = DiffPresentation("No pair selected", ())
+        self._set_comparison_text(self.primary_compare, empty)
+        self._set_comparison_text(self.secondary_compare, empty)
+        self.compare_summary.configure(text="No character-level comparison selected")
+
     def _clear_current_review(self) -> None:
         self._current_row = None
         self._current_detail = None
         self._set_choice_states(None)
         self.custom_entry.delete(0, "end")
+        self._clear_comparison()
 
     def _accept_reading(self, source: str) -> None:
         """Accept one explicitly selected reading as a human decision."""
