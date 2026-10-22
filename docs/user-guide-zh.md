@@ -235,6 +235,16 @@ My Book.pdf.scribeforge-review.json
 
 检查网络、可用磁盘空间、错误日志中的失败步骤。运行环境是按 OCR 后端隔离安装的；其中一个后端失败时，不要假定另一个已完整就绪。修复环境后重新打开 scribeforge setup。
 
+### VLM 端点或视觉模型响应失败
+
+处理长书之前，先选一张可公开或适合发送给该端点的图片/冲突裁剪图，单独检查模型服务：
+
+```powershell
+scribeforge vlm-check --image "D:\\Books\\review-crop.png" --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model --json
+```
+
+正常文本返回退出码 0；模型标记不确定或返回空文本时退出码为 1；图片、连接、配置或响应格式错误时退出码为 2。诊断只打印结果，不会打开项目数据库、不写入校对记录，也不会把这次输出自动接受为正文。默认只允许回环地址；若明确使用远程服务，必须使用 HTTPS 并添加 `--allow-remote-vlm`，发送给模型的只是命令行指定的图片。
+
 ### Flutter 报告找不到 Windows runner
 
 在 clients\flutter_desktop 目录运行 .\tool\bootstrap_desktop.ps1，完成后再运行 flutter run -d windows。

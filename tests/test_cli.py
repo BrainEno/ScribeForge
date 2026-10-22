@@ -1661,3 +1661,185 @@ def test_process_requires_configured_api_key_environment_variable(
     assert code == 2
     assert "environment variable is not set" in captured.err
     assert not (tmp_path / "store" / "project.sqlite3").exists()
+
+
+
+def test_vlm_check_runs_explicit_crop_diagnostic_and_emits_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = _book(tmp_path)
+    calls: list[tuple[str, int, int]] = []
+
+    class RecordingReviewer:
+        def transcribe_crop(
+            self, image_path: str, page_index: int, pair_index: int
+        ) -> VLMReading:
+            calls.append((image_path, page_index, pair_index))
+            return VLMReading(page_index, pair_index, "fixture-model", "fixture-v1", "sample", False)
+
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: RecordingReviewer(),
+    )
+
+    code = run(
+        [
+            "vlm-check",
+            "--image",
+            str(image),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-model",
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert code == 0
+    assert report["schema_version"] == 1
+    assert report["status"] == "transcribed"
+    assert report["model"] == "fixture-model"
+    assert report["model_version"] == "fixture-v1"
+    assert report["text"] == "sample"
+    assert report["uncertain"] is False
+    assert calls == [(str(image.resolve()), 0, 0)]
+    assert not (tmp_path / "project.sqlite3").exists()
+
+
+def test_vlm_check_returns_partial_for_uncertain_or_blank_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = _book(tmp_path)
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: UncertainReviewer(),
+    )
+
+    code = run(
+        [
+            "vlm-check",
+            "--image",
+            str(image),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-model",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "uncertain" in captured.out
+    assert "maybe" in captured.out
+
+
+def test_vlm_check_rejects_missing_image_before_constructing_reviewer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unexpected_constructor(**_kwargs: object) -> FakeReviewer:
+        pytest.fail("reviewer must not be configured or called when the image is missing")
+
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer", unexpected_constructor
+    )
+
+    code = run(
+        [
+            "vlm-check",
+            "--image",
+            str(tmp_path / "missing.png"),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-model",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "image not found" in captured.err.lower()
+
+
+def test_vlm_check_requires_explicit_endpoint_and_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = _book(tmp_path)
+
+    code = run(["vlm-check", "--image", str(image)])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "vlm-endpoint and --vlm-model are required" in captured.err
+
+
+
+def test_vlm_check_fails_closed_when_the_endpoint_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = _book(tmp_path)
+
+    class BrokenReviewer:
+        def transcribe_crop(
+            self, image_path: str, page_index: int, pair_index: int
+        ) -> VLMReading:
+            raise RuntimeError("synthetic endpoint timeout")
+
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: BrokenReviewer(),
+    )
+
+    code = run(
+        [
+            "vlm-check",
+            "--image",
+            str(image),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-model",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "VLM check failed" in captured.err
+    assert "synthetic endpoint timeout" in captured.err
+
+
+def test_vlm_check_reports_blank_text_as_partial_not_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    image = _book(tmp_path)
+
+    class BlankReviewer:
+        def transcribe_crop(
+            self, image_path: str, page_index: int, pair_index: int
+        ) -> VLMReading:
+            return VLMReading(page_index, pair_index, "fixture-model", "fixture-v1", "  ", False)
+
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: BlankReviewer(),
+    )
+
+    code = run(
+        [
+            "vlm-check",
+            "--image",
+            str(image),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-model",
+            "--json",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert report["status"] == "blank"
+    assert report["text"] == "  "
+    assert report["uncertain"] is False
