@@ -220,11 +220,12 @@ class OpenAICompatibleVLMReviewer:
             raise VLMAdapterError("VLM completion choice has no message")
         content = message.get("content")
         if isinstance(content, list):
-            fragments = [
-                item.get("text")
-                for item in content
-                if isinstance(item, dict) and isinstance(item.get("text"), str)
-            ]
+            fragments: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    fragment = item.get("text")
+                    if isinstance(fragment, str):
+                        fragments.append(fragment)
             content = "".join(fragments) if fragments else None
         if not isinstance(content, str):
             raise VLMAdapterError("VLM completion message has no text content")
