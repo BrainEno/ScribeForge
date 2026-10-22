@@ -123,6 +123,30 @@ scribeforge audit --store "D:\Books\My Book.scribeforge" --json
 
 退出码：0 表示未发现问题；1 表示审计完成但发现需要处理的事项；2 表示无法读取项目数据库。输出 JSON 适合保存为诊断记录。
 
+## 5.2 备份与恢复项目
+
+建议在 OCR 完成、没有运行中的任务时创建备份：
+
+```powershell
+scribeforge backup --store "D:\Books\My Book.scribeforge" --out "D:\Backups\My Book.zip"
+```
+
+备份会包含项目数据库、项目目录中的页面图像和其他文件，并将原始 PDF 一并打包，但前提是 PDF 存在且 SHA-256 与项目记录一致。若源文件已移动，先用 `scribeforge relink-source` 重新关联；若页面图像缺失、数据库有完整性错误或仍有任务正在运行，备份会拒绝创建。已有 ZIP 默认不会覆盖，只有明确提供 `--overwrite` 才会替换。
+
+先验证备份：
+
+```powershell
+scribeforge verify-backup --backup "D:\Backups\My Book.zip"
+```
+
+恢复到一个**尚不存在**的新目录：
+
+```powershell
+scribeforge restore --backup "D:\Backups\My Book.zip" --to "D:\Books\My Book-restored.scribeforge"
+```
+
+恢复前会重新验证清单、每个文件的 SHA-256、SQLite 完整性和外键。恢复不会覆盖现有目录；数据库中的页面图像路径和原始 PDF 路径会更新到恢复位置，OCR 与校对证据仍然保留。恢复后再运行 `scribeforge audit --store "D:\Books\My Book-restored.scribeforge" --json` 检查项目状态。
+
 ## 6. 生成两份候选 EPUB
 
 OCR 完成后执行：

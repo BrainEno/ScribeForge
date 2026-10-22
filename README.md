@@ -89,6 +89,9 @@ scribeforge process book.pdf                  # import + process every page
 scribeforge process book.pdf --store store/   # explicit project store
 scribeforge status --store store/             # persisted jobs + review queue
 scribeforge audit --store store/ --json        # read-only project integrity audit
+scribeforge backup --store store/ --out Book.zip # project DB, assets and verified source PDF
+scribeforge verify-backup --backup Book.zip     # verify hashes, manifest and SQLite integrity
+scribeforge restore --backup Book.zip --to Book-restored.scribeforge # restore to new folder
 scribeforge review --store store/             # pairs awaiting a human decision
 scribeforge resolve --store store/ \
   --page 0 --pair 3 --text "鸦"              # record the accepted reading
@@ -106,6 +109,8 @@ scribeforge benchmark --manifest benchmark/manifest.json \
 `process` writes a project store beside the book by default (`<book-stem>.scribeforge`). OCR runtimes are shared in the per-user application data folder by default; `setup`, `process`, and `benchmark` accept `--runtime-root` to override it. Run `scribeforge setup` once to install the private Python environments and OCR models. Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
 
 Run `scribeforge audit --store store/ --json` before archiving or resuming a project to check SQLite integrity, foreign-key references, source-file SHA-256, and whether every imported page image still exists. The audit opens SQLite read-only and never repairs or changes evidence. Exit code 0 means no findings, 1 means audit findings need attention, and 2 means the audit could not read the project database.
+
+Create a project backup with `scribeforge backup --store store/ --out Book.zip`. The archive includes a consistent SQLite snapshot, all regular project-store files, and each original source document after confirming its recorded SHA-256. Backup is refused while a job is running or when database/page evidence is damaged or the source identity cannot be verified. Existing archives are never overwritten unless `--overwrite` is supplied. Run `scribeforge verify-backup --backup Book.zip` before restoring; `scribeforge restore --backup Book.zip --to Book-restored.scribeforge` verifies member hashes and SQLite integrity, then restores into a new directory without overwriting an existing destination. Internal page-image and source paths are updated to the restored location; processing/review evidence remains intact.
 
 When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
 

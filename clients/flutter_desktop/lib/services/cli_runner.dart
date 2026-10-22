@@ -19,6 +19,37 @@ class ScribeForgeCli {
   static List<String> auditArguments({required String storePath}) =>
       <String>['audit', '--store', storePath, '--json'];
 
+  static List<String> backupArguments({
+    required String storePath,
+    required String outputPath,
+    bool overwrite = false,
+  }) =>
+      <String>[
+        'backup',
+        '--store',
+        storePath,
+        '--out',
+        outputPath,
+        if (overwrite) '--overwrite',
+        '--json',
+      ];
+
+  static List<String> verifyBackupArguments({required String backupPath}) =>
+      <String>['verify-backup', '--backup', backupPath, '--json'];
+
+  static List<String> restoreBackupArguments({
+    required String backupPath,
+    required String targetPath,
+  }) =>
+      <String>[
+        'restore',
+        '--backup',
+        backupPath,
+        '--to',
+        targetPath,
+        '--json',
+      ];
+
   static List<String> relinkSourceArguments({
     required String storePath,
     required String sourcePath,

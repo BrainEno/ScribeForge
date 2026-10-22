@@ -671,6 +671,118 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     );
   }
 
+  Future<void> _backupProject() async {
+    final storePath = _activeStorePath;
+    if (storePath.isEmpty) {
+      _message('Open a ScribeForge project before creating a backup.');
+      return;
+    }
+    final directory = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Choose a directory for the project backup',
+    );
+    if (directory == null || !mounted) return;
+
+    final now = DateTime.now();
+    String twoDigits(int value) => value.toString().padLeft(2, '0');
+    final timestamp =
+        '${now.year}${twoDigits(now.month)}${twoDigits(now.day)}-'
+        '${twoDigits(now.hour)}${twoDigits(now.minute)}${twoDigits(now.second)}';
+    final storeName = _basename(storePath);
+    final outputPath = ScribeForgeCli.joinPath(
+      directory,
+      '$storeName-backup-$timestamp.zip',
+    );
+    final exitCode = await _runCli(
+      title: 'Back up project',
+      arguments: ScribeForgeCli.backupArguments(
+        storePath: storePath,
+        outputPath: outputPath,
+      ),
+    );
+    if (!mounted || exitCode != 0) return;
+    _message('Verified project backup saved to $outputPath');
+  }
+
+  Future<void> _verifyBackup() async {
+    final backupPath = await _pick('Select a ScribeForge backup ZIP', const ['zip']);
+    if (backupPath == null || !mounted) return;
+    await _runCli(
+      title: 'Verify project backup',
+      arguments: ScribeForgeCli.verifyBackupArguments(backupPath: backupPath),
+    );
+  }
+
+  Future<void> _restoreProjectBackup() async {
+    final backupPath = await _pick('Select a ScribeForge backup ZIP to restore', const ['zip']);
+    if (backupPath == null || !mounted) return;
+
+    final verifyExit = await _runCli(
+      title: 'Verify backup before restore',
+      arguments: ScribeForgeCli.verifyBackupArguments(backupPath: backupPath),
+    );
+    if (!mounted || verifyExit != 0) return;
+
+    final parent = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Choose the parent directory for the restored project',
+    );
+    if (parent == null || !mounted) return;
+
+    final archiveName = _basename(backupPath);
+    final archiveStem = archiveName.toLowerCase().endsWith('.zip')
+        ? archiveName.substring(0, archiveName.length - 4)
+        : archiveName;
+    final targetPath = ScribeForgeCli.joinPath(
+      parent,
+      '$archiveStem.restored.scribeforge',
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Restore project backup?'),
+        content: Text(
+          'The verified backup will be restored to:\n\n$targetPath\n\n'
+          'The destination must not already exist. Existing folders will never be overwritten.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Restore to new folder'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final exitCode = await _runCli(
+      title: 'Restore project backup',
+      arguments: ScribeForgeCli.restoreBackupArguments(
+        backupPath: backupPath,
+        targetPath: targetPath,
+      ),
+    );
+    if (!mounted || exitCode != 0) return;
+
+    setState(() {
+      _projectStorePath = targetPath;
+      _projectStoreExplicit = true;
+      _projectStatus = null;
+      _projectSourceMatches = _pdfPath == null;
+      _projectSourceMismatchMessage = null;
+      _projectStatusMessage =
+          'Backup restored. Open the original source PDF to validate its identity before processing.';
+      _notice = 'Project restored to $targetPath. Existing destination folders are never overwritten.';
+    });
+    if (_pdfPath != null) {
+      await _refreshProjectStatus();
+    }
+    if (!mounted) return;
+    _message('Project restored. Open its source PDF to confirm the stored path and SHA-256.');
+  }
+
   Future<void> _runOcr() async {
     final pdf = _pdfPath;
     if (pdf == null) {
@@ -891,12 +1003,28 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               icon: const Icon(Icons.folder_open_outlined),
               label: const Text('Open project'),
             ),
-            if (_projectStoreExplicit || _projectStatus != null)
+            if (_projectStoreExplicit || _projectStatus != null) ...[
               OutlinedButton.icon(
                 onPressed: _busy || _statusLoading ? null : _auditProject,
                 icon: const Icon(Icons.fact_check_outlined),
                 label: const Text('Audit project'),
               ),
+              OutlinedButton.icon(
+                onPressed: _busy || _statusLoading ? null : _backupProject,
+                icon: const Icon(Icons.archive_outlined),
+                label: const Text('Backup project'),
+              ),
+            ],
+            OutlinedButton.icon(
+              onPressed: _busy || _statusLoading ? null : _verifyBackup,
+              icon: const Icon(Icons.verified_outlined),
+              label: const Text('Verify backup'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy || _statusLoading ? null : _restoreProjectBackup,
+              icon: const Icon(Icons.settings_backup_restore_outlined),
+              label: const Text('Restore project'),
+            ),
             FilledButton.tonalIcon(
               onPressed: _busy || _statusLoading ? null : _openPdf,
               icon: const Icon(Icons.picture_as_pdf_outlined),
