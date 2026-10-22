@@ -19,11 +19,13 @@ from scribeforge.domain.ocr import BoundingBox
 from scribeforge.pipeline.adjudication import ReviewDetail
 from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.ui.viewmodel import (
+    DiffPresentation,
     ReviewRow,
     load_jobs,
     load_library,
     load_pair_view,
     load_review_rows,
+    render_conflict_side,
     render_detail,
     resolve_review_row,
 )
@@ -153,6 +155,50 @@ class ScribeForgeWindow:
         self.detail.pack(fill="both", expand=True)
         notebook.add(evidence_tab, text="Evidence")
 
+        compare_tab = ttk.Frame(notebook)
+        self.compare_summary = ttk.Label(
+            compare_tab, text="Character-level differences from stored alignment"
+        )
+        self.compare_summary.pack(anchor="w", padx=4, pady=(4, 2))
+        compare_panes = ttk.PanedWindow(compare_tab, orient="horizontal")
+        compare_panes.pack(fill="both", expand=True, padx=4, pady=4)
+        primary_frame = ttk.LabelFrame(compare_panes, text="Primary OCR")
+        secondary_frame = ttk.LabelFrame(compare_panes, text="Secondary OCR")
+        primary_text_frame = ttk.Frame(primary_frame)
+        secondary_text_frame = ttk.Frame(secondary_frame)
+        self.primary_compare = tk.Text(
+            primary_text_frame, wrap="word", width=24, height=12, state="disabled"
+        )
+        self.secondary_compare = tk.Text(
+            secondary_text_frame, wrap="word", width=24, height=12, state="disabled"
+        )
+        primary_scroll = ttk.Scrollbar(
+            primary_text_frame, orient="vertical", command=self.primary_compare.yview
+        )
+        secondary_scroll = ttk.Scrollbar(
+            secondary_text_frame, orient="vertical", command=self.secondary_compare.yview
+        )
+        self.primary_compare.configure(yscrollcommand=primary_scroll.set)
+        self.secondary_compare.configure(yscrollcommand=secondary_scroll.set)
+        self.primary_compare.pack(side="left", fill="both", expand=True)
+        primary_scroll.pack(side="right", fill="y")
+        self.secondary_compare.pack(side="left", fill="both", expand=True)
+        secondary_scroll.pack(side="right", fill="y")
+        primary_text_frame.pack(fill="both", expand=True)
+        secondary_text_frame.pack(fill="both", expand=True)
+        compare_panes.add(primary_frame, weight=1)
+        compare_panes.add(secondary_frame, weight=1)
+        for widget in (self.primary_compare, self.secondary_compare):
+            widget.tag_configure("substitution", background="#fee2e2")
+            widget.tag_configure("insertion", background="#dcfce7")
+            widget.tag_configure("deletion", background="#ffedd5")
+            widget.tag_configure("punctuation", background="#dbeafe")
+        ttk.Label(
+            compare_tab,
+            text="Red: replacement   Green: insertion   Orange: deletion   Blue: punctuation",
+        ).pack(anchor="w", padx=4, pady=(0, 4))
+        notebook.add(compare_tab, text="Compare")
+
         page_tab = ttk.Frame(notebook)
         self._page_tab = page_tab
         self.page_caption = ttk.Label(page_tab, text="no page image", anchor="w")
@@ -270,6 +316,7 @@ class ScribeForgeWindow:
         self._set_choice_states(view.detail)
         self.custom_entry.delete(0, "end")
         self._set_detail(render_detail(view.detail))
+        self._render_comparison(view.detail)
         self._show_image(
             self.page_image,
             self.page_caption,
@@ -319,14 +366,26 @@ class ScribeForgeWindow:
             state="normal" if detail is not None and detail.primary_box is not None else "disabled"
         )
         self.focus_secondary_button.configure(
-            state="normal" if detail is not None and detail.secondary_box is not None else "disabled"
+            state=(
+                "normal"
+                if detail is not None and detail.secondary_box is not None
+                else "disabled"
+            )
         )
+
+    def _clear_comparison(self) -> None:
+        """Avoid showing stale OCR from the last item when the queue is empty."""
+        empty = DiffPresentation("No pair selected", ())
+        self._set_comparison_text(self.primary_compare, empty)
+        self._set_comparison_text(self.secondary_compare, empty)
+        self.compare_summary.configure(text="No character-level comparison selected")
 
     def _clear_current_review(self) -> None:
         self._current_row = None
         self._current_detail = None
         self._set_choice_states(None)
         self.custom_entry.delete(0, "end")
+        self._clear_comparison()
 
     def _accept_reading(self, source: str) -> None:
         """Accept one explicitly selected reading as a human decision."""
@@ -521,6 +580,34 @@ class ScribeForgeWindow:
             upscale=True,
             missing=crop_note,
         )
+
+    def _render_comparison(self, detail: ReviewDetail) -> None:
+        """Render stored alignment offsets in two read-only, side-by-side panes."""
+        primary = render_conflict_side(
+            detail.primary_text, detail.conflicts, primary=True
+        )
+        secondary = render_conflict_side(
+            detail.secondary_text, detail.conflicts, primary=False
+        )
+        self._set_comparison_text(self.primary_compare, primary)
+        self._set_comparison_text(self.secondary_compare, secondary)
+        count = len(detail.conflicts)
+        self.compare_summary.configure(
+            text=f"{count} character-level conflict(s) from persisted alignment"
+        )
+
+    @staticmethod
+    def _set_comparison_text(
+        widget: tk.Text, presentation: DiffPresentation
+    ) -> None:
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        widget.insert("1.0", presentation.text)
+        for span in presentation.spans:
+            start = f"1.0+{span.start}c"
+            end = f"1.0+{span.end}c"
+            widget.tag_add(span.kind.value, start, end)
+        widget.configure(state="disabled")
 
     def _set_detail(self, text: str) -> None:
         self.detail.configure(state="normal")

@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from scribeforge.domain.alignment import AlignmentConflict, ConflictKind
 from scribeforge.domain.jobs import JobState
 from scribeforge.pipeline.adjudication import (
     ReviewDetail,
@@ -18,6 +19,80 @@ from scribeforge.pipeline.adjudication import (
     review_queue,
 )
 from scribeforge.storage.sqlite import SQLiteStore
+
+
+@dataclass(frozen=True, slots=True)
+class DiffSpan:
+    """A half-open display range marked as one persisted conflict kind."""
+
+    start: int
+    end: int
+    kind: ConflictKind
+
+
+@dataclass(frozen=True, slots=True)
+class DiffPresentation:
+    """Display text plus character ranges to emphasize in a comparison widget."""
+
+    text: str
+    spans: tuple[DiffSpan, ...]
+
+
+def render_conflict_side(
+    text: str | None,
+    conflicts: tuple[AlignmentConflict, ...],
+    *,
+    primary: bool,
+) -> DiffPresentation:
+    """Project stored character conflicts onto one OCR line without rewriting it.
+
+    Empty ranges are rendered as a visible empty-set marker, making an insertion
+    or deletion understandable on the side where no source character exists.
+    """
+    if text is None:
+        return DiffPresentation("∅ (no aligned line)", ())
+
+    ranges = sorted(
+        (
+            (
+                conflict.primary_start if primary else conflict.secondary_start,
+                conflict.primary_end if primary else conflict.secondary_end,
+                conflict.kind,
+            )
+            for conflict in conflicts
+        ),
+        key=lambda item: (item[0], item[1]),
+    )
+    pieces: list[str] = []
+    spans: list[DiffSpan] = []
+    cursor = 0
+    output_length = 0
+
+    for raw_start, raw_end, kind in ranges:
+        if raw_start < cursor and raw_end <= cursor:
+            continue
+        start = max(cursor, min(len(text), raw_start))
+        end = max(start, min(len(text), raw_end))
+        unchanged = text[cursor:start]
+        pieces.append(unchanged)
+        output_length += len(unchanged)
+
+        if end == start:
+            marker = "∅"
+            pieces.append(marker)
+            spans.append(DiffSpan(output_length, output_length + len(marker), kind))
+            output_length += len(marker)
+            cursor = start
+            continue
+
+        changed = text[start:end]
+        pieces.append(changed)
+        spans.append(DiffSpan(output_length, output_length + len(changed), kind))
+        output_length += len(changed)
+        cursor = end
+
+    pieces.append(text[cursor:])
+    return DiffPresentation("".join(pieces), tuple(spans))
 
 
 @dataclass(frozen=True, slots=True)
