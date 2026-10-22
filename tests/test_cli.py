@@ -1843,3 +1843,33 @@ def test_vlm_check_reports_blank_text_as_partial_not_success(
     assert report["status"] == "blank"
     assert report["text"] == "  "
     assert report["uncertain"] is False
+
+
+
+def test_benchmark_rejects_manifest_paths_that_escape_corpus_root_before_starting_engines(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, manifest = _corpus(tmp_path)
+    (tmp_path / "outside.png").write_bytes(b"image")
+    (tmp_path / "outside.txt").write_text("outside text", encoding="utf-8")
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["cases"][0]["image"] = "../outside.png"
+    data["cases"][0]["ground_truth"] = "../outside.txt"
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    out_path = tmp_path / "report.md"
+
+    def should_not_start_engine(
+        runtime_root: Path, backends: Sequence[str]
+    ) -> tuple[FakeEngine, ...]:
+        pytest.fail("unsafe corpus paths must be rejected before constructing OCR engines")
+
+    code = run(
+        ["benchmark", "--manifest", str(manifest), "--out", str(out_path)],
+        benchmark_engine_factory=should_not_start_engine,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "image path escapes corpus root" in captured.err
+    assert "ground truth path escapes corpus root" in captured.err
+    assert not out_path.exists()
