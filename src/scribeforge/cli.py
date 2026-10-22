@@ -481,6 +481,7 @@ def _export_candidates(args: argparse.Namespace, out: TextIO) -> int:
     if not projects:
         print("error: no projects in store", file=sys.stderr)
         return EXIT_FATAL
+    selected_project = None
     if args.project_id is None:
         if len(projects) != 1:
             print(
@@ -488,13 +489,16 @@ def _export_candidates(args: argparse.Namespace, out: TextIO) -> int:
                 file=sys.stderr,
             )
             return EXIT_FATAL
-        project = projects[0]
+        selected_project = projects[0]
     else:
-        project = next((item for item in projects if item.id == args.project_id), None)
-        if project is None:
+        selected_project = next(
+            (item for item in projects if item.id == args.project_id), None
+        )
+        if selected_project is None:
             print(f"error: unknown project ID: {args.project_id}", file=sys.stderr)
             return EXIT_FATAL
 
+    project = selected_project
     pages = store.list_pages(project.id)
     if not pages:
         print("error: project has no imported pages", file=sys.stderr)
