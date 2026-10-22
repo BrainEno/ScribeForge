@@ -15,7 +15,7 @@ class FailedJobSummary {
   final String? lastError;
 
   String get location =>
-      pageIndex == null ? stage : '$stage · page \${pageIndex! + 1}';
+      pageIndex == null ? stage : '$stage · page ${pageIndex! + 1}';
 
   String get description {
     final detail = lastError?.trim();
