@@ -32,7 +32,7 @@ void main() {
   });
 
   test('falls back to the default if settings JSON is malformed', () async {
-    await File(temporary.path + Platform.pathSeparator + 'settings.json')
+    await File('${temporary.path}${Platform.pathSeparator}settings.json')
         .writeAsString('{not json');
 
     expect(

@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 
 class DesktopSettingsStore {
-  DesktopSettingsStore({Directory? directory}) : _directory = directory;
+  DesktopSettingsStore({this.directory});
 
   static const String defaultCliExecutable = 'scribeforge';
 
-  final Directory? _directory;
+  final Directory? directory;
 
   Future<String> loadCliExecutable() async {
     final file = _settingsFile;
@@ -37,8 +37,8 @@ class DesktopSettingsStore {
   }
 
   File get _settingsFile {
-    final directory = _directory ?? _defaultDirectory();
-    return File(directory.path + Platform.pathSeparator + 'settings.json');
+    final settingsDirectory = directory ?? _defaultDirectory();
+    return File('${settingsDirectory.path}${Platform.pathSeparator}settings.json');
   }
 
   Directory _defaultDirectory() {
@@ -47,25 +47,19 @@ class DesktopSettingsStore {
     if (Platform.isWindows) {
       final appData = env['APPDATA'];
       final base = appData == null || appData.isEmpty
-          ? home + Platform.pathSeparator + 'AppData' + Platform.pathSeparator + 'Roaming'
+          ? '${home}${Platform.pathSeparator}AppData${Platform.pathSeparator}Roaming'
           : appData;
-      return Directory(base + Platform.pathSeparator + 'ScribeForge');
+      return Directory('${base}${Platform.pathSeparator}ScribeForge');
     }
     if (Platform.isMacOS) {
       return Directory(
-        home +
-            Platform.pathSeparator +
-            'Library' +
-            Platform.pathSeparator +
-            'Application Support' +
-            Platform.pathSeparator +
-            'ScribeForge',
+        '${home}${Platform.pathSeparator}Library${Platform.pathSeparator}Application Support${Platform.pathSeparator}ScribeForge',
       );
     }
     final xdg = env['XDG_CONFIG_HOME'];
     final base = xdg != null && xdg.startsWith('/')
         ? xdg
-        : home + Platform.pathSeparator + '.config';
-    return Directory(base + Platform.pathSeparator + 'scribeforge');
+        : '${home}${Platform.pathSeparator}.config';
+    return Directory('${base}${Platform.pathSeparator}scribeforge');
   }
 }

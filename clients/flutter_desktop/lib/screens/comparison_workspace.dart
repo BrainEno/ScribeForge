@@ -271,7 +271,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
             children: [
               ValueListenableBuilder<String>(
                 valueListenable: state,
-                builder: (_, value, __) => Padding(
+                builder: (_, value, _) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(value,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -282,7 +282,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               Expanded(
                 child: ValueListenableBuilder<String>(
                   valueListenable: output,
-                  builder: (_, value, __) => SingleChildScrollView(
+                  builder: (_, value, _) => SingleChildScrollView(
                     child: SelectableText(
                       value,
                       style: const TextStyle(
@@ -300,7 +300,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
         actions: [
           ValueListenableBuilder<bool>(
             valueListenable: finished,
-            builder: (_, done, __) => TextButton(
+            builder: (_, done, _) => TextButton(
               onPressed: done ? () => Navigator.of(dialogContext).pop() : null,
               child: Text(done ? 'Close' : 'Running…'),
             ),
