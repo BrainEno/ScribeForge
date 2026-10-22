@@ -21,6 +21,7 @@ _SCHEMA_VERSION = 1
 _MANIFEST_NAME = "manifest.json"
 _MAX_ARCHIVE_FILES = 200_000
 _MAX_UNCOMPRESSED_BYTES = 200 * 1024**3
+_MAX_MANIFEST_BYTES = 16 * 1024**2
 _CHUNK_SIZE = 1024 * 1024
 
 
@@ -253,6 +254,9 @@ def _verify_archive(
                     raise ProjectBackupError(f"backup archive contains a symlink: {item.filename}")
             if _MANIFEST_NAME not in names:
                 raise ProjectBackupError("backup manifest is missing")
+            manifest_info = next(item for item in infos if item.filename == _MANIFEST_NAME)
+            if manifest_info.file_size > _MAX_MANIFEST_BYTES:
+                raise ProjectBackupError("backup manifest exceeds the maximum allowed size")
             try:
                 manifest = json.loads(archive.read(_MANIFEST_NAME))
             except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as exc:
@@ -353,6 +357,7 @@ def _verify_archive(
                 with archive.open("project.sqlite3", "r") as source, database.open("wb") as target:
                     shutil.copyfileobj(source, target, length=_CHUNK_SIZE)
                 integrity, violations = _validate_sqlite_database(database)
+                _validate_page_asset_references(database, set(file_names))
             if violations:
                 raise ProjectBackupError(
                     f"backup database has {violations} foreign-key violation(s)"
@@ -550,3 +555,26 @@ def _remap_project_sources(
                     )
     except sqlite3.Error as exc:
         raise ProjectBackupError(f"could not relocate restored source files: {exc}") from exc
+
+
+def _validate_page_asset_references(database: Path, archive_names: set[str]) -> None:
+    """Require every persisted page raster to be represented in the archive."""
+    assets = [
+        name for name in archive_names if name.startswith("assets/") and len(PurePosixPath(name).parts) > 1
+    ]
+    try:
+        with closing(sqlite3.connect(database)) as connection:
+            rows = connection.execute("SELECT source_image FROM pages").fetchall()
+    except sqlite3.Error as exc:
+        raise ProjectBackupError(f"could not inspect archived page references: {exc}") from exc
+    for (source_image,) in rows:
+        normalized = str(source_image).replace("\\", "/").lstrip("./")
+        matches = [
+            name for name in assets
+            if normalized == name or normalized.endswith("/" + name)
+        ]
+        if len(matches) != 1:
+            raise ProjectBackupError(
+                "backup is missing or ambiguously maps a page image referenced by the project: "
+                f"{source_image}"
+            )
