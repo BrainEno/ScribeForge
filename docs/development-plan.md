@@ -53,7 +53,11 @@ The human loop is now wired end to end: `review_detail` loads the competing evid
 ## Phase 3 — proofreading desktop UI
 Library, job progress, source/text synchronized viewer, conflict queue, keyboard-first review, settings. The first-run runtime wizard is exposed here, backed by the already-tested Phase 0.5 manager.
 
-The desktop shell now has keyboard-first human decision entry: `scribeforge ui --store <dir>` opens a desktop window with the library (title, page count, queued pairs, failed jobs), the persisted job list, the review queue, and a pair view with an evidence tab and image tabs for the immutable page raster and the review crop (display-only previews through `scribeforge.adapters.image_preview`). Presentation logic lives in `scribeforge.ui.viewmodel`, which imports no GUI framework and is unit tested against a real `SQLiteStore`; `scribeforge.ui.tk_window` is the Tkinter widget layer, imported lazily so other commands work without Tkinter or a display and excluded from coverage (headless CI). The synchronized source/text viewer, first-run runtime wizard, and settings remain.
+The desktop shell now has keyboard-first human decision entry: `scribeforge ui --store <dir>` opens a desktop window with the library (title, page count, queued pairs, failed jobs), the persisted job list, the review queue, and a pair view with an evidence tab and image tabs for the immutable page raster and the review crop (display-only previews through `scribeforge.adapters.image_preview`). Presentation logic lives in `scribeforge.ui.viewmodel`, which imports no GUI framework and is unit tested against a real `SQLiteStore`; `scribeforge.ui.tk_window` is the Tkinter widget layer, imported lazily so other commands work without Tkinter or a display and excluded from coverage (headless CI). The selected conflict now synchronizes to the page raster: selecting a queue row
+switches to the source page with the candidate region highlighted, and explicit
+shortcuts focus the primary or secondary OCR line geometry on a transient preview.
+No source asset or evidence is modified. The richer side-by-side text/image viewer,
+first-run runtime wizard, and settings remain.
 
 ## Phase 4 — export
 EPUB 3 + DOCX generated from verified structured content, validation tests and metadata editor.

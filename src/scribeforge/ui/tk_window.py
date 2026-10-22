@@ -10,10 +10,12 @@ from __future__ import annotations
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
+from typing import Any, cast
 
-from PIL import ImageTk
+from PIL import ImageDraw, ImageTk
 
 from scribeforge.adapters.image_preview import load_preview
+from scribeforge.domain.ocr import BoundingBox
 from scribeforge.pipeline.adjudication import ReviewDetail
 from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.ui.viewmodel import (
@@ -41,6 +43,7 @@ class ScribeForgeWindow:
         self._project_id: int | None = None
         self._current_row: ReviewRow | None = None
         self._current_detail: ReviewDetail | None = None
+        self._current_page_image: Path | None = None
         self._photos: dict[ttk.Label, ImageTk.PhotoImage] = {}
 
         root.title("ScribeForge")
@@ -109,6 +112,28 @@ class ScribeForgeWindow:
             choice_row, text="Next pair [n]", command=self._select_next_pair,
         )
         self.next_button.pack(side="left")
+        focus_row = ttk.Frame(decision_frame)
+        focus_row.pack(fill="x", padx=4, pady=(2, 2))
+        ttk.Label(focus_row, text="Source focus:").pack(side="left", padx=(0, 4))
+        self.focus_pair_button = ttk.Button(
+            focus_row,
+            text="Pair region [p]",
+            command=lambda: self._focus_source("pair"),
+        )
+        self.focus_pair_button.pack(side="left", padx=(0, 4))
+        self.focus_primary_button = ttk.Button(
+            focus_row,
+            text="Primary line [a]",
+            command=lambda: self._focus_source("primary"),
+        )
+        self.focus_primary_button.pack(side="left", padx=(0, 4))
+        self.focus_secondary_button = ttk.Button(
+            focus_row,
+            text="Secondary line [d]",
+            command=lambda: self._focus_source("secondary"),
+        )
+        self.focus_secondary_button.pack(side="left")
+
         edit_row = ttk.Frame(decision_frame)
         edit_row.pack(fill="x", padx=4, pady=(2, 4))
         ttk.Label(edit_row, text="Literal text:").pack(side="left", padx=(0, 4))
@@ -120,6 +145,7 @@ class ScribeForgeWindow:
         self.save_button.pack(side="right")
 
         notebook = ttk.Notebook(detail_frame)
+        self._notebook = notebook
         notebook.pack(fill="both", expand=True)
 
         evidence_tab = ttk.Frame(notebook)
@@ -128,6 +154,7 @@ class ScribeForgeWindow:
         notebook.add(evidence_tab, text="Evidence")
 
         page_tab = ttk.Frame(notebook)
+        self._page_tab = page_tab
         self.page_caption = ttk.Label(page_tab, text="no page image", anchor="w")
         self.page_caption.pack(fill="x")
         self.page_image = ttk.Label(page_tab)
@@ -153,6 +180,9 @@ class ScribeForgeWindow:
         root.bind("2", lambda event: self._shortcut_accept("secondary"))
         root.bind("3", lambda event: self._shortcut_accept("vlm"))
         root.bind("n", lambda event: self._select_next_pair())
+        root.bind("p", lambda event: self._shortcut_focus("pair"))
+        root.bind("a", lambda event: self._shortcut_focus("primary"))
+        root.bind("d", lambda event: self._shortcut_focus("secondary"))
         root.bind("<Control-Return>", lambda event: self._shortcut_save())
 
     def refresh(self) -> None:
@@ -236,6 +266,7 @@ class ScribeForgeWindow:
         )
         self._current_row = row
         self._current_detail = view.detail
+        self._current_page_image = view.page_image
         self._set_choice_states(view.detail)
         self.custom_entry.delete(0, "end")
         self._set_detail(render_detail(view.detail))
@@ -246,6 +277,9 @@ class ScribeForgeWindow:
             box=(560, 720),
             upscale=False,
             missing="no page image for this page",
+            focus_box=view.detail.source_box,
+            focus_color="#f59e0b",
+            focus_label="pair region",
         )
         self._show_image(
             self.crop_image,
@@ -255,8 +289,12 @@ class ScribeForgeWindow:
             upscale=True,
             missing="no crop for this pair",
         )
+        self._select_page_tab()
         self.status.configure(
-            text=f"page {row.page_index} pair {row.pair_index} — {view.sources_label}"
+            text=(
+                f"page {row.page_index} pair {row.pair_index} — "
+                f"{view.sources_label}; source region highlighted"
+            )
         )
 
     def _set_choice_states(self, detail: ReviewDetail | None) -> None:
@@ -273,6 +311,15 @@ class ScribeForgeWindow:
         )
         self.vlm_button.configure(
             state="normal" if detail is not None and detail.vlm_text is not None else "disabled"
+        )
+        self.focus_pair_button.configure(
+            state="normal" if detail is not None and detail.source_box is not None else "disabled"
+        )
+        self.focus_primary_button.configure(
+            state="normal" if detail is not None and detail.primary_box is not None else "disabled"
+        )
+        self.focus_secondary_button.configure(
+            state="normal" if detail is not None and detail.secondary_box is not None else "disabled"
         )
 
     def _clear_current_review(self) -> None:
@@ -364,6 +411,46 @@ class ScribeForgeWindow:
         self.review.see(next_item)
         return "break"
 
+    def _select_page_tab(self) -> None:
+        """Select the source tab; tkinter's dynamic select method is untyped."""
+        cast(Any, self._notebook).select(self._page_tab)
+
+    def _focus_source(self, target: str) -> None:
+        """Show the source page with the selected OCR geometry overlaid."""
+        detail = self._current_detail
+        if detail is None:
+            return
+        boxes = {
+            "pair": (detail.source_box, "#f59e0b", "pair region"),
+            "primary": (detail.primary_box, "#2563eb", "primary OCR line"),
+            "secondary": (detail.secondary_box, "#16a34a", "secondary OCR line"),
+        }
+        focus = boxes.get(target)
+        if focus is None:
+            return
+        box, color, label = focus
+        if box is None:
+            return
+        self._show_image(
+            self.page_image,
+            self.page_caption,
+            self._current_page_image,
+            box=(560, 720),
+            upscale=False,
+            missing="no page image for this page",
+            focus_box=box,
+            focus_color=color,
+            focus_label=label,
+        )
+        self._select_page_tab()
+        self.status.configure(text=f"source focus: {label}")
+
+    def _shortcut_focus(self, target: str) -> str | None:
+        if self._root.focus_get() is self.custom_entry:
+            return None
+        self._focus_source(target)
+        return "break"
+
     def _show_image(
         self,
         holder: ttk.Label,
@@ -373,6 +460,9 @@ class ScribeForgeWindow:
         box: tuple[int, int],
         upscale: bool,
         missing: str,
+        focus_box: BoundingBox | None = None,
+        focus_color: str = "#f59e0b",
+        focus_label: str | None = None,
     ) -> None:
         holder.configure(image="")
         self._photos.pop(holder, None)
@@ -381,13 +471,38 @@ class ScribeForgeWindow:
             return
         try:
             preview = load_preview(path, box=box, upscale=upscale)
+            if focus_box is not None:
+                left = max(0, min(preview.width - 1, round(focus_box.x * preview.width)))
+                top = max(0, min(preview.height - 1, round(focus_box.y * preview.height)))
+                right = max(
+                    left,
+                    min(
+                        preview.width - 1,
+                        round((focus_box.x + focus_box.width) * preview.width),
+                    ),
+                )
+                bottom = max(
+                    top,
+                    min(
+                        preview.height - 1,
+                        round((focus_box.y + focus_box.height) * preview.height),
+                    ),
+                )
+                ImageDraw.Draw(preview).rectangle(
+                    (left, top, right, bottom),
+                    outline=focus_color,
+                    width=max(2, min(preview.size) // 240),
+                )
         except (OSError, ValueError) as exc:
             caption.configure(text=f"cannot read {path.name}: {exc}")
             return
         photo = ImageTk.PhotoImage(preview)
         self._photos[holder] = photo
         holder.configure(image=photo)
-        caption.configure(text=f"{path}  ({preview.width}×{preview.height})")
+        focus_note = "" if focus_label is None or focus_box is None else f" — {focus_label}"
+        caption.configure(
+            text=f"{path}  ({preview.width}×{preview.height}){focus_note}"
+        )
 
     def _clear_images(self, page_note: str, crop_note: str) -> None:
         self._show_image(

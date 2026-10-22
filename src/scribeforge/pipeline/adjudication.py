@@ -6,7 +6,7 @@ from pathlib import Path
 
 from scribeforge.domain.crops import review_crop_file_name
 from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
-from scribeforge.domain.ocr import PageOCRResult
+from scribeforge.domain.ocr import BoundingBox, PageOCRResult
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord, VLMReviewRecord
 
@@ -41,6 +41,27 @@ class ReviewDetail:
     vlm_uncertain: bool
     crop_path: str | None
     accepted_text: str | None
+    source_box: BoundingBox | None = None
+    primary_box: BoundingBox | None = None
+    secondary_box: BoundingBox | None = None
+
+
+def _line_box(result: PageOCRResult, index: int | None) -> BoundingBox | None:
+    return None if index is None else result.lines[index].box
+
+
+def _merge_boxes(
+    primary: BoundingBox | None, secondary: BoundingBox | None
+) -> BoundingBox | None:
+    if primary is None:
+        return secondary
+    if secondary is None:
+        return primary
+    left = min(primary.x, secondary.x)
+    top = min(primary.y, secondary.y)
+    right = max(primary.x + primary.width, secondary.x + secondary.width)
+    bottom = max(primary.y + primary.height, secondary.y + secondary.height)
+    return BoundingBox(left, top, right - left, bottom - top)
 
 
 def _line_text(result: PageOCRResult, index: int | None) -> str | None:
@@ -80,6 +101,8 @@ class _PairContext:
     reading: VLMReviewRecord | None
     candidate: ReviewCandidate | None
     risk: PairRisk
+    primary_box: BoundingBox | None
+    secondary_box: BoundingBox | None
 
 
 def _pair_context(
@@ -105,6 +128,8 @@ def _pair_context(
         reading=_latest_readings(store.list_vlm_reviews(verification_id)).get(pair_index),
         candidate=candidate,
         risk=record.risks[pair_index],
+        primary_box=_line_box(primary, pair.primary_line_index),
+        secondary_box=_line_box(secondary, pair.secondary_line_index),
     )
 
 
@@ -215,6 +240,13 @@ def review_detail(
         vlm_uncertain=reading is not None and reading.reading.uncertain,
         crop_path=_materialized_crop(crops_dir, page_index, pair_index, candidate),
         accepted_text=None if decision is None else decision.selected_text,
+        source_box=(
+            candidate.crop
+            if candidate is not None
+            else _merge_boxes(context.primary_box, context.secondary_box)
+        ),
+        primary_box=context.primary_box,
+        secondary_box=context.secondary_box,
     )
 
 

@@ -21,6 +21,14 @@ asset and the review crop for that pair, each with its path and displayed size i
 the caption; a missing asset, a missing crop, or an undecodable file is stated in
 the caption rather than hidden.
 
+Selecting a queued pair now moves the `Page image` tab to the source page and
+draws a display-only outline around the persisted candidate region. The pair region
+is orange; `Primary line [a]` focuses the primary OCR line in blue; `Secondary
+line [d]` focuses the secondary OCR line in green. `Pair region [p]` restores
+the wider region. The focus controls are disabled when the relevant geometry is
+unavailable. Highlighting is drawn on a transient preview only: source image files
+and stored OCR geometry are not changed.
+
 The decision controls can explicitly accept the primary reading (`1`), secondary
 reading (`2`), or VLM reading (`3`), or save literal custom text with
 `Ctrl+Enter`. Empty custom text requires confirmation because it records a
@@ -28,8 +36,8 @@ deletion-like reading. The VLM button is available only when a VLM reading exist
 uncertain readings are still shown and may be selected deliberately by the human.
 After a decision, the library counts and queue reload from SQLite, and the next
 remaining queued pair is selected. `n` advances to the next queued pair and
-`r`/`F5` refreshes the view. These shortcuts do not intercept text entered in
-the custom-text field.
+`r`/`F5` refreshes the view. The source-focus shortcuts are `p`, `a`, and
+`d`; review and focus shortcuts do not intercept text entered in the custom field.
 
 Selecting a library row loads that project's jobs and queue; selecting a queue
 row loads the pair's evidence and imagery. `r` and `F5` reload the library from
