@@ -62,6 +62,13 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
         _pdfPath = path;
         _pdfPageCount = null;
         _page = 0;
+        _a = null;
+        _b = null;
+        _aPath = null;
+        _bPath = null;
+        _labelA.text = 'Candidate A';
+        _labelB.text = 'Candidate B';
+        _notes.clear();
         _decisions.clear();
         _winner = null;
       });
