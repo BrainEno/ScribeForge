@@ -151,6 +151,8 @@ flutter run -d windows
 
 支持 OCR 工作流的版本还可以在界面内点击 **Set up OCR**、**Run OCR**、**Build A/B EPUBs**。第一次使用时，通过右上角设置图标确认 CLI 可执行文件：默认是 scribeforge；若应用找不到它，填写完整路径，例如 D:\ScribeForge\.venv\Scripts\scribeforge.exe。该设置会保存到当前用户的应用配置目录。
 
+选择 PDF 后，页面上方会出现项目状态条：显示总页数、两套 OCR 都已成功的页数、任务成功/待处理/运行中/失败数量，以及待人工复核的数量。点击刷新图标可重新读取状态；出现失败任务时，可点击 **Retry failed pages** 重试。该操作会复用 CLI 的可恢复处理流程，不会删除已有页面证据。
+
 当候选 EPUB 由 ScribeForge 生成时，程序会自动按源页编号对齐。其他电子书若只含章节而没有源页编号，页面对应关系只能近似判断，界面会提示这一点。当前版本提取 EPUB 的 XHTML 文本进行逐行比较，并不保证还原每个 EPUB 的 CSS、字体和分页布局。
 
 ## 8. 评估文件放在哪里

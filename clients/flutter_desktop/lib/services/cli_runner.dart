@@ -13,6 +13,9 @@ class ScribeForgeCli {
   static String candidateEpubPath(String outputDirectory, String engine) =>
       joinPath(outputDirectory, 'candidate-$engine.epub');
 
+  static List<String> statusArguments({required String storePath}) =>
+      <String>['status', '--store', storePath, '--json'];
+
   static List<String> processArguments({
     required String pdfPath,
     required String storePath,
@@ -57,6 +60,7 @@ class ScribeForgeCli {
     required String executable,
     required List<String> arguments,
     required void Function(String chunk) onOutput,
+    void Function(String chunk)? onError,
   }) async {
     final process = await Process.start(executable, arguments);
     final stdoutDone = process.stdout
@@ -64,7 +68,7 @@ class ScribeForgeCli {
         .forEach(onOutput);
     final stderrDone = process.stderr
         .transform(const Utf8Decoder(allowMalformed: true))
-        .forEach(onOutput);
+        .forEach(onError ?? onOutput);
     final exitCode = await process.exitCode;
     await Future.wait<void>(<Future<void>>[stdoutDone, stderrDone]);
     return exitCode;

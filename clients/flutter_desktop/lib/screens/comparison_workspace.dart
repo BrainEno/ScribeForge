@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../models/epub_candidate.dart';
+import '../models/project_status.dart';
 import '../models/text_diff.dart';
 import '../services/cli_runner.dart';
 import '../services/evaluation_store.dart';
@@ -32,6 +33,10 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   final _notes = TextEditingController();
   final _settingsStore = DesktopSettingsStore();
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
+  ProjectStatusSnapshot? _projectStatus;
+  String? _projectStatusMessage;
+  bool _statusLoading = false;
+  int _statusRequestVersion = 0;
   bool _busy = false;
   String? _notice;
 
@@ -92,6 +97,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
         _decisions.clear();
         _winner = null;
       });
+      unawaited(_refreshProjectStatus());
       final saved = await EvaluationStore.read(path);
       if (!mounted || saved == null) {
         return;
@@ -349,6 +355,68 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     return exitCode;
   }
 
+
+  Future<void> _refreshProjectStatus() async {
+    final pdf = _pdfPath;
+    if (pdf == null) return;
+    final requestVersion = ++_statusRequestVersion;
+    setState(() {
+      _statusLoading = true;
+      _projectStatusMessage = 'Refreshing local project status…';
+    });
+    final storePath = ScribeForgeCli.defaultStorePath(pdf);
+    final stdout = StringBuffer();
+    final stderr = StringBuffer();
+    try {
+      final exitCode = await ScribeForgeCli.run(
+        executable: _cliExecutable.trim(),
+        arguments: ScribeForgeCli.statusArguments(storePath: storePath),
+        onOutput: stdout.write,
+        onError: stderr.write,
+      );
+      if (!mounted || requestVersion != _statusRequestVersion) return;
+      if (exitCode == 0) {
+        final status = ProjectStatusSnapshot.fromJsonText(
+          stdout.toString(),
+          sourcePath: pdf,
+        );
+        setState(() {
+          _projectStatus = status;
+          _projectStatusMessage = status == null
+              ? 'No matching project is stored here yet. Run OCR to create or resume a project.'
+              : null;
+        });
+      } else {
+        final combined = stderr.toString().trim();
+        final noStore = combined.toLowerCase().contains('no store found');
+        setState(() {
+          _projectStatus = null;
+          _projectStatusMessage = noStore
+              ? 'No processing project yet. Choose Run OCR to create one.'
+              : combined.isEmpty
+                  ? 'The CLI returned exit code $exitCode while reading project status.'
+                  : 'Could not read project status: ${_firstLine(combined)}';
+        });
+      }
+    } on Object catch (error) {
+      if (!mounted || requestVersion != _statusRequestVersion) return;
+      setState(() {
+        _projectStatus = null;
+        _projectStatusMessage =
+            'Status unavailable. Check the CLI path in settings. ${_firstLine(error.toString())}';
+      });
+    } finally {
+      if (mounted && requestVersion == _statusRequestVersion) {
+        setState(() => _statusLoading = false);
+      }
+    }
+  }
+
+  String _firstLine(String value) {
+    final lines = value.trim().split(RegExp(r'\r?\n'));
+    return lines.isEmpty ? value : lines.first;
+  }
+
   Future<void> _setupRuntimes() async {
     await _runCli(title: 'OCR runtime setup', arguments: const ['setup']);
   }
@@ -368,6 +436,8 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       ),
     );
     if (!mounted || exitCode == null) return;
+    await _refreshProjectStatus();
+    if (!mounted) return;
     if (exitCode == 0) {
       _message('OCR finished. Next, choose “Build A/B EPUBs” to load both candidates.');
     } else if (exitCode == 1) {
@@ -479,6 +549,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
           children: [
             _header(),
             _toolbar(),
+            if (_pdfPath != null) _projectStatusPanel(),
             if (_notice != null) _noticeBar(_notice!),
             _pageToolbar(summary, aligned),
             Expanded(
@@ -593,6 +664,113 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
           ],
         ),
       );
+
+
+  Widget _projectStatusPanel() {
+    final status = _projectStatus;
+    final failed = status?.failedJobs ?? 0;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9F8),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E7E4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.monitor_heart_outlined, size: 19, color: Color(0xFF53675E)),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      status?.title ?? 'Project status',
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                    ),
+                    if (_statusLoading) ...[
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 1.8),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+                if (status == null)
+                  Text(
+                    _projectStatusMessage ?? 'Status has not been loaded yet.',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 10, color: Color(0xFF68766F)),
+                  )
+                else ...[
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 100,
+                        child: LinearProgressIndicator(
+                          value: status.ocrProgress,
+                          minHeight: 5,
+                          backgroundColor: const Color(0xFFE2E7E4),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${status.progressLabel} · ${status.reviewQueued} pairs need human review',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF53675E)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    status.jobsLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: failed > 0 ? const Color(0xFF9A5D16) : const Color(0xFF7D8983),
+                    ),
+                  ),
+                  if (failed > 0 && status.failedJobDetails.isNotEmpty)
+                    Text(
+                      'Latest failure: ${status.failedJobDetails.first.description}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 10, color: Color(0xFF9A5D16)),
+                    ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Refresh project status',
+            visualDensity: VisualDensity.compact,
+            onPressed: _statusLoading || _busy ? null : _refreshProjectStatus,
+            icon: const Icon(Icons.refresh, size: 18),
+          ),
+          if (failed > 0)
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _runOcr,
+              icon: const Icon(Icons.replay, size: 15),
+              label: const Text('Retry failed pages'),
+            ),
+        ],
+      ),
+    );
+  }
 
   Widget _noticeBar(String message) => Container(
         width: double.infinity,
