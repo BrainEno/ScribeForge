@@ -1006,7 +1006,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
 
       final selectedFormat = metadata['format']!;
       final fileName =
-          '${_safeFileName(metadata['title']!)}.${selectedFormat}';
+          '${_safeFileName(metadata['title']!)}.$selectedFormat';
       final outputPath = ScribeForgeCli.joinPath(outputDirectory, fileName);
       if (await File(outputPath).exists()) {
         if (!mounted) return;
