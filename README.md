@@ -6,6 +6,28 @@ ScribeForge turns scanned books into high-confidence, traceable digital text and
 
 The project is not trying to build yet another OCR engine. It orchestrates multiple OCR/document-analysis engines, detects disagreements, preserves page-level evidence, escalates only uncertain regions to a vision-language model or human review, and keeps every final decision traceable to the source scan.
 
+## 新手快速开始（中文）
+
+如果你是第一次拉取仓库，建议先阅读 **[中文新手使用指南](./docs/user-guide-zh.md)**。指南包含 Windows 11 下的 Python/Flutter 安装、首次 OCR 运行环境配置、扫描 PDF 处理、候选 EPUB 生成、Flutter 桌面比较、评估文件位置与常见故障排查。
+
+最短流程（已安装 Python 3.11 与 Flutter 3.47.7 的 Windows 开发环境）：
+
+```powershell
+git clone https://github.com/BrainEno/ScribeForge.git
+cd ScribeForge
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+scribeforge setup
+scribeforge process "D:\Books\My Book.pdf"
+scribeforge export-candidates --store "D:\Books\My Book.scribeforge" --out-dir "D:\Books\My Book-comparison-candidates"
+cd clients\flutter_desktop
+.\tool\bootstrap_desktop.ps1
+flutter run -d windows
+```
+
+也可以在 Flutter 工作区中使用 **Set up OCR / Run OCR / Build A/B EPUBs** 按钮。首次使用请点击右上角设置图标确认 ScribeForge CLI 的路径。比较器只辅助人工判断，不会自动认定哪份候选 EPUB 更好。
+
 ## Core principles
 
 - **Faithful transcription over fluent rewriting.** OCR and verification layers must never silently rewrite the source.

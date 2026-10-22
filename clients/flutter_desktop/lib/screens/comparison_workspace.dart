@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../models/epub_candidate.dart';
 import '../models/text_diff.dart';
+import '../services/cli_runner.dart';
 import '../services/evaluation_store.dart';
+import '../services/settings_store.dart';
 
 class ComparisonWorkspace extends StatefulWidget {
   const ComparisonWorkspace({super.key});
@@ -26,8 +30,22 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
   final _labelA = TextEditingController(text: 'Candidate A');
   final _labelB = TextEditingController(text: 'Candidate B');
   final _notes = TextEditingController();
+  final _settingsStore = DesktopSettingsStore();
+  String _cliExecutable = ScribeForgeCli.defaultExecutable;
   bool _busy = false;
   String? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final executable = await _settingsStore.loadCliExecutable();
+    if (!mounted) return;
+    setState(() => _cliExecutable = executable);
+  }
 
   @override
   void dispose() {
@@ -174,6 +192,231 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     }
   }
 
+
+  Future<void> _editSettings() async {
+    final controller = TextEditingController(text: _cliExecutable);
+    try {
+      final value = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('ScribeForge CLI settings'),
+          content: SizedBox(
+            width: 520,
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'CLI executable or full path',
+                hintText: 'scribeforge',
+                helperText: 'Install the Python package first, or enter the full executable path.',
+              ),
+              onSubmitted: (_) =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      );
+      if (value == null || value.trim().isEmpty) return;
+      final executable = value.trim();
+      await _settingsStore.saveCliExecutable(executable);
+      if (!mounted) return;
+      setState(() => _cliExecutable = executable);
+      _message('CLI executable saved. Use the full path if the command is not on PATH.');
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<int?> _runCli({
+    required String title,
+    required List<String> arguments,
+  }) async {
+    final executable = _cliExecutable.trim();
+    if (executable.isEmpty) {
+      _message('Open CLI settings and enter the ScribeForge executable first.');
+      return null;
+    }
+
+    setState(() {
+      _busy = true;
+      _notice = '$title is running. Long OCR jobs can take several minutes.';
+    });
+
+    final output = ValueNotifier<String>(
+      'Command: $executable ${arguments.join(' ')}\n\n',
+    );
+    final state = ValueNotifier<String>('Starting process…');
+    final finished = ValueNotifier<bool>(false);
+    final dialogFuture = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(
+          width: 700,
+          height: 420,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ValueListenableBuilder<String>(
+                valueListenable: state,
+                builder: (_, value, _) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(value,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ValueListenableBuilder<String>(
+                  valueListenable: output,
+                  builder: (_, value, _) => SingleChildScrollView(
+                    child: SelectableText(
+                      value,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: finished,
+            builder: (_, done, _) => TextButton(
+              onPressed: done ? () => Navigator.of(dialogContext).pop() : null,
+              child: Text(done ? 'Close' : 'Running…'),
+            ),
+          ),
+        ],
+      ),
+    );
+    unawaited(dialogFuture.whenComplete(() {
+      output.dispose();
+      state.dispose();
+      finished.dispose();
+    }));
+
+    int? exitCode;
+    try {
+      exitCode = await ScribeForgeCli.run(
+        executable: executable,
+        arguments: arguments,
+        onOutput: (chunk) => output.value += chunk,
+      );
+      state.value = switch (exitCode) {
+        0 => 'Completed successfully (exit code 0).',
+        1 => 'Completed with page-level failures (exit code 1). You can retry.',
+        _ => 'Command failed (exit code $exitCode). See the log above.',
+      };
+      output.value += '\n\nExit code: $exitCode\n';
+      if (mounted) {
+        setState(() {
+          _notice = exitCode == 0
+              ? '$title completed.'
+              : '$title ended with exit code $exitCode. Review the command log.';
+        });
+      }
+    } on Object catch (error) {
+      state.value = 'Could not start the command.';
+      output.value +=
+          '\nCould not start "$executable".\n$error\n\nCheck CLI settings and install the Python package using pip install -e ".[dev]".\n';
+      if (mounted) {
+        setState(() =>
+            _notice = 'Could not start ScribeForge CLI. Open settings to check its path.');
+      }
+    } finally {
+      finished.value = true;
+      if (mounted) setState(() => _busy = false);
+    }
+    return exitCode;
+  }
+
+  Future<void> _setupRuntimes() async {
+    await _runCli(title: 'OCR runtime setup', arguments: const ['setup']);
+  }
+
+  Future<void> _runOcr() async {
+    final pdf = _pdfPath;
+    if (pdf == null) {
+      _message('Open the original PDF before starting OCR.');
+      return;
+    }
+    final storePath = ScribeForgeCli.defaultStorePath(pdf);
+    final exitCode = await _runCli(
+      title: 'Process source PDF',
+      arguments: ScribeForgeCli.processArguments(
+        pdfPath: pdf,
+        storePath: storePath,
+      ),
+    );
+    if (!mounted || exitCode == null) return;
+    if (exitCode == 0) {
+      _message('OCR finished. Next, choose “Build A/B EPUBs” to load both candidates.');
+    } else if (exitCode == 1) {
+      _message('Some pages failed. Run OCR again to retry resumable jobs, then build candidates.');
+    }
+  }
+
+  Future<void> _buildCandidates() async {
+    final pdf = _pdfPath;
+    if (pdf == null) {
+      _message('Open the original PDF before generating candidates.');
+      return;
+    }
+    final storePath = ScribeForgeCli.defaultStorePath(pdf);
+    final outputDirectory = ScribeForgeCli.candidateOutputDirectoryForPdf(pdf);
+    final exitCode = await _runCli(
+      title: 'Build OCR candidate EPUBs',
+      arguments: ScribeForgeCli.exportCandidateArguments(
+        storePath: storePath,
+        outputDirectory: outputDirectory,
+      ),
+    );
+    if (!mounted || exitCode != 0) return;
+
+    try {
+      final pathA = ScribeForgeCli.candidateEpubPath(outputDirectory, 'mineru');
+      final pathB = ScribeForgeCli.candidateEpubPath(outputDirectory, 'paddleocr');
+      final candidateA = await EpubCandidate.load(pathA);
+      final candidateB = await EpubCandidate.load(pathB);
+      if (!mounted) return;
+      setState(() {
+        _a = candidateA;
+        _b = candidateB;
+        _aPath = pathA;
+        _bPath = pathB;
+        _labelA.text = 'MinerU';
+        _labelB.text = 'PaddleOCR';
+        _page = 0;
+        _winner = null;
+        _decisions.clear();
+        _notice =
+            'Candidate EPUBs loaded. They are raw, unverified OCR outputs; compare and decide manually.';
+      });
+      _message('Both candidates were loaded. Their OCR text is unverified; no winner is inferred.');
+    } on Object catch (error) {
+      _message('Could not load generated candidates: $error');
+    }
+  }
+
   int get _pageCount {
     final pdfCount = _pdfPageCount;
     if (pdfCount != null) return pdfCount;
@@ -294,6 +537,11 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                     style: TextStyle(fontSize: 9, letterSpacing: 1.1, color: Color(0xFF718079))),
               ],
             ),
+            IconButton(
+              tooltip: 'CLI settings',
+              onPressed: _busy ? null : _editSettings,
+              icon: const Icon(Icons.settings_outlined, size: 19),
+            ),
             const Spacer(),
             const Icon(Icons.shield_outlined, size: 16, color: Color(0xFF236B5D)),
             const SizedBox(width: 6),
@@ -323,6 +571,21 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               onPressed: _busy ? null : () => _openEpub(left: false),
               icon: const Icon(Icons.menu_book_outlined),
               label: Text(_bPath == null ? 'Open Candidate B EPUB' : 'Replace B · ${_basename(_bPath!)}'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _setupRuntimes,
+              icon: const Icon(Icons.settings_suggest_outlined),
+              label: const Text('Set up OCR'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy || _pdfPath == null ? null : _runOcr,
+              icon: const Icon(Icons.document_scanner_outlined),
+              label: const Text('Run OCR'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: _busy || _pdfPath == null ? null : _buildCandidates,
+              icon: const Icon(Icons.auto_stories_outlined),
+              label: const Text('Build A/B EPUBs'),
             ),
             if (_busy)
               const SizedBox(width: 20, height: 20,
