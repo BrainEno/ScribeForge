@@ -57,7 +57,7 @@ def test_backup_verification_and_restore_preserve_evidence_and_relocate_page_pat
     created = create_project_backup(store_dir, archive)
     verified = verify_project_backup(archive)
 
-    assert created["file_count"] == 3
+    assert created["file_count"] == 4
     assert verified["healthy"] is True
     assert verified["sqlite_integrity"] == "ok"
     assert verified["foreign_key_violations"] == 0
@@ -70,8 +70,10 @@ def test_backup_verification_and_restore_preserve_evidence_and_relocate_page_pat
     project = store.list_projects()[0]
     pages = store.list_pages(project.id)
     assert project.title == "Book"
-    assert project.source_uri == str(source.resolve())
-    assert project.source_sha256 == _sha256(source)
+    restored_source = target / "source" / "project-1" / "Book.pdf"
+    assert project.source_uri == str(restored_source.resolve())
+    assert project.source_uri != str(source.resolve())
+    assert project.source_sha256 == _sha256(restored_source)
     assert pages[0].source_image == str((target / "assets" / "page-000001.png").resolve())
     assert (target / "crops" / "review-crop.png").read_bytes() == b"review crop bytes"
 
