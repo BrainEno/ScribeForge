@@ -129,7 +129,7 @@ def test_verification_detects_tampered_member_bytes(tmp_path: Path) -> None:
         for item in source_zip.infolist():
             data = source_zip.read(item.filename)
             if item.filename == "assets/page-000001.png":
-                data += b"tampered"
+                data = bytes([data[0] ^ 1]) + data[1:]
             target_zip.writestr(item.filename, data)
 
     with pytest.raises(ProjectBackupError, match="SHA-256 mismatch"):
