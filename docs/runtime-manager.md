@@ -81,8 +81,10 @@ Model preparation is explicit during setup rather than being allowed to surprise
 ## Install and repair
 
 `scribeforge setup` opens the wizard at the per-user runtime path. Pass
-`--runtime-root <path>` to override it; `process` and `benchmark` use the same
-per-user default unless overridden. **Install / repair all** runs both backend
+`--runtime-root <path>` to override it; `process` uses the same per-user default unless a prior project already has
+a persisted `<store>/runtime/runtime-state.json`, in which case that legacy
+runtime is retained. `benchmark` uses the per-user default. Each command accepts
+`--runtime-root` to override it. **Install / repair all** runs both backend
 lifecycles independently: a failure in one backend is persisted and reported, but
 does not prevent the other backend from completing. The per-backend buttons replay
 only the selected backend's installation, model preparation, and health checks.

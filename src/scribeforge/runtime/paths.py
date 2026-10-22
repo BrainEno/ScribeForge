@@ -27,3 +27,17 @@ def default_runtime_root(
         base = Path(data_home) if data_home and Path(data_home).is_absolute() else user_home / ".local" / "share"
 
     return base / "ScribeForge" / "runtime"
+
+
+def runtime_root_for_store(
+    store_root: Path,
+    *,
+    home: Path | None = None,
+    environment: Mapping[str, str] | None = None,
+    os_name: str | None = None,
+) -> Path:
+    """Preserve a project's prior local runtime if its persisted state exists."""
+    legacy_root = store_root / "runtime"
+    if (legacy_root / "runtime-state.json").is_file():
+        return legacy_root
+    return default_runtime_root(home=home, environment=environment, os_name=os_name)

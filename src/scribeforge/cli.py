@@ -26,7 +26,7 @@ from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import RuntimeLayout
-from scribeforge.runtime.paths import default_runtime_root
+from scribeforge.runtime.paths import default_runtime_root, runtime_root_for_store
 from scribeforge.storage.sqlite import SQLiteStore
 
 EXIT_OK = 0
@@ -234,7 +234,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
     store_root: Path = args.store if args.store is not None else default_store_dir(book)
     layout = StoreLayout(store_root)
     runtime_root: Path = (
-        args.runtime_root if args.runtime_root is not None else default_runtime_root()
+        args.runtime_root if args.runtime_root is not None else runtime_root_for_store(layout.root)
     )
     try:
         store = SQLiteStore(layout.db_path)
@@ -256,8 +256,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
             "not ready" in message.lower() or "uv bootstrap tool" in message.lower()
         ):
             message += (
-                f"; run `scribeforge setup --runtime-root \\\"{runtime_root}\\\"` "
-                "and retry"
+                f"""; run scribeforge setup --runtime-root="{runtime_root}" and retry"""
             )
         print(f"error: {message}", file=sys.stderr)
         return EXIT_FATAL

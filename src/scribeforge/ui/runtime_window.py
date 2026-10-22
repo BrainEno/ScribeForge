@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -270,7 +271,11 @@ def _hardware_summary(profile: HardwareProfile) -> str:
 
 def run_runtime_setup(runtime_root: Path) -> int:
     """Launch the standalone setup wizard, without requiring a project store."""
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:
+        print(f"error: cannot open the runtime setup window: {exc}", file=sys.stderr)
+        return 2
     RuntimeSetupWindow(root, runtime_root)
     root.mainloop()
     return 0

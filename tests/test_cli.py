@@ -543,8 +543,8 @@ def test_export_rejects_an_invalid_language(
 def test_setup_command_opens_the_runtime_wizard_with_requested_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import types
     import sys
+    import types
 
     seen: list[Path] = []
     module = types.ModuleType("scribeforge.ui.runtime_window")
