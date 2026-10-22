@@ -22,6 +22,7 @@ from scribeforge.ui.viewmodel import (
     load_review_rows,
     page_image_path,
     render_detail,
+    resolve_review_row,
 )
 
 
@@ -254,3 +255,30 @@ def test_render_detail_shows_an_accepted_human_reading(tmp_path: Path) -> None:
     text = render_detail(review_detail(store, project_id, 0, 0))
 
     assert "accepted '鸦'" in text.splitlines()
+
+
+
+def test_resolve_review_row_records_the_literal_decision_and_removes_queue_item(
+    tmp_path: Path,
+) -> None:
+    store, project_id = _store(tmp_path)
+    row = load_review_rows(store, project_id)[0]
+
+    decision_id = resolve_review_row(store, project_id, row, "  原样校对文本  ")
+
+    decision = store.latest_decision(project_id, row.page_index, row.pair_index)
+    assert decision_id > 0
+    assert decision is not None
+    assert decision.selected_text == "  原样校对文本  "
+    assert load_review_rows(store, project_id) == ()
+
+
+def test_resolve_review_row_rejects_a_stale_queue_item(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    row = load_review_rows(store, project_id)[0]
+    resolve_review_row(store, project_id, row, "accepted")
+
+    import pytest
+
+    with pytest.raises(ValueError, match="no longer queued"):
+        resolve_review_row(store, project_id, row, "different")

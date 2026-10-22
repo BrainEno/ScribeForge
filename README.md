@@ -70,7 +70,7 @@ scribeforge export --store store/ --out book.epub   # verified text -> EPUB 3
 scribeforge export --store store/ --out book.docx   # verified text -> DOCX
 scribeforge export --store store/ --out book.epub \
   --title "书名" --author "作者" --modified 2026-10-20T00:00:00Z
-scribeforge ui --store store/                 # read-only desktop review shell
+scribeforge ui --store store/                 # keyboard-first desktop review shell
 scribeforge benchmark --manifest benchmark/manifest.json \
   --out benchmark/benchmark_report.md         # score MinerU + PaddleOCR
 ```
@@ -81,7 +81,7 @@ When two engines agree a decision is recorded as `automatic`; a confident VLM re
 
 `export` writes the accepted decisions as an EPUB 3 or DOCX file (chosen by the destination extension) and refuses to run while any page is unverified or any pair is still unresolved, so a partial book can never be exported silently. `--title` and `--author` override the export metadata (the author becomes `dc:creator` in both formats), and `--modified` pins the timestamp for byte-reproducible builds. Every build is re-read and checked against the accepted text before it is written. See [Export](./docs/export.md).
 
-`ui` opens a read-only desktop shell over the store: library with job progress, the review queue, and a pair view with the evidence plus the page raster and review crop for the selected pair. The presentation logic is framework-independent and unit tested; the Tkinter layer is display-only. See [Desktop shell](./docs/ui.md).
+`ui` opens the desktop review shell over the store: library/job status, an unresolved-pair queue, evidence, page raster, and review crop. Reviewers can explicitly accept either OCR reading or a VLM reading, or enter literal corrected text; keyboard shortcuts (`1`, `2`, `3`, `n`, `Ctrl+Enter`) keep the common path fast. Each action appends a human decision with evidence references and leaves source OCR untouched. See [Desktop shell](./docs/ui.md).
 
 `benchmark` validates a corpus manifest (every case needs a non-empty page image and hand-verified ground truth), builds only the requested managed backends, and scores each one for CER, WER, punctuation, missing/extra lines, per-page time, and pages/minute. It writes a deterministic Markdown report naming the manifest SHA-256, with per-case rows so an aggregate gain cannot hide a hard-page regression. Variants A (MinerU) and B (PaddleOCR) are runnable; the pipeline comparison (C/D) and the real-corpus report remain. See [Benchmark](./benchmark/README.md).
 
