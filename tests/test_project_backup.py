@@ -224,3 +224,39 @@ def test_cli_backup_refuses_overwrite_and_restore_never_replaces_directory(
     assert restore_code == 2
     assert "already exists" in restore_output.err
     assert (target / "marker.txt").read_text(encoding="utf-8") == "preserve"
+
+
+
+def test_backup_refuses_to_package_a_source_whose_hash_changed(tmp_path: Path) -> None:
+    store_dir, source = _prepared_store(tmp_path)
+    source.write_bytes(b"modified source PDF bytes")
+
+    with pytest.raises(ProjectBackupError, match="source SHA-256 mismatch"):
+        create_project_backup(store_dir, tmp_path / "Book.zip")
+
+
+def test_verification_rejects_manifest_that_omits_a_referenced_page_asset(
+    tmp_path: Path,
+) -> None:
+    store_dir, _source = _prepared_store(tmp_path)
+    archive = tmp_path / "Book.zip"
+    create_project_backup(store_dir, archive)
+
+    incomplete = tmp_path / "incomplete.zip"
+    with zipfile.ZipFile(archive, "r") as source_zip, zipfile.ZipFile(
+        incomplete, "w", compression=zipfile.ZIP_DEFLATED
+    ) as target_zip:
+        manifest = json.loads(source_zip.read("manifest.json"))
+        manifest["files"] = [
+            record for record in manifest["files"] if record["path"] != "assets/page-000001.png"
+        ]
+        for item in source_zip.infolist():
+            if item.filename == "assets/page-000001.png":
+                continue
+            if item.filename == "manifest.json":
+                target_zip.writestr(item.filename, json.dumps(manifest))
+            else:
+                target_zip.writestr(item.filename, source_zip.read(item.filename))
+
+    with pytest.raises(ProjectBackupError, match="page image referenced"):
+        verify_project_backup(incomplete)
