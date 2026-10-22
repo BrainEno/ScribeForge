@@ -2,7 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:xml/xml.dart';
+
+extension _FirstOrNull<T> on Iterable<T> {
+  T? get firstOrNull {
+    final iterator = this.iterator;
+    return iterator.moveNext() ? iterator.current : null;
+  }
+}
 
 class EpubPage {
   const EpubPage({
@@ -207,23 +215,4 @@ String _resolveZipPath(String opfPath, String href) {
 
 String _basename(String path) => path.split('/').last;
 
-String _sha256Hex(List<int> bytes) {
-  // The evaluation manifest performs streaming SHA-256 on the source PDF too.
-  // This local helper uses a small dependency-free SHA-256 by calling package:crypto
-  // in the session store; the parser stores a temporary placeholder until then.
-  return _candidateSha256(bytes);
-}
-
-String _candidateSha256(List<int> bytes) {
-  // Filled by package:crypto below in a separate import-free helper.
-  return _fastSha256(bytes);
-}
-
-String _fastSha256(List<int> bytes) {
-  // Replaced by package:crypto in the implementation patch to keep hashes standard.
-  var state = 0;
-  for (final byte in bytes) {
-    state = (state * 31 + byte) & 0x7fffffff;
-  }
-  return state.toRadixString(16);
-}
+String _sha256Hex(List<int> bytes) => sha256.convert(bytes).toString();
