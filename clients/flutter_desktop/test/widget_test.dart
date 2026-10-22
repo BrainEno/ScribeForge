@@ -18,6 +18,8 @@ void main() {
     expect(find.text('ScribeForge'), findsOneWidget);
     expect(find.text('Open source PDF'), findsOneWidget);
     expect(find.text('Open project'), findsOneWidget);
+    expect(find.text('Verify backup'), findsOneWidget);
+    expect(find.text('Restore project'), findsOneWidget);
     expect(find.text('Open Candidate A EPUB'), findsOneWidget);
     expect(find.text('Open Candidate B EPUB'), findsOneWidget);
     expect(find.text('Set up OCR'), findsOneWidget);
