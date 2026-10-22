@@ -16,6 +16,18 @@ class ScribeForgeCli {
   static List<String> statusArguments({required String storePath}) =>
       <String>['status', '--store', storePath, '--json'];
 
+  static List<String> relinkSourceArguments({
+    required String storePath,
+    required String sourcePath,
+  }) =>
+      <String>[
+        'relink-source',
+        '--store',
+        storePath,
+        '--source',
+        sourcePath,
+      ];
+
   static List<String> processArguments({
     required String pdfPath,
     required String storePath,

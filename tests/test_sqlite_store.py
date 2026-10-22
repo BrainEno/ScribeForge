@@ -152,3 +152,31 @@ def test_unknown_page_and_run_raise_key_error(tmp_path: Path) -> None:
         store.record_ocr(project_id, PageOCRResult(1, "fixture", "1", ()))
     with pytest.raises(KeyError, match="unknown OCR run"):
         store.load_ocr_run(999)
+
+
+
+def test_relink_project_source_updates_path_only_when_recorded_hash_matches(
+    tmp_path: Path,
+) -> None:
+    store, project_id = _prepared_store(tmp_path)
+
+    store.relink_project_source(
+        project_id,
+        "/archive/source.pdf",
+        expected_sha256="abc123",
+    )
+
+    project = store.list_projects()[0]
+    assert project.source_uri == "/archive/source.pdf"
+    assert project.source_sha256 == "abc123"
+
+    with pytest.raises(ValueError, match="SHA-256 changed"):
+        store.relink_project_source(
+            project_id,
+            "/archive/other.pdf",
+            expected_sha256="wrong-hash",
+        )
+
+    unchanged = store.list_projects()[0]
+    assert unchanged.source_uri == "/archive/source.pdf"
+    assert unchanged.source_sha256 == "abc123"

@@ -152,7 +152,15 @@ flutter run -d windows
 
 支持 OCR 工作流的版本还可以在界面内点击 **Set up OCR**、**Run OCR**、**Build A/B EPUBs**。第一次使用时，通过右上角设置图标确认 CLI 可执行文件：默认是 scribeforge；若应用找不到它，填写完整路径，例如 D:\ScribeForge\.venv\Scripts\scribeforge.exe。该设置会保存到当前用户的应用配置目录。
 
-选择 PDF 后，页面上方会出现项目状态条：显示总页数、两套 OCR 都已成功的页数、任务成功/待处理/运行中/失败数量，以及待人工复核的数量。点击刷新图标可重新读取状态；出现失败任务时，可点击 **Retry failed pages** 重试。该操作会复用 CLI 的可恢复处理流程，不会删除已有页面证据。项目状态只有在源 PDF 的路径与 SHA-256 均匹配时才允许继续处理。若你修改了源 PDF 内容，请为新版本选择新的项目目录；若只是移动了源 PDF，请先将它放回项目记录的原路径。目前版本不会自动重写已有项目的源文件身份记录。
+选择 PDF 后，页面上方会出现项目状态条：显示总页数、两套 OCR 都已成功的页数、任务成功/待处理/运行中/失败数量，以及待人工复核的数量。点击刷新图标可重新读取状态；出现失败任务时，可点击 **Retry failed pages** 重试。该操作会复用 CLI 的可恢复处理流程，不会删除已有页面证据。项目状态只有在源 PDF 的路径与 SHA-256 均匹配时才允许继续处理。如果只是移动了 PDF：先点击 **Open project** 打开原来的 `.scribeforge` 目录，再点击 **Open source PDF** 选择移动后的文件；确认路径或哈希不匹配后，点击 **Relink source PDF**。程序会重新计算 SHA-256，只有与项目中记录的哈希完全相同才更新源路径；该操作不修改哈希、OCR 运行记录、页面和人工校对证据。若文件内容不同，重新关联会失败，请为修改后的 PDF 使用新的项目目录。
+
+也可以从 PowerShell 执行相同的安全操作：
+
+```powershell
+scribeforge relink-source --store "D:\Books\My Book.scribeforge" --source "E:\Archive\My Book.pdf"
+```
+
+重新关联后，正常的 `scribeforge process` 仍会检查源路径和内容身份，不会因手动指定一个不同文件而复用旧证据。
 
 当候选 EPUB 由 ScribeForge 生成时，程序会自动按源页编号对齐。其他电子书若只含章节而没有源页编号，页面对应关系只能近似判断，界面会提示这一点。当前版本提取 EPUB 的 XHTML 文本进行逐行比较，并不保证还原每个 EPUB 的 CSS、字体和分页布局。
 

@@ -1243,3 +1243,107 @@ def test_default_benchmark_engine_factory_rejects_an_unknown_backend(
 ) -> None:
     with pytest.raises(ValueError, match="unknown benchmark engine"):
         default_benchmark_engine_factory(tmp_path / "runtime", ("surya",))
+
+
+
+def test_relink_source_accepts_identical_bytes_and_preserves_existing_evidence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    original = _book(tmp_path)
+    moved = tmp_path / "moved-book.png"
+    moved.write_bytes(original.read_bytes())
+    store_dir = tmp_path / "book-store"
+
+    assert run(["process", str(original), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    before = store.list_projects()[0]
+    before_pages = store.list_pages(before.id)
+    before_run_id = store.latest_engine_run(before.id, 0, "primary")
+    before_result = store.load_ocr_run(before_run_id)
+    capsys.readouterr()
+
+    code = run(
+        ["relink-source", "--store", str(store_dir), "--source", str(moved)],
+    )
+
+    captured = capsys.readouterr()
+    after = store.list_projects()[0]
+    assert code == 0
+    assert "SHA-256 unchanged" in captured.out
+    assert after.source_uri == str(moved.resolve())
+    assert after.source_sha256 == before.source_sha256
+    assert after.title == before.title
+    assert store.list_pages(after.id) == before_pages
+    assert store.latest_engine_run(after.id, 0, "primary") == before_run_id
+    assert store.load_ocr_run(before_run_id) == before_result
+
+
+def test_relink_source_rejects_different_content_without_modifying_project(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    original = _book(tmp_path)
+    changed = tmp_path / "changed-book.png"
+    Image.new("RGB", (82, 121), "black").save(changed)
+    store_dir = tmp_path / "book-store"
+
+    assert run(["process", str(original), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    before = store.list_projects()[0]
+    before_pages = store.list_pages(before.id)
+    capsys.readouterr()
+
+    code = run(
+        ["relink-source", "--store", str(store_dir), "--source", str(changed)],
+    )
+
+    captured = capsys.readouterr()
+    after = store.list_projects()[0]
+    assert code == 2
+    assert "sha-256 does not match" in captured.err.lower()
+    assert "not modified" in captured.err.lower()
+    assert after == before
+    assert store.list_pages(after.id) == before_pages
+
+
+def test_relink_source_rejects_missing_source_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir = tmp_path / "store"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    store.create_project("Book", str(tmp_path / "old.pdf"), "expected-hash")
+
+    code = run(
+        [
+            "relink-source",
+            "--store",
+            str(store_dir),
+            "--source",
+            str(tmp_path / "missing.pdf"),
+        ],
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "source file not found" in captured.err.lower()
+    assert store.list_projects()[0].source_uri == str(tmp_path / "old.pdf")
+
+
+def test_relink_source_rejects_multi_project_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = _book(tmp_path)
+    store_dir = tmp_path / "multi-store"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    store.create_project("One", str(source.resolve()), "hash-one")
+    store.create_project("Two", str(source.resolve()), "hash-two")
+
+    code = run(
+        ["relink-source", "--store", str(store_dir), "--source", str(source)],
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "multiple projects" in captured.err.lower()
+    assert [project.title for project in store.list_projects()] == ["One", "Two"]

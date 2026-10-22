@@ -10,6 +10,22 @@ void main() {
       );
     });
 
+    test('keeps store and source paths as separate relink arguments', () {
+      expect(
+        ScribeForgeCli.relinkSourceArguments(
+          storePath: '/tmp/My Book.scribeforge',
+          sourcePath: '/archive/My Book.pdf',
+        ),
+        <String>[
+          'relink-source',
+          '--store',
+          '/tmp/My Book.scribeforge',
+          '--source',
+          '/archive/My Book.pdf',
+        ],
+      );
+    });
+
     test('uses the source PDF stem for the project store', () {
       expect(
         ScribeForgeCli.defaultStorePath('books/My Book.pdf'),

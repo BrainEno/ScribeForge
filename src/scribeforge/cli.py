@@ -121,6 +121,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit a stable JSON summary for desktop clients."
     )
 
+    relink = subparsers.add_parser(
+        "relink-source",
+        help="Update a project source path only when its SHA-256 matches.",
+    )
+    relink.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    relink.add_argument(
+        "--source", type=Path, required=True, help="Moved source PDF or page image."
+    )
+
     review = subparsers.add_parser(
         "review", help="List the page pairs that still need a human decision."
     )
@@ -231,6 +240,8 @@ def run(
         return _setup(args)
     if args.command == "status":
         return _status(args, out)
+    if args.command == "relink-source":
+        return _relink_source(args, out)
     if args.command == "review":
         return _review(args, out)
     if args.command == "resolve":
@@ -379,6 +390,61 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                 f"  {job.stage.value} [{scope}] {job.state.value} attempts={job.attempts}",
                 file=out,
             )
+    return EXIT_OK
+
+
+def _relink_source(args: argparse.Namespace, out: TextIO) -> int:
+    """Relink a moved source only when its bytes match the project's recorded identity."""
+    source_path: Path = args.source.resolve()
+    if not source_path.is_file():
+        print(f"error: source file not found: {source_path}", file=sys.stderr)
+        return EXIT_FATAL
+
+    try:
+        store = _open_store(args.store)
+        if store is None:
+            print(
+                f"error: no store found at {StoreLayout(args.store).db_path}",
+                file=sys.stderr,
+            )
+            return EXIT_FATAL
+
+        projects = store.list_projects()
+        if len(projects) != 1:
+            detail = (
+                "no project found"
+                if not projects
+                else "store contains multiple projects; select a dedicated project store"
+            )
+            print(f"error: cannot relink source: {detail}", file=sys.stderr)
+            return EXIT_FATAL
+
+        project = projects[0]
+        source_sha256 = _file_sha256(source_path)
+        if source_sha256 != project.source_sha256:
+            print(
+                "error: cannot relink source because the selected file's SHA-256 "
+                "does not match the project's recorded source. The project path and "
+                "existing processing evidence were not modified; use a new project "
+                "store for changed source content.",
+                file=sys.stderr,
+            )
+            return EXIT_FATAL
+
+        store.relink_project_source(
+            project.id,
+            str(source_path),
+            expected_sha256=source_sha256,
+        )
+    except Exception as exc:  # noqa: BLE001 - report storage and I/O errors as a fatal CLI result
+        print(f"error: could not relink source: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    print(
+        f"relinked source path for project {project.id}: {project.source_uri} -> {source_path}; "
+        "SHA-256 unchanged and existing processing evidence preserved",
+        file=out,
+    )
     return EXIT_OK
 
 
