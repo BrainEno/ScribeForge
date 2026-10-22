@@ -177,9 +177,13 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
         }
       }
     } on Object catch (error) {
-      if (mounted) _message('Could not restore the previous evaluation: $error');
+      if (mounted) {
+        _message('Could not restore the previous evaluation: $error');
+      }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
     await _refreshProjectStatus();
   }
@@ -254,7 +258,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
         _message('Could not open project store: ${_firstLine(error.toString())}');
       }
     } finally {
-      if (mounted) setState(() => _statusLoading = false);
+      if (mounted) {
+        setState(() => _statusLoading = false);
+      }
     }
   }
 
