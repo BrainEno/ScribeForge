@@ -511,10 +511,13 @@ def _prepare_source_files(
         if relative_to_store and relative_to_store in file_map:
             archive_path = relative_to_store
         else:
-            filename = source_path.name or f"source-{project_id}.pdf"
+            filename = (source_path.name or f"source-{project_id}.pdf").replace("\\", "_")
             archive_path = f"source/project-{project_id}/{filename}"
             existing = reserved.get(archive_path)
             if existing is not None and existing != str(source_path):
+                raise ProjectBackupError(f"source archive path collision: {archive_path}")
+            occupied = file_map.get(archive_path)
+            if occupied is not None and occupied.resolve() != source_path:
                 raise ProjectBackupError(f"source archive path collision: {archive_path}")
             reserved[archive_path] = str(source_path)
             file_map[archive_path] = source_path
