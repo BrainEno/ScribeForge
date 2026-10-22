@@ -37,7 +37,7 @@ List<TextDiffRow> diffLines(List<String> left, List<String> right) {
       i++;
       j++;
     } else if (i < left.length &&
-        (j >= right.length || dp[i + 1][j] >= dp[i][j + 1])) {
+        (j >= right.length || dp[i + 1][j] > dp[i][j + 1])) {
       result.add(TextDiffRow(left: left[i], right: null, changed: true));
       i++;
     } else {
@@ -45,7 +45,37 @@ List<TextDiffRow> diffLines(List<String> left, List<String> right) {
       j++;
     }
   }
-  return List.unmodifiable(result);
+  // Pair opposite-side edits within the same changed hunk. A replacement
+  // should read as one changed line rather than a misleading delete + insert;
+  // an inserted/deleted line still retains its explicit empty side.
+  final normalized = <TextDiffRow>[];
+  var cursor = 0;
+  while (cursor < result.length) {
+    if (!result[cursor].changed) {
+      normalized.add(result[cursor]);
+      cursor++;
+      continue;
+    }
+    final leftHunk = <String>[];
+    final rightHunk = <String>[];
+    while (cursor < result.length && result[cursor].changed) {
+      final row = result[cursor];
+      if (row.left != null) leftHunk.add(row.left!);
+      if (row.right != null) rightHunk.add(row.right!);
+      cursor++;
+    }
+    final hunkLength = leftHunk.length > rightHunk.length
+        ? leftHunk.length
+        : rightHunk.length;
+    for (var offset = 0; offset < hunkLength; offset++) {
+      normalized.add(TextDiffRow(
+        left: offset < leftHunk.length ? leftHunk[offset] : null,
+        right: offset < rightHunk.length ? rightHunk[offset] : null,
+        changed: true,
+      ));
+    }
+  }
+  return List.unmodifiable(normalized);
 }
 
 class TextDiffSummary {
