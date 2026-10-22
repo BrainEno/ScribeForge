@@ -1,7 +1,6 @@
 name: Flutter Desktop
 
 on:
-  push:
   pull_request:
   workflow_dispatch:
 
