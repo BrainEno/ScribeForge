@@ -202,7 +202,7 @@ scribeforge relink-source --store "D:\Books\My Book.scribeforge" --source "E:\Ar
 
 ### 从桌面端导出已校对成品
 
-打开与当前源 PDF 路径和 SHA-256 相匹配的项目后，点击 **Export verified book**。选择 EPUB 3 或 Word（DOCX），填写书名、语言标签（例如 zh-Hant、en、ja；未知时用 und），作者可不填。修改时间也可留空；若填入 ISO 8601 时间戳，导出可以固定该元数据时间，便于生成可复现的文件。
+打开与当前源 PDF 路径和 SHA-256 相匹配的项目后，点击 **Export verified book**。选择 EPUB 3 或 Word（DOCX），填写书名、语言标签（例如 zh-Hant、en、ja；未知时用 und），作者可不填。修改时间也可留空；若填入 ISO 8601 时间戳，导出可以固定该元数据时间，便于生成可复现的文件。随后选择输出文件夹，程序会用书名生成文件名；如果同名文件已存在，会先询问是否替换。
 
 该操作与 **Build A/B EPUBs** 不同：A/B 文件是未经校对的原始 OCR 候选，仅用于比较；正式导出只使用数据库中已接受的校对决策。只要仍有未验证页面或待处理的冲突，CLI 就会拒绝导出，并在命令日志中显示原因。请先完成人工复核，而不要把候选 EPUB 当作定稿。
 
