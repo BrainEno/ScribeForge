@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from scribeforge.domain.alignment import AlignmentConflict
 from scribeforge.domain.crops import review_crop_file_name
 from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
 from scribeforge.domain.ocr import BoundingBox, PageOCRResult
@@ -44,6 +45,7 @@ class ReviewDetail:
     source_box: BoundingBox | None = None
     primary_box: BoundingBox | None = None
     secondary_box: BoundingBox | None = None
+    conflicts: tuple[AlignmentConflict, ...] = ()
 
 
 def _line_box(result: PageOCRResult, index: int | None) -> BoundingBox | None:
@@ -103,6 +105,7 @@ class _PairContext:
     risk: PairRisk
     primary_box: BoundingBox | None
     secondary_box: BoundingBox | None
+    conflicts: tuple[AlignmentConflict, ...]
 
 
 def _pair_context(
@@ -130,6 +133,7 @@ def _pair_context(
         risk=record.risks[pair_index],
         primary_box=_line_box(primary, pair.primary_line_index),
         secondary_box=_line_box(secondary, pair.secondary_line_index),
+        conflicts=pair.conflicts,
     )
 
 
@@ -247,6 +251,7 @@ def review_detail(
         ),
         primary_box=context.primary_box,
         secondary_box=context.secondary_box,
+        conflicts=context.conflicts,
     )
 
 
