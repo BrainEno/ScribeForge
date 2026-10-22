@@ -111,7 +111,7 @@ def _configured_vlm_reviewer(
         if include_vlm and not include_pipeline:
             raise ValueError("--include-vlm requires --include-pipeline")
         if not include_vlm:
-            if endpoint or model or api_key_env or allow_remote:
+            if endpoint or model or api_key_env is not None or allow_remote:
                 raise ValueError(
                     "VLM endpoint options require --include-vlm for the benchmark command"
                 )
@@ -119,7 +119,7 @@ def _configured_vlm_reviewer(
         if not endpoint:
             raise ValueError("--vlm-endpoint is required with --include-vlm")
     elif not endpoint and not model:
-        if api_key_env or allow_remote:
+        if api_key_env is not None or allow_remote:
             raise ValueError("--vlm-api-key-env/--allow-remote-vlm require --vlm-endpoint")
         return None
 

@@ -14,7 +14,7 @@ D. C + VLM review of conflict crops
 
 ## Running the engine benchmark
 
-Variants A and B are runnable today:
+Variants A and B are runnable today; use the optional flags below for C and D:
 
 ```bash
 # Score both managed backends against a corpus manifest.

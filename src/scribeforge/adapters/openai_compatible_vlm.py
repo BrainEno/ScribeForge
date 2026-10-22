@@ -14,7 +14,7 @@ from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from PIL import Image
 
@@ -40,7 +40,8 @@ class _RejectRedirectHandler(HTTPRedirectHandler):
         return None
 
 
-_HTTP_OPENER = build_opener(_RejectRedirectHandler())
+# Do not let user proxy settings route local review crops through an intermediary.
+_HTTP_OPENER = build_opener(ProxyHandler({}), _RejectRedirectHandler())
 
 
 class VLMAdapterError(RuntimeError):

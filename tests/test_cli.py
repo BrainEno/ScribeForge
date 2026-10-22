@@ -1519,7 +1519,8 @@ def test_benchmark_include_vlm_requires_pipeline_and_explicit_endpoint(
 def test_benchmark_include_vlm_requires_endpoint_and_model(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _root, manifest = _corpus(tmp_path)
+    root, manifest = _corpus(tmp_path)
+    Image.new("RGB", (80, 120), "white").save(root / "page.png")
     out_path = tmp_path / "report.md"
 
     code = run(
