@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from scribeforge.cli import run
 from scribeforge.domain.jobs import JobStage
 from scribeforge.project_backup import (
     ProjectBackupError,
@@ -169,3 +170,55 @@ def test_restore_refuses_to_replace_an_existing_directory(tmp_path: Path) -> Non
 
 def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+
+def test_cli_backup_verify_restore_json_round_trip(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir, source = _prepared_store(tmp_path)
+    archive = tmp_path / "Book.zip"
+    target = tmp_path / "restored-from-cli.scribeforge"
+
+    backup_code = run(
+        ["backup", "--store", str(store_dir), "--out", str(archive), "--json"]
+    )
+    backup_payload = json.loads(capsys.readouterr().out)
+    assert backup_code == 0
+    assert backup_payload["healthy"] is True
+
+    verify_code = run(["verify-backup", "--backup", str(archive), "--json"])
+    verify_payload = json.loads(capsys.readouterr().out)
+    assert verify_code == 0
+    assert verify_payload["sqlite_integrity"] == "ok"
+
+    restore_code = run(["restore", "--backup", str(archive), "--to", str(target), "--json"])
+    restore_payload = json.loads(capsys.readouterr().out)
+    assert restore_code == 0
+    assert restore_payload["healthy"] is True
+    restored_project = SQLiteStore(target / "project.sqlite3").list_projects()[0]
+    assert restored_project.source_uri == str(source.resolve())
+
+
+def test_cli_backup_refuses_overwrite_and_restore_never_replaces_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir, _source = _prepared_store(tmp_path)
+    archive = tmp_path / "Book.zip"
+
+    assert run(["backup", "--store", str(store_dir), "--out", str(archive)]) == 0
+    capsys.readouterr()
+
+    code = run(["backup", "--store", str(store_dir), "--out", str(archive)])
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "already exists" in captured.err
+
+    target = tmp_path / "keep-existing"
+    target.mkdir()
+    (target / "marker.txt").write_text("preserve", encoding="utf-8")
+    restore_code = run(["restore", "--backup", str(archive), "--to", str(target)])
+    restore_output = capsys.readouterr()
+    assert restore_code == 2
+    assert "already exists" in restore_output.err
+    assert (target / "marker.txt").read_text(encoding="utf-8") == "preserve"
