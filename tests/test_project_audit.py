@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
+from scribeforge.cli import run
 from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.support.project_audit import audit_project_store
 
@@ -92,3 +94,36 @@ def test_project_audit_reports_unreadable_database_as_fatal(tmp_path: Path) -> N
 
     assert report.database_readable is False
     assert report.findings[0].code == "database_unreadable"
+
+
+
+def test_audit_cli_emits_stable_json_and_zero_exit_for_healthy_project(
+    tmp_path: Path, capsys: object
+) -> None:
+    store_dir, _source = _store_with_source(tmp_path)
+
+    code = run(["audit", "--store", str(store_dir), "--json"])
+    captured = capsys.readouterr()  # type: ignore[attr-defined]
+    payload = json.loads(captured.out)
+
+    assert code == 0
+    assert payload["healthy"] is True
+    assert payload["sqlite_integrity"] == "ok"
+    assert payload["findings"] == []
+
+
+def test_audit_cli_returns_partial_for_findings_and_fatal_for_missing_store(
+    tmp_path: Path, capsys: object
+) -> None:
+    store_dir, source = _store_with_source(tmp_path)
+    source.write_bytes(b"changed")
+
+    partial = run(["audit", "--store", str(store_dir), "--json"])
+    partial_output = capsys.readouterr()  # type: ignore[attr-defined]
+    assert partial == 1
+    assert "source_hash_mismatch" in partial_output.out
+
+    fatal = run(["audit", "--store", str(tmp_path / "missing.scribeforge"), "--json"])
+    fatal_output = capsys.readouterr()  # type: ignore[attr-defined]
+    assert fatal == 2
+    assert "database_missing" in fatal_output.out
