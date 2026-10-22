@@ -96,7 +96,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
       if (rawDecisions is Map) {
         for (final item in rawDecisions.entries) {
           final key = int.tryParse(item.key.toString());
-          if (key != null && item.value is String) decisions[key] = item.value as String;
+          if (key != null && item.value is String) {
+            decisions[key] = item.value as String;
+          }
         }
       }
       _labelA.text = recordA?['label'] as String? ?? 'Candidate A';
@@ -476,7 +478,9 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                         padding: const EdgeInsets.all(8),
                         itemCount: rows.isEmpty ? page.lines.length : rows.length,
                         itemBuilder: (context, index) {
-                          if (rows.isEmpty) return _line(page.lines[index], false, absent: false);
+                          if (rows.isEmpty) {
+                            return _line(page.lines[index], false, absent: false);
+                          }
                           final row = rows[index];
                           final text = left ? row.left : row.right;
                           return _line(text ?? '∅  [no corresponding line]', row.changed,
@@ -533,7 +537,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                     Text(subtitle, style: const TextStyle(fontSize: 10, color: Color(0xFF7D8983))),
                   ],
                 )),
-                if (headerExtra != null) headerExtra,
+                ?headerExtra,
               ]),
             ),
             const Divider(height: 1),

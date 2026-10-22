@@ -9,7 +9,9 @@ class EvaluationStore {
 
   static Future<Map<String, dynamic>?> read(String sourcePdfPath) async {
     final file = File(sidecarPath(sourcePdfPath));
-    if (!await file.exists()) return null;
+    if (!await file.exists()) {
+      return null;
+    }
     try {
       final raw = jsonDecode(await file.readAsString());
       if (raw is! Map<String, dynamic> || raw['schema_version'] != 1) return null;
@@ -23,7 +25,9 @@ class EvaluationStore {
 
   static Future<String> fingerprint(String path) async {
     final file = File(path);
-    if (!await file.exists()) throw FileSystemException('File no longer exists', path);
+    if (!await file.exists()) {
+      throw FileSystemException('File no longer exists', path);
+    }
     final digest = await sha256.bind(file.openRead()).first;
     return digest.toString();
   }

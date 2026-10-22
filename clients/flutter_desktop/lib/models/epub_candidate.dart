@@ -87,6 +87,9 @@ class EpubCandidate {
         throw FormatException('EPUB entry is too large: $name');
       }
       final content = entry.readBytes();
+      if (content == null) {
+        throw FormatException('Could not read EPUB entry: $name');
+      }
       return utf8.decode(content, allowMalformed: true);
     }
 
@@ -177,7 +180,9 @@ class EpubCandidate {
 
 Iterable<XmlElement> _descendants(XmlElement root) sync* {
   for (final node in root.descendants) {
-    if (node is XmlElement) yield node;
+    if (node is XmlElement) {
+      yield node;
+    }
   }
 }
 
@@ -203,7 +208,9 @@ String _resolveZipPath(String opfPath, String href) {
   for (final part in [...parent, ...decoded.split('/')]) {
     if (part.isEmpty || part == '.') continue;
     if (part == '..') {
-      if (pieces.isEmpty) throw const FormatException('EPUB resource escapes the archive root.');
+      if (pieces.isEmpty) {
+        throw const FormatException('EPUB resource escapes the archive root.');
+      }
       pieces.removeLast();
     } else {
       pieces.add(part);
