@@ -538,24 +538,23 @@ def _remap_project_sources(
 ) -> None:
     """Point restored projects at their archived source documents, preserving hashes."""
     try:
-        with closing(sqlite3.connect(database)) as connection:
-            with connection:
-                for source in source_records:
-                    member = str(source["archive_path"])
-                    target = str((destination_root / PurePosixPath(member)).resolve())
-                    cursor = connection.execute(
-                        """
-                        UPDATE projects
-                        SET source_uri = ?
-                        WHERE id = ? AND source_sha256 = ?
-                        """,
-                        (target, int(source["project_id"]), str(source["sha256"])),
+        with closing(sqlite3.connect(database)) as connection, connection:
+            for source in source_records:
+                member = str(source["archive_path"])
+                target = str((destination_root / PurePosixPath(member)).resolve())
+                cursor = connection.execute(
+                    """
+                    UPDATE projects
+                    SET source_uri = ?
+                    WHERE id = ? AND source_sha256 = ?
+                    """,
+                    (target, int(source["project_id"]), str(source["sha256"])),
+                )
+                if cursor.rowcount != 1:
+                    raise ProjectBackupError(
+                        "backup source record does not match a restored project: "
+                        f"{source['project_id']}"
                     )
-                    if cursor.rowcount != 1:
-                        raise ProjectBackupError(
-                            "backup source record does not match a restored project: "
-                            f"{source['project_id']}"
-                        )
     except sqlite3.Error as exc:
         raise ProjectBackupError(f"could not relocate restored source files: {exc}") from exc
 
