@@ -28,6 +28,8 @@ class CaseScore:
     missing_lines: int
     extra_lines: int
     elapsed_seconds: float
+    accepted_pairs: int | None = None
+    unresolved_pairs: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +42,8 @@ class AggregateScore:
     extra_lines: int
     elapsed_seconds: float
     pages_per_minute: float
+    accepted_pairs: int | None = None
+    unresolved_pairs: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -26,7 +26,7 @@ cd clients\flutter_desktop
 flutter run -d windows
 ```
 
-也可以在 Flutter 工作区中使用 **Set up OCR / Run OCR / Build A/B EPUBs** 按钮。首次使用请点击右上角设置图标确认 ScribeForge CLI 的路径。比较器只辅助人工判断，不会自动认定哪份候选 EPUB 更好。
+也可以在 Flutter 工作区中使用 **Set up OCR / Run OCR / Build A/B EPUBs** 按钮。右上角 **Settings** 菜单可以设置 ScribeForge CLI 路径，也可以打开 **Runtime & Models** 查看 GPU、驱动、显存、内存、MinerU/PaddleOCR 状态以及模型和缓存目录；状态检查不会修改运行环境，安装与修复仍由现有运行时向导完成。比较器只辅助人工判断，不会自动认定哪份候选 EPUB 更好。
 
 ## Core principles
 
@@ -84,6 +84,7 @@ The repository is in **Phase 3 — desktop UI**, with Phases 1, 2, and 4 complet
 
 ```bash
 scribeforge setup                             # first-run runtime/model setup wizard
+scribeforge runtime-status --json                 # inspect backend readiness and hardware
 scribeforge setup --runtime-root runtime/     # choose a private runtime directory
 scribeforge process book.pdf                  # import + process every page
 scribeforge process book.pdf --store store/   # explicit project store
@@ -106,7 +107,7 @@ scribeforge benchmark --manifest benchmark/manifest.json \
   --out benchmark/benchmark_report.md         # score MinerU + PaddleOCR
 ```
 
-`process` writes a project store beside the book by default (`<book-stem>.scribeforge`). OCR runtimes are shared in the per-user application data folder by default; `setup`, `process`, and `benchmark` accept `--runtime-root` to override it. Run `scribeforge setup` once to install the private Python environments and OCR models. Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
+`process` writes a project store beside the book by default (`<book-stem>.scribeforge`). OCR runtimes are shared in the per-user application data folder by default; `setup`, `process`, and `benchmark` accept `--runtime-root` to override it. Run `scribeforge setup` once to install the private Python environments and OCR models. Use `scribeforge runtime-status --json` to inspect hardware, backend readiness, and private model/cache paths without changing the installation. Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
 
 Run `scribeforge audit --store store/ --json` before archiving or resuming a project to check SQLite integrity, foreign-key references, source-file SHA-256, and whether every imported page image still exists. The audit opens SQLite read-only and never repairs or changes evidence. Exit code 0 means no findings, 1 means audit findings need attention, and 2 means the audit could not read the project database.
 
@@ -120,7 +121,7 @@ When two engines agree a decision is recorded as `automatic`; a confident VLM re
 
 `clients/flutter_desktop` is the Flutter-first desktop comparison surface: the original PDF is shown beside two EPUB candidates, changed lines are highlighted, and reviewers can save per-page preferences, an overall winner, and notes. Prepare candidate files using `scribeforge export-candidates`, then follow [Flutter Desktop](./clients/flutter_desktop/README.md) to generate platform runners and launch it. The first version compares extracted EPUB text rather than reproducing all EPUB CSS/layout, and chapter-based EPUBs are aligned approximately. On Windows, enable Developer Mode before compiling `pdfrx`, which uses native asset symlinks. Human review choices are stored beside the PDF with input hashes; the UI never decides a winner automatically. When a project is open and the source identity matches, use **Export verified book** to create the accepted EPUB 3/DOCX with editable title, author and language metadata. Optional fixed modification timestamps support reproducible exports; incomplete verification is still rejected by the CLI.
 
-`benchmark` validates a corpus manifest (every case needs a non-empty page image and hand-verified ground truth), builds only the requested managed backends, and scores each one for CER, WER, punctuation, missing/extra lines, per-page time, and pages/minute. It writes a deterministic Markdown report naming the manifest SHA-256, with per-case rows so an aggregate gain cannot hide a hard-page regression. Variants A (MinerU) and B (PaddleOCR) are runnable; the pipeline comparison (C/D) and the real-corpus report remain. See [Benchmark](./benchmark/README.md).
+`benchmark` validates a corpus manifest (every case needs a non-empty page image and hand-verified ground truth), builds only the requested managed backends, and scores each one for CER, WER, punctuation, missing/extra lines, per-page time, and pages/minute. Add `--include-pipeline` to also score variant C through the production dual-engine alignment/risk/decision stages; unresolved pairs are omitted rather than guessed and are reported as coverage counts. It writes a deterministic Markdown report naming the manifest SHA-256, with per-case rows so an aggregate gain cannot hide a hard-page regression. Variants A (MinerU), B (PaddleOCR), and C (conservative dual-engine decisions) are runnable; D still needs a managed VLM runtime adapter, and the real-corpus report remains pending. See [Benchmark](./benchmark/README.md).
 
 See:
 

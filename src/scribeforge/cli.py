@@ -19,6 +19,7 @@ from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.benchmark.corpus import validate_corpus
 from scribeforge.benchmark.manifest import load_manifest
+from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
 from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
@@ -118,6 +119,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Private runtime directory (default: the per-user ScribeForge runtime folder).",
+    )
+
+    runtime_status = subparsers.add_parser(
+        "runtime-status",
+        help="Inspect managed OCR runtimes, models and hardware without modifying them.",
+    )
+    runtime_status.add_argument(
+        "--runtime-root",
+        type=Path,
+        default=None,
+        help="Private runtime directory (default: the per-user ScribeForge runtime folder).",
+    )
+    runtime_status.add_argument(
+        "--json", action="store_true", help="Emit a stable JSON status report."
     )
 
     status = subparsers.add_parser(
@@ -261,6 +276,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="Backend to score, repeatable (default: mineru and paddleocr).",
     )
+    benchmark.add_argument(
+        "--include-pipeline",
+        action="store_true",
+        help="Also score variant C through alignment, risk assessment and conservative decisions.",
+    )
 
     return parser
 
@@ -278,6 +298,8 @@ def run(
     out = sys.stdout if stdout is None else stdout
     if args.command == "setup":
         return _setup(args)
+    if args.command == "runtime-status":
+        return _runtime_status(args, out)
     if args.command == "status":
         return _status(args, out)
     if args.command == "relink-source":
@@ -885,6 +907,15 @@ def _benchmark(
         return EXIT_FATAL
 
     backends: list[str] = list(args.engine) if args.engine else ["mineru", "paddleocr"]
+    if args.include_pipeline and (
+        len(backends) != 2 or set(backends) != set(_BENCHMARK_BACKENDS)
+    ):
+        print(
+            "error: --include-pipeline requires both mineru and paddleocr exactly once",
+            file=sys.stderr,
+        )
+        return EXIT_FATAL
+
     unknown = [backend for backend in backends if backend not in _BENCHMARK_BACKENDS]
     if unknown:
         print(f"error: unknown benchmark engine: {unknown[0]}", file=sys.stderr)
@@ -899,8 +930,27 @@ def _benchmark(
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
     try:
-        reports = tuple(run_benchmark(manifest, root, engine) for engine in engines)
-    except Exception as exc:  # noqa: BLE001 - an engine failure must fail as fatal
+        reports_list = [run_benchmark(manifest, root, engine) for engine in engines]
+        if args.include_pipeline:
+            engines_by_name = {engine.name: engine for engine in engines}
+            missing = [
+                name for name in ("mineru", "paddleocr") if name not in engines_by_name
+            ]
+            if missing:
+                raise ValueError(
+                    "benchmark factory did not provide required backend(s): "
+                    + ", ".join(missing)
+                )
+            reports_list.append(
+                run_pipeline_benchmark(
+                    manifest,
+                    root,
+                    engines_by_name["mineru"],
+                    engines_by_name["paddleocr"],
+                )
+            )
+        reports = tuple(reports_list)
+    except Exception as exc:  # noqa: BLE001 - engine/pipeline failure must fail as fatal
         print(f"error: benchmark run failed: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
@@ -920,6 +970,84 @@ def _benchmark(
         f"wrote benchmark report for {len(reports)} variant(s) to {args.out}",
         file=out,
     )
+    return EXIT_OK
+
+
+def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
+    """Report private runtime state without installing, repairing, or changing it."""
+    from scribeforge.runtime.workflow import RuntimeSetupWorkflow
+
+    runtime_root: Path = (
+        args.runtime_root if args.runtime_root is not None else default_runtime_root()
+    )
+    try:
+        overview = RuntimeSetupWorkflow(runtime_root).inspect()
+    except Exception as exc:  # noqa: BLE001 - diagnostics must remain actionable
+        print(f"error: could not inspect runtime state: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    layout = RuntimeLayout(runtime_root)
+    profile = overview.hardware
+    backends: dict[str, dict[str, object]] = {}
+    for name, backend_status in (
+        ("mineru", overview.mineru),
+        ("paddleocr", overview.paddleocr),
+    ):
+        environment = layout.environment_dir(name)
+        backends[name] = {
+            "state": backend_status.state,
+            "failed_step": backend_status.failed_step,
+            "environment_path": str(environment),
+            "environment_exists": environment.is_dir(),
+        }
+
+    paths = {
+        "models": str(layout.models_dir),
+        "models_exists": layout.models_dir.is_dir(),
+        "cache": str(layout.cache_dir),
+        "cache_exists": layout.cache_dir.is_dir(),
+        "tools": str(layout.tools_dir),
+        "tools_exists": layout.tools_dir.is_dir(),
+    }
+    hardware = {
+        "os": profile.os_name,
+        "architecture": profile.architecture,
+        "gpu_name": profile.gpu_name,
+        "nvidia_driver": profile.nvidia_driver,
+        "vram_mb": profile.vram_mb,
+        "ram_mb": profile.ram_mb,
+    }
+    report = {
+        "schema_version": 1,
+        "runtime_root": str(runtime_root),
+        "runtime_root_exists": runtime_root.is_dir(),
+        "uv_available": overview.uv_available,
+        "hardware": hardware,
+        "paths": paths,
+        "backends": backends,
+    }
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out)
+    else:
+        print(f"Runtime root: {runtime_root}", file=out)
+        print(f"uv: {'available' if overview.uv_available else 'missing'}", file=out)
+        gpu = profile.gpu_name or "not detected"
+        print(f"GPU: {gpu}", file=out)
+        print(
+            f"VRAM: {profile.vram_mb} MiB" if profile.vram_mb is not None else "VRAM: unknown",
+            file=out,
+        )
+        print(
+            f"RAM: {profile.ram_mb} MiB" if profile.ram_mb is not None else "RAM: unknown",
+            file=out,
+        )
+        for name, backend_report in backends.items():
+            failed_step = backend_report["failed_step"]
+            suffix = f" (failed step: {failed_step})" if failed_step else ""
+            print(f"{name}: {backend_report['state']}{suffix}", file=out)
+        print(f"Models: {paths['models']}", file=out)
+        print(f"Cache: {paths['cache']}", file=out)
     return EXIT_OK
 
 
