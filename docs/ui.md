@@ -21,9 +21,9 @@ asset and the review crop for that pair, each with its path and displayed size i
 the caption; a missing asset, a missing crop, or an undecodable file is stated in
 the caption rather than hidden.
 
-The `Compare` tab shows the primary and secondary OCR lines side by side.
-Stored character conflict ranges are highlighted by type: replacement, insertion,
-deletion, and punctuation. An empty side of an insertion/deletion uses a visible
+The `Compare` tab shows the primary and secondary OCR lines side by side, each
+with its own vertical scrollbar. Stored character conflict ranges are highlighted
+by type: replacement, insertion, deletion, and punctuation. An empty side of an insertion/deletion uses a visible
 empty-set marker, and a line missing from one engine is labelled as unaligned. The
 comparison uses persisted alignment offsets rather than running a new diff in
 the UI, so it does not silently change the evidence being reviewed.

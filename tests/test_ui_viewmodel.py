@@ -157,6 +157,9 @@ def test_load_detail_exposes_source_and_engine_line_boxes(tmp_path: Path) -> Non
     assert detail.source_box == BoundingBox(0.1, 0.1, 0.5, 0.05)
     assert detail.primary_box == BoundingBox(0.1, 0.1, 0.5, 0.05)
     assert detail.secondary_box == BoundingBox(0.1, 0.12, 0.5, 0.05)
+    assert detail.conflicts == (
+        AlignmentConflict(ConflictKind.SUBSTITUTION, "鸦", "雅", 0, 1, 0, 1),
+    )
 
 
 def test_page_image_path_is_none_when_the_asset_is_gone(tmp_path: Path) -> None:
