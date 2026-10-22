@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import re
 import sys
@@ -15,6 +16,7 @@ from typing import TextIO
 from scribeforge.adapters.candidate_epub import build_candidate_epub
 from scribeforge.adapters.docx import write_docx
 from scribeforge.adapters.epub import write_epub
+from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReviewer
 from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.benchmark.corpus import validate_corpus
@@ -64,6 +66,89 @@ _BENCHMARK_BACKENDS = {
 }
 
 
+def _add_vlm_arguments(
+    parser: argparse.ArgumentParser, *, include_vlm_switch: bool = False
+) -> None:
+    parser.add_argument(
+        "--vlm-endpoint",
+        help="OpenAI-compatible vision chat base URL (loopback only by default).",
+    )
+    parser.add_argument("--vlm-model", help="Vision model identifier served by the endpoint.")
+    parser.add_argument(
+        "--vlm-api-key-env",
+        help="Optional environment variable containing the endpoint bearer token; never pass secrets as CLI values.",
+    )
+    parser.add_argument(
+        "--vlm-timeout",
+        type=float,
+        default=120.0,
+        help="VLM request timeout in seconds (default: 120).",
+    )
+    parser.add_argument(
+        "--allow-remote-vlm",
+        action="store_true",
+        help="Explicitly allow sending review-crop images to a non-loopback VLM endpoint.",
+    )
+    if include_vlm_switch:
+        parser.add_argument(
+            "--include-vlm",
+            action="store_true",
+            help="Also score variant D using the configured VLM endpoint (requires --include-pipeline).",
+        )
+
+
+def _configured_vlm_reviewer(
+    args: argparse.Namespace, *, benchmark: bool = False
+) -> VLMReviewer | None:
+    endpoint = getattr(args, "vlm_endpoint", None)
+    model = getattr(args, "vlm_model", None)
+    api_key_env = getattr(args, "vlm_api_key_env", None)
+    allow_remote = bool(getattr(args, "allow_remote_vlm", False))
+
+    if benchmark:
+        include_vlm = bool(getattr(args, "include_vlm", False))
+        include_pipeline = bool(getattr(args, "include_pipeline", False))
+        if include_vlm and not include_pipeline:
+            raise ValueError("--include-vlm requires --include-pipeline")
+        if not include_vlm:
+            if endpoint or model or api_key_env is not None or allow_remote:
+                raise ValueError(
+                    "VLM endpoint options require --include-vlm for the benchmark command"
+                )
+            return None
+        if not endpoint:
+            raise ValueError("--vlm-endpoint is required with --include-vlm")
+    elif not endpoint and not model:
+        if api_key_env is not None or allow_remote:
+            raise ValueError("--vlm-api-key-env/--allow-remote-vlm require --vlm-endpoint")
+        return None
+
+    if not endpoint:
+        raise ValueError("--vlm-endpoint is required when --vlm-model is set")
+    if not model:
+        raise ValueError("--vlm-model is required when --vlm-endpoint is set")
+    if not model.strip():
+        raise ValueError("--vlm-model must not be empty")
+
+    api_key = None
+    if api_key_env is not None:
+        if not api_key_env.strip():
+            raise ValueError("--vlm-api-key-env must name an environment variable")
+        if api_key_env not in os.environ:
+            raise ValueError(f"VLM API key environment variable is not set: {api_key_env}")
+        api_key = os.environ[api_key_env]
+        if not api_key.strip():
+            raise ValueError(f"VLM API key environment variable is empty: {api_key_env}")
+
+    return OpenAICompatibleVLMReviewer(
+        endpoint=endpoint,
+        model=model,
+        api_key=api_key,
+        timeout_seconds=args.vlm_timeout,
+        allow_remote=allow_remote,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class StoreLayout:
     """On-disk layout of a single-book project store."""
@@ -110,6 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Managed runtime root (default: the per-user ScribeForge runtime folder).",
     )
+    _add_vlm_arguments(process)
 
     setup = subparsers.add_parser(
         "setup", help="Open the first-run wizard for private OCR runtimes and models."
@@ -281,6 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also score variant C through alignment, risk assessment and conservative decisions.",
     )
+    _add_vlm_arguments(benchmark, include_vlm_switch=True)
 
     return parser
 
@@ -329,7 +416,20 @@ def run(
             else benchmark_engine_factory
         )
         return _benchmark(args, out, benchmark_factory)
+    try:
+        reviewer = _configured_vlm_reviewer(args)
+    except ValueError as exc:
+        print(f"error: VLM configuration: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
     factory = default_engine_factory if engine_factory is None else engine_factory
+    if reviewer is not None:
+        original_factory = factory
+
+        def configured_factory(runtime_root: Path) -> Engines:
+            return replace(original_factory(runtime_root), reviewer=reviewer)
+
+        factory = configured_factory
     return _process(args, out, factory)
 
 
@@ -889,6 +989,12 @@ def _parse_modified(value: str) -> datetime:
 def _benchmark(
     args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFactory
 ) -> int:
+    try:
+        reviewer = _configured_vlm_reviewer(args, benchmark=True)
+    except ValueError as exc:
+        print(f"error: VLM configuration: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
     manifest_path: Path = args.manifest
     if not manifest_path.is_file():
         print(f"error: manifest not found: {manifest_path}", file=sys.stderr)
@@ -949,6 +1055,16 @@ def _benchmark(
                     engines_by_name["paddleocr"],
                 )
             )
+            if reviewer is not None:
+                reports_list.append(
+                    run_pipeline_benchmark(
+                        manifest,
+                        root,
+                        engines_by_name["mineru"],
+                        engines_by_name["paddleocr"],
+                        reviewer=reviewer,
+                    )
+                )
         reports = tuple(reports_list)
     except Exception as exc:  # noqa: BLE001 - engine/pipeline failure must fail as fatal
         print(f"error: benchmark run failed: {exc}", file=sys.stderr)

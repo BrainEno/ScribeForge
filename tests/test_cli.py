@@ -1490,3 +1490,174 @@ def test_benchmark_pipeline_requires_both_backends(
     assert code == 2
     assert "requires both mineru and paddleocr" in captured.err.lower()
     assert not out_path.exists()
+
+
+def test_benchmark_include_vlm_requires_pipeline_and_explicit_endpoint(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--include-vlm",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--include-vlm requires --include-pipeline" in captured.err
+    assert not out_path.exists()
+
+
+def test_benchmark_include_vlm_requires_endpoint_and_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, manifest = _corpus(tmp_path)
+    Image.new("RGB", (80, 120), "white").save(root / "page.png")
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--include-pipeline",
+            "--include-vlm",
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--vlm-model is required" in captured.err
+    assert not out_path.exists()
+
+
+def test_process_requires_vlm_endpoint_and_model_together(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    code = run(
+        [
+            "process",
+            str(book),
+            "--store",
+            str(tmp_path / "store"),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+        ],
+        engine_factory=_factory(),
+    )
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--vlm-model is required" in captured.err
+    assert not (tmp_path / "store" / "project.sqlite3").exists()
+
+
+
+def test_process_uses_explicitly_configured_vlm_reviewer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: FakeReviewer(),
+    )
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+
+    code = run(
+        [
+            "process",
+            str(book),
+            "--store",
+            str(store_dir),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-vision",
+        ],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    )
+
+    assert code == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    decision = store.latest_decision(project.id, 0, 0)
+    assert decision is not None
+    assert decision.actor == "vlm"
+    assert decision.selected_text == "verified"
+
+
+def test_benchmark_include_vlm_adds_variant_d(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: FakeReviewer(),
+    )
+    root, manifest = _corpus(tmp_path)
+    Image.new("RGB", (80, 120), "white").save(root / "page.png")
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--include-pipeline",
+            "--include-vlm",
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-vision",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    report = out_path.read_text(encoding="utf-8")
+    assert code == 0
+    assert "### dual-engine\n" in report
+    assert "### dual-engine+vlm" in report
+    assert "| dual-engine+vlm |" in report
+
+
+
+def test_process_requires_configured_api_key_environment_variable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MISSING_VLM_TOKEN", raising=False)
+    book = _book(tmp_path)
+
+    code = run(
+        [
+            "process",
+            str(book),
+            "--store",
+            str(tmp_path / "store"),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-vision",
+            "--vlm-api-key-env",
+            "MISSING_VLM_TOKEN",
+        ],
+        engine_factory=_factory(),
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "environment variable is not set" in captured.err
+    assert not (tmp_path / "store" / "project.sqlite3").exists()
