@@ -22,6 +22,7 @@ class _ResponseHandler(BaseHTTPRequestHandler):
     request_json: dict[str, Any] | None = None
     authorization: str | None = None
     request_path: str | None = None
+    finish_reason = "stop"
 
     def do_POST(self) -> None:
         raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
@@ -33,7 +34,7 @@ class _ResponseHandler(BaseHTTPRequestHandler):
                 "model": "fixture-vision-1",
                 "choices": [
                     {
-                        "finish_reason": "stop",
+                        "finish_reason": type(self).finish_reason,
                         "message": {"role": "assistant", "content": type(self).response_content},
                     }
                 ],
@@ -54,6 +55,7 @@ def vlm_server():
     _ResponseHandler.request_json = None
     _ResponseHandler.authorization = None
     _ResponseHandler.request_path = None
+    _ResponseHandler.finish_reason = "stop"
     server = ThreadingHTTPServer(("127.0.0.1", 0), _ResponseHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -125,9 +127,8 @@ def test_reviewer_rejects_malformed_model_output(tmp_path: Path, vlm_server) -> 
 def test_reviewer_rejects_truncated_model_output(tmp_path: Path, vlm_server) -> None:
     endpoint, handler = vlm_server
     handler.response_content = '{"text":"partial","uncertain":false}'
-    class TruncatedResponseHandler(type(handler)):
-        pass
-    # Replace the fixture response with a truncation marker supplied by the server.
+    handler.finish_reason = "length"
     reviewer = OpenAICompatibleVLMReviewer(endpoint=endpoint, model="fixture-vision")
-    reading = reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
-    assert reading.text == "partial"
+
+    with pytest.raises(VLMAdapterError, match="truncated"):
+        reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
