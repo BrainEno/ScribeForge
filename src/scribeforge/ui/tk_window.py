@@ -1,8 +1,8 @@
-"""Tkinter view of the desktop shell.
+"""Tkinter widgets for the desktop review shell.
 
-Display-only code: every label and every row comes from
-:mod:`scribeforge.ui.viewmodel`, which is unit tested without a display. This
-module is excluded from coverage and verified by launching the app.
+Evidence presentation and decision persistence are separated into the
+framework-independent view-model. This widget module is excluded from coverage
+because CI is headless; its underlying decision behavior is unit tested.
 """
 
 from __future__ import annotations
@@ -153,7 +153,7 @@ class ScribeForgeWindow:
         root.bind("2", lambda event: self._shortcut_accept("secondary"))
         root.bind("3", lambda event: self._shortcut_accept("vlm"))
         root.bind("n", lambda event: self._select_next_pair())
-        root.bind("<Control-Return>", lambda event: self._save_custom())
+        root.bind("<Control-Return>", lambda event: self._shortcut_save())
 
     def refresh(self) -> None:
         """Reload the library, preserving the currently selected project."""
@@ -265,7 +265,11 @@ class ScribeForgeWindow:
             state="normal" if detail is not None and detail.primary_text is not None else "disabled"
         )
         self.secondary_button.configure(
-            state="normal" if detail is not None and detail.secondary_text is not None else "disabled"
+            state=(
+                "normal"
+                if detail is not None and detail.secondary_text is not None
+                else "disabled"
+            )
         )
         self.vlm_button.configure(
             state="normal" if detail is not None and detail.vlm_text is not None else "disabled"
@@ -322,6 +326,10 @@ class ScribeForgeWindow:
             text=f"accepted page {row.page_index} pair {row.pair_index}; "
             f"{remaining} pair(s) remain"
         )
+
+    def _shortcut_save(self) -> str:
+        self._save_custom()
+        return "break"
 
     def _shortcut_accept(self, source: str) -> str | None:
         if self._root.focus_get() is self.custom_entry:
