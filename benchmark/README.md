@@ -26,6 +26,11 @@ scribeforge benchmark --manifest benchmark/manifest.json --out benchmark/benchma
 # Score one backend only; the other runtime is not required.
 scribeforge benchmark --manifest benchmark/manifest.json --out benchmark/benchmark_report.md --engine mineru
 
+# Score A, B, C and D through a local OpenAI-compatible VLM endpoint.
+scribeforge benchmark --manifest benchmark/manifest.json --out benchmark/benchmark_report.md \
+  --include-pipeline --include-vlm \
+  --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model your-local-vision-model
+
 # Use a corpus and a runtime root outside the repository.
 scribeforge benchmark \
   --manifest D:/corpus/manifest.json \

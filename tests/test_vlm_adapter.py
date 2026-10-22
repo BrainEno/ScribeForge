@@ -23,6 +23,8 @@ class _ResponseHandler(BaseHTTPRequestHandler):
     authorization: str | None = None
     request_path: str | None = None
     finish_reason = "stop"
+    response_status = 200
+    redirect_url: str | None = None
 
     def do_POST(self) -> None:
         raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
@@ -40,7 +42,9 @@ class _ResponseHandler(BaseHTTPRequestHandler):
                 ],
             }
         ).encode("utf-8")
-        self.send_response(200)
+        self.send_response(type(self).response_status)
+        if type(self).redirect_url is not None:
+            self.send_header("Location", type(self).redirect_url)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response)))
         self.end_headers()
@@ -56,6 +60,9 @@ def vlm_server():
     _ResponseHandler.authorization = None
     _ResponseHandler.request_path = None
     _ResponseHandler.finish_reason = "stop"
+    _ResponseHandler.response_status = 200
+    _ResponseHandler.redirect_url = None
+    _ResponseHandler.response_content = '{"text":"one\\\\ntwo","uncertain":false}'
     server = ThreadingHTTPServer(("127.0.0.1", 0), _ResponseHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -132,3 +139,77 @@ def test_reviewer_rejects_truncated_model_output(tmp_path: Path, vlm_server) -> 
 
     with pytest.raises(VLMAdapterError, match="truncated"):
         reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
+
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "ftp://127.0.0.1/v1",
+        "http://user:secret@127.0.0.1/v1",
+        "http://127.0.0.1/v1?token=secret",
+        "http://127.0.0.1:invalid/v1",
+    ],
+)
+def test_reviewer_rejects_unsafe_or_invalid_endpoint_urls(endpoint: str) -> None:
+    with pytest.raises(ValueError, match="VLM endpoint"):
+        OpenAICompatibleVLMReviewer(endpoint=endpoint, model="vision-model")
+
+
+def test_reviewer_rejects_missing_or_invalid_crop(tmp_path: Path, vlm_server) -> None:
+    endpoint, _handler = vlm_server
+    reviewer = OpenAICompatibleVLMReviewer(endpoint=endpoint, model="fixture-vision")
+
+    with pytest.raises(VLMAdapterError, match="cannot read"):
+        reviewer.transcribe_crop(str(tmp_path / "missing.png"), page_index=0, pair_index=0)
+
+    bad_image = tmp_path / "bad.png"
+    bad_image.write_bytes(b"not an image")
+    with pytest.raises(VLMAdapterError, match="valid image"):
+        reviewer.transcribe_crop(str(bad_image), page_index=0, pair_index=0)
+
+
+def test_reviewer_reports_http_failures_without_retrying_elsewhere(
+    tmp_path: Path, vlm_server
+) -> None:
+    endpoint, handler = vlm_server
+    handler.response_status = 503
+    reviewer = OpenAICompatibleVLMReviewer(endpoint=endpoint, model="fixture-vision")
+
+    with pytest.raises(VLMAdapterError, match="HTTP 503"):
+        reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
+
+
+def test_reviewer_does_not_follow_endpoint_redirects(
+    tmp_path: Path, vlm_server
+) -> None:
+    endpoint, handler = vlm_server
+    handler.response_status = 307
+    handler.redirect_url = "http://example.invalid/exfiltrate"
+    reviewer = OpenAICompatibleVLMReviewer(endpoint=endpoint, model="fixture-vision")
+
+    with pytest.raises(VLMAdapterError, match="HTTP 307"):
+        reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
+
+
+def test_reviewer_requires_boolean_uncertainty(tmp_path: Path, vlm_server) -> None:
+    endpoint, handler = vlm_server
+    handler.response_content = '{"text":"reading","uncertain":"false"}'
+    reviewer = OpenAICompatibleVLMReviewer(endpoint=endpoint, model="fixture-vision")
+
+    with pytest.raises(VLMAdapterError, match="boolean"):
+        reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
+
+
+def test_reviewer_validates_timeout_and_model_identity() -> None:
+    with pytest.raises(ValueError, match="timeout"):
+        OpenAICompatibleVLMReviewer(
+            endpoint="http://127.0.0.1:1234/v1",
+            model="vision-model",
+            timeout_seconds=float("nan"),
+        )
+    with pytest.raises(ValueError, match="model name"):
+        OpenAICompatibleVLMReviewer(
+            endpoint="http://127.0.0.1:1234/v1",
+            model="  ",
+        )

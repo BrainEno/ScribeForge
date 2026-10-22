@@ -1562,3 +1562,71 @@ def test_process_requires_vlm_endpoint_and_model_together(
     assert code == 2
     assert "--vlm-model is required" in captured.err
     assert not (tmp_path / "store" / "project.sqlite3").exists()
+
+
+
+def test_process_uses_explicitly_configured_vlm_reviewer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: FakeReviewer(),
+    )
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+
+    code = run(
+        [
+            "process",
+            str(book),
+            "--store",
+            str(store_dir),
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-vision",
+        ],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    )
+
+    assert code == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    decision = store.latest_decision(project.id, 0, 0)
+    assert decision is not None
+    assert decision.actor == "vlm"
+    assert decision.selected_text == "verified"
+
+
+def test_benchmark_include_vlm_adds_variant_d(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "scribeforge.cli.OpenAICompatibleVLMReviewer",
+        lambda **_kwargs: FakeReviewer(),
+    )
+    _root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--include-pipeline",
+            "--include-vlm",
+            "--vlm-endpoint",
+            "http://127.0.0.1:1234/v1",
+            "--vlm-model",
+            "fixture-vision",
+        ],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    report = out_path.read_text(encoding="utf-8")
+    assert code == 0
+    assert "### dual-engine\n" in report
+    assert "### dual-engine+vlm" in report
+    assert "| dual-engine+vlm |" in report

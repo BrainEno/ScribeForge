@@ -14,7 +14,7 @@ from io import BytesIO
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from PIL import Image
 
@@ -23,6 +23,24 @@ from scribeforge.domain.vlm import LITERAL_TRANSCRIPTION_POLICY, VLMReading
 _MAX_IMAGE_BYTES = 20 * 1024 * 1024
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 _ERROR_BODY_BYTES = 4096
+
+
+class _RejectRedirectHandler(HTTPRedirectHandler):
+    """Prevent a configured endpoint from redirecting private crop bytes elsewhere."""
+
+    def redirect_request(
+        self,
+        req: Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> None:
+        return None
+
+
+_HTTP_OPENER = build_opener(_RejectRedirectHandler())
 
 
 class VLMAdapterError(RuntimeError):
@@ -161,7 +179,7 @@ class OpenAICompatibleVLMReviewer:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self._timeout_seconds) as response:
+            with _HTTP_OPENER.open(request, timeout=self._timeout_seconds) as response:
                 raw_response = response.read(_MAX_RESPONSE_BYTES + 1)
         except HTTPError as exc:
             detail = exc.read(_ERROR_BODY_BYTES).decode("utf-8", errors="replace").strip()
@@ -187,6 +205,8 @@ class OpenAICompatibleVLMReviewer:
         finish_reason = choice.get("finish_reason")
         if finish_reason == "length":
             raise VLMAdapterError("VLM completion was truncated by the token limit")
+        if finish_reason is not None and not isinstance(finish_reason, str):
+            raise VLMAdapterError("VLM completion has an invalid finish_reason")
         if finish_reason not in {None, "stop", "end_turn"}:
             raise VLMAdapterError(
                 f"VLM completion did not finish normally (finish_reason={finish_reason})"

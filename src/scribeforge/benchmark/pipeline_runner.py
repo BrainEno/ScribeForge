@@ -143,4 +143,5 @@ def run_pipeline_benchmark(
         accepted_pairs=sum(score.accepted_pairs or 0 for score in scores),
         unresolved_pairs=sum(score.unresolved_pairs or 0 for score in scores),
     )
-    return BenchmarkReport(engine="dual-engine", cases=tuple(scores), aggregate=aggregate)
+    label = "dual-engine+vlm" if reviewer is not None else "dual-engine"
+    return BenchmarkReport(engine=label, cases=tuple(scores), aggregate=aggregate)
