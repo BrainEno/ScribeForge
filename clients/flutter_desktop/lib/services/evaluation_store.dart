@@ -7,6 +7,9 @@ class EvaluationStore {
   static String sidecarPath(String sourcePdfPath) =>
       '$sourcePdfPath.scribeforge-review.json';
 
+  static const _validDecisions = <String>{'a', 'b', 'tie', 'review'};
+  static const _policy = 'human_evaluation_only_no_automatic_quality_score';
+
   static Future<Map<String, dynamic>?> read(String sourcePdfPath) async {
     final file = File(sidecarPath(sourcePdfPath));
     if (!await file.exists()) {
@@ -14,7 +17,7 @@ class EvaluationStore {
     }
     try {
       final raw = jsonDecode(await file.readAsString());
-      if (raw is! Map<String, dynamic> || raw['schema_version'] != 1) {
+      if (raw is! Map<String, dynamic> || !_isValidSidecar(raw)) {
         return null;
       }
       return raw;
@@ -23,6 +26,68 @@ class EvaluationStore {
     } on FileSystemException {
       return null;
     }
+  }
+
+  static bool _isValidSidecar(Map<String, dynamic> raw) {
+    if (raw['schema_version'] != 1) return false;
+
+    final updatedAt = raw['updated_at'];
+    if (updatedAt is! String || DateTime.tryParse(updatedAt) == null) {
+      return false;
+    }
+
+    final source = raw['source_pdf'];
+    if (source is! Map ||
+        !_hasText(source['path']) ||
+        !_isSha256(source['sha256'])) {
+      return false;
+    }
+
+    if (!_isValidCandidate(raw['candidate_a']) ||
+        !_isValidCandidate(raw['candidate_b'])) {
+      return false;
+    }
+
+    final decisions = raw['page_decisions'];
+    if (decisions is! Map) return false;
+    for (final entry in decisions.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (key is! String || value is! String) return false;
+      final page = int.tryParse(key);
+      if (page == null ||
+          page < 0 ||
+          page.toString() != key ||
+          !_validDecisions.contains(value)) {
+        return false;
+      }
+    }
+
+    final winner = raw['overall_winner'];
+    if (winner != null && !_validDecisions.contains(winner)) return false;
+    if (raw['notes'] is! String || raw['policy'] != _policy) return false;
+    return true;
+  }
+
+  static bool _isValidCandidate(Object? value) {
+    if (value == null) return true;
+    if (value is! Map) return false;
+    return _hasText(value['path']) &&
+        _isSha256(value['sha256']) &&
+        value['label'] is String;
+  }
+
+  static bool _hasText(Object? value) =>
+      value is String && value.trim().isNotEmpty;
+
+  static bool _isSha256(Object? value) {
+    if (value is! String || value.length != 64) return false;
+    for (final codeUnit in value.codeUnits) {
+      final isDigit = codeUnit >= 0x30 && codeUnit <= 0x39;
+      final isLowerHex = codeUnit >= 0x61 && codeUnit <= 0x66;
+      if (!isDigit && !isLowerHex) return false;
+    }
+    return true;
   }
 
   static Future<String> fingerprint(String path) async {
@@ -75,7 +140,7 @@ class EvaluationStore {
       },
       'overall_winner': overallWinner,
       'notes': notes,
-      'policy': 'human_evaluation_only_no_automatic_quality_score',
+      'policy': _policy,
     };
 
     final destination = File(sidecarPath(sourcePdfPath));

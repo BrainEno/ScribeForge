@@ -43,6 +43,7 @@ void main() {
       expect(document['page_decisions'], {'0': 'a', '4': 'tie'});
       expect(document['overall_winner'], 'b');
       expect(document['policy'], 'human_evaluation_only_no_automatic_quality_score');
+      expect(await EvaluationStore.read(pdf.path), isNotNull);
     });
 
     test('ignores malformed or unsupported review sidecars', () async {
@@ -50,6 +51,39 @@ void main() {
       await pdf.writeAsBytes([1]);
       await File(EvaluationStore.sidecarPath(pdf.path)).writeAsString('{broken');
 
+      expect(await EvaluationStore.read(pdf.path), isNull);
+    });
+
+    test('rejects valid JSON with invalid review schema fields', () async {
+      final pdf = File('${temp.path}/original.pdf');
+      await pdf.writeAsBytes([1, 2, 3]);
+      final sidecarPath = await EvaluationStore.save(
+        sourcePdfPath: pdf.path,
+        candidateAPath: null,
+        candidateBPath: null,
+        candidateALabel: 'Candidate A',
+        candidateBLabel: 'Candidate B',
+        pageDecisions: const {0: 'a'},
+        overallWinner: 'a',
+        notes: 'Looks good.',
+      );
+      final file = File(sidecarPath);
+      final document =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+
+      (document['page_decisions'] as Map<String, dynamic>)['0'] =
+          'unknown-choice';
+      await file.writeAsString(jsonEncode(document));
+      expect(await EvaluationStore.read(pdf.path), isNull);
+
+      (document['page_decisions'] as Map<String, dynamic>)['0'] = 'a';
+      document['notes'] = 7;
+      await file.writeAsString(jsonEncode(document));
+      expect(await EvaluationStore.read(pdf.path), isNull);
+
+      document['notes'] = 'Looks good.';
+      (document['source_pdf'] as Map<String, dynamic>)['sha256'] = 'bad-hash';
+      await file.writeAsString(jsonEncode(document));
       expect(await EvaluationStore.read(pdf.path), isNull);
     });
   });
