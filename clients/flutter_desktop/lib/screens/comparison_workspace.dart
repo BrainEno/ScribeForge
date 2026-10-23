@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
 import '../models/epub_candidate.dart';
+import '../models/evaluation_progress.dart';
 import '../models/project_status.dart';
 import '../models/text_diff.dart';
 import '../services/cli_runner.dart';
@@ -1121,6 +1122,28 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     return a > b ? a : b;
   }
 
+  int get _decidedPageCount =>
+      EvaluationProgress.decidedCount(_pageCount, _decisions);
+
+  int get _deferredPageCount =>
+      EvaluationProgress.deferredCount(_pageCount, _decisions);
+
+  int get _pendingPageCount =>
+      EvaluationProgress.pendingCount(_pageCount, _decisions);
+
+  void _goToNextPendingPage() {
+    final next = EvaluationProgress.nextPendingPage(
+      pageCount: _pageCount,
+      currentPage: _page,
+      decisions: _decisions,
+    );
+    if (next == null) {
+      _message('Every page has a final A/B/Tie decision.');
+      return;
+    }
+    setState(() => _page = next);
+  }
+
   EpubPage? _pageFor(EpubCandidate? candidate) =>
       candidate?.pageForSourceIndex(_page);
 
@@ -1786,6 +1809,51 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                   : 'Review data is saved beside the PDF with SHA-256 fingerprints.',
               maxLines: 1, overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 10, color: Color(0xFF7D8983)),
+            ),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                const SizedBox(
+                  width: 110,
+                  child: Text(
+                    'Review progress',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                ),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: _pageCount <= 0
+                          ? 0
+                          : _decidedPageCount / _pageCount,
+                      minHeight: 6,
+                      backgroundColor: const Color(0xFFE2E7E4),
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFF236B5D),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '$_decidedPageCount/$_pageCount final · '
+                  '$_deferredPageCount deferred · '
+                  '$_pendingPageCount to resolve',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF53675E),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _pendingPageCount > 0 && _pageCount > 0
+                      ? _goToNextPendingPage
+                      : null,
+                  icon: const Icon(Icons.skip_next_outlined, size: 16),
+                  label: const Text('Next pending'),
+                ),
+              ],
             ),
           ],
         ),
