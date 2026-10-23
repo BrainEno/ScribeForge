@@ -39,6 +39,7 @@ def _report(
             mean_punctuation_accuracy=0.75,
             missing_lines=0,
             extra_lines=1,
+            reading_order_errors=2,
             elapsed_seconds=elapsed,
             pages_per_minute=pages_per_minute,
         ),
