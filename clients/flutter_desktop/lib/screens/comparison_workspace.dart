@@ -1601,11 +1601,13 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                   style: const TextStyle(fontSize: 11, color: Color(0xFF53675E))),
             ),
           if (_a != null && _b != null)
-            OutlinedButton.icon(
-              onPressed: _pageCount > 1 ? _goToNextDifferingPage : null,
-              icon: const Icon(Icons.find_in_page_outlined, size: 16),
-              label: const Text('Next A/B difference'),
-              tooltip: 'Next A/B difference (Alt+D)',
+            Tooltip(
+              message: 'Next A/B difference (Alt+D)',
+              child: OutlinedButton.icon(
+                onPressed: _pageCount > 1 ? _goToNextDifferingPage : null,
+                icon: const Icon(Icons.find_in_page_outlined, size: 16),
+                label: const Text('Next A/B difference'),
+              ),
             ),
           const Spacer(),
           if (!aligned)
