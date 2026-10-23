@@ -53,12 +53,12 @@ void main() {
     test('rejects duplicate paths after slash normalization', () async {
       final entries = validEntries()
         ..add((
-          name: 'OPS/chapter.xhtml',
+          name: 'OPX/chapter.xhtml',
           content: '<html><body><p>Ambiguous duplicate</p></body></html>',
         ));
       final path = await writeEpub(entries);
       final bytes = await File(path).readAsBytes();
-      final name = 'OPS/chapter.xhtml'.codeUnits;
+      final name = 'OPX/chapter.xhtml'.codeUnits;
       final occurrences = <int>[];
       for (var i = 0; i <= bytes.length - name.length; i++) {
         var matches = true;
@@ -70,11 +70,12 @@ void main() {
         }
         if (matches) occurrences.add(i);
       }
-      expect(occurrences, hasLength(4));
-      // ZipEncoder normalizes backslashes, so mutate the duplicate entry's
-      // local-header and central-directory names after encoding.
-      for (final index in [occurrences[1], occurrences[3]]) {
-        bytes[index + 3] = 92;
+      expect(occurrences, hasLength(2));
+      // Keep both ZIP entries distinct during encoding, then make the second
+      // entry collide after Windows separator normalization.
+      for (final index in occurrences) {
+        bytes[index + 2] = 83; // S: OPX -> OPS
+        bytes[index + 3] = 92; // backslash
       }
       await File(path).writeAsBytes(bytes);
 
