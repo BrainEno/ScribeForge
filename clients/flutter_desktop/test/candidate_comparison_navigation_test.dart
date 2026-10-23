@@ -89,7 +89,7 @@ void main() {
 
     test('returns null when there is no other differing page', () {
       final a = candidate(['same', 'different', 'same']);
-      final b = candidate(['same', 'different', 'same']);
+      final b = candidate(['same', 'other', 'same']);
 
       expect(
         CandidateComparisonNavigation.nextDifferingPage(
