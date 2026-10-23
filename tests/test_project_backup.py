@@ -260,3 +260,45 @@ def test_verification_rejects_manifest_that_omits_a_referenced_page_asset(
 
     with pytest.raises(ProjectBackupError, match="page image referenced"):
         verify_project_backup(incomplete)
+
+
+@pytest.mark.parametrize(
+    "members",
+    [
+        ("assets/Page.png", "assets/page.png"),
+        ("assets/café.txt", "assets/cafe\u0301.txt"),
+        ("assets", "assets/page.png"),
+    ],
+)
+def test_verification_rejects_portable_archive_path_collisions(
+    tmp_path: Path, members: tuple[str, str]
+) -> None:
+    archive = tmp_path / "colliding-paths.zip"
+    manifest = {
+        "format": "scribeforge-project-backup",
+        "schema_version": 1,
+        "created_at": "2026-10-23T00:00:00Z",
+        "source_store": "/old/store",
+        "files": [],
+        "sources": [],
+    }
+    with zipfile.ZipFile(archive, "w") as archive_file:
+        archive_file.writestr("manifest.json", json.dumps(manifest))
+        for member in members:
+            archive_file.writestr(member, b"content")
+
+    with pytest.raises(ProjectBackupError, match="colliding archive paths"):
+        verify_project_backup(archive)
+
+
+@pytest.mark.parametrize("member", ["assets/page.txt:stream", "assets/trailing./page.txt"])
+def test_verification_rejects_nonportable_archive_path_components(
+    tmp_path: Path, member: str
+) -> None:
+    archive = tmp_path / "nonportable-path.zip"
+    with zipfile.ZipFile(archive, "w") as archive_file:
+        archive_file.writestr("manifest.json", "{}")
+        archive_file.writestr(member, b"content")
+
+    with pytest.raises(ProjectBackupError, match="unsafe archive path"):
+        verify_project_backup(archive)
