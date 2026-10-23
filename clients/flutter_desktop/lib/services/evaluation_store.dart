@@ -80,76 +80,15 @@ class EvaluationStore {
   static bool _hasText(Object? value) =>
       value is String && value.trim().isNotEmpty;
 
-  static bool _isSha256(Object? value) =>
-      value is String && RegExp(r'^[0-9a-f]{64}
-    final file = File(path);
-    if (!await file.exists()) {
-      throw FileSystemException('File no longer exists', path);
+  static bool _isSha256(Object? value) {
+    if (value is! String || value.length != 64) return false;
+    for (final codeUnit in value.codeUnits) {
+      final isDigit = codeUnit >= 0x30 && codeUnit <= 0x39;
+      final isLowerHex = codeUnit >= 0x61 && codeUnit <= 0x66;
+      if (!isDigit && !isLowerHex) return false;
     }
-    final digest = await sha256.bind(file.openRead()).first;
-    return digest.toString();
+    return true;
   }
-
-  static Future<String> save({
-    required String sourcePdfPath,
-    required String? candidateAPath,
-    required String? candidateBPath,
-    required String candidateALabel,
-    required String candidateBLabel,
-    required Map<int, String> pageDecisions,
-    required String? overallWinner,
-    required String notes,
-  }) async {
-    final sourceFingerprint = await fingerprint(sourcePdfPath);
-    final candidateAHash = candidateAPath == null ? null : await fingerprint(candidateAPath);
-    final candidateBHash = candidateBPath == null ? null : await fingerprint(candidateBPath);
-    final now = DateTime.now().toUtc();
-    final payload = <String, Object?>{
-      'schema_version': 1,
-      'updated_at': now.toIso8601String(),
-      'source_pdf': {
-        'path': sourcePdfPath,
-        'sha256': sourceFingerprint,
-      },
-      'candidate_a': candidateAPath == null
-          ? null
-          : {
-              'path': candidateAPath,
-              'sha256': candidateAHash,
-              'label': candidateALabel,
-            },
-      'candidate_b': candidateBPath == null
-          ? null
-          : {
-              'path': candidateBPath,
-              'sha256': candidateBHash,
-              'label': candidateBLabel,
-            },
-      'page_decisions': {
-        for (final entry in pageDecisions.entries)
-          entry.key.toString(): entry.value,
-      },
-      'overall_winner': overallWinner,
-      'notes': notes,
-      'policy': _policy,
-    };
-
-    final destination = File(sidecarPath(sourcePdfPath));
-    await destination.parent.create(recursive: true);
-    final temporary = File('${destination.path}.tmp');
-    try {
-      await temporary.writeAsString(
-        '${const JsonEncoder.withIndent('  ').convert(payload)}\n',
-        flush: true,
-      );
-      await temporary.rename(destination.path);
-    } finally {
-      if (await temporary.exists()) await temporary.delete();
-    }
-    return destination.path;
-  }
-}
-).hasMatch(value);
 
   static Future<String> fingerprint(String path) async {
     final file = File(path);
