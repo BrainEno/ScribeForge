@@ -38,5 +38,18 @@ void main() {
       expect(rows, hasLength(501));
       expect(rows.every((row) => row.changed), isTrue);
     });
+
+    test('keeps alignment after an insertion on a long page', () {
+      final left = List<String>.generate(600, (i) => 'line-$i');
+      final right = ['new opening line', ...left];
+
+      final rows = diffLines(left, right);
+
+      expect(rows, hasLength(601));
+      expect(rows.first.changed, isTrue);
+      expect(rows.first.left, isNull);
+      expect(rows.first.right, 'new opening line');
+      expect(rows.skip(1).every((row) => !row.changed), isTrue);
+    });
   });
 }
