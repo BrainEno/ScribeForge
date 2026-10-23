@@ -53,12 +53,33 @@ void main() {
     test('rejects duplicate paths after slash normalization', () async {
       final entries = validEntries()
         ..add((
-          name: r'OPS\chapter.xhtml',
+          name: 'OPS/chapter.xhtml',
           content: '<html><body><p>Ambiguous duplicate</p></body></html>',
         ));
+      final path = await writeEpub(entries);
+      final bytes = await File(path).readAsBytes();
+      final name = 'OPS/chapter.xhtml'.codeUnits;
+      final occurrences = <int>[];
+      for (var i = 0; i <= bytes.length - name.length; i++) {
+        var matches = true;
+        for (var j = 0; j < name.length; j++) {
+          if (bytes[i + j] != name[j]) {
+            matches = false;
+            break;
+          }
+        }
+        if (matches) occurrences.add(i);
+      }
+      expect(occurrences, hasLength(4));
+      // ZipEncoder normalizes backslashes, so mutate the duplicate entry's
+      // local-header and central-directory names after encoding.
+      for (final index in [occurrences[1], occurrences[3]]) {
+        bytes[index + 3] = 92;
+      }
+      await File(path).writeAsBytes(bytes);
 
       await expectLater(
-        EpubCandidate.load(await writeEpub(entries)),
+        EpubCandidate.load(path),
         throwsA(isA<FormatException>().having(
           (error) => error.message,
           'message',
