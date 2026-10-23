@@ -131,10 +131,14 @@ class EpubCandidate {
         .map((e) => e.innerText.trim())
         .firstWhere((value) => value.isNotEmpty, orElse: () => '');
     final manifest = <String, String>{};
+    final manifestIds = <String>{};
     for (final item in _descendants(opf.rootElement).where((e) => e.name.local == 'item')) {
       final id = item.getAttribute('id');
       final href = item.getAttribute('href');
       final type = item.getAttribute('media-type') ?? '';
+      if (id != null && !manifestIds.add(id)) {
+        throw FormatException('EPUB manifest contains duplicate manifest item id: $id');
+      }
       if (id != null &&
           href != null &&
           (type == 'application/xhtml+xml' ||
@@ -143,21 +147,25 @@ class EpubCandidate {
         manifest[id] = _resolveZipPath(opfPath, href);
       }
     }
-    final itemIds = _descendants(opf.rootElement)
+    final spineItems = _descendants(opf.rootElement)
         .where((e) => e.name.local == 'spine')
         .expand((spine) => _descendants(spine).where((e) => e.name.local == 'itemref'))
-        .map((item) => item.getAttribute('idref'))
-        .whereType<String>()
         .toList(growable: false);
-    if (itemIds.isEmpty) {
+    if (spineItems.isEmpty) {
       throw const FormatException('EPUB spine does not contain any readable items.');
     }
 
     final pages = <EpubPage>[];
-    for (final id in itemIds) {
+    for (final item in spineItems) {
+      final id = item.getAttribute('idref');
+      if (id == null || id.trim().isEmpty) {
+        throw const FormatException('EPUB spine contains an itemref without an idref.');
+      }
       final href = manifest[id];
       if (href == null) {
-        continue;
+        throw FormatException(
+          'EPUB spine item does not reference a readable manifest resource: $id',
+        );
       }
       final document = XmlDocument.parse(readEntry(href));
       final root = document.rootElement;
