@@ -22,7 +22,6 @@ void main() {
         archive.addFile(ArchiveFile.string(file.name, file.content));
       }
       final bytes = ZipEncoder().encode(archive);
-      if (bytes == null) throw StateError('Could not encode test EPUB');
       final path = '${temp.path}/test.epub';
       await File(path).writeAsBytes(bytes);
       return path;
