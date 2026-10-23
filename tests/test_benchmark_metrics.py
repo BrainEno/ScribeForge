@@ -2,6 +2,7 @@ from scribeforge.benchmark.metrics import (
     character_error_rate,
     line_error_counts,
     punctuation_accuracy,
+    reading_order_errors,
     word_error_rate,
 )
 
@@ -32,3 +33,13 @@ def test_line_error_counts_detect_missing_and_extra_lines() -> None:
     )
     assert missing == 1
     assert extra == 1
+
+
+def test_reading_order_errors_count_only_matched_lines_out_of_order() -> None:
+    assert reading_order_errors(
+        ["first", "second", "third"], ["third", "first", "second"]
+    ) == 2
+    assert reading_order_errors(["first", "second"], ["first"]) == 0
+    assert reading_order_errors(
+        ["same", "same", "last"], ["same", "last", "same"]
+    ) == 1

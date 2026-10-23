@@ -10,6 +10,7 @@ from scribeforge.benchmark.metrics import (
     character_error_rate,
     line_error_counts,
     punctuation_accuracy,
+    reading_order_errors,
     word_error_rate,
 )
 from scribeforge.domain.ocr import OCREngine, page_text
@@ -27,6 +28,7 @@ class CaseScore:
     punctuation_accuracy: float
     missing_lines: int
     extra_lines: int
+    reading_order_errors: int
     elapsed_seconds: float
     accepted_pairs: int | None = None
     unresolved_pairs: int | None = None
@@ -40,6 +42,7 @@ class AggregateScore:
     mean_punctuation_accuracy: float
     missing_lines: int
     extra_lines: int
+    reading_order_errors: int
     elapsed_seconds: float
     pages_per_minute: float
     accepted_pairs: int | None = None
@@ -84,6 +87,9 @@ def run_benchmark(
                 punctuation_accuracy=punctuation_accuracy(reference, hypothesis),
                 missing_lines=missing,
                 extra_lines=extra,
+                reading_order_errors=reading_order_errors(
+                    reference.splitlines(), hypothesis.splitlines()
+                ),
                 elapsed_seconds=elapsed,
             )
         )
@@ -99,6 +105,7 @@ def run_benchmark(
         ),
         missing_lines=sum(score.missing_lines for score in scores),
         extra_lines=sum(score.extra_lines for score in scores),
+        reading_order_errors=sum(score.reading_order_errors for score in scores),
         elapsed_seconds=total_seconds,
         pages_per_minute=60.0 * count / total_seconds if total_seconds > 0 else 0.0,
     )
