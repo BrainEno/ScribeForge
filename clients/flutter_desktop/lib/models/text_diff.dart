@@ -8,6 +8,37 @@ class TextDiffRow {
 
 List<TextDiffRow> diffLines(List<String> left, List<String> right) {
   if (left.length > 500 || right.length > 500) {
+    var prefixLength = 0;
+    while (prefixLength < left.length &&
+        prefixLength < right.length &&
+        left[prefixLength] == right[prefixLength]) {
+      prefixLength++;
+    }
+
+    var suffixLength = 0;
+    while (suffixLength < left.length - prefixLength &&
+        suffixLength < right.length - prefixLength &&
+        left[left.length - suffixLength - 1] ==
+            right[right.length - suffixLength - 1]) {
+      suffixLength++;
+    }
+
+    final leftMiddle = left.sublist(prefixLength, left.length - suffixLength);
+    final rightMiddle = right.sublist(prefixLength, right.length - suffixLength);
+    if (leftMiddle.length <= 500 && rightMiddle.length <= 500) {
+      return List.unmodifiable([
+        for (var i = 0; i < prefixLength; i++)
+          TextDiffRow(left: left[i], right: right[i], changed: false),
+        ...diffLines(leftMiddle, rightMiddle),
+        for (var i = suffixLength; i > 0; i--)
+          TextDiffRow(
+            left: left[left.length - i],
+            right: right[right.length - i],
+            changed: false,
+          ),
+      ]);
+    }
+
     final length = left.length > right.length ? left.length : right.length;
     return List<TextDiffRow>.generate(length, (index) {
       final a = index < left.length ? left[index] : null;
