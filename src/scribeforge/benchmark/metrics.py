@@ -46,6 +46,34 @@ def punctuation_accuracy(reference: str, hypothesis: str) -> float:
     return max(0.0, 1.0 - _edit_distance(expected, actual) / len(expected))
 
 
+def reading_order_errors(
+    reference: Sequence[str], hypothesis: Sequence[str]
+) -> int:
+    """Count pairwise order inversions among exactly matched lines.
+
+    Unmatched lines are excluded: omissions and insertions are measured
+    separately by line_error_counts. Repeated lines map to successive
+    reference occurrences so duplicates do not invent inversions.
+    """
+    positions: dict[str, list[int]] = {}
+    for index, line in enumerate(reference):
+        positions.setdefault(line, []).append(index)
+
+    used: dict[str, int] = {}
+    matched_positions: list[int] = []
+    for line in hypothesis:
+        candidates = positions.get(line, [])
+        offset = used.get(line, 0)
+        if offset < len(candidates):
+            matched_positions.append(candidates[offset])
+            used[line] = offset + 1
+
+    inversions = 0
+    for index, position in enumerate(matched_positions):
+        inversions += sum(earlier > position for earlier in matched_positions[:index])
+    return inversions
+
+
 def line_error_counts(reference: Sequence[str], hypothesis: Sequence[str]) -> tuple[int, int]:
     # LCS keeps line order meaningful and separates omissions from hallucinated lines.
     rows, cols = len(reference), len(hypothesis)

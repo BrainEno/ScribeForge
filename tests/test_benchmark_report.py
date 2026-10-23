@@ -20,6 +20,7 @@ def _case(
         punctuation_accuracy=0.75,
         missing_lines=0,
         extra_lines=1,
+        reading_order_errors=2,
         elapsed_seconds=elapsed,
     )
 
@@ -59,12 +60,12 @@ def test_render_report_summarizes_variants_and_per_case_results() -> None:
     assert "- generated: 2026-10-20T00:00:00Z" in lines
     assert "- variants: 2" in lines
     assert (
-        "| mineru | 1 | 0.2500 | 0.5000 | 0.7500 | 0 | 1 | - | - | 2.000 | 30.00 |" in lines
+        "| mineru | 1 | 0.2500 | 0.5000 | 0.7500 | 0 | 1 | 2 | - | - | 2.000 | 30.00 |" in lines
     )
     assert (
-        "| paddleocr | 1 | 0.5000 | 0.5000 | 0.7500 | 0 | 1 | - | - | 1.000 | 60.00 |" in lines
+        "| paddleocr | 1 | 0.5000 | 0.5000 | 0.7500 | 0 | 1 | 2 | - | - | 1.000 | 60.00 |" in lines
     )
-    assert "| case-1 | zh | body,punctuation | 0.2500 | 0.5000 | 0.7500 | 0 | 1 | - | - | 2.000 |" in lines
+    assert "| case-1 | zh | body,punctuation | 0.2500 | 0.5000 | 0.7500 | 0 | 1 | 2 | - | - | 2.000 |" in lines
     assert text.index("| mineru |") < text.index("| paddleocr |")
     assert text.count("### mineru") == 1
     assert text.count("### paddleocr") == 1
@@ -92,6 +93,7 @@ def test_render_report_marks_a_case_without_tags() -> None:
                 punctuation_accuracy=1.0,
                 missing_lines=0,
                 extra_lines=0,
+                reading_order_errors=0,
                 elapsed_seconds=0.5,
             ),
         ),

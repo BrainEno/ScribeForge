@@ -20,6 +20,7 @@ from scribeforge.benchmark.metrics import (
     character_error_rate,
     line_error_counts,
     punctuation_accuracy,
+    reading_order_errors,
     word_error_rate,
 )
 from scribeforge.benchmark.runner import (
@@ -121,6 +122,9 @@ def run_pipeline_benchmark(
                     punctuation_accuracy=punctuation_accuracy(reference, hypothesis),
                     missing_lines=missing,
                     extra_lines=extra,
+                    reading_order_errors=reading_order_errors(
+                        reference.splitlines(), hypothesis.splitlines()
+                    ),
                     elapsed_seconds=elapsed,
                     accepted_pairs=accepted_pairs,
                     unresolved_pairs=unresolved_pairs,
@@ -138,6 +142,7 @@ def run_pipeline_benchmark(
         ),
         missing_lines=sum(score.missing_lines for score in scores),
         extra_lines=sum(score.extra_lines for score in scores),
+        reading_order_errors=sum(score.reading_order_errors for score in scores),
         elapsed_seconds=total_seconds,
         pages_per_minute=60.0 * count / total_seconds if total_seconds > 0 else 0.0,
         accepted_pairs=sum(score.accepted_pairs or 0 for score in scores),
