@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../models/candidate_comparison_navigation.dart';
 import '../models/epub_candidate.dart';
 import '../models/evaluation_progress.dart';
 import '../models/project_status.dart';
@@ -1144,6 +1145,24 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     setState(() => _page = next);
   }
 
+  void _goToNextDifferingPage() {
+    final candidateA = _a;
+    final candidateB = _b;
+    if (candidateA == null || candidateB == null) return;
+
+    final next = CandidateComparisonNavigation.nextDifferingPage(
+      pageCount: _pageCount,
+      currentPage: _page,
+      candidateA: candidateA,
+      candidateB: candidateB,
+    );
+    if (next == null) {
+      _message('No other pages differ between Candidate A and Candidate B.');
+      return;
+    }
+    setState(() => _page = next);
+  }
+
   EpubPage? _pageFor(EpubCandidate? candidate) =>
       candidate?.pageForSourceIndex(_page);
 
@@ -1561,6 +1580,12 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
                   borderRadius: BorderRadius.circular(18)),
               child: Text('${summary.changedRows} differing rows · ${summary.sharedLines} identical',
                   style: const TextStyle(fontSize: 11, color: Color(0xFF53675E))),
+            ),
+          if (_a != null && _b != null)
+            OutlinedButton.icon(
+              onPressed: _pageCount > 1 ? _goToNextDifferingPage : null,
+              icon: const Icon(Icons.find_in_page_outlined, size: 16),
+              label: const Text('Next A/B difference'),
             ),
           const Spacer(),
           if (!aligned)

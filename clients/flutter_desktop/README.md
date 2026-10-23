@@ -60,7 +60,7 @@ scribeforge export-candidates --store path/to/book.scribeforge --out-dir compari
 
 The command produces `candidate-mineru.epub`, `candidate-paddleocr.epub`, and `candidate-manifest.json`. It fails rather than making a partial book if a requested engine has no saved OCR output for a page. These files are marked **UNVERIFIED OCR CANDIDATE** and must not be confused with accepted exports.
 
-Open the original PDF and both candidate EPUBs in the Flutter workspace. The PDF and each candidate are navigated by source-page index. ScribeForge candidate EPUBs use `page-000001.xhtml`-style filenames, so the matching is explicit; generic chapter-based EPUBs use spine order and are flagged as approximate. Candidate text is extracted from EPUB XHTML and compared line-by-line; this slice focuses on content fidelity, not pixel-perfect EPUB CSS rendering. The loader rejects duplicate manifest IDs and spine references that do not resolve to readable XHTML/HTML, rather than silently omitting those entries.
+Open the original PDF and both candidate EPUBs in the Flutter workspace. The PDF and each candidate are navigated by source-page index. ScribeForge candidate EPUBs use `page-000001.xhtml`-style filenames, so the matching is explicit; generic chapter-based EPUBs use spine order and are flagged as approximate. Candidate text is extracted from EPUB XHTML and compared line-by-line; this slice focuses on content fidelity, not pixel-perfect EPUB CSS rendering. Use **Next A/B difference** to cycle through pages where the candidate texts diverge; the control does not judge which candidate is correct. The loader rejects duplicate manifest IDs and spine references that do not resolve to readable XHTML/HTML, rather than silently omitting those entries.
 
 ## Human evaluation
 
