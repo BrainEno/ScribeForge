@@ -64,6 +64,6 @@ Open the original PDF and both candidate EPUBs in the Flutter workspace. The PDF
 
 ## Human evaluation
 
-Choose a better candidate per source page, optionally pick an overall book winner, and add notes about omissions, punctuation, reading order, or layout. The evaluation is saved beside the source PDF as `<file>.pdf.scribeforge-review.json`, including SHA-256 fingerprints of the PDF and candidate EPUBs. If an input changes or disappears, stale ratings are not silently reused.
+Choose a better candidate per source page, optionally pick an overall book winner, and add notes about omissions, punctuation, reading order, or layout. The evaluation is saved beside the source PDF as `<file>.pdf.scribeforge-review.json`, including SHA-256 fingerprints of the PDF and candidate EPUBs. If an input changes or disappears, stale ratings are not silently reused. The review progress strip counts A/B/Tie decisions as final; pages marked **Review later** remain pending. Use **Next pending** to jump to the next page that has not received a final decision, wrapping around the book as needed.
 
 No score or winner is inferred automatically: the line diff is a navigation aid, not a measure of OCR or literary quality. The verified `scribeforge export` path continues to export only accepted decisions; candidate EPUBs are a separate review layer.
