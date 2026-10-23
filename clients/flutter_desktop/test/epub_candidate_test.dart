@@ -88,5 +88,51 @@ void main() {
         )),
       );
     });
+
+    test('rejects spine references that do not resolve to readable manifest items', () async {
+      final entries = validEntries();
+      entries[1] = (
+        name: entries[1].name,
+        content: entries[1].content.replaceFirst(
+          '</spine>',
+          '<itemref idref="missing-chapter"/></spine>',
+        ),
+      );
+      final path = await writeEpub(entries);
+
+      await expectLater(
+        EpubCandidate.load(path),
+        throwsA(isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('does not reference a readable manifest resource'),
+        )),
+      );
+    });
+
+    test('rejects duplicate manifest item IDs instead of silently choosing one', () async {
+      final entries = validEntries();
+      entries[1] = (
+        name: entries[1].name,
+        content: entries[1].content.replaceFirst(
+          '</manifest>',
+          '<item id="chapter" href="other.xhtml" media-type="application/xhtml+xml"/></manifest>',
+        ),
+      );
+      entries.add((
+        name: 'OPS/other.xhtml',
+        content: '<html><body><p>Wrong chapter</p></body></html>',
+      ));
+      final path = await writeEpub(entries);
+
+      await expectLater(
+        EpubCandidate.load(path),
+        throwsA(isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('duplicate manifest item id'),
+        )),
+      );
+    });
   });
 }
