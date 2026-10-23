@@ -87,7 +87,7 @@ class EpubCandidate {
           'EPUB expanded content exceeds the 512 MiB safety limit.',
         );
       }
-      final normalizedName = entry.name.replaceAll('\\\\', '/');
+      final normalizedName = entry.name.replaceAll(String.fromCharCode(92), '/');
       if (entries.containsKey(normalizedName)) {
         throw FormatException(
           'EPUB contains duplicate archive paths after normalization: $normalizedName',
