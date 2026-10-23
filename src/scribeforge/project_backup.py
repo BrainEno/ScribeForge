@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import stat
 import tempfile
+import unicodedata
 import zipfile
 from collections.abc import Iterable
 from contextlib import closing
@@ -252,6 +253,7 @@ def _verify_archive(
                 mode = (item.external_attr >> 16) & 0xFFFF
                 if stat.S_ISLNK(mode):
                     raise ProjectBackupError(f"backup archive contains a symlink: {item.filename}")
+            _validate_portable_path_collisions(names)
             if _MANIFEST_NAME not in names:
                 raise ProjectBackupError("backup manifest is missing")
             manifest_info = next(item for item in infos if item.filename == _MANIFEST_NAME)
@@ -374,7 +376,7 @@ def _validate_archive_path(value: str) -> None:
         not value
         or "\\" in value
         or value.startswith(("/", "\\"))
-        or ":" in value.split("/", maxsplit=1)[0]
+        or ":" in value
     ):
         raise ProjectBackupError(f"unsafe archive path: {value!r}")
     path = PurePosixPath(value)
@@ -382,6 +384,48 @@ def _validate_archive_path(value: str) -> None:
         raise ProjectBackupError(f"unsafe archive path: {value!r}")
     if path.as_posix() != value:
         raise ProjectBackupError(f"unsafe archive path: {value!r}")
+
+    windows_reserved_names = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "CONIN$",
+        "CONOUT$",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+    }
+    for part in path.parts:
+        if (
+            part.endswith((" ", "."))
+            or any(ord(character) < 32 or character in '<>:"|?*' for character in part)
+            or part.split(".", maxsplit=1)[0].upper() in windows_reserved_names
+        ):
+            raise ProjectBackupError(f"unsafe archive path: {value!r}")
+
+
+def _validate_portable_path_collisions(names: Iterable[str]) -> None:
+    canonical_paths: dict[tuple[str, ...], str] = {}
+    for name in names:
+        parts = tuple(
+            unicodedata.normalize("NFC", part).rstrip(" .").casefold()
+            for part in PurePosixPath(name).parts
+        )
+        if parts in canonical_paths:
+            raise ProjectBackupError(
+                f"backup archive contains colliding archive paths: "
+                f"{canonical_paths[parts]!r} and {name!r}"
+            )
+        canonical_paths[parts] = name
+
+    for parts, name in canonical_paths.items():
+        for length in range(1, len(parts)):
+            parent = parts[:length]
+            if parent in canonical_paths:
+                raise ProjectBackupError(
+                    f"backup archive contains colliding archive paths: "
+                    f"{canonical_paths[parent]!r} and {name!r}"
+                )
 
 
 def _remap_page_assets(database: Path, destination_root: Path, archive_names: Iterable[str]) -> None:
