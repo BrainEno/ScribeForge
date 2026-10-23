@@ -5,6 +5,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import '../widgets/review_keyboard_shortcuts.dart';
+
 import '../models/candidate_comparison_navigation.dart';
 import '../models/epub_candidate.dart';
 import '../models/evaluation_progress.dart';
@@ -1145,6 +1147,16 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     setState(() => _page = next);
   }
 
+  void _goToPreviousPage() {
+    if (_page <= 0) return;
+    setState(() => _page--);
+  }
+
+  void _goToNextPage() {
+    if (_pageCount <= 0 || _page >= _pageCount - 1) return;
+    setState(() => _page++);
+  }
+
   void _goToNextDifferingPage() {
     final candidateA = _a;
     final candidateB = _b;
@@ -1212,8 +1224,12 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
     );
 
     return Scaffold(
-      body: SafeArea(
-        child: Column(
+      body: ReviewKeyboardShortcuts(
+        onPreviousPage: _goToPreviousPage,
+        onNextPage: _goToNextPage,
+        onNextDifference: _goToNextDifferingPage,
+        child: SafeArea(
+          child: Column(
           children: [
             _header(),
             _toolbar(),
@@ -1243,6 +1259,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
             ),
             _evaluationPanel(),
           ],
+          ),
         ),
       ),
     );
@@ -1560,16 +1577,18 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               color: Color(0xFF718079), fontWeight: FontWeight.w800)),
           const SizedBox(width: 12),
           IconButton(
+            tooltip: 'Previous page (Alt+Left)',
             visualDensity: VisualDensity.compact,
-            onPressed: _page > 0 ? () => setState(() => _page--) : null,
+            onPressed: _page > 0 ? _goToPreviousPage : null,
             icon: const Icon(Icons.chevron_left),
           ),
           Text(_pageCount > 0 ? 'Page ${_page + 1} / $_pageCount' : 'Page —',
               style: const TextStyle(fontWeight: FontWeight.w600)),
           IconButton(
+            tooltip: 'Next page (Alt+Right)',
             visualDensity: VisualDensity.compact,
             onPressed: _pageCount > 0 && _page < _pageCount - 1
-                ? () => setState(() => _page++)
+                ? _goToNextPage
                 : null,
             icon: const Icon(Icons.chevron_right),
           ),
@@ -1586,6 +1605,7 @@ class _ComparisonWorkspaceState extends State<ComparisonWorkspace> {
               onPressed: _pageCount > 1 ? _goToNextDifferingPage : null,
               icon: const Icon(Icons.find_in_page_outlined, size: 16),
               label: const Text('Next A/B difference'),
+              tooltip: 'Next A/B difference (Alt+D)',
             ),
           const Spacer(),
           if (!aligned)
