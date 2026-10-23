@@ -27,7 +27,7 @@ void main() {
       expect(
         CandidateComparisonNavigation.pagesDiffer(
           page(0, 'First line\nSecond line'),
-          EpubPage(
+          const EpubPage(
             spineIndex: 8,
             sourcePageIndex: 0,
             title: 'Different title',
