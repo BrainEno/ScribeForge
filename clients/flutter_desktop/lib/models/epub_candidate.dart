@@ -77,10 +77,24 @@ class EpubCandidate {
     if (archive.length > 20000) {
       throw const FormatException('EPUB archive contains too many entries.');
     }
-    final entries = <String, ArchiveFile>{
-      for (final entry in archive.files)
-        if (entry.isFile) entry.name.replaceAll('\\', '/') : entry,
-    };
+    const maxExpandedArchiveBytes = 512 * 1024 * 1024;
+    var expandedBytes = 0;
+    final entries = <String, ArchiveFile>{};
+    for (final entry in archive.files.where((entry) => entry.isFile)) {
+      expandedBytes += entry.size;
+      if (expandedBytes > maxExpandedArchiveBytes) {
+        throw const FormatException(
+          'EPUB expanded content exceeds the 512 MiB safety limit.',
+        );
+      }
+      final normalizedName = entry.name.replaceAll(String.fromCharCode(92), '/');
+      if (entries.containsKey(normalizedName)) {
+        throw FormatException(
+          'EPUB contains duplicate archive paths after normalization: $normalizedName',
+        );
+      }
+      entries[normalizedName] = entry;
+    }
 
     String readEntry(String name) {
       final entry = entries[name];
