@@ -81,6 +81,44 @@ def _match_score(primary: OCRLine, secondary: OCRLine) -> tuple[float, float]:
     return similarity, distance
 
 
+def _match_primary_lines(
+    primary: PageOCRResult,
+    secondary: PageOCRResult,
+    max_vertical_distance: float,
+) -> dict[int, tuple[int, float, float]]:
+    """Assign each primary line index to at most one secondary line index.
+
+    Candidate pairs are resolved by a global best-first greedy pass instead of
+    scanning primary lines strictly in order: evaluating one primary line at a
+    time and permanently removing its best remaining candidate can let an
+    earlier line claim a secondary line that is actually a stronger match for
+    a later one, stranding that later line with a poor match even though a
+    better overall assignment exists. Sorting every candidate pair by
+    similarity (distance as tie-breaker) and assigning greedily from the top
+    approximates the globally optimal one-to-one assignment while remaining
+    simple and deterministic.
+    """
+    candidates: list[tuple[float, float, int, int]] = []
+    for primary_index, primary_line in enumerate(primary.lines):
+        for secondary_index, secondary_line in enumerate(secondary.lines):
+            similarity, distance = _match_score(primary_line, secondary_line)
+            if distance <= max_vertical_distance:
+                candidates.append((similarity, -distance, primary_index, secondary_index))
+
+    candidates.sort(reverse=True)
+
+    assigned_primary: set[int] = set()
+    assigned_secondary: set[int] = set()
+    matches: dict[int, tuple[int, float, float]] = {}
+    for similarity, negative_distance, primary_index, secondary_index in candidates:
+        if primary_index in assigned_primary or secondary_index in assigned_secondary:
+            continue
+        assigned_primary.add(primary_index)
+        assigned_secondary.add(secondary_index)
+        matches[primary_index] = (secondary_index, similarity, -negative_distance)
+    return matches
+
+
 def align_pages(
     primary: PageOCRResult,
     secondary: PageOCRResult,
@@ -90,17 +128,15 @@ def align_pages(
     if primary.page_index != secondary.page_index:
         raise ValueError("OCR results must describe the same page")
 
-    remaining_secondary = set(range(len(secondary.lines)))
+    matches = _match_primary_lines(primary, secondary, max_vertical_distance)
+    remaining_secondary = set(range(len(secondary.lines))) - {
+        secondary_index for secondary_index, _, _ in matches.values()
+    }
     pairs: list[LineAlignment] = []
 
     for primary_index, primary_line in enumerate(primary.lines):
-        candidates: list[tuple[float, float, int]] = []
-        for secondary_index in remaining_secondary:
-            similarity, distance = _match_score(primary_line, secondary.lines[secondary_index])
-            if distance <= max_vertical_distance:
-                candidates.append((similarity, -distance, secondary_index))
-
-        if not candidates:
+        match = matches.get(primary_index)
+        if match is None:
             pairs.append(
                 LineAlignment(
                     primary_line_index=primary_index,
@@ -122,15 +158,14 @@ def align_pages(
             )
             continue
 
-        similarity, negative_distance, secondary_index = max(candidates)
-        remaining_secondary.remove(secondary_index)
+        secondary_index, similarity, distance = match
         secondary_line = secondary.lines[secondary_index]
         pairs.append(
             LineAlignment(
                 primary_line_index=primary_index,
                 secondary_line_index=secondary_index,
                 text_similarity=similarity,
-                vertical_distance=-negative_distance,
+                vertical_distance=distance,
                 conflicts=_diff_text(primary_line.text, secondary_line.text),
             )
         )
