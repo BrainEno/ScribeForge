@@ -102,3 +102,38 @@ def test_alignment_rejects_different_pages() -> None:
         assert "same page" in str(exc)
     else:
         raise AssertionError("expected page mismatch to fail")
+
+
+def test_alignment_skips_similarity_for_vertically_distant_lines(monkeypatch) -> None:
+    """Lines further apart than the vertical threshold can never pair.
+
+    Computing a full text similarity for those candidates is wasted work that
+    grows quadratically with page density: a 40-line page evaluates 1,600
+    SequenceMatcher calls even though only a few dozen are plausible. The
+    distance filter must therefore run before similarity is computed, and the
+    result must stay identical.
+    """
+
+    from scribeforge.domain import alignment as alignment_module
+
+    calls = {"count": 0}
+    real_matcher = alignment_module.SequenceMatcher
+
+    class CountingMatcher(real_matcher):  # type: ignore[misc, valid-type]
+        def __init__(self, *args, **kwargs):
+            calls["count"] += 1
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(alignment_module, "SequenceMatcher", CountingMatcher)
+
+    lines = [(f"line-{index}", 0.05 + index * 0.02) for index in range(20)]
+    primary = _page("mineru", lines)
+    secondary = _page("paddleocr", lines)
+
+    result = align_pages(primary, secondary)
+
+    assert len(result.pairs) == 20
+    assert all(pair.secondary_line_index is not None for pair in result.pairs)
+    # Only vertically plausible neighbours are compared (plus one diff per
+    # matched pair), never the full 400-pair grid.
+    assert calls["count"] <= 200, f"computed {calls['count']} similarities for 20 lines"

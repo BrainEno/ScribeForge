@@ -28,10 +28,18 @@ def build_command(image: str, output_dir: Path) -> list[str]:
 
 
 def _box(raw: Any) -> list[float]:
+    """Clamp a normalized MinerU block bbox into a constructible page box.
+
+    MinerU emits block boxes in normalized page coordinates, but a block flush
+    against the trim (or a page whose margins the scanner cropped) can come back
+    slightly outside 0..1. Clamping keeps that evidence usable instead of
+    failing the page on an otherwise valid detection.
+    """
+
     if not isinstance(raw, list) or len(raw) != 4:
         raise ValueError("MinerU block is missing a normalized bbox")
-    x1, y1, x2, y2 = (float(value) for value in raw)
-    return [x1, y1, x2 - x1, y2 - y1]
+    x1, y1, x2, y2 = (min(max(float(value), 0.0), 1.0) for value in raw)
+    return [x1, y1, max(x2 - x1, 0.0), max(y2 - y1, 0.0)]
 
 
 def extract_lines(raw: Any) -> list[dict[str, Any]]:

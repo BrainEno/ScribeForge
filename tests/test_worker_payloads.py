@@ -190,3 +190,43 @@ def test_paddle_main_writes_contract_from_saved_result(monkeypatch, capsys, tmp_
     assert emitted["page_index"] == 5
     assert emitted["lines"][0]["text"] == "问"
     assert emitted["lines"][0]["box"] == [0.1, 0.1, 0.1, 0.05]
+
+
+def test_mineru_extract_lines_clamps_block_boxes_to_the_page() -> None:
+    """MinerU block bboxes can touch or spill past the page edge.
+
+    Normalized middle-JSON geometry that exceeds 0..1 or uses a box taller than
+    the remaining page must clamp into a constructible normalized box rather
+    than failing the page.
+    """
+
+    from scribeforge.domain.ocr import BoundingBox
+
+    raw = {
+        "pages": [
+            {
+                "blocks": [
+                    {
+                        "type": "text",
+                        "bbox": [0.9, 0.95, 1.02, 1.01],
+                        "content": [{"type": "text", "content": "边界"}],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [-0.01, -0.02, 0.5, 0.1],
+                        "content": [{"type": "text", "content": "左上"}],
+                    },
+                ]
+            }
+        ]
+    }
+
+    lines = mineru_worker.extract_lines(raw)
+
+    assert [line["text"] for line in lines] == ["边界", "左上"]
+    for line in lines:
+        BoundingBox(*line["box"])  # must not raise
+        x, y, width, height = line["box"]
+        assert x >= 0.0 and y >= 0.0
+        assert x + width <= 1.0
+        assert y + height <= 1.0

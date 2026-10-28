@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "description": "ScribeForge reference corpus taken from benchmark/V..pdf (562-page DuXiu scan of Thomas Pynchon's V., Chinese translation, Yilin Press 2008). Pages are physical PDF indexes; printed page numbers restart per section.",
+  "source": {
+    "pdf": "../../V..pdf",
+    "total_pages": 562,
+    "render_dpi": 300,
+    "creator": "DuXiu/SuperStar",
+    "producer": "AnnasArchive"
+  },
+  "ground_truth_note": "Each ground truth is a single-pass human transcription of this scan, made to establish methodology and detect regressions. It has not been double-proofread against the printed book, so treat it as a reference transcription rather than publisher-grade gold.",
+  "cases": [
+    {
+      "id": "v-010",
+      "image": "images/page_010.png",
+      "ground_truth": "ground_truth/v-010.txt",
+      "language": "zh",
+      "tags": ["body", "preface", "publisher-note", "multi-numbered-section"]
+    },
+    {
+      "id": "v-014",
+      "image": "images/page_014.png",
+      "ground_truth": "ground_truth/v-014.txt",
+      "language": "zh",
+      "tags": ["body", "translator-preface", "latin-inline", "parenthetical"]
+    },
+    {
+      "id": "v-018",
+      "image": "images/page_018.png",
+      "ground_truth": "ground_truth/v-018.txt",
+      "language": "zh",
+      "tags": ["chapter-title", "centered-poem", "footnote", "sparse-layout"]
+    },
+    {
+      "id": "v-020",
+      "image": "images/page_020.png",
+      "ground_truth": "ground_truth/v-020.txt",
+      "language": "zh",
+      "tags": ["body", "footnote", "dialogue", "latin-inline"]
+    },
+    {
+      "id": "v-030",
+      "image": "images/page_030.png",
+      "ground_truth": "ground_truth/v-030.txt",
+      "language": "zh",
+      "tags": ["body", "dialogue", "footnote", "ellipsis"]
+    },
+    {
+      "id": "v-040",
+      "image": "images/page_040.png",
+      "ground_truth": "ground_truth/v-040.txt",
+      "language": "zh",
+      "tags": ["body", "dialogue", "dense-punctuation"]
+    }
+  ]
+}
