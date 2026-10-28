@@ -73,6 +73,25 @@ def test_exact_match_has_no_conflicts() -> None:
     assert pair.conflicts == ()
 
 
+def test_alignment_prefers_globally_optimal_assignment_over_greedy_order() -> None:
+    # "number" is a slightly-better-than-coincidence match for "lumber" (0.83),
+    # but "lumber" is actually "plumber"'s true counterpart (0.92). Processing
+    # primary lines strictly in order must not let an earlier line claim a
+    # candidate that is a stronger match for a later line, leaving the later
+    # line stranded with a poor match ("rubber" vs "plumber" at 0.62) when the
+    # globally better pairing ("number"-"rubber" at 0.67, "plumber"-"lumber"
+    # at 0.92) is available.
+    primary = _page("mineru", [("number", 0.10), ("plumber", 0.14)])
+    secondary = _page("paddleocr", [("lumber", 0.11), ("rubber", 0.13)])
+
+    result = align_pages(primary, secondary)
+
+    assert len(result.pairs) == 2
+    by_primary = {pair.primary_line_index: pair for pair in result.pairs}
+    assert by_primary[0].secondary_line_index == 1
+    assert by_primary[1].secondary_line_index == 0
+
+
 def test_alignment_rejects_different_pages() -> None:
     primary = _page("mineru", [("x", 0.1)])
     secondary = PageOCRResult(1, "paddleocr", "1", ())
