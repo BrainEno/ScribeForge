@@ -68,11 +68,9 @@ jobs:
         if: failure()
         run: |
           if [ -f analyze_output.txt ]; then
-            ERRORS=$(grep -E '^(error|warning) •' analyze_output.txt)
-            if [ -n "$ERRORS" ]; then
-              COMMENT="## Flutter Analyze Errors\n\`\`\n${ERRORS}\n\`\`\n"
-              gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT" 2>/dev/null || true
-            fi
+            ERRORS=$(cat analyze_output.txt)
+            PAYLOAD=$(printf '{"body":"## Flutter Analyze Errors\n\n\`\`\n%s\n\`\`\n"}' "$ERRORS")
+            gh api -X POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" --input - <<< "$PAYLOAD" 2>/dev/null || true
           fi
       - name: Run Flutter tests
         run: flutter test
