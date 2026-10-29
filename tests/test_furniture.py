@@ -21,12 +21,20 @@ from scribeforge.domain.ocr import (
     BoundingBox,
     OCRBlock,
     OCRLine,
+    PageDirection,
     PageOCRResult,
 )
 
 
-def _line(text: str, *, y: float, height: float = 0.02) -> OCRLine:
-    return OCRLine(text, BoundingBox(0.1, y, 0.8, height), ())
+def _line(
+    text: str,
+    *,
+    x: float = 0.1,
+    y: float = 0.1,
+    width: float = 0.8,
+    height: float = 0.02,
+) -> OCRLine:
+    return OCRLine(text, BoundingBox(x, y, width, height), ())
 
 
 def _page(
@@ -34,6 +42,7 @@ def _page(
     *,
     page_index: int,
     blocks: tuple[OCRBlock, ...] = (),
+    direction=None,
 ) -> PageOCRResult:
     return PageOCRResult(
         page_index=page_index,
@@ -41,6 +50,7 @@ def _page(
         engine_version="1.0",
         lines=tuple(lines),
         blocks=blocks,
+        direction=direction or PageDirection.HORIZONTAL_LR,
     )
 
 
@@ -227,6 +237,60 @@ def test_alternating_odd_even_running_heads_are_detected() -> None:
     for found in detected.values():
         assert 0 in found
         assert found[0] == REASON_REPEATED_IN_MARGIN
+
+
+def test_vertical_running_head_in_side_margin_is_detected() -> None:
+    """A vertical book's running head sits in the left/right margin, not top/bottom.
+
+    For vertical text the margin band is the side edge, so a line at x=0.02
+    (left edge) repeating on all pages is furniture even though it is far from
+    the top/bottom edge.
+    """
+
+    pages: dict[int, PageOCRResult] = {}
+    for index in range(4):
+        pages[index] = _page(
+            [
+                # Left-side margin line (would be body text in horizontal layout).
+                _line("托马斯·品钦", x=0.02, y=0.2, width=0.012, height=0.4),
+                _line("正文第一行", x=0.15, y=0.2),
+                _line("正文第二行", x=0.15, y=0.35),
+            ],
+            page_index=index,
+            direction=PageDirection.VERTICAL_RL,
+        )
+
+    detected = detect_page_furniture(pages)
+
+    for found in detected.values():
+        assert 0 in found
+        assert found[0] == REASON_REPEATED_IN_MARGIN
+
+
+def test_vertical_body_line_away_from_side_margin_is_not_furniture() -> None:
+    """A vertical page's body line is not furniture just because it is near top/bottom.
+
+    For vertical text, top/bottom proximity does not make a line a margin line;
+    only left/right proximity does.
+    """
+
+    pages: dict[int, PageOCRResult] = {}
+    for index in range(4):
+        pages[index] = _page(
+            [
+                _line("托马斯·品钦", x=0.02, y=0.2, width=0.012, height=0.4),
+                # Near the top edge but in the body horizontally — not furniture.
+                _line("正文第一行", x=0.15, y=0.02, width=0.4, height=0.012),
+                _line("正文第二行", x=0.15, y=0.15),
+            ],
+            page_index=index,
+            direction=PageDirection.VERTICAL_RL,
+        )
+
+    detected = detect_page_furniture(pages)
+
+    assert all(0 in found for found in detected.values())
+    assert all(1 not in found for found in detected.values())
 
 
 def test_isolated_number_in_body_is_not_folio() -> None:
