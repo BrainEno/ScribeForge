@@ -141,7 +141,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 9
+    SCHEMA_VERSION = 10
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -193,6 +193,9 @@ class SQLiteStore:
             if version < 9:
                 self._create_v9(connection)
                 connection.execute("PRAGMA user_version = 9")
+            if version < 10:
+                self._create_v10(connection)
+                connection.execute("PRAGMA user_version = 10")
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -567,6 +570,31 @@ class SQLiteStore:
         connection.executescript(
             """
             ALTER TABLE engine_runs ADD COLUMN scope TEXT;
+            """
+        )
+
+    @staticmethod
+    def _create_v10(connection: sqlite3.Connection) -> None:
+        """Store the evidence behind a page role, and where a chapter title came from.
+
+        ``page_structure.ink_ratio`` is the measurement that separates a blank leaf
+        from a plate: textless pages carry no text either way, and only the raster
+        says which one it is (issues #87 and #74).
+
+        ``chapters.source`` records whether a title came from the book's own
+        contents page (the author's list, anchored to a physical page) or from a
+        heading found on one page. They are not equally strong evidence, and an
+        export that mixes them should say which is which.
+        """
+
+        connection.executescript(
+            """
+            ALTER TABLE page_structure ADD COLUMN ink_ratio REAL CHECK(
+                ink_ratio IS NULL OR (ink_ratio >= 0.0 AND ink_ratio <= 1.0)
+            );
+            ALTER TABLE chapters ADD COLUMN source TEXT NOT NULL DEFAULT 'heading' CHECK(
+                source IN ('toc', 'heading', 'manual')
+            );
             """
         )
 
@@ -1150,14 +1178,15 @@ class SQLiteStore:
                     """
                     INSERT INTO page_structure(
                         page_id, role, printed_label, numbering_scheme,
-                        sequence_number, sequence_ordinal
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        sequence_number, sequence_ordinal, ink_ratio
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(page_id) DO UPDATE SET
                         role = excluded.role,
                         printed_label = excluded.printed_label,
                         numbering_scheme = excluded.numbering_scheme,
                         sequence_number = excluded.sequence_number,
                         sequence_ordinal = excluded.sequence_ordinal,
+                        ink_ratio = excluded.ink_ratio,
                         created_at = CURRENT_TIMESTAMP
                     """,
                     (
@@ -1167,6 +1196,7 @@ class SQLiteStore:
                         structure.label.scheme.value,
                         structure.label.sequence,
                         structure.label.sequence_ordinal,
+                        structure.ink_ratio,
                     ),
                 )
 
@@ -1180,8 +1210,9 @@ class SQLiteStore:
                 connection.execute(
                     """
                     INSERT INTO chapters(
-                        project_id, ordinal, level, title, start_page_index, printed_page
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        project_id, ordinal, level, title, start_page_index,
+                        printed_page, source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         project_id,
@@ -1190,6 +1221,7 @@ class SQLiteStore:
                         chapter.title,
                         chapter.start_page_index,
                         chapter.printed_page,
+                        chapter.source,
                     ),
                 )
 
@@ -1205,7 +1237,8 @@ class SQLiteStore:
                        page_structure.printed_label AS printed_label,
                        page_structure.numbering_scheme AS numbering_scheme,
                        page_structure.sequence_number AS sequence_number,
-                       page_structure.sequence_ordinal AS sequence_ordinal
+                       page_structure.sequence_ordinal AS sequence_ordinal,
+                       page_structure.ink_ratio AS ink_ratio
                 FROM pages
                 LEFT JOIN page_structure ON page_structure.page_id = pages.id
                 WHERE pages.project_id = ?
@@ -1215,7 +1248,7 @@ class SQLiteStore:
             ).fetchall()
             chapter_rows = connection.execute(
                 """
-                SELECT ordinal, level, title, start_page_index, printed_page
+                SELECT ordinal, level, title, start_page_index, printed_page, source
                 FROM chapters
                 WHERE project_id = ?
                 ORDER BY start_page_index, ordinal
@@ -1249,6 +1282,9 @@ class SQLiteStore:
                         else PageRole(str(row["role"]))
                     ),
                     label=label,
+                    ink_ratio=(
+                        None if row["ink_ratio"] is None else float(row["ink_ratio"])
+                    ),
                 )
             )
 
@@ -1259,6 +1295,7 @@ class SQLiteStore:
                 title=str(row["title"]),
                 start_page_index=int(row["start_page_index"]),
                 printed_page=str(row["printed_page"]),
+                source=str(row["source"]),
             )
             for row in chapter_rows
         )

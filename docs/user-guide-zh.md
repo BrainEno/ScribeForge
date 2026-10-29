@@ -185,11 +185,34 @@ scribeforge review --store "D:\Books\My Book.scribeforge"
 scribeforge resolve --store "D:\Books\My Book.scribeforge" --page 0 --pair 0 --text "鸦"
 ```
 
-如果整页都没有可识别文字（空白页、图版），必须显式确认，不能默认当成空白：
+如果整页都没有可识别文字（空白页、图版），除非测量证明页面上什么都没有，否则必须显式确认：
 
 ```powershell
 scribeforge confirm --store "D:\Books\My Book.scribeforge" --page 5 --kind blank --reason "章节之间的空白页"
+scribeforge confirm --store "D:\Books\My Book.scribeforge" --page 12 --kind non_text --reason "无说明文字的图版"
 ```
+
+导出被拒时会给出每页的实测墨迹，用它判断"漏识别"还是"真空白"：
+
+```
+  2 page(s) with no text at all, not yet confirmed as textless:
+    page 7: measured ink 6.93% — there is content here that was not read
+    page 12: measured ink 0.03% — nothing on the page
+```
+
+墨迹低于 1% 的页面会被结构检测自动确认为空白（记录为 `evidence`），不需要人工逐页点击；
+6.93% 这种说明页面上有大量内容却没被读出来，正确做法是重跑该页而不是确认空白。
+
+同时可以查看这本书的结构（页面角色、印刷页码、章节树）：
+
+```powershell
+scribeforge structure --store "D:\Books\My Book.scribeforge" --json
+```
+
+`process` 结束后也会打印一行摘要，例如
+`structure: pages 562, labelled 498, chapters 12 from toc (contents lists 14, 12 anchored); blank 9, plate 3`。
+章节来自目录页（`toc`）比来自单页排版（`heading`）更可靠；无法锚定的目录条目会如实列出，
+不会被猜着放进目录。
 
 确认记录会追加保存（谁、何时、为什么），导出时也会写进报告。若某页其实是识别失败
 而非空白，不要使用 confirm，而应重跑该页。

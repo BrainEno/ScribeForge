@@ -62,6 +62,19 @@ what it must be able to explain later:
 Version 8 databases migrate forward to 9 without deleting any project, OCR,
 verification, or decision evidence.
 
+Schema version 10 stores the evidence behind a page's role and the provenance of a
+chapter title:
+
+- `page_structure.ink_ratio` — measured share of non-background pixels. Textless
+  pages carry no text whether they are blank leaves or plates, and only the raster
+  says which (see [Book structure](./book-structure.md)).
+- `chapters.source` — `toc` (the book's own contents page, anchored to a physical
+  page through the printed label) or `heading` (one page's typography), or `manual`.
+  The two are not equally strong evidence, and an export that mixes them says which
+  is which.
+
+Version 9 databases migrate forward to 10 without deleting any evidence.
+
 `exports` remains planned and will be added through a later versioned migration rather than a destructive database reset.
 
 ## Decision resolution

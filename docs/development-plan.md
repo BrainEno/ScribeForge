@@ -107,7 +107,9 @@ Two defects found by the same review were fixed with regression tests:
   dense-page alignment up to 27× faster (80 lines: 1018 ms → 37 ms) with
   identical matching results.
 
-Status as of 2026-10-29: the acceptance gate and explicit textless-page
+Status as of 2026-10-29: the structure pass now classifies page roles from measured
+ink and builds the chapter tree from the book's own contents page (#87, see
+[Book structure](./book-structure.md)); the acceptance gate and explicit textless-page
 confirmation (#75, #74) are implemented — see
 [The acceptance gate](./acceptance-gate.md) — together with the preprocessing layer
 (#85), worker contract v2 (#86), chapter/printed-page/role model (#87),

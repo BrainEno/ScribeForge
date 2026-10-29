@@ -192,7 +192,7 @@ def test_v7_database_migrates_to_v8_adding_run_scope(tmp_path: Path) -> None:
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         columns = {
             row[1]
             for row in connection.execute("PRAGMA table_info(engine_runs)").fetchall()
@@ -233,7 +233,7 @@ def test_v8_database_migrates_to_v9_adding_risk_and_confirmation_columns(
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
         decision_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(decisions)").fetchall()
         }
@@ -250,3 +250,52 @@ def test_v8_database_migrates_to_v9_adding_risk_and_confirmation_columns(
         }
         assert "page_confirmations" in tables
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+
+
+def test_v9_database_migrates_to_v10_adding_ink_and_chapter_source(
+    tmp_path: Path,
+) -> None:
+    """v10 stores the evidence behind a role and where a chapter title came from.
+
+    Without ``ink_ratio`` a textless page can only be guessed at; without
+    ``chapters.source`` an export cannot say whether a title came from the book's
+    own contents page or from one page's typography (issues #87, #74).
+    """
+
+    import sqlite3
+
+    path = tmp_path / "legacy-v9.sqlite3"
+    store = SQLiteStore(path)
+    with sqlite3.connect(path) as connection:
+        store._create_v1(connection)
+        store._create_v2(connection)
+        store._create_v3(connection)
+        store._create_v4(connection)
+        store._create_v5(connection)
+        store._create_v6(connection)
+        store._create_v7(connection)
+        store._create_v8(connection)
+        store._create_v9(connection)
+        connection.execute(
+            "INSERT INTO projects(title, source_uri, source_sha256) VALUES (?, ?, ?)",
+            ("Legacy", "old.pdf", "oldhash"),
+        )
+        connection.execute("PRAGMA user_version = 9")
+
+    store.initialize()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        structure_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(page_structure)").fetchall()
+        }
+        assert "ink_ratio" in structure_columns
+        chapter_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(chapters)").fetchall()
+        }
+        assert "source" in chapter_columns
+        assert (
+            connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0]
+            == "Legacy"
+        )

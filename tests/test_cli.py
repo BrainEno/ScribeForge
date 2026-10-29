@@ -2066,12 +2066,70 @@ def _custom_factory(primary, secondary, reviewer: object = None):
     return factory
 
 
-def test_export_refuses_a_page_with_no_text_until_it_is_confirmed(
+def _book_with_ink(tmp_path: Path) -> Path:
+    """A page image that genuinely has something on it (a plate, not a leaf)."""
+
+    book = tmp_path / "plate.png"
+    image = Image.new("RGB", (80, 120), "white")
+    for x in range(10, 70):
+        for y in range(20, 100):
+            image.putpixel((x, y), (20, 20, 20))
+    image.save(book)
+    return book
+
+
+def test_a_measured_blank_page_exports_without_a_person(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Regression for #74: a page nobody could read must not pass as a blank leaf."""
+    """A page with no ink at all is settled by measurement, not by a click.
+
+    This is the #74 case that *can* be automated: the engines read nothing and the
+    raster has nothing to read. Requiring a human to confirm that would make a
+    562-page book's blank leaves a manual chore for no added safety.
+    """
 
     book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary")),
+    )
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--json",
+            "--modified",
+            "2024-01-01T00:00:00Z",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert report["confirmed_blank_pages"] == [0]
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    confirmations = store.list_page_confirmations(project.id, 0)
+    assert [(item.kind, item.actor) for item in confirmations] == [("blank", "evidence")]
+    assert confirmations[0].ink_ratio == 0.0
+
+
+def test_export_refuses_a_page_with_ink_but_no_text_until_it_is_confirmed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression for #74: a page nobody could read must not pass as a blank leaf.
+
+    The page has ink on it, so "the engines read nothing" is a failure, not a blank
+    leaf. Export refuses, and the operator has to say what the page is.
+    """
+
+    book = _book_with_ink(tmp_path)
     store_dir = tmp_path / "store"
     out_path = tmp_path / "out.epub"
     run(
@@ -2087,6 +2145,34 @@ def test_export_refuses_a_page_with_no_text_until_it_is_confirmed(
     assert "not yet confirmed as textless" in captured.err
     assert "scribeforge confirm --page N" in captured.err
     assert not out_path.exists()
+
+    confirm_code = run(
+        [
+            "confirm",
+            "--store",
+            str(store_dir),
+            "--page",
+            "0",
+            "--kind",
+            "non_text",
+            "--reason",
+            "frontispiece plate, no caption",
+        ]
+    )
+    assert confirm_code == 0
+    export_code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--modified",
+            "2024-01-01T00:00:00Z",
+        ]
+    )
+    assert export_code == 0
+    assert out_path.exists()
 
 
 def test_confirm_makes_a_textless_page_exportable(
