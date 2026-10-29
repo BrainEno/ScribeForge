@@ -26,7 +26,7 @@ from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
 from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
-from scribeforge.domain.ocr import OCREngine
+from scribeforge.domain.ocr import OCREngine, PageDirection
 from scribeforge.domain.preprocess import (
     PreprocessOperation,
     PreprocessSettings,
@@ -1281,8 +1281,13 @@ def _oracle_ceiling(
     for case in manifest.cases:
         image = (root / case.image).resolve()
         text = (root / case.ground_truth).read_text(encoding="utf-8")
-        primary.register(image, text)
-        secondary.register(image, text)
+        direction = (
+            PageDirection(case.direction)
+            if case.direction is not None
+            else PageDirection.HORIZONTAL_LR
+        )
+        primary.register(image, text, direction=direction)
+        secondary.register(image, text, direction=direction)
 
     try:
         reports = [

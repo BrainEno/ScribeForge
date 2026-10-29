@@ -19,16 +19,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scribeforge.domain.ocr import BoundingBox, OCREngine, OCRLine, OCRToken, PageOCRResult
+from scribeforge.domain.ocr import (
+    BoundingBox,
+    OCREngine,
+    OCRLine,
+    OCRToken,
+    PageDirection,
+    PageOCRResult,
+)
 
 
-def _lines(texts: tuple[str, ...]) -> tuple[OCRLine, ...]:
-    """Stack reference lines as evenly spaced full-width rows.
-
-    Geometry only has to be *consistent*, never realistic: identical engines
-    produce identical boxes, so alignment pairs line-for-line and the score
-    isolates text handling.
-    """
+def _horizontal_lines(texts: tuple[str, ...]) -> tuple[OCRLine, ...]:
+    """Stack reference lines as evenly spaced full-width rows."""
 
     count = max(len(texts), 1)
     height = 0.9 / count
@@ -39,18 +41,56 @@ def _lines(texts: tuple[str, ...]) -> tuple[OCRLine, ...]:
     return tuple(lines)
 
 
+def _vertical_lines(texts: tuple[str, ...]) -> tuple[OCRLine, ...]:
+    """Lay reference lines out as columns, right to left.
+
+    Vertical pages pair columns by X and read them right to left, so the boxes
+    have to be columns: stacking ``texts`` as full-width rows would exercise the
+    horizontal path while claiming to test a vertical page.
+    """
+
+    count = max(len(texts), 1)
+    pitch = 0.9 / count
+    lines: list[OCRLine] = []
+    for index, text in enumerate(texts):
+        # Index 0 is the first column a reader meets, i.e. the rightmost one.
+        left = 0.95 - (index + 1) * pitch + pitch * 0.15
+        box = BoundingBox(left, 0.05, pitch * 0.7, 0.9)
+        lines.append(OCRLine(text, box, (OCRToken(text, 1.0, box),)))
+    return tuple(lines)
+
+
+def _lines(texts: tuple[str, ...], direction: PageDirection) -> tuple[OCRLine, ...]:
+    """Reference text as boxes matching the page's writing direction."""
+
+    if direction.is_vertical:
+        return _vertical_lines(texts)
+    return _horizontal_lines(texts)
+
+
 class OracleEngine(OCREngine):
     """An engine that replays the corpus answer key for each page image."""
 
     def __init__(self, name: str = "oracle", *, version: str = "ground-truth") -> None:
         self._name = name
         self._version = version
-        self._texts: dict[Path, tuple[str, ...]] = {}
+        self._texts: dict[Path, tuple[tuple[str, ...], PageDirection]] = {}
 
-    def register(self, image: Path, text: str) -> None:
-        """Bind one page image to its reference transcription."""
+    def register(
+        self,
+        image: Path,
+        text: str,
+        *,
+        direction: PageDirection = PageDirection.HORIZONTAL_LR,
+    ) -> None:
+        """Bind one page image to its reference transcription and direction.
 
-        self._texts[image.resolve()] = tuple(text.splitlines())
+        The direction must match the page, otherwise the oracle measures the wrong
+        code path: a vertical page laid out as rows would pass a horizontal
+        alignment check and prove nothing.
+        """
+
+        self._texts[image.resolve()] = (tuple(text.splitlines()), direction)
 
     @property
     def name(self) -> str:
@@ -60,5 +100,12 @@ class OracleEngine(OCREngine):
         key = Path(image_path).resolve()
         if key not in self._texts:
             raise KeyError(f"oracle engine has no reference text for {image_path}")
-        texts = self._texts[key]
-        return PageOCRResult(page_index, self._name, self._version, _lines(texts))
+        texts, direction = self._texts[key]
+        return PageOCRResult(
+            page_index,
+            self._name,
+            self._version,
+            _lines(texts, direction),
+            direction=direction,
+            direction_declared=True,
+        )

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "description": "《欽定四庫全書簡明目錄》卷首聖諭三葉（半葉，八行二十一字，四周雙邊）。取自 open-guji/open-guji-cv 的 tests/fixtures/workspace/raw/keben（該倉庫 Apache-2.0），原書為清乾隆間武英殿刻本，屬公有領域。",
+  "source": {
+    "repository": "https://github.com/open-guji/open-guji-cv",
+    "path": "tests/fixtures/workspace/raw/keben/{1,2,3}.png",
+    "license": "Apache-2.0 (repository); 原書公有領域",
+    "retrieved": "2026-10-29"
+  },
+  "ground_truth_note": "逐列人工转写（繁体，保留原字形，不加标点——刻本无句读）。行序即为从右到左的列序。单次转写，未经第二人复核；作为竖排回归基线可用，作为金标准仍需二次校订。",
+  "cases": [
+    {
+      "id": "guji-001",
+      "image": "images/page_001.png",
+      "ground_truth": "ground_truth/guji-001.txt",
+      "language": "zh-Hant",
+      "tags": [
+        "body",
+        "vertical",
+        "title-column",
+        "single-char-column",
+        "woodblock"
+      ],
+      "direction": "vertical-rl"
+    },
+    {
+      "id": "guji-002",
+      "image": "images/page_002.png",
+      "ground_truth": "ground_truth/guji-002.txt",
+      "language": "zh-Hant",
+      "tags": [
+        "body",
+        "vertical",
+        "woodblock",
+        "running-title"
+      ],
+      "direction": "vertical-rl"
+    },
+    {
+      "id": "guji-003",
+      "image": "images/page_003.png",
+      "ground_truth": "ground_truth/guji-003.txt",
+      "language": "zh-Hant",
+      "tags": [
+        "body",
+        "vertical",
+        "woodblock",
+        "running-title"
+      ],
+      "direction": "vertical-rl"
+    }
+  ]
+}

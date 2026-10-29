@@ -116,6 +116,24 @@ python -m scribeforge.cli benchmark \
   --out /tmp/ceiling.md --oracle-ceiling
 ```
 
+### The same ceiling on real vertical woodblock pages
+
+`benchmark/corpus/guji` holds three genuine vertical pages: the imperial preface
+of 《欽定四庫全書簡明目錄》 (Qing Qianlong Wuyingdian woodblock, public domain),
+8 columns of 21 characters per half-leaf, including a one-character column (奉)
+and a two-character column (聖諭). The transcription is by hand, column by
+column, right to left.
+
+| Variant | Cases | Mean CER | Missing lines | Extra lines | Accepted pairs | Unresolved pairs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `oracle` (engine level) | 3 | **0.0000** | 0 | 0 | — | — |
+| `oracle-ceiling` (full pipeline) | 3 | **0.0000** | 0 | 0 | 24 | 0 |
+
+Three regression tests guard this number (`pytest -m benchmark`): the ceiling is
+zero; reversing the transcription order must push CER above 0.2 (so the zero is
+column order, not luck); and with the direction declaration removed,
+`detect_page_direction()` still reports `vertical-rl` from column geometry alone.
+
 ## Preprocessing repair (measured, pixel-level — not CER)
 
 `benchmark/analysis/preprocess_benchmark.py` derives deterministic degradations

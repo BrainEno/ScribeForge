@@ -13,6 +13,7 @@ from scribeforge.benchmark.metrics import scoring_text
 from scribeforge.benchmark.oracle import OracleEngine
 from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
 from scribeforge.benchmark.runner import run_benchmark
+from scribeforge.domain.ocr import PageDirection, PageOCRResult
 
 
 def _corpus(tmp_path: Path, ground_truth: str) -> tuple[Path, BenchmarkManifest]:
@@ -144,3 +145,130 @@ def test_benchmark_case_manifest_round_trips_for_the_oracle_root(tmp_path: Path)
 
     assert manifest.cases == (BenchmarkCase("case-1", "page.png", "truth.txt", "zh", ("body",)),)
     assert (root / "page.png").is_file()
+
+
+VERTICAL_CORPUS = Path(__file__).resolve().parent.parent / "benchmark" / "corpus" / "guji"
+
+
+def test_vertical_oracle_places_columns_right_to_left() -> None:
+    """A vertical page must be laid out as columns, not as rows.
+
+    Stacking the reference text as rows would exercise the horizontal pairing
+    path while the case claims to be vertical, so the ceiling would say nothing
+    about vertical support.
+    """
+
+    from scribeforge.domain.ocr import PageDirection
+
+    engine = OracleEngine("oracle")
+    engine.register(
+        Path("/tmp/does-not-matter.png"),
+        "第一列\n第二列",
+        direction=PageDirection.VERTICAL_RL,
+    )
+
+    result = engine.analyze_page("/tmp/does-not-matter.png", 0)
+
+    right, left = result.lines
+    assert right.box.x > left.box.x
+    # Columns are tall and narrow: that is what makes the page read as vertical.
+    assert right.box.height > right.box.width
+    assert result.direction is PageDirection.VERTICAL_RL
+    assert result.direction_declared is True
+
+
+@pytest.mark.benchmark
+def test_real_vertical_corpus_scores_zero_at_the_ceiling() -> None:
+    """The vertical pipeline preserves text on real woodblock pages.
+
+    Three genuine vertical scans (public-domain 四庫全書 woodblock, hand
+    transcription) run through alignment, risk, decisions and assembly. A zero
+    ceiling means the vertical path - column pairing by X, right-to-left order,
+    column splicing - does not lose or reorder text.
+    """
+
+    manifest_path = VERTICAL_CORPUS / "manifest.json"
+    if not manifest_path.is_file():
+        pytest.skip("vertical corpus is not available")
+
+    manifest = load_manifest(manifest_path)
+    primary = OracleEngine("oracle")
+    secondary = OracleEngine("oracle")
+    for case in manifest.cases:
+        image = (VERTICAL_CORPUS / case.image).resolve()
+        text = (VERTICAL_CORPUS / case.ground_truth).read_text(encoding="utf-8")
+        for engine in (primary, secondary):
+            engine.register(image, text, direction=PageDirection(case.direction or "vertical-rl"))
+
+    assert all(case.direction == "vertical-rl" for case in manifest.cases)
+    report = run_pipeline_benchmark(
+        manifest, VERTICAL_CORPUS, primary, secondary, label="oracle-ceiling"
+    )
+
+    assert report.aggregate.mean_cer == 0.0
+    assert report.aggregate.unresolved_pairs == 0
+
+
+@pytest.mark.benchmark
+def test_real_vertical_corpus_cer_is_sensitive_to_column_order() -> None:
+    """The zero above must come from correct ordering, not from luck.
+
+    Registering the same pages with the transcription reversed leaves every
+    character intact and only changes which column holds which text. If the
+    pipeline really orders columns right to left, the score must collapse.
+    """
+
+    manifest_path = VERTICAL_CORPUS / "manifest.json"
+    if not manifest_path.is_file():
+        pytest.skip("vertical corpus is not available")
+
+    manifest = load_manifest(manifest_path)
+    primary = OracleEngine("oracle")
+    secondary = OracleEngine("oracle")
+    for case in manifest.cases:
+        image = (VERTICAL_CORPUS / case.image).resolve()
+        text = (VERTICAL_CORPUS / case.ground_truth).read_text(encoding="utf-8")
+        reversed_text = "\n".join(reversed(text.splitlines()))
+        for engine in (primary, secondary):
+            engine.register(
+                image, reversed_text, direction=PageDirection.VERTICAL_RL
+            )
+
+    report = run_pipeline_benchmark(
+        manifest, VERTICAL_CORPUS, primary, secondary, label="oracle-ceiling"
+    )
+
+    assert report.aggregate.mean_cer > 0.2
+
+
+@pytest.mark.benchmark
+def test_geometry_alone_detects_vertical_on_the_real_corpus() -> None:
+    """Direction detection must work without any engine declaration.
+
+    The oracle declares its direction, so this test strips the declaration and
+    asks the production detector to recover it from the column boxes alone. It is
+    the only check in the repository that runs the detector on pages whose
+    layout comes from a real woodblock scan rather than a fixture.
+    """
+
+    from scribeforge.domain.direction import detect_page_direction
+
+    manifest_path = VERTICAL_CORPUS / "manifest.json"
+    if not manifest_path.is_file():
+        pytest.skip("vertical corpus is not available")
+
+    manifest = load_manifest(manifest_path)
+    for case in manifest.cases:
+        image = (VERTICAL_CORPUS / case.image).resolve()
+        text = (VERTICAL_CORPUS / case.ground_truth).read_text(encoding="utf-8")
+        engine = OracleEngine("oracle")
+        engine.register(image, text, direction=PageDirection.VERTICAL_RL)
+        declared = engine.analyze_page(str(image), 0)
+        undeclared = PageOCRResult(
+            declared.page_index,
+            declared.engine,
+            declared.engine_version,
+            declared.lines,
+        )
+
+        assert detect_page_direction(undeclared) is PageDirection.VERTICAL_RL, case.id
