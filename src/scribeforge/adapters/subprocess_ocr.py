@@ -103,6 +103,7 @@ class SubprocessOCREngine:
             lines=lines,
             blocks=self._blocks(raw.get("blocks", []), line_count=len(lines)),
             direction=direction_from_value(raw.get("direction")),
+            direction_declared=raw.get("direction") is not None,
         )
         return result
 

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -53,3 +54,38 @@ def test_manifest_rejects_unknown_schema_version(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="unsupported benchmark schema"):
         load_manifest(path)
+
+
+def _write(tmp_path: Path, **case: object) -> Path:
+    payload = {
+        "id": "c1",
+        "image": "page.png",
+        "ground_truth": "truth.txt",
+        "language": "zh",
+        "tags": [],
+    }
+    payload.update(case)
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "cases": [payload]}), encoding="utf-8"
+    )
+    return path
+
+
+def test_manifest_keeps_an_explicit_direction(tmp_path) -> None:
+    manifest = load_manifest(_write(tmp_path, direction="vertical-rl"))
+
+    assert manifest.cases[0].direction == "vertical-rl"
+
+
+def test_manifest_defaults_to_no_direction(tmp_path) -> None:
+    """No declaration is not a horizontal declaration."""
+
+    manifest = load_manifest(_write(tmp_path))
+
+    assert manifest.cases[0].direction is None
+
+
+def test_manifest_rejects_an_unknown_direction(tmp_path) -> None:
+    with pytest.raises(ValueError, match="unknown benchmark direction"):
+        load_manifest(_write(tmp_path, direction="right-to-left"))

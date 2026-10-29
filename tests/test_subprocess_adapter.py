@@ -110,6 +110,7 @@ def test_adapter_parses_contract_v2_blocks_and_direction() -> None:
     result = _engine().parse_document(raw, 0)
 
     assert result.direction is PageDirection.VERTICAL_RL
+    assert result.direction_declared is True
     assert [block.block_type for block in result.blocks] == [BlockType.HEADER, BlockType.TEXT]
     assert result.lines[1].confidence == pytest.approx(0.55)
     # The header is page furniture and must not pollute the readable text layer.
@@ -118,6 +119,8 @@ def test_adapter_parses_contract_v2_blocks_and_direction() -> None:
 
 def test_adapter_treats_a_v1_document_as_blockless_evidence() -> None:
     """Old workers keep working: no blocks means every line counts as text."""
+
+    from scribeforge.domain.ocr import PageDirection
 
     raw = {
         "schema_version": 1,
@@ -134,6 +137,11 @@ def test_adapter_treats_a_v1_document_as_blockless_evidence() -> None:
 
     assert result.blocks == ()
     assert result.text_line_indexes == (0, 1)
+    # A v1 worker has no way to report a direction, so the default value must
+    # not masquerade as a declaration: it would silently disable geometry-based
+    # direction detection on every page of a vertical book.
+    assert result.direction is PageDirection.HORIZONTAL_LR
+    assert result.direction_declared is False
 
 
 def test_adapter_maps_unknown_block_labels_instead_of_failing() -> None:

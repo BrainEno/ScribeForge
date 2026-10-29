@@ -64,6 +64,12 @@ class RuntimeBackendPlan:
     model_steps: tuple[InstallStep, ...] = ()
     health_checks: tuple[InstallStep, ...] = ()
     environment: tuple[tuple[str, str], ...] = ()
+    #: Optional backends are planned but not installed by a plain ``install``.
+    #: They are multi-gigabyte model stacks used only by specific work (Surya as
+    #: structural evidence, PaddleOCR-VL as the R1 candidate), so a user who only
+    #: wants the default two engines must not pay for them. ``repair`` still
+    #: resolves them by name, which is how they are installed on demand.
+    optional: bool = False
 
 
 @dataclass(frozen=True, slots=True)

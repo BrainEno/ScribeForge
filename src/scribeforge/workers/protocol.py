@@ -31,7 +31,42 @@ _ENGINE_LABEL_ALIASES = {
     "aside_text": "marginalia",
     "list": "text",
     "ref_text": "text",
+    # Surya layout labels.
+    "picture": "figure",
+    "diagram": "figure",
+    "caption": "text",
+    "listitem": "text",
+    "list_item": "text",
+    "sectionheader": "title",
+    "section_header": "title",
+    "pageheader": "header",
+    "pagefooter": "footer",
+    "textinlinemath": "formula",
+    "subsectionheader": "title",
+    "code": "text",
+    "reference": "text",
+    "tableofcontents": "text",
+    "chemicalformula": "formula",
+    "footnote_marker": "text",
 }
+
+
+PAGE_DIRECTIONS = ("horizontal-lr", "horizontal-rl", "vertical-rl", "vertical-lr")
+
+
+def reported_direction(value: object) -> str | None:
+    """Return a canonical direction string only if the engine actually gave one.
+
+    Workers must not substitute a constant for a missing value: a fabricated
+    ``horizontal-lr`` is indistinguishable from an engine asserting horizontal
+    text, and that suppresses the geometry-based direction detection the
+    pipeline relies on for vertical pages.
+    """
+
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip().lower()
+    return candidate if candidate in PAGE_DIRECTIONS else None
 
 
 def canonical_block_label(label: object) -> str:
@@ -95,7 +130,7 @@ def result_document(
     lines: list[dict[str, Any]],
     *,
     blocks: list[dict[str, Any]] | None = None,
-    direction: str = "horizontal-lr",
+    direction: str | None = None,
     schema_version: int = 2,
 ) -> dict[str, Any]:
     """Build the versioned JSON document a worker prints on stdout.
@@ -103,10 +138,18 @@ def result_document(
     Version 2 adds ``blocks`` (structural regions with a label and a line range)
     and ``direction`` (reading order). Version 1 remains supported by the adapter
     so an out-of-date worker degrades to "no block evidence" instead of failing.
+
+    ``direction`` is omitted unless the worker really knows it. Emitting a
+    constant ``horizontal-lr`` would be read as "this engine inspected the page
+    and it is horizontal", which suppresses geometry-based direction detection
+    and mis-pairs every vertical page. Silence is the honest answer for engines
+    that do not report a direction.
     """
 
     if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise ValueError(f"unsupported worker schema version: {schema_version}")
+    if direction is not None and direction not in PAGE_DIRECTIONS:
+        raise ValueError(f"unknown page direction: {direction}")
     document: dict[str, Any] = {
         "schema_version": schema_version,
         "engine": engine,
@@ -115,7 +158,8 @@ def result_document(
         "lines": lines,
     }
     if schema_version >= 2:
-        document["direction"] = direction
+        if direction is not None:
+            document["direction"] = direction
         document["blocks"] = blocks if blocks is not None else []
     return document
 

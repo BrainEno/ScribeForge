@@ -67,10 +67,12 @@ Since that review, five of the six follow-up issues have shipped: the
 preprocessing stage (deskew, deshadow, contrast, page-adaptive restoration), the
 OCR worker contract v2 (block types, line-level geometry, confidence, direction),
 the chapter/printed-page/page-role model with chapter-based EPUB navigation,
-glyph-variant folding for comparison, and page-furniture removal. What is still
-missing is vertical text: alignment pairs lines on Y-axis centre distance, which is
-semantically wrong for vertical columns, and there is no vertical benchmark
-corpus yet. The engine route is in [Technology route](./docs/technology-route.md).
+glyph-variant folding for comparison, page-furniture removal, and vertical /
+right-to-left alignment (the pairing axis and reading order now follow the page
+direction instead of assuming horizontal rows). What is still missing before the
+gate can be declared passed is a real vertical / traditional-character benchmark
+corpus and measured end-to-end CER: every accuracy number in this repository is
+still either pixel-level or unmeasured. The engine route is in [Technology route](./docs/technology-route.md).
 The full assessment, prioritised gap list, verified free/open-source technology
 recommendations and the staged plan live in
 [Ancient book support](./docs/ancient-book-support.md). Do not claim

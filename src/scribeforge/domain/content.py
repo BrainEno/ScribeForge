@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from scribeforge.domain.ocr import PageDirection
+from scribeforge.domain.reading_order import splice_paragraphs
+
 
 @dataclass(frozen=True, slots=True)
 class DroppedFurniture:
@@ -30,6 +33,18 @@ class VerifiedPage:
     page_index: int
     lines: tuple[str, ...]
     printed_label: str = ""
+    direction: PageDirection = PageDirection.HORIZONTAL_LR
+
+    def paragraphs(self) -> tuple[str, ...]:
+        """Text as the export should render it, respecting the page direction.
+
+        ``lines`` stays the accepted evidence (one entry per aligned line); this
+        method applies the direction's splice rule on top of it. Exporting the raw
+        lines of a vertical page would put a paragraph break in the middle of
+        every sentence.
+        """
+
+        return splice_paragraphs(self.lines, self.direction)
 
 
 @dataclass(frozen=True, slots=True)

@@ -20,6 +20,27 @@ def _edit_distance(reference: Sequence[str], hypothesis: Sequence[str]) -> int:
     return previous[-1]
 
 
+def scoring_text(text: str) -> str:
+    """Canonical form of text before scoring.
+
+    A ground-truth file conventionally ends with a newline, while a hypothesis
+    built by joining lines does not; counting that difference as an inserted
+    character adds one fake error to every page and inflates low CER figures by
+    a relative amount that matters (0.5% -> 0.6%). Trailing whitespace inside a
+    line is layout, not content, so it is trimmed for the same reason. Blank lines
+    *inside* a page are preserved because they delimit reading order structure;
+    blank lines at either end of a document are file formatting.
+    """
+
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in normalized.split("\n")]
+    while lines and not lines[-1]:
+        lines.pop()
+    while lines and not lines[0]:
+        lines.pop(0)
+    return "\n".join(lines)
+
+
 def _error_rate(reference: Sequence[str], hypothesis: Sequence[str]) -> float:
     if not reference:
         return 0.0 if not hypothesis else 1.0

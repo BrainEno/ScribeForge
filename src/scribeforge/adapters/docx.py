@@ -104,7 +104,7 @@ def _document_xml(book: VerifiedBook) -> str:
     for index, page in enumerate(book.pages):
         if index > 0:
             paragraphs.append('<w:p><w:r><w:br w:type="page"/></w:r></w:p>')
-        paragraphs.extend(_paragraph_xml(line) for line in page.lines)
+        paragraphs.extend(_paragraph_xml(line) for line in page.paragraphs())
     return (
         XML_DECL
         + "\n"

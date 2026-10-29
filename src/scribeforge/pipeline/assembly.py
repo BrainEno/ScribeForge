@@ -90,6 +90,7 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
                 page.page_index,
                 tuple(lines),
                 printed_label=labels.get(page.page_index, ""),
+                direction=record.alignment.direction,
             )
         )
 
