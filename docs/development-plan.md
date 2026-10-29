@@ -99,6 +99,17 @@ Two defects found by the same review were fixed with regression tests:
   dense-page alignment up to 27× faster (80 lines: 1018 ms → 37 ms) with
   identical matching results.
 
+Status as of 2026-10-29: the preprocessing layer (#85), worker contract v2
+(#86), chapter/printed-page/role model (#87), glyph-variant comparison layer
+(#88) and page-furniture removal (#89) are implemented and covered by tests; the
+engine route (#90) is documented in [Technology route](./technology-route.md),
+with PaddleOCR-VL and Surya adoption still to be executed (stages R1–R2).
+
+What remains genuinely open is vertical text: `align_pages` still pairs lines on
+Y-axis centre distance, which is semantically wrong for vertical columns, and no
+vertical/ traditional-character benchmark corpus exists yet. Until a real vertical
+scan is measured, the README gate stands: ancient-book support must not be claimed.
+
 Staged plan and gates: see [Ancient book support](./ancient-book-support.md) §8.
 The P0 gate — preprocessing, worker contract v2, vertical text, and
 chapter/page model, then a measurable run on a real traditional-character

@@ -376,7 +376,7 @@ DOCX 只有分页符。没有任何章节概念。
 | [#87](https://github.com/BrainEno/ScribeForge/issues/87) | P0 | 没有章节/印刷页码/页面角色模型，EPUB 目录不可用 |
 | [#88](https://github.com/BrainEno/ScribeForge/issues/88) | P1 | 繁体/异体字无处理，缺少派生的规范化层 |
 | [#89](https://github.com/BrainEno/ScribeForge/issues/89) | P1 | 页眉页脚与页码不剔除 |
-| [#90](https://github.com/BrainEno/ScribeForge/issues/90) | P2 | 技术路线：接入 PaddleOCR-VL 与 Surya |
+| [#90](https://github.com/BrainEno/ScribeForge/issues/90) | P2 | 技术路线：接入 PaddleOCR-VL 与 Surya → 见 [技术路线](./technology-route.md) |
 
 相关既有 issue（本次不重复创建，但属于同一目标）：
 
@@ -387,7 +387,29 @@ DOCX 只有分页符。没有任何章节概念。
   不是精度下降，而是用 Y 轴中心配对竖排列，属语义错误。
 - [#68](https://github.com/BrainEno/ScribeForge/issues/68) 多语言宣称缺乏验证。
 
-## 10. 已知风险
+## 10. 实施进展（2026-10-29 更新）
+
+评估拆出的六项中，前五项已实现并在 CI 中受测（详见
+[技术路线](./technology-route.md) §2）：
+
+| Issue | 状态 | 说明 |
+| --- | --- | --- |
+| #85 预处理层 | ✅ 已实现 | PREPROCESS 阶段、schema v5、按页判定（干净页面逐字节无操作）、派生退化基准 |
+| #86 worker 契约 v2 | ✅ 已实现 | 块类型/行级几何/置信度/方向；MinerU 与 Paddle 两个 worker 输出 v2 |
+| #87 章节/页码模型 | ✅ 已实现 | schema v6、EPUB 章节化导航、印刷页码标题；同时修复了 OCR 块未落库的真实缺陷 |
+| #88 繁简/异体 | ✅ 已实现 | 只影响比较，绝不重写导出文本 |
+| #89 页眉页脚 | ✅ 已实现 | 三类证据 + 三条误删防护，剔除可报告 |
+| #90 技术路线 | ✅ 本文 + [技术路线](./technology-route.md) | 引擎选型与接入方案；**接入动作本身仍待执行（R1/R2）** |
+
+**仍阻塞宣称的三件事**（原 P0-2 的竖排语义错误未在其中任何一项里被解决）：
+
+1. 竖排/从右到左的对齐主轴与阅读顺序（`alignment._center_y` 语义错误仍在）；
+2. 真实竖排古籍基准语料（现有 6 页全为现代简体横排）；
+3. 端到端 CER 数字（至今全部为"未测量"，只有像素级测量）。
+
+因此 README 的门槛声明保持不变：**竖排古籍不可宣称支持**。
+
+## 11. 已知风险
 
 1. **基准语料代表性不足。** 现有 6 页来自现代简体横排印刷品，
    无法验证竖排/繁体/异体字。必须补充真正的古籍扫描页面。

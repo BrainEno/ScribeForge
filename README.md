@@ -62,6 +62,15 @@ MinerU's basic tier, and no chapter/printed-page model.
 
 Handling old books and ancient books — and exporting them faithfully to EPUB and
 DOCX — is therefore the **primary development goal** until the P0 gate is met.
+
+Since that review, five of the six follow-up issues have shipped: the
+preprocessing stage (deskew, deshadow, contrast, page-adaptive restoration), the
+OCR worker contract v2 (block types, line-level geometry, confidence, direction),
+the chapter/printed-page/page-role model with chapter-based EPUB navigation,
+glyph-variant folding for comparison, and page-furniture removal. What is still
+missing is vertical text: alignment pairs lines on Y-axis centre distance, which is
+semantically wrong for vertical columns, and there is no vertical benchmark
+corpus yet. The engine route is in [Technology route](./docs/technology-route.md).
 The full assessment, prioritised gap list, verified free/open-source technology
 recommendations and the staged plan live in
 [Ancient book support](./docs/ancient-book-support.md). Do not claim
@@ -71,7 +80,8 @@ ancient-book support in user-facing material before that gate is passed.
 
 ```text
 Import
-  -> page decoding / preprocessing
+  -> page decoding
+  -> preprocessing (deskew / deshadow / restoration, page-adaptive)
   -> MinerU analysis
   -> PaddleOCR independent analysis
   -> spatial/text alignment
@@ -99,8 +109,10 @@ The repository is in **Phase 3 — desktop UI**, with Phases 1, 2, and 4 complet
 
 **Phase 5 — ancient books and old-edition scans — is now the top development priority**
 (see the section above and [Ancient book support](./docs/ancient-book-support.md)).
-Its benchmark report is still pending: the 2026-10-28 review environment had no GPU
-and no access to model hosting, so no real A/B/C/D accuracy run was possible.
+Its accuracy report is still pending: the review environment has no GPU and no access
+to model hosting, so no real A/B/C/D accuracy run has been possible. What does
+exist are reproducible pixel-level measurements (preprocessing separability and
+residual skew on real corpus pages) — those are not a substitute for CER.
 
 ## CLI
 
