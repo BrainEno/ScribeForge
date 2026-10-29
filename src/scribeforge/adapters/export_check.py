@@ -142,6 +142,18 @@ def check_epub(
             _entry_text(package.find("o:metadata/dc:title", _OPF_NS)) == book.title,
             "package title differs from the book",
         )
+        _require(
+            package.find("o:metadata/dc:identifier", _OPF_NS) is not None,
+            "package metadata must declare dc:identifier",
+        )
+        _require(
+            package.find("o:metadata/dc:language", _OPF_NS) is not None,
+            "package metadata must declare dc:language",
+        )
+        _require(
+            package.get("version") == "3.0",
+            "package document must declare OPF version 3.0",
+        )
 
         references: Counter[str] = Counter()
         _check_images(archive, package, manifest, book)
@@ -150,6 +162,7 @@ def check_epub(
         for expected in flow.documents:
             document_name = _resolve(package_name, manifest[expected.item_id])
             rendered = _xhtml_blocks(_parse(archive, document_name))
+            _require_xhtml_structure(archive, document_name)
             _require(
                 rendered.paragraphs
                 == [paragraph.text for paragraph in expected.paragraphs],
@@ -214,10 +227,27 @@ def _check_images(
     for item in package.findall("o:manifest/o:item", _OPF_NS):
         if not (item.get("media-type") or "").startswith("image/"):
             continue
-        declared[item.get("href") or ""] = (
+        href = item.get("href") or ""
+        declared[href] = (
             item.get("id") or "",
             item.get("properties") or "",
         )
+        # EPUBCheck requires the media-type to match the file extension.
+        ext = posixpath.splitext(href)[1].lower()
+        media_type = item.get("media-type") or ""
+        expected_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".svg": "image/svg+xml",
+        }.get(ext)
+        if expected_type is not None:
+            _require(
+                media_type == expected_type,
+                f"manifest image {href!r} declares media-type {media_type!r}, "
+                f"expected {expected_type!r} for extension {ext!r}",
+            )
     _require(
         set(declared) == {posixpath.relpath(name, "OEBPS") for name in expected},
         "manifest image items do not match the book's images",
@@ -251,6 +281,38 @@ def _check_images(
             meta is not None and meta.get("content") == declared[cover_href][0],
             "package does not point EPUB 2 readers at the cover image",
         )
+
+
+def _require_xhtml_structure(archive: zipfile.ZipFile, name: str) -> None:
+    """Verify a spine document meets EPUB 3 XHTML structural requirements.
+
+    EPUBCheck requires every XHTML content document to:
+
+    * begin with a DOCTYPE declaration;
+    * have an ``<html>`` root element carrying the XHTML namespace;
+    * contain both ``<head>`` and ``<body>`` elements.
+    """
+
+    raw = archive.read(name)
+    _require(
+        b"<!DOCTYPE" in raw.upper(),
+        f"{name} is missing a DOCTYPE declaration",
+    )
+
+    root = _parse(archive, name)
+    xhtml_uri = _XHTML_NS["x"]
+    _require(
+        root.tag == f"{{{xhtml_uri}}}html",
+        f"{name} root element is not <html>: {root.tag!r}",
+    )
+    _require(
+        root.find("x:head", _XHTML_NS) is not None,
+        f"{name} <html> is missing <head>",
+    )
+    _require(
+        root.find("x:body", _XHTML_NS) is not None,
+        f"{name} <html> is missing <body>",
+    )
 
 
 def _check_nav(
