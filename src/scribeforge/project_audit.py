@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
+
+from scribeforge.domain.page_asset import PageAssetEvidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +113,9 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
             ).fetchall()
             pages = connection.execute(
                 """
-                SELECT project_id, page_index, source_image
+                SELECT project_id, page_index, source_image,
+                       page_asset_sha256, page_asset_byte_size,
+                       page_asset_parameters_json, page_asset_version
                 FROM pages
                 ORDER BY project_id, page_index
                 """
@@ -182,15 +187,90 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
             )
 
     for page in pages:
+        project_id = int(page["project_id"])
+        page_index = int(page["page_index"])
         page_path = Path(str(page["source_image"])).expanduser()
+        page_label = f"project {project_id} page {page_index + 1}"
+
         if not page_path.is_file():
             findings.append(
                 AuditFinding(
                     "page_asset_missing",
                     "error",
                     (
-                        f"Source image for project {page['project_id']} "
-                        f"page {int(page['page_index']) + 1} is missing."
+                        f"Source image for {page_label} is missing."
+                    ),
+                    str(page_path),
+                )
+            )
+            continue
+
+        evidence = None
+        if page["page_asset_sha256"] is not None:
+            try:
+                parameters = (
+                    json.loads(page["page_asset_parameters_json"])
+                    if page["page_asset_parameters_json"]
+                    else {}
+                )
+            except json.JSONDecodeError:
+                parameters = {}
+            evidence = PageAssetEvidence(
+                sha256=str(page["page_asset_sha256"]),
+                byte_size=int(page["page_asset_byte_size"])
+                if page["page_asset_byte_size"] is not None
+                else 0,
+                render_parameters=parameters,
+                version=int(page["page_asset_version"])
+                if page["page_asset_version"] is not None
+                else 1,
+            )
+            if evidence.byte_size <= 0:
+                findings.append(
+                    AuditFinding(
+                        "page_asset_evidence_invalid",
+                        "error",
+                        f"{page_label}: recorded page asset evidence has no usable size.",
+                        str(page_path),
+                    )
+                )
+                continue
+
+        try:
+            actual = _file_sha256(page_path)
+        except OSError as exc:
+            findings.append(
+                AuditFinding(
+                    "page_asset_unreadable",
+                    "error",
+                    f"{page_label}: raster is unreadable: {exc.strerror or exc}",
+                    str(page_path),
+                )
+            )
+            continue
+
+        if evidence is not None and actual != evidence.sha256:
+            findings.append(
+                AuditFinding(
+                    "page_asset_hash_mismatch",
+                    "error",
+                    (
+                        f"{page_label}: rendered page image differs from its recorded "
+                        f"SHA-256 (recorded {evidence.sha256[:12]}…, "
+                        f"found {actual[:12]}…). Do not use it as evidence."
+                    ),
+                    str(page_path),
+                )
+            )
+        elif evidence is None:
+            findings.append(
+                AuditFinding(
+                    "page_asset_evidence_missing",
+                    "warning",
+                    (
+                        f"{page_label}: imported before schema v11, so no page asset "
+                        "digest was recorded. Run `scribeforge rehash-pages` to fill "
+                        "the gap."
                     ),
                     str(page_path),
                 )

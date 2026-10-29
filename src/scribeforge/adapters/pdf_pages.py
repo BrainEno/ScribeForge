@@ -17,6 +17,7 @@ class PdfPageSource:
         if dpi <= 0:
             raise ValueError("PDF render DPI must be positive")
         self._path = Path(path)
+        self._dpi = dpi
         self._scale = dpi / 72.0
         document = pdfium.PdfDocument(str(self._path))
         try:
@@ -56,4 +57,9 @@ class PdfPageSource:
             height=int(height),
             image_bytes=buffer.getvalue(),
             extension="png",
+            render_parameters={
+                "dpi": self._dpi,
+                "renderer": "pdfium",
+                "source_format": "pdf",
+            },
         )

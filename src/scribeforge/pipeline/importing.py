@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scribeforge.domain.jobs import JobStage, JobState
+from scribeforge.domain.page_asset import PageAssetEvidence
 from scribeforge.domain.source import PageSource, page_asset_name
 from scribeforge.storage.sqlite import SQLiteStore
 
@@ -59,12 +60,17 @@ def import_source(
                 raise ValueError("rendered page identity does not match requested page")
             destination = assets_dir / page_asset_name(page_index, rendered.extension)
             _write_asset(destination, rendered.image_bytes)
+            page_asset = PageAssetEvidence.from_bytes(
+                rendered.image_bytes,
+                render_parameters=rendered.render_parameters,
+            )
             store.add_page(
                 project_id,
                 page_index,
                 str(destination),
                 rendered.width,
                 rendered.height,
+                page_asset=page_asset,
             )
             imported.append(page_index)
     except Exception as exc:

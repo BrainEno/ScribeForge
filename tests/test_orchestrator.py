@@ -8,6 +8,7 @@ from PIL import Image
 from scribeforge.adapters.image_preprocess import PreprocessError
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
+from scribeforge.domain.page_asset import PageAssetError, PageAssetEvidence
 from scribeforge.domain.vlm import VLMReading
 from scribeforge.pipeline.orchestrator import process_book, process_page
 from scribeforge.pipeline.preprocessing import preprocess_page
@@ -473,3 +474,32 @@ def test_review_crops_use_the_preprocessed_frame(tmp_path: Path) -> None:
         corrected = store.load_preprocess(project_id, 0)
         assert corrected is not None
         assert crop.size[0] <= corrected.output_width
+
+
+def test_process_page_refuses_replaced_page_raster(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    image_path = tmp_path / "page-0.png"
+    image_path.write_bytes(b"original page bytes")
+    store.add_page(
+        project_id,
+        0,
+        str(image_path),
+        100,
+        150,
+        page_asset=PageAssetEvidence.from_bytes(b"original page bytes"),
+    )
+    page = store.list_pages(project_id)[0]
+
+    image_path.write_bytes(b"replacement page bytes")
+    primary, secondary = _engines()
+
+    with pytest.raises(PageAssetError, match="not the raster this project recorded"):
+        process_page(
+            store,
+            project_id,
+            page,
+            primary_engine=primary,
+            secondary_engine=secondary,
+            reviewer=None,
+            crops_dir=tmp_path / "crops",
+        )

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from scribeforge.cli import run
+from scribeforge.domain.page_asset import PageAssetEvidence
 from scribeforge.project_audit import audit_project_store
 from scribeforge.storage.sqlite import SQLiteStore
 
@@ -28,8 +29,16 @@ def _store_with_source(tmp_path: Path) -> tuple[Path, Path]:
     assets = store_dir / "assets"
     assets.mkdir(parents=True)
     page_image = assets / "page-000001.png"
-    page_image.write_bytes(b"sample page image bytes")
-    store.add_page(project_id, 0, str(page_image.resolve()), 100, 200)
+    page_image_bytes = b"sample page image bytes"
+    page_image.write_bytes(page_image_bytes)
+    store.add_page(
+        project_id,
+        0,
+        str(page_image.resolve()),
+        100,
+        200,
+        page_asset=PageAssetEvidence.from_bytes(page_image_bytes),
+    )
     return store_dir, source
 
 
@@ -78,6 +87,20 @@ def test_project_audit_errors_when_page_asset_is_missing(tmp_path: Path) -> None
     finding = next(item for item in report.findings if item.code == "page_asset_missing")
     assert finding.severity == "error"
     assert report.page_count == 1
+
+
+def test_project_audit_errors_when_page_asset_hash_changed(tmp_path: Path) -> None:
+    store_dir, _source = _store_with_source(tmp_path)
+    asset = store_dir / "assets" / "page-000001.png"
+    asset.write_bytes(b"tampered page image bytes")
+
+    report = audit_project_store(store_dir)
+
+    finding = next(
+        item for item in report.findings if item.code == "page_asset_hash_mismatch"
+    )
+    assert finding.severity == "error"
+    assert "SHA-256" in finding.message
 
 
 def test_project_audit_reports_missing_database_as_fatal(tmp_path: Path) -> None:

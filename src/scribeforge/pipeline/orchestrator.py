@@ -10,6 +10,7 @@ from scribeforge.domain.alignment import align_pages
 from scribeforge.domain.crops import plan_review_crops
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import OCREngine
+from scribeforge.domain.page_asset import PageAssetError, PageAssetEvidence, verify_page_asset
 from scribeforge.domain.preprocess import PreprocessSettings
 from scribeforge.domain.risk import assess_page, review_candidates
 from scribeforge.domain.vlm import VLMReviewer
@@ -93,6 +94,24 @@ def process_page(
     image_path = page.source_image
     image_width = page.width
     image_height = page.height
+
+    # Refuse to read a page raster that is not the one this project recorded.
+    # A replaced or truncated page image fails here before any engine sees it,
+    # so no decision is ever made from bytes nobody accounted for.
+    if page.page_asset_sha256 is not None and page.page_asset_byte_size is not None:
+        try:
+            verify_page_asset(
+                Path(image_path),
+                PageAssetEvidence(
+                    sha256=str(page.page_asset_sha256),
+                    byte_size=int(page.page_asset_byte_size),
+                    render_parameters={},
+                    version=int(page.page_asset_version or 1),
+                ),
+                what=f"page {page_index} source image",
+            )
+        except PageAssetError as exc:
+            raise PageAssetError(str(exc)) from None
 
     if preprocess is not None:
         prepared = preprocess_page(

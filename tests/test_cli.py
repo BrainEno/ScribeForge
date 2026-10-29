@@ -2530,3 +2530,45 @@ def test_export_reports_unrepresentable_characters(
     assert "unrepresentable_text" in captured.err
     assert "U+FFFD" in captured.err
     assert not out_path.exists()
+
+
+def test_rehash_pages_records_digests_for_pages_without_evidence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir = tmp_path / "Book.scribeforge"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("Book", "book.pdf", "source-hash")
+
+    assets = store_dir / "assets"
+    assets.mkdir(parents=True)
+    page_image = assets / "page-000001.png"
+    page_image.write_bytes(b"legacy page image bytes")
+    # Imported before schema v11: no page asset digest recorded.
+    store.add_page(project_id, 0, str(page_image.resolve()), 100, 200)
+
+    code = run(["rehash-pages", "--store", str(store_dir), "--json"])
+    captured = capsys.readouterr()
+    assert code == 0
+    payload = json.loads(captured.out)
+    assert payload["rehashed"] == 1
+    assert payload["missing"] == 0
+
+    pages = store.list_pages(project_id)
+    assert pages[0].page_asset_sha256 is not None
+    assert pages[0].page_asset_version == 1
+    assert pages[0].page_asset_byte_size == len(b"legacy page image bytes")
+
+
+def test_rehash_pages_reports_missing_raster(tmp_path: Path) -> None:
+    store_dir = tmp_path / "Book.scribeforge"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("Book", "book.pdf", "source-hash")
+    store.add_page(project_id, 0, "/gone/page-000001.png", 100, 200)
+
+    code = run(["rehash-pages", "--store", str(store_dir)])
+    assert code == 2
+
+    pages = store.list_pages(project_id)
+    assert pages[0].page_asset_sha256 is None

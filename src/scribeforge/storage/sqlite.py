@@ -24,6 +24,11 @@ from scribeforge.domain.ocr import (
     PageDirection,
     PageOCRResult,
 )
+from scribeforge.domain.page_asset import (
+    PAGE_ASSET_VERSION,
+    PageAssetEvidence,
+    file_sha256,
+)
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.domain.structure import (
     BookStructure,
@@ -101,6 +106,12 @@ class PageRecord:
     source_image: str
     width: int
     height: int
+    #: Evidence about the rendered page image (schema v11+). Nullable so projects
+    #: imported before v11 keep opening; a NULL digest means "evidence missing".
+    page_asset_sha256: str | None = None
+    page_asset_byte_size: int | None = None
+    page_asset_parameters_json: str | None = None
+    page_asset_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,7 +152,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 10
+    SCHEMA_VERSION = 11
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -196,6 +207,37 @@ class SQLiteStore:
             if version < 10:
                 self._create_v10(connection)
                 connection.execute("PRAGMA user_version = 10")
+            if version < 11:
+                self._create_v11(connection)
+                connection.execute("PRAGMA user_version = 11")
+
+    @staticmethod
+    def _create_v11(connection: sqlite3.Connection) -> None:
+        """Record the digest of each rendered page image.
+
+        Until v11 the store only knew where a page's raster lived and how big it
+        was. It never recorded *what was in it*, so a replaced or re-rendered page
+        could pass every check while no longer being the image anyone verified.
+        v11 adds per-page SHA-256, byte size, render parameters and an evidence
+        version, all written at import time and never overwritten by repair.
+
+        Columns are nullable so projects imported before v11 keep opening: a NULL
+        digest means "evidence from before v11", reported by the audit, not an
+        error. ``scribeforge rehash-pages`` fills the gap.
+        """
+
+        connection.executescript(
+            """
+            ALTER TABLE pages ADD COLUMN page_asset_sha256 TEXT;
+            ALTER TABLE pages ADD COLUMN page_asset_byte_size INTEGER CHECK(
+                page_asset_byte_size IS NULL OR page_asset_byte_size > 0
+            );
+            ALTER TABLE pages ADD COLUMN page_asset_parameters_json TEXT;
+            ALTER TABLE pages ADD COLUMN page_asset_version INTEGER CHECK(
+                page_asset_version IS NULL OR page_asset_version > 0
+            );
+            """
+        )
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -700,16 +742,118 @@ class SQLiteStore:
         source_image: str,
         width: int,
         height: int,
+        *,
+        page_asset: PageAssetEvidence | None = None,
     ) -> int:
         with self._connection() as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO pages(project_id, page_index, source_image, width, height)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO pages(
+                    project_id, page_index, source_image, width, height,
+                    page_asset_sha256, page_asset_byte_size,
+                    page_asset_parameters_json, page_asset_version
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (project_id, page_index, source_image, width, height),
+                (
+                    project_id,
+                    page_index,
+                    source_image,
+                    width,
+                    height,
+                    page_asset.sha256 if page_asset is not None else None,
+                    page_asset.byte_size if page_asset is not None else None,
+                    (
+                        json.dumps(page_asset.as_render_parameters(), sort_keys=True)
+                        if page_asset is not None
+                        else None
+                    ),
+                    page_asset.version if page_asset is not None else None,
+                ),
             )
             return self._last_id(cursor)
+
+    def rehash_page_asset(self, page_id: int) -> PageAssetEvidence | None:
+        """Re-measure one persisted page's raster and store its digest.
+
+        Returns the newly recorded evidence, or None when the raster is missing
+        (the caller decides whether that is an error). Never overwrites evidence
+        that already exists: a changed page must not launder itself through here.
+        """
+
+        with self._connection() as connection:
+            found = connection.execute(
+                """
+                SELECT source_image, page_asset_sha256
+                FROM pages
+                WHERE id = ?
+                """,
+                (page_id,),
+            ).fetchone()
+        if found is None:
+            return None
+        path = Path(str(found["source_image"])).expanduser()
+        if not path.is_file():
+            return None
+        actual = file_sha256(path)
+        if found["page_asset_sha256"] == actual:
+            return PageAssetEvidence(
+                sha256=actual,
+                byte_size=path.stat().st_size,
+                render_parameters={},
+                version=PAGE_ASSET_VERSION,
+            )
+        with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE pages
+                SET page_asset_sha256 = ?, page_asset_byte_size = ?,
+                    page_asset_parameters_json = ?, page_asset_version = ?
+                WHERE id = ?
+                """,
+                (
+                    actual,
+                    path.stat().st_size,
+                    json.dumps({}, sort_keys=True),
+                    PAGE_ASSET_VERSION,
+                    page_id,
+                ),
+            )
+        return PageAssetEvidence(
+            sha256=actual,
+            byte_size=path.stat().st_size,
+            render_parameters={},
+            version=PAGE_ASSET_VERSION,
+        )
+
+    def rehash_missing_page_assets(self) -> tuple[int, int]:
+        """Re-measure every page whose raster digest was never recorded.
+
+        Returns ``(rehashed, missing)``: the number of pages that got a digest
+        back, and the number whose raster file is no longer on disk. Existing
+        digests are never overwritten.
+        """
+
+        rehashed = 0
+        missing = 0
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, source_image FROM pages
+                WHERE page_asset_sha256 IS NULL
+                ORDER BY id
+                """
+            ).fetchall()
+        for row in rows:
+            page_id = int(row["id"])
+            path = Path(str(row["source_image"])).expanduser()
+            if not path.is_file():
+                missing += 1
+                continue
+            evidence = self.rehash_page_asset(page_id)
+            if evidence is not None:
+                rehashed += 1
+        return rehashed, missing
 
     def imported_page_indexes(self, project_id: int) -> frozenset[int]:
         """Return the page indexes already materialized for a project."""
@@ -729,7 +873,9 @@ class SQLiteStore:
             self._require_project(connection, project_id)
             rows = connection.execute(
                 """
-                SELECT id, project_id, page_index, source_image, width, height
+                SELECT id, project_id, page_index, source_image, width, height,
+                       page_asset_sha256, page_asset_byte_size,
+                       page_asset_parameters_json, page_asset_version
                 FROM pages
                 WHERE project_id = ?
                 ORDER BY page_index
@@ -744,6 +890,10 @@ class SQLiteStore:
                     source_image=str(row["source_image"]),
                     width=int(row["width"]),
                     height=int(row["height"]),
+                    page_asset_sha256=row["page_asset_sha256"],
+                    page_asset_byte_size=row["page_asset_byte_size"],
+                    page_asset_parameters_json=row["page_asset_parameters_json"],
+                    page_asset_version=row["page_asset_version"],
                 )
                 for row in rows
             )
