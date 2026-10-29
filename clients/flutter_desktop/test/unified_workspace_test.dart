@@ -1,6 +1,7 @@
 import 'dart:ui' show Size;
 
-import 'package:flutter/material.dart' show CheckboxListTile, ElevatedButton;
+import 'package:flutter/material.dart'
+    show CheckboxListTile, ElevatedButton, NavigationRail;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/main.dart';
 
@@ -29,12 +30,29 @@ void main() {
         await tester.pumpWidget(const ScribeForgeDesktopApp());
         await tester.pumpAndSettle();
 
-        // Then: the five navigation tabs are present
-        expect(find.text('书籍'), findsOneWidget);
-        expect(find.text('处理'), findsOneWidget);
-        expect(find.text('复核'), findsOneWidget);
-        expect(find.text('导出'), findsOneWidget);
-        expect(find.text('设置'), findsOneWidget);
+        // Then: the five navigation tabs are present (not the app-bar title)
+        final navigationRail = find.byType(NavigationRail);
+        expect(navigationRail, findsOneWidget);
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('书籍')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('处理')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('复核')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('导出')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('设置')),
+          findsOneWidget,
+        );
 
         // And: the library page shows no project yet
         expect(find.text('暂无项目。'), findsOneWidget);
@@ -59,10 +77,9 @@ void main() {
         await tester.tap(find.text('处理'));
         await tester.pumpAndSettle();
 
-        // Then: the process page shows the file picker button and start button
-        expect(find.text('选择文件'), findsOneWidget);
+        // Then: the process page shows a source-path input and start button
+        expect(find.text('源文件 PDF 路径'), findsOneWidget);
         expect(find.text('开始处理'), findsOneWidget);
-        expect(find.text('源文件'), findsOneWidget);
 
         final startButtonFinder = find.ancestor(
           of: find.text('开始处理'),
