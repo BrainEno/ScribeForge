@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -193,8 +193,15 @@ def adjudicate_verification(
 
 
 def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
-    """List review candidates that still lack an accepted decision."""
+    """List review candidates that still lack an accepted decision.
 
+    Running heads and folios are excluded: they are not content, they repeat on
+    every page, and queuing them buries the real disagreements under dozens of
+    identical "V." prompts. The detection is book-wide, so it cannot be applied
+    while a single page is being processed.
+    """
+
+    furniture = _project_furniture(store, project_id)
     items: list[ReviewItem] = []
     for page in store.list_pages(project_id):
         try:
@@ -202,7 +209,14 @@ def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
         except KeyError:
             continue
         record = store.load_verification(verification_id)
+        page_furniture = furniture.get(page.page_index, {})
         for candidate in record.candidates:
+            pair = record.alignment.pairs[candidate.pair_index]
+            if any(
+                index is not None and index in page_furniture
+                for index in (pair.primary_line_index, pair.secondary_line_index)
+            ):
+                continue
             if store.latest_decision(project_id, page.page_index, candidate.pair_index) is None:
                 items.append(
                     ReviewItem(
@@ -213,6 +227,26 @@ def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
                     )
                 )
     return tuple(items)
+
+
+def _project_furniture(
+    store: SQLiteStore, project_id: int
+) -> Mapping[int, Mapping[int, str]]:
+    """Book-wide furniture detection from stored OCR runs."""
+
+    from scribeforge.domain.furniture import detect_page_furniture
+
+    pages: dict[int, PageOCRResult] = {}
+    for page in store.list_pages(project_id):
+        for engine in ("primary", "secondary"):
+            try:
+                run_id = store.latest_engine_run(project_id, page.page_index, engine)
+            except KeyError:
+                continue
+            pages[page.page_index] = store.load_ocr_run(run_id)
+            break
+    detected = detect_page_furniture(pages)
+    return {page_index: dict(found) for page_index, found in detected.items()}
 
 
 def review_detail(

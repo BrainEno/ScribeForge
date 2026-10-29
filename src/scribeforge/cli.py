@@ -977,6 +977,17 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    if book.dropped_furniture:
+        # Say what was removed, grouped by reason: an export must never silently
+        # decide that some text was not worth printing.
+        reasons: dict[str, int] = {}
+        for dropped in book.dropped_furniture:
+            reasons[dropped.reason] = reasons.get(dropped.reason, 0) + 1
+        detail = ", ".join(f"{reason} {count}" for reason, count in sorted(reasons.items()))
+        print(
+            f"excluded {len(book.dropped_furniture)} page-furniture line(s) ({detail})",
+            file=out,
+        )
     return EXIT_OK
 
 

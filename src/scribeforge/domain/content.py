@@ -4,6 +4,20 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
+class DroppedFurniture:
+    """A running head, footer or folio excluded from the exported text.
+
+    Carried on the book rather than discarded so an export can report exactly what
+    it removed: silently dropping text is the failure mode furniture detection has
+    to avoid.
+    """
+
+    page_index: int
+    text: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedPage:
     """One verified page: its source index and accepted lines in reading order.
 
@@ -40,3 +54,4 @@ class VerifiedBook:
     title: str
     pages: tuple[VerifiedPage, ...]
     chapters: tuple[VerifiedChapter, ...] = ()
+    dropped_furniture: tuple[DroppedFurniture, ...] = ()
