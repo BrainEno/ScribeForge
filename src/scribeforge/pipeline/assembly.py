@@ -10,7 +10,8 @@ from scribeforge.domain.content import (
     VerifiedPage,
 )
 from scribeforge.domain.furniture import detect_page_furniture
-from scribeforge.domain.ocr import PageOCRResult
+from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
+from scribeforge.domain.paragraphs import LineRole
 from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord
 
 
@@ -66,7 +67,11 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
 
         record = store.load_verification(verification_id)
         page_furniture = furniture.get(page.page_index, {})
+        primary_result = store.load_ocr_run(record.primary_run_id)
+        secondary_result = store.load_ocr_run(record.secondary_run_id)
         lines: list[str] = []
+        boxes: list[BoundingBox | None] = []
+        roles: list[LineRole] = []
         for pair_index in range(len(record.alignment.pairs)):
             pair = record.alignment.pairs[pair_index]
             furniture_reason = _pair_furniture(page_furniture, pair)
@@ -85,12 +90,16 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
                 unresolved_pairs.append(UnresolvedPair(page.page_index, pair_index))
                 continue
             lines.append(decision.selected_text)
+            boxes.append(_pair_box(primary_result, secondary_result, pair))
+            roles.append(_pair_role(primary_result, secondary_result, pair))
         pages.append(
             VerifiedPage(
                 page.page_index,
                 tuple(lines),
                 printed_label=labels.get(page.page_index, ""),
                 direction=record.alignment.direction,
+                line_boxes=tuple(boxes),
+                line_roles=tuple(roles),
             )
         )
 
@@ -118,6 +127,56 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
         chapters=chapters,
         dropped_furniture=tuple(dropped),
     )
+
+
+def _pair_line(
+    primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment
+) -> tuple[PageOCRResult, int] | None:
+    """Which engine's line represents this pair, and at which index."""
+
+    if pair.primary_line_index is not None:
+        return primary, pair.primary_line_index
+    if pair.secondary_line_index is not None:
+        return secondary, pair.secondary_line_index
+    return None
+
+
+def _pair_box(
+    primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment
+) -> BoundingBox | None:
+    """Box of the line that stands for this pair, for layout reconstruction."""
+
+    source = _pair_line(primary, secondary, pair)
+    if source is None:
+        return None
+    result, index = source
+    return result.lines[index].box
+
+
+def _pair_role(
+    primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment
+) -> LineRole:
+    """Block label of this pair, mapped onto an export role.
+
+    Both engines are consulted: a title one engine labelled and the other did not
+    is still a title, and a footnote that only one engine boxed must not be
+    rendered as body text.
+    """
+
+    for result, index in (
+        (primary, pair.primary_line_index),
+        (secondary, pair.secondary_line_index),
+    ):
+        if index is None:
+            continue
+        block = result.block_of_line(index)
+        if block is None:
+            continue
+        if block.block_type is BlockType.TITLE:
+            return LineRole.HEADING
+        if block.block_type is BlockType.FOOTNOTE:
+            return LineRole.FOOTNOTE
+    return LineRole.BODY
 
 
 def _detect_furniture(

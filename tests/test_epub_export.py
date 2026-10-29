@@ -106,7 +106,9 @@ def test_pages_preserve_escaped_source_text() -> None:
     page = _parse(archive, "OEBPS/page-000001.xhtml")
 
     paragraphs = [element.text or "" for element in page.findall(".//x:p", _XHTML_NS)]
-    assert paragraphs == ["鸦", 'x < y & "z"', ""]
+    # Two visual lines of one sentence belong to one paragraph; the trailing blank
+    # line separates rather than producing an empty paragraph.
+    assert paragraphs == ['鸦x < y & "z"']
 
 
 def test_build_is_deterministic() -> None:
@@ -206,7 +208,9 @@ def test_build_accepts_xml_whitespace_characters() -> None:
 
     page = _parse(archive, "OEBPS/page-000001.xhtml")
     paragraphs = [element.text or "" for element in page.findall(".//x:p", _XHTML_NS)]
-    assert paragraphs == ["a\tb", "c\nd"]
+    # Whitespace inside a line survives; the two lines group into one paragraph
+    # because nothing in the text ends a sentence.
+    assert paragraphs == ["a\tb c\nd"]
 
 
 def test_build_epub_rechecks_the_rendered_archive(monkeypatch: pytest.MonkeyPatch) -> None:

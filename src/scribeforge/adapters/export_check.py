@@ -138,14 +138,49 @@ def check_epub(data: bytes, book: VerifiedBook) -> None:
             document = _parse(
                 archive, _resolve(package_name, manifest[f"page-{page.page_index}"])
             )
-            paragraphs = [
-                element.text or "" for element in document.findall(".//x:p", _XHTML_NS)
-            ]
+            rendered = _xhtml_blocks(document)
             _require(
-                paragraphs == list(page.paragraphs()),
+                rendered == [block.text for block in page.blocks()],
                 f"page {page.page_index} text differs from the verified book",
             )
         _require_no_text_lost(book)
+
+
+def _squash(text: str) -> str:
+    """Drop whitespace so an intentional join space is not read as a lost character.
+
+    Joining two visual lines that break inside a Latin word needs the space the
+    typesetter put there. That space is added *between* characters that already
+    existed, so comparing with whitespace removed still catches a swallowed line
+    while tolerating the join.
+    """
+
+    return "".join(text.split())
+
+
+def _xhtml_blocks(document: ET.Element) -> list[str]:
+    """Read a page's rendered blocks back, in document order.
+
+    Headings, body paragraphs and footnotes are separate elements now, so a flat
+    ``.//p`` query would silently skip every heading and reorder notes. Reading the
+    section's children in order is the only comparison that matches what a reader
+    actually receives.
+    """
+
+    section = document.find(".//x:section", _XHTML_NS)
+    if section is None:
+        return []
+    xhtml = _XHTML_NS["x"]
+    text_block_tags = {f"{{{xhtml}}}h1", f"{{{xhtml}}}h2", f"{{{xhtml}}}p"}
+    text: list[str] = []
+    for child in section:
+        if child.tag in text_block_tags:
+            text.append(child.text or "")
+        elif child.tag == f"{{{xhtml}}}aside":
+            text.extend(element.text or "" for element in child.findall("x:p", _XHTML_NS))
+        else:
+            raise ExportIntegrityError(f"unexpected page element: {child.tag}")
+    return text
 
 
 def _require_no_text_lost(book: VerifiedBook) -> None:
@@ -158,8 +193,8 @@ def _require_no_text_lost(book: VerifiedBook) -> None:
     """
 
     for page in book.pages:
-        joined = "".join(page.paragraphs())
-        accepted = "".join(line.strip() for line in page.lines)
+        joined = _squash("".join(page.paragraphs()))
+        accepted = _squash("".join(page.lines))
         _require(
             joined == accepted,
             f"page {page.page_index} lost or gained text while splicing paragraphs",

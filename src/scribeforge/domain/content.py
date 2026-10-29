@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from scribeforge.domain.ocr import PageDirection
-from scribeforge.domain.reading_order import splice_paragraphs
+from scribeforge.domain.ocr import BoundingBox, PageDirection
+from scribeforge.domain.paragraphs import (
+    LineRole,
+    Paragraph,
+    TextLine,
+    assemble_paragraphs,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,17 +39,45 @@ class VerifiedPage:
     lines: tuple[str, ...]
     printed_label: str = ""
     direction: PageDirection = PageDirection.HORIZONTAL_LR
+    #: Layout evidence for each accepted line, in reading order. Optional so a
+    #: caller that only has text (tests, older stores) still gets sane output.
+    #: Layout evidence is deliberately excluded from equality: a page *is* its
+    #: accepted text and direction. Two runs that agree on the text are the same
+    #: page even if one engine gave tighter boxes.
+    line_boxes: tuple[BoundingBox | None, ...] = field(default=(), compare=False)
+    line_roles: tuple[LineRole, ...] = field(default=(), compare=False)
 
-    def paragraphs(self) -> tuple[str, ...]:
-        """Text as the export should render it, respecting the page direction.
+    def __post_init__(self) -> None:
+        if self.line_boxes and len(self.line_boxes) != len(self.lines):
+            raise ValueError("line boxes must match the accepted lines one to one")
+        if self.line_roles and len(self.line_roles) != len(self.lines):
+            raise ValueError("line roles must match the accepted lines one to one")
 
-        ``lines`` stays the accepted evidence (one entry per aligned line); this
-        method applies the direction's splice rule on top of it. Exporting the raw
-        lines of a vertical page would put a paragraph break in the middle of
-        every sentence.
+    def blocks(self) -> tuple[Paragraph, ...]:
+        """The page as paragraphs, with headings and footnotes kept distinct.
+
+        ``lines`` stays the accepted evidence: one entry per aligned OCR line, in
+        reading order, never rewritten. This method decides how those lines group
+        into paragraphs for a reader, using the geometry and block labels the
+        engines reported. Exporting raw lines would put a paragraph break at every
+        printed line break, which is what a scanned book looks like, not what it
+        reads like.
         """
 
-        return splice_paragraphs(self.lines, self.direction)
+        text_lines = [
+            TextLine(
+                text,
+                self.line_boxes[index] if self.line_boxes else None,
+                self.line_roles[index] if self.line_roles else LineRole.BODY,
+            )
+            for index, text in enumerate(self.lines)
+        ]
+        return assemble_paragraphs(text_lines, self.direction)
+
+    def paragraphs(self) -> tuple[str, ...]:
+        """Paragraph text only, for callers that do not care about roles."""
+
+        return tuple(paragraph.text for paragraph in self.blocks())
 
 
 @dataclass(frozen=True, slots=True)

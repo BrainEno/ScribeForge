@@ -78,6 +78,18 @@ recommendations and the staged plan live in
 [Ancient book support](./docs/ancient-book-support.md). Do not claim
 ancient-book support in user-facing material before that gate is passed.
 
+Export used to write one `<p>` per accepted text line, so a scanned page arrived
+as 30-odd hard-wrapped fragments — 161 paragraphs for the 36 paragraphs that the
+six `benchmark/corpus/v` pages actually contain. `VerifiedPage.blocks()` now
+reconstructs paragraphs from line geometry and engine block labels (indent, short
+line, line gap, sentence-final punctuation, hyphenless-Latin rules), keeps
+headings and footnotes distinct (`<h2>`, `<aside epub:type="footnote">`), and the
+six pages recover **36 / 36** paragraphs exactly, with no character lost. The
+evidence layer is untouched: `VerifiedPage.lines` stays one entry per accepted
+line and every export is re-read and compared block by block. Cross-page
+continuation is still open because it needs the chapter flow from issue #87. See
+[Paragraphs and structural fidelity](./docs/paragraphs.md).
+
 ## Planned processing pipeline
 
 ```text
@@ -170,6 +182,7 @@ See:
 - [TDD policy](./docs/tdd.md)
 - [Data model](./docs/data-model.md)
 - [Export](./docs/export.md)
+- [Paragraphs and structural fidelity](./docs/paragraphs.md)
 - [Desktop shell](./docs/ui.md)
 - [Flutter Desktop comparison client](./clients/flutter_desktop/README.md)
 

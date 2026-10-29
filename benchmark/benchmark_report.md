@@ -134,6 +134,42 @@ zero; reversing the transcription order must push CER above 0.2 (so the zero is
 column order, not luck); and with the direction declaration removed,
 `detect_page_direction()` still reports `vertical-rl` from column geometry alone.
 
+## Paragraph reconstruction (measured on real corpus text — structural, not CER)
+
+The metric above counts characters, so it cannot see a structural defect: text can
+be 100% intact while the reader receives one paragraph per printed line. On the six
+`corpus/v` pages the ground truth is 36 paragraphs; reconstructed as visual lines
+at the book's 28-character measure it is **161 lines**, which is what the old
+exporter emitted as 161 `<p>` elements, 14 of them ending mid-sentence.
+
+`VerifiedPage.blocks()` now groups those lines with geometry and block labels
+(indent, short line, line gap, sentence-final punctuation) instead of punctuation
+alone. Measured by `tests/test_paragraphs.py::test_paragraph_recovery_on_the_real_corpus_text`:
+
+| Page | True paragraphs | Recovered | Exact | Visual lines |
+| --- | ---: | ---: | ---: | ---: |
+| `v-010` | 5 | 5 | 5 | 28 |
+| `v-014` | 4 | 4 | 4 | 30 |
+| `v-018` | 11 | 11 | 11 | 15 |
+| `v-020` | 3 | 3 | 3 | 28 |
+| `v-030` | 9 | 9 | 9 | 30 |
+| `v-040` | 4 | 4 | 4 | 30 |
+| **total** | **36** | **36** | **36 (100%)** | **161** |
+
+Zero characters lost. Two fixture defects had to be fixed before this number meant
+anything, and both are worth keeping in mind for any future measurement:
+
+1. a page can hold more rows than the fixture's synthetic page height allowed, so
+   rows wrapped back to the top and scrambled reading order (`v-014`, `v-040`
+   showed phantom paragraph errors);
+2. breaking a paragraph at a fixed character count splits Latin words (`vect|or`),
+   and the joiner then legitimately inserts a space, which looked like corruption.
+
+This is a structural measurement, not an accuracy claim: there is still no OCR in
+this environment. Cross-page continuation (page 30 ends `……特`, page 40 opens
+`些爱。`) is **not** merged yet — it needs the chapter-level text flow from
+issue #87. See [Paragraphs and structural fidelity](../docs/paragraphs.md).
+
 ## Preprocessing repair (measured, pixel-level — not CER)
 
 `benchmark/analysis/preprocess_benchmark.py` derives deterministic degradations
