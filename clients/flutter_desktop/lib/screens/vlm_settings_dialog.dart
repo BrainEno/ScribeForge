@@ -80,7 +80,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
       return;
     }
 
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFile(
       dialogTitle: 'Choose an image or review crop for VLM preflight',
       type: FileType.custom,
       allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
