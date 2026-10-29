@@ -401,6 +401,31 @@ def test_epub_page_layout_keeps_an_image_in_its_own_document() -> None:
     assert owning == ["OEBPS/page-000003.xhtml"]
 
 
+def test_epub_renders_a_plate_caption_as_figcaption() -> None:
+    """A plate page whose single OCR line is a caption renders <figcaption>."""
+
+    image = VerifiedImage(
+        page_index=2,
+        file_name="page-000003.png",
+        media_type="image/png",
+        role=PageImageRole.FIGURE,
+        sha256=hashlib.sha256(_PNG).hexdigest(),
+        data=_PNG,
+        alt="第 3 页的插图",
+        caption="远手点：溜溜球离开操纵它的手距离最远时的那一点。",
+    )
+    book = _book_with((image,))
+
+    data = _epub(book)
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        document = archive.read("OEBPS/doc-000002.xhtml").decode("utf-8")
+
+    assert "<figcaption>" in document
+    assert "远手点：溜溜球离开操纵它的手距离最远时的那一点。" in document
+    assert "</figcaption>" in document
+
+
 def test_epub_without_images_declares_no_cover() -> None:
     data = _epub(_book_with(()))
 

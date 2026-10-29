@@ -25,11 +25,14 @@ itself through the repair command.
 from __future__ import annotations
 
 import hashlib
+import io
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+
+from PIL import Image
 
 #: Version of the "what a page raster is" contract. Bump it when the renderer, the
 #: preprocessing defaults or the meaning of the stored parameters changes, so a
@@ -148,3 +151,35 @@ def verify_recorded_bytes(
             f"{what} no longer matches the raster this project recorded "
             f"(recorded {evidence.sha256[:12]}…, found {actual[:12]}…)"
         )
+
+
+def reencode_image(
+    data: bytes,
+    *,
+    format: str,
+    quality: int | None = None,
+) -> tuple[bytes, str]:
+    """Re-encode a page raster with Pillow and return ``(bytes, extension)``.
+
+    ``format`` is ``"jpeg"`` or ``"png"``. When ``quality`` is given (JPEG only)
+    the encoder uses it; otherwise Pillow's default applies. The returned
+    extension matches the chosen format so the asset file name stays consistent
+    with :func:`page_asset_name`.
+
+    Re-encoding is lossy for JPEG: the digest stored with the page is the digest
+    of the *re-encoded* bytes, so the audit always compares against what is
+    actually on disk, never against the original render.
+    """
+
+    if format not in ("jpeg", "png"):
+        raise ValueError(f"unsupported re-encode format: {format!r}")
+    with Image.open(io.BytesIO(data)) as image:
+        source = image.convert("RGB") if (format == "jpeg" and image.mode != "RGB") else image
+        buffer = io.BytesIO()
+        if format == "jpeg" and quality is not None:
+            source.save(buffer, format="JPEG", optimize=True, quality=quality)
+        elif format == "jpeg":
+            source.save(buffer, format="JPEG", optimize=True)
+        else:
+            source.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue(), "jpg" if format == "jpeg" else "png"

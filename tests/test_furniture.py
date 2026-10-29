@@ -186,6 +186,67 @@ def test_empty_pages_are_handled() -> None:
     assert furniture_line_indexes(pages) == {}
 
 
+def test_head_and_folio_on_one_line_is_furniture() -> None:
+    """A margin line like "V. 23" (head + folio) is excluded as furniture."""
+
+    pages: dict[int, PageOCRResult] = {}
+    for index in range(4):
+        pages[index] = _page(
+            [
+                _line(f"V. {index + 1}", y=0.02, height=0.012),
+                _line("正文", y=0.2),
+            ],
+            page_index=index,
+        )
+
+    detected = detect_page_furniture(pages)
+
+    # The folio part makes each line different, so it is not "repeated text",
+    # but the head "V." repeats on all pages, so the whole line is furniture.
+    for found in detected.values():
+        assert 0 in found
+        assert found[0] == REASON_PAGE_NUMBER
+
+
+def test_alternating_odd_even_running_heads_are_detected() -> None:
+    """Odd pages carry the book title, even pages the part title; both removed."""
+
+    pages: dict[int, PageOCRResult] = {}
+    for index in range(6):
+        head = "书名" if index % 2 == 0 else "第一章"
+        pages[index] = _page(
+            [
+                _line(head, y=0.02, height=0.012),
+                _line("正文", y=0.2),
+            ],
+            page_index=index,
+        )
+
+    detected = detect_page_furniture(pages)
+
+    for found in detected.values():
+        assert 0 in found
+        assert found[0] == REASON_REPEATED_IN_MARGIN
+
+
+def test_isolated_number_in_body_is_not_folio() -> None:
+    """A solitary number line in the body area is not treated as a page number."""
+
+    pages: dict[int, PageOCRResult] = {}
+    for index in range(4):
+        pages[index] = _page(
+            [
+                _line("正文第一行", y=0.02, height=0.012),
+                _line("42", y=0.5),  # isolated number in the body, not the margin
+            ],
+            page_index=index,
+        )
+
+    detected = detect_page_furniture(pages)
+
+    assert all(1 not in found for found in detected.values())
+
+
 # ------------------------------------------------------------------ integration
 
 

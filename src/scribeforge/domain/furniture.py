@@ -16,10 +16,20 @@ independent of position alone:
 
 A margin line that appears on only one page is *not* furniture: that is exactly
 the shape of a chapter heading.
+
+Two common real-world shapes are handled in addition to the three rules above:
+
+* **Head + folio on one line** — a running head and a page number share a margin
+  line, e.g. ``"V. 23"``. The whole line is furniture when the non-numeric part
+  repeats as a running head and the numeric part parses as a folio.
+* **Alternating odd/even heads** — odd pages carry the book title, even pages the
+  part title. Each variant is counted against its own parity class so a short
+  book still removes both heads once either side reaches the repetition threshold.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 
 from scribeforge.domain.normalize import fold_for_comparison
@@ -35,6 +45,11 @@ MARGIN_BAND = 0.08
 # Two pages can share a one-off line (a part title spread); three is a pattern.
 REPETITION_MIN_PAGES = 3
 
+# A folio embedded in a margin line is at most this many digits long.
+MAX_FOLIO_DIGITS = 4
+
+_FOLIO_SUFFIX = re.compile(r"(\d{1," + str(MAX_FOLIO_DIGITS) + r"})\s*$")
+_FOLIO_PREFIX = re.compile(r"^\s*(\d{1," + str(MAX_FOLIO_DIGITS) + r")")
 
 REASON_DECLARED_BLOCK = "engine_block"
 REASON_REPEATED_IN_MARGIN = "repeated_in_margin"
@@ -55,6 +70,34 @@ def _only_line_on_page(result: PageOCRResult) -> bool:
 def _declared_furniture(result: PageOCRResult, index: int) -> bool:
     block = result.block_of_line(index)
     return block is not None and block.block_type.is_page_furniture
+
+
+def _extract_folio_from_margin_line(text: str) -> str | None:
+    """Try to read a folio embedded in a margin line.
+
+    ``"V. 23"`` yields ``"23"``; ``"23 - 译林出版社"`` yields ``"23"``.
+    Returns None when no plausible folio is present.
+    """
+
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    match = _FOLIO_SUFFIX.search(stripped)
+    if match:
+        folio = match.group(1)
+        prefix = stripped[: match.start()].strip().strip(".,:;-–—")
+        if prefix and len(folio) <= MAX_FOLIO_DIGITS:
+            return folio
+
+    match = _FOLIO_PREFIX.search(stripped)
+    if match:
+        folio = match.group(1)
+        suffix = stripped[match.end() :].strip().strip(".,:;-–—")
+        if suffix and len(folio) <= MAX_FOLIO_DIGITS:
+            return folio
+
+    return None
 
 
 def margin_line_keys(result: PageOCRResult) -> Mapping[str, tuple[int, ...]]:
@@ -81,12 +124,22 @@ def detect_page_furniture(
     ``pages`` must contain every page of the book: the repetition rule is only
     meaningful across the whole document, which is why this cannot be decided one
     page at a time while OCR runs.
+
+    Repetition is counted per ``(folded_text, page_parity)`` so an alternating
+    odd/even running head (book title on recto, part title on verso) is detected
+    even when each variant appears on fewer than half the pages. A key repeated on
+    *all* pages is caught through the ``all`` bucket even when each parity class
+    alone is below the threshold (short books).
     """
 
-    counts: dict[str, set[int]] = {}
+    # key -> {"all": set of pages, 0: even pages, 1: odd pages}
+    counts: dict[str, dict[str | int, set[int]]] = {}
     for page_index, result in pages.items():
+        parity = page_index % 2
         for key in margin_line_keys(result):
-            counts.setdefault(key, set()).add(page_index)
+            entry = counts.setdefault(key, {})
+            entry.setdefault("all", set()).add(page_index)
+            entry.setdefault(parity, set()).add(page_index)
 
     detected: dict[int, dict[int, str]] = {}
     for page_index, result in pages.items():
@@ -94,6 +147,7 @@ def detect_page_furniture(
             # A single line is content by definition: there is nothing else on the
             # page for it to be furniture *relative to*.
             continue
+        parity = page_index % 2
         found: dict[int, str] = {}
         for index in range(len(result.lines)):
             line = result.lines[index]
@@ -105,8 +159,29 @@ def detect_page_furniture(
             if parse_page_label(line.text).is_numbered:
                 found[index] = REASON_PAGE_NUMBER
                 continue
+
+            # Head + folio on one line, e.g. "V. 23": the bare folio part is
+            # furniture, and the head part must repeat as a running head for the
+            # whole line to be excluded.
+            folio = _extract_folio_from_margin_line(line.text)
+            if folio is not None:
+                head = fold_for_comparison(
+                    _FOLIO_SUFFIX.sub("", _FOLIO_PREFIX.sub("", line.text)).strip(
+                        ".,:;-–—"
+                    )
+                )
+                head_entry = counts.get(head, {}) if head else {}
+                head_pages = head_entry.get("all", set()) or head_entry.get(
+                    parity, set()
+                )
+                if head and len(head_pages) >= repetition_min_pages:
+                    found[index] = REASON_PAGE_NUMBER
+                    continue
+
             key = fold_for_comparison(line.text)
-            if key and len(counts.get(key, ())) >= repetition_min_pages:
+            entry = counts.get(key, {})
+            pages_for_key = entry.get("all", set()) or entry.get(parity, set())
+            if key and len(pages_for_key) >= repetition_min_pages:
                 found[index] = REASON_REPEATED_IN_MARGIN
         if found:
             detected[page_index] = found

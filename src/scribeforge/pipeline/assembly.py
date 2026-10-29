@@ -304,25 +304,43 @@ def _page_images(
     assets = {page.page_index: page.source_image for page in store.list_pages(project_id)}
     images: list[VerifiedImage] = []
     for page in pages:
-        if page.lines:
-            continue
         confirmation = confirmations.get(page.page_index)
         role = roles.get(page.page_index, PageRole.UNKNOWN)
+        # Only a plate may carry a line of text (its caption); every other page
+        # that ships as an image must be textless. A page of prose is re-flowed,
+        # never mirrored.
+        if page.lines and role is not PageRole.PLATE:
+            continue
         if role is PageRole.COVER:
             image_role = PageImageRole.COVER
-        elif role is PageRole.PLATE or (
-            confirmation is not None and confirmation.kind == _NON_TEXT_KIND
-        ):
+            caption = ""
+        elif role is PageRole.PLATE:
             image_role = PageImageRole.FIGURE
+            # A plate may carry exactly one line of OCR text beneath the image:
+            # the picture's caption. More than one line means the page is not a
+            # pure plate and must stay a reflowed document.
+            caption = page.lines[0] if len(page.lines) == 1 else ""
+            if len(page.lines) > 1:
+                continue
+        elif confirmation is not None and confirmation.kind == _NON_TEXT_KIND:
+            # A person-confirmed non-text page must carry no text at all: a
+            # single OCR line under a plate is handled through the PLATE role
+            # above, not through a manual confirmation.
+            if page.lines:
+                continue
+            image_role = PageImageRole.FIGURE
+            caption = ""
         else:
             continue
         images.append(
-            _load_image(page, assets[page.page_index], image_role)
+            _load_image(page, assets[page.page_index], image_role, caption=caption)
         )
     return tuple(images)
 
 
-def _load_image(page: VerifiedPage, source: str, role: PageImageRole) -> VerifiedImage:
+def _load_image(
+    page: VerifiedPage, source: str, role: PageImageRole, caption: str = ""
+) -> VerifiedImage:
     """Read one page raster and record its digest, or refuse with the reason."""
 
     path = Path(source)
@@ -356,6 +374,7 @@ def _load_image(page: VerifiedPage, source: str, role: PageImageRole) -> Verifie
         sha256=hashlib.sha256(data).hexdigest(),
         data=data,
         alt=alt,
+        caption=caption,
     )
 
 
