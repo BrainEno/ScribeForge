@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -724,7 +723,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             Row(
               children: <Widget>[
                 Text(
-                  item.pageIndex == null ? '未知页' : '第 ${item.pageIndex + 1} 页 · 第 ${item.pairIndex} 对',
+                  item.pageIndex == null || item.pairIndex == null
+                      ? '未知页'
+                      : '第 ${item.pageIndex! + 1} 页 · 第 ${item.pairIndex!} 对',
                   style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
                 const Spacer(),
