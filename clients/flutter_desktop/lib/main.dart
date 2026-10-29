@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 
-import 'screens/comparison_workspace.dart';
+import 'screens/unified_workspace.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -50,7 +50,7 @@ class ScribeForgeDesktopApp extends StatelessWidget {
           contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
         ),
       ),
-      home: const ComparisonWorkspace(),
+      home: const UnifiedWorkspace(),
     );
   }
 }
