@@ -2,7 +2,13 @@ import sqlite3
 from pathlib import Path
 
 from scribeforge.domain.alignment import align_pages
-from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
+from scribeforge.domain.ocr import (
+    BoundingBox,
+    OCRLine,
+    OCRToken,
+    PageDirection,
+    PageOCRResult,
+)
 from scribeforge.domain.risk import assess_page, review_candidates
 from scribeforge.storage.sqlite import SQLiteStore
 
@@ -127,3 +133,70 @@ def test_v1_database_migrates_without_losing_existing_project(tmp_path: Path) ->
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+
+
+def _vertical_line(text: str, x: float) -> OCRLine:
+    box = BoundingBox(x, 0.1, 0.05, 0.8)
+    return OCRLine(text, box, (OCRToken(text, 0.95, box),))
+
+
+def test_declared_vertical_direction_survives_storage(tmp_path: Path) -> None:
+    """The direction an alignment was computed in must be reproducible later.
+
+    Two pages can share identical geometry and still need opposite pairings, so a
+    stored alignment without its direction is not evidence anyone can re-derive.
+    """
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("Book", "source.pdf", "hash")
+    store.add_page(project_id, 0, "pages/0001.png", 1000, 2000)
+    declared = PageOCRResult(
+        0,
+        "mineru",
+        "1",
+        (_vertical_line("第一列", 0.7), _vertical_line("第二列", 0.5)),
+        direction=PageDirection.VERTICAL_RL,
+        direction_declared=True,
+    )
+    secondary = PageOCRResult(
+        0,
+        "paddleocr",
+        "1",
+        (_vertical_line("第一列", 0.7), _vertical_line("第二列", 0.5)),
+        direction=PageDirection.VERTICAL_RL,
+        direction_declared=True,
+    )
+    primary_id = store.record_ocr(project_id, declared)
+    secondary_id = store.record_ocr(project_id, secondary)
+    alignment = align_pages(declared, secondary)
+    risks = assess_page(alignment, declared, secondary)
+
+    verification_id = store.record_verification(
+        primary_id, secondary_id, alignment, risks, ()
+    )
+    restored = store.load_verification(verification_id)
+
+    assert restored.alignment.direction is PageDirection.VERTICAL_RL
+
+
+def test_undeclared_direction_is_not_restored_as_a_declaration(tmp_path: Path) -> None:
+    store, _project_id, primary_id, secondary_id = _prepared(tmp_path)
+    primary = _result("mineru", "乌鸦。")
+    secondary = _result("paddleocr", "鸟鸦。")
+    alignment = align_pages(primary, secondary)
+    risks = assess_page(alignment, primary, secondary)
+
+    verification_id = store.record_verification(
+        primary_id, secondary_id, alignment, risks, ()
+    )
+
+    with sqlite3.connect(tmp_path / "project.sqlite3") as connection:
+        stored = connection.execute(
+            "SELECT direction FROM engine_runs WHERE id = ?", (primary_id,)
+        ).fetchone()[0]
+
+    assert stored is None
+    assert primary.direction is PageDirection.HORIZONTAL_LR
+    assert primary.direction_declared is False
+    assert store.load_verification(verification_id).alignment == alignment

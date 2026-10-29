@@ -47,6 +47,14 @@ negative coordinates after deskew is corrected rather than rejecting the page.
 | `engine_version` | yes | Free-form string, persisted as evidence. |
 | `page_index` | yes | Must equal the requested zero-based page index. |
 | `direction` | v2 | One of `horizontal-lr`, `horizontal-rl`, `vertical-rl`, `vertical-lr`. Defaults to `horizontal-lr`. |
+
+`direction` is read as an **assertion about the page**, not a default: a worker
+that omits the field (every v1 worker, and any v2 worker that genuinely cannot
+tell) is recorded as *undeclared*, and ScribeForge then infers the direction from
+line geometry. Omitting it is safer than guessing `horizontal-lr` — a guessed
+horizontal declaration would suppress geometry detection and mis-pair every
+page of a vertical book. Declaring is only worthwhile when the engine really
+decides it (e.g. PaddleOCR-VL's layout stage); do not echo a constant.
 | `lines[].text` | yes | Verbatim recognized text; never normalized by the worker. |
 | `lines[].box` | yes | Normalized line geometry. |
 | `lines[].confidence` | v2 | Optional line-level score in 0..1. |
