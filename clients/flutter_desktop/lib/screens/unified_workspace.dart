@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -44,7 +43,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   String? _error;
 
   ProjectStatusSnapshot? _projectStatus;
-  bool _statusLoading = false;
   int _statusRequestVersion = 0;
 
   RuntimeStatusSnapshot? _runtimeStatus;
@@ -82,7 +80,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   static const List<IconData> _navIcons = <IconData>[
     Icons.library_books,
     Icons.auto_awesome,
-    Icons.review,
+    Icons.reviews,
     Icons.output,
     Icons.settings,
   ];
@@ -118,7 +116,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _refreshStatus() async {
     if (_projectStorePath == null) return;
     final version = ++_statusRequestVersion;
-    setState(() => _statusLoading = true);
     try {
       final arguments = ScribeForgeCli.statusArguments(
         storePath: _projectStorePath!,
@@ -143,8 +140,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted || version != _statusRequestVersion) return;
       setState(() => _error = '读取项目状态失败：$exc');
     } finally {
-      if (!mounted || version != _statusRequestVersion) return;
-      setState(() => _statusLoading = false);
+      if (mounted && version == _statusRequestVersion) {
+        setState(() {});
+      }
     }
   }
 
@@ -174,8 +172,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '读取运行时状态失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _runtimeLoading = false);
+      if (mounted) {
+        setState(() => _runtimeLoading = false);
+      }
     }
   }
 
@@ -205,8 +204,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '读取复核队列失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _reviewLoading = false);
+      if (mounted) {
+        setState(() => _reviewLoading = false);
+      }
     }
   }
 
@@ -302,8 +302,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '处理失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -318,7 +319,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         onOutput: buffer.write,
         onError: (_) {},
       );
-      final text = buffer.toString();
       if (_projectStatus != null) {
         setState(() {
           _projectSourceMatches = _projectStatus!.sourcePathMatches(_pdfPath ?? '');
@@ -368,8 +368,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '记录决策失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -421,8 +422,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '导出失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -464,8 +466,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '运行时配置失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) {
+        setState(() => _busy = false);
+      }
     }
   }
 
@@ -655,7 +658,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           Row(
             children: <Widget>[
               ElevatedButton.icon(
-                icon: const Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
+                icon: Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
                 label: Text(_busy ? '处理中…' : '开始处理'),
                 onPressed: _busy || _pdfPath == null ? null : () { _runProcess(); },
                 style: ElevatedButton.styleFrom(
@@ -696,7 +699,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           Row(
             children: <Widget>[
               ElevatedButton.icon(
-                icon: const Icon(_reviewLoading ? Icons.hourglass_empty : Icons.refresh),
+                icon: Icon(_reviewLoading ? Icons.hourglass_empty : Icons.refresh),
                 label: Text(_reviewLoading ? '刷新中…' : '刷新队列'),
                 onPressed: _reviewLoading ? null : () { _refreshReviewQueue(); },
               ),
@@ -743,7 +746,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                       : '第 ${item.pageIndex! + 1} 页 · 第 ${item.pairIndex!} 对',
                   style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
-                const Spacer(),
+                Spacer(),
                 if (_busy) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
               ],
             ),
@@ -850,7 +853,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           width: double.infinity,
           height: 48,
           child: ElevatedButton.icon(
-            icon: const Icon(_busy ? Icons.hourglass_empty : Icons.output),
+            icon: Icon(_busy ? Icons.hourglass_empty : Icons.output),
             label: Text(_busy ? '导出中…' : '开始导出'),
             onPressed: _busy ||
                     _projectStorePath == null ||
