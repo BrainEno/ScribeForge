@@ -799,13 +799,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         ),
         const SizedBox(height: 12),
         CheckboxListTile(
-          value: _exportLayoutChapter,
+          initialValue: _exportLayoutChapter,
           title: const Text('按章节布局（EPUB）'),
           subtitle: const Text('关闭后每页一个文档（便于核对扫描）'),
           onChanged: (v) => setState(() => _exportLayoutChapter = v ?? true),
         ),
         CheckboxListTile(
-          value: _exportStrictAcceptance,
+          initialValue: _exportStrictAcceptance,
           title: const Text('严格接受校验'),
           subtitle: const Text('有待抽查的配对时拒绝导出（退出码 2）'),
           onChanged: (v) => setState(() => _exportStrictAcceptance = v ?? false),
