@@ -2227,6 +2227,98 @@ def test_export_refuses_a_page_with_ink_but_no_text_until_it_is_confirmed(
     assert out_path.exists()
 
 
+def test_export_embeds_the_cover_and_reports_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A confirmed picture must reach the reader, and the report must say so.
+
+    The fixture book is a single page of artwork, so it is the cover: the first
+    page of a scan that carries no text is the one page a reading system should
+    show in a library grid.
+    """
+
+    book = _book_with_ink(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary")),
+    )
+    run(
+        [
+            "confirm",
+            "--store",
+            str(store_dir),
+            "--page",
+            "0",
+            "--kind",
+            "non_text",
+            "--reason",
+            "frontispiece plate, no caption",
+        ]
+    )
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--json",
+            "--modified",
+            "2024-01-01T00:00:00Z",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+    assert code == 0
+    assert report["images"] == 1
+    assert report["cover_image"]["page"] == 0
+    assert report["cover_image"]["media_type"] == "image/png"
+    with zipfile.ZipFile(out_path) as archive:
+        images = [name for name in archive.namelist() if name.startswith("OEBPS/images/")]
+        package = archive.read("OEBPS/content.opf").decode("utf-8")
+    assert images == ["OEBPS/images/page-000001.png"]
+    assert 'properties="cover-image"' in package
+    assert '<meta name="cover" content="image-page-0"/>' in package
+
+
+def test_export_warns_that_docx_does_not_carry_page_images(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book_with_ink(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.docx"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary")),
+    )
+    run(
+        [
+            "confirm",
+            "--store",
+            str(store_dir),
+            "--page",
+            "0",
+            "--kind",
+            "non_text",
+            "--reason",
+            "frontispiece plate, no caption",
+        ]
+    )
+    capsys.readouterr()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "page images: 1 embedded" in captured.out
+    assert "DOCX export writes text only" in captured.err
+
+
 def test_confirm_makes_a_textless_page_exportable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

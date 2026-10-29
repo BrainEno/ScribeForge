@@ -8,15 +8,18 @@ from xml.sax.saxutils import escape, quoteattr
 
 from scribeforge.adapters.export_check import check_epub
 from scribeforge.adapters.export_common import (
+    IMAGES_DIR,
     XML_DECL,
+    epub_image_name,
     format_modified,
     validate_book_text,
     validate_identifier,
     validate_language,
     write_atomic,
+    write_zip_bytes,
     write_zip_entry,
 )
-from scribeforge.domain.content import VerifiedBook
+from scribeforge.domain.content import VerifiedBook, VerifiedImage
 from scribeforge.domain.flow import (
     AUTO_LAYOUT,
     FlowDocument,
@@ -31,6 +34,8 @@ _XHTML_NS = "http://www.w3.org/1999/xhtml"
 _EPUB_NS = "http://www.idpf.org/2007/ops"
 _CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 _DC_NS = "http://purl.org/dc/elements/1.1/"
+#: Where page rasters live inside the package. One directory keeps the manifest
+#: and the integrity check's "every image is referenced once" rule simple.
 
 
 def _container_xml() -> str:
@@ -68,6 +73,20 @@ def _package_xml(
             'media-type="application/xhtml+xml"/>'
         )
         spine.append(f'<itemref idref="{document.item_id}"/>')
+    cover = book.cover_image
+    for image in book.images:
+        properties = ' properties="cover-image"' if image is cover else ""
+        items.append(
+            f'<item id="{_image_item_id(image)}" href="{_image_href(image)}" '
+            f'media-type="{image.media_type}"{properties}/>'
+        )
+    # EPUB 2 readers (and most library grids) only look at this meta name; EPUB 3
+    # uses the manifest ``cover-image`` property, so both are written.
+    cover_meta = (
+        ""
+        if cover is None
+        else f'<meta name="cover" content="{_image_item_id(cover)}"/>'
+    )
     creator = "" if author is None else f"<dc:creator>{escape(author)}</dc:creator>"
     return (
         XML_DECL
@@ -79,6 +98,7 @@ def _package_xml(
         + creator
         + f"<dc:language>{escape(language)}</dc:language>"
         + f'<meta property="dcterms:modified">{modified}</meta>'
+        + cover_meta
         + "</metadata>"
         + f"<manifest>{''.join(items)}</manifest>"
         + f"<spine>{''.join(spine)}</spine>"
@@ -147,6 +167,33 @@ def _nav_xhtml(book: VerifiedBook, language: str, layout: str) -> str:
     )
 
 
+def _image_item_id(image: VerifiedImage) -> str:
+    return f"image-page-{image.page_index}"
+
+
+def _image_href(image: VerifiedImage) -> str:
+    """Where the image sits inside the package, as a manifest href."""
+
+    return f"{IMAGES_DIR}/{image.file_name}"
+
+
+def _figure_xhtml(image: VerifiedImage) -> str:
+    """Render a scanned page that is a picture.
+
+    ``alt`` is generated from recorded evidence only — the page's own printed
+    number — rather than inventing a caption the book does not have. A plate with
+    a printed caption under it is not read here; that is the OCR path's job, and
+    this page has no OCR text by definition.
+    """
+
+    # ``quoteattr`` rather than ``escape``: the caption sits inside an attribute,
+    # where a stray quotation mark would end the value and break the document.
+    return (
+        f'<figure class="page-image"><img src="{_image_href(image)}" '
+        f"alt={quoteattr(image.alt)}/></figure>"
+    )
+
+
 def _block_xhtml(block: FlowParagraph) -> str:
     """Render one paragraph according to what it is.
 
@@ -185,9 +232,13 @@ def _document_xhtml(document: FlowDocument, language: str) -> str:
     by_page: dict[int, list[FlowParagraph]] = {}
     for paragraph in document.paragraphs:
         by_page.setdefault(paragraph.start_page, []).append(paragraph)
+    images_by_page: dict[int, list[VerifiedImage]] = {}
+    for image in document.images:
+        images_by_page.setdefault(image.page_index, []).append(image)
     parts: list[str] = []
     for page_index, printed_label in document.page_labels:
         parts.append(_pagebreak_xhtml(page_index, printed_label))
+        parts.extend(_figure_xhtml(image) for image in images_by_page.get(page_index, ()))
         parts.extend(_block_xhtml(paragraph) for paragraph in by_page.get(page_index, ()))
     # A paragraph never starts outside a page of this document, so nothing can be
     # left over; assert it rather than silently dropping text.
@@ -257,6 +308,15 @@ def build_epub(
                 f"OEBPS/{document.file_name}",
                 _document_xhtml(document, language),
                 zipfile.ZIP_DEFLATED,
+            )
+        # Page rasters are already compressed, so storing them keeps the archive
+        # deterministic and avoids spending CPU to grow PNGs by a few bytes.
+        for image in book.images:
+            write_zip_bytes(
+                archive,
+                epub_image_name(image),
+                image.data,
+                zipfile.ZIP_STORED,
             )
     data = buffer.getvalue()
     check_epub(data, book, layout=layout)

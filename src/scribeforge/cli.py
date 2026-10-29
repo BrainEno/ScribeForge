@@ -1349,6 +1349,17 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             "output": str(args.out),
             "pages": len(book.pages),
             "chapters": len(book.chapters),
+            "images": len(book.images),
+            "cover_image": (
+                None
+                if book.cover_image is None
+                else {
+                    "page": book.cover_image.page_index,
+                    "file": book.cover_image.file_name,
+                    "media_type": book.cover_image.media_type,
+                    "sha256": book.cover_image.sha256,
+                }
+            ),
             "confirmed_blank_pages": list(book.confirmed_blank_pages),
             "empty_pairs": len(book.empty_pairs),
             "accepted_pairs": summary.pairs,
@@ -1391,6 +1402,19 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             print(
                 f"paragraphs continued across a page turn: {carried}",
                 file=out,
+            )
+    if book.images:
+        covers = sum(1 for image in book.images if image.is_cover)
+        print(
+            f"page images: {len(book.images)} embedded "
+            f"(cover {covers}, plate {len(book.images) - covers})",
+            file=out,
+        )
+        if suffix != ".epub":
+            print(
+                "warning: DOCX export writes text only, so "
+                f"{len(book.images)} page image(s) are not in this file",
+                file=sys.stderr,
             )
     if book.chapters:
         print(

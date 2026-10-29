@@ -100,8 +100,18 @@ On the six real transcriptions in `benchmark/corpus/v`, placing the page break
 inside the page's longest paragraph rejoins the paragraph on **6 / 6** pages with
 the paragraph count and every character unchanged (`pytest tests/test_flow.py -m
 benchmark`). `--layout page` keeps the old facsimile shape for comparing against
-the scans, and DOCX stays page-by-page. See [Export](./docs/export.md) and
+the scans. See [Export](./docs/export.md) and
 [Paragraphs and structural fidelity](./docs/paragraphs.md).
+
+Export also carries what reflow cannot. A scanned page with **no accepted text**
+becomes an image, so the book's **cover** (declared `cover-image` plus the EPUB 2
+`meta name="cover"`) and its confirmed **plates** (`<figure>` at their own page
+break) reach the reader instead of disappearing; a page of prose is still re-flowed,
+never mirrored. The raster is copied byte for byte and its SHA-256 is re-derived
+from the written archive, so a swapped page image fails the build. On this book the
+cover measures **94.05% ink** and no engine reads a line from it, which is why the
+rule is ink *plus* position (a picture on the first page of the scan is the cover)
+rather than text. DOCX stays text-only and prints what it does not carry.
 
 A disagreement no longer ends in the human queue by default. `scribeforge repair`
 re-reads each disputed line from a wider, enlarged crop, stores every re-read as

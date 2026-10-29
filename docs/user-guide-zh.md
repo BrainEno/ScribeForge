@@ -255,6 +255,32 @@ scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Boo
 > 目前合并判据只在夹具和两页真实扫描上验证过，**没有在整本书上量过合并率**。
 > 若你在一本真实书上发现段落被接错，请以 `--layout page` 的逐页版本为准。
 
+### 封面和插图会一起进 EPUB
+
+重排只能搬运文字，**画出来的东西**要单独处理。封面和插图页没有文字，导出默认会带上它们：
+
+- 扫描的**第一页如果是一整页图画**，就会被判定为封面，EPUB 里同时写入
+  `properties="cover-image"` 与 `<meta name="cover">`，书架和阅读器都能显示；
+- 其余"没有文字但有墨迹"的页会被判成 `plate`，**在确认之前挡住导出**：
+
+```powershell
+scribeforge confirm --store "D:\Books\My Book.scribeforge" --page 7 --kind non_text \
+  --reason "整页插图，没有图注可读"
+```
+
+确认之后，这一页会以 `<figure><img .../></figure>` 出现在它自己的页码位置之后，
+`alt` 只会写"封面"或"第 117 页的插图"（不编造图注）。导出报告会写明：
+
+```
+page images: 4 embedded (cover 1, plate 3)
+```
+
+图片写进 EPUB 时是**原始页图逐字节复制**，SHA-256 会随书记录并在导出后复核：
+页图被替换或损坏，导出会拒绝而不是悄悄换一张图。确认过的**空白页不会**写图。
+
+> DOCX 导出目前只写文字，不含页图；命令行会打印一条 warning。另外，
+> "第一页的图就是封面"是位置先验：如果这本扫描没有拍到封面，第一张插图会被当成封面。
+
 ## 7. 启动 Flutter 桌面比较器
 
 仍在仓库根目录时，执行：

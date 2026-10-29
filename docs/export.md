@@ -15,7 +15,10 @@ The assembled model is deliberately minimal:
 
 - `VerifiedPage(page_index, lines)` — accepted lines in reading order, plus the
   layout evidence (`line_boxes`, `line_roles`) that turns them into paragraphs.
-- `VerifiedBook(title, pages)` — pages in page order.
+- `VerifiedImage(page_index, file_name, media_type, role, sha256, data)` — a page
+  that is a picture: the cover or a confirmed plate, with the raster's own bytes.
+- `VerifiedBook(title, pages, chapters, images)` — pages in page order, plus the
+  chapter tree and the images that text cannot carry.
 
 Export reads paragraphs, not lines: `VerifiedPage.blocks()` groups the accepted
 lines with geometry and block labels, so a printed line break is not a paragraph
@@ -100,6 +103,47 @@ few lines past the true page turn, never a different page.
 DOCX is still written page by page: Word is the deliverable for comparing against
 the scans, and its explicit page breaks already preserve the scan's pagination.
 Chapter reflow there is a separate change, not a silent one.
+
+## Pages that are pictures: the cover and the plates
+
+Reflow carries text. What it cannot carry is what is *drawn*, so a book's cover and
+its plates are embedded as images instead of being dropped. A page becomes an image
+when two recorded facts agree:
+
+1. the page has **no accepted text** — a page of prose is re-flowed, never
+   mirrored, because a raster of text is exactly what this project promises not to
+   ship;
+2. the page **is a picture** — the structure pass called it a cover or a plate
+   (measured ink plus no text, see [Book structure](./book-structure.md)), or a
+   person confirmed its content is not text (`scribeforge confirm --kind non_text`).
+
+A confirmed *blank* leaf is not embedded: there is nothing to look at. A page
+nobody has spoken for is not embedded either — and it blocks export anyway unless
+both engines read it as empty.
+
+```
+OEBPS/images/page-000001.png   the book's own raster, byte for byte
+OEBPS/content.opf              <item ... properties="cover-image"/>
+                               <meta name="cover" content="image-page-0"/>
+OEBPS/doc-000001.xhtml         <figure><img src="images/page-000001.png" alt="封面"/></figure>
+```
+
+The cover is declared twice on purpose: EPUB 3 reads the manifest
+`properties="cover-image"`, while most library grids still read
+`<meta name="cover">`. A plate is a `<figure>` placed immediately after its page
+marker, so it appears where the page turn was. `alt` is generated from recorded
+evidence only — "封面", or the page's own printed number — rather than inventing a
+caption the book does not have.
+
+The image bytes are captured while the book is assembled, and their SHA-256 is
+recorded on the model and re-derived on construction, so an image cannot claim
+bytes it does not carry. A plate whose raster is missing, unreadable or in a format
+an EPUB reader is not required to support (only PNG and JPEG are accepted) refuses
+the export with the page number and the reason: silently shipping a book without
+its cover is the failure this path exists to prevent.
+
+DOCX stays text-only; `export` prints a warning naming how many page images the
+DOCX file does not carry.
 
 ## Repair before export
 
@@ -217,6 +261,7 @@ standard zip layout:
 | `OEBPS/nav.xhtml` | EPUB 3 navigation document: the chapter tree when the book's structure was derived, one entry per page otherwise |
 | `OEBPS/doc-000001.xhtml` … | chapter layout: one XHTML document per chapter, in spine order; one element per reconstructed paragraph (`<p>`, `<h2>`, `<aside epub:type="footnote">`) plus a page-break marker for every scanned page it covers |
 | `OEBPS/page-000001.xhtml` … | facsimile layout (`--layout page`): one XHTML document per verified page, same element vocabulary |
+| `OEBPS/images/page-000001.png` … | the cover and any confirmed plate, stored uncompressed and byte-identical to the page asset |
 
 Document file names follow the layout so a reader can tell at a glance which shape
 it opened; the ids inside (`doc-0`, `page-42`) are stable across both. The default
@@ -287,6 +332,13 @@ returned, and both builders run it automatically:
 - EPUB, page markers: the `page-N` ids collected from the rendered documents must
   be exactly the documents' pages in order, so a page break cannot be dropped or
   duplicated while a paragraph is re-flowed;
+- EPUB, images: every image in the book is in the archive with the *same* SHA-256 as
+  the raster it came from; every image is in the manifest with a matching media
+  type; exactly one image carries `properties="cover-image"` and it is the book's
+  cover, matched by `<meta name="cover">`; each image is shown by exactly one
+  document, and no document shows an image the book does not claim;
+- EPUB, no orphans: a file under `OEBPS/images/` that no page claims is a failure,
+  not dead weight;
 - DOCX: `[Content_Types].xml` is first, every part has a content type, every
   relationship target exists, page breaks match the page count, and each page
   reproduces its accepted blocks exactly;
@@ -321,10 +373,13 @@ how much text crossed a page turn:
 exported 562 page(s) to book.epub
 layout: chapter — 12 document(s), 1180 paragraph(s)
 paragraphs continued across a page turn: 37
+page images: 4 embedded (cover 1, plate 3)
 table of contents: 12 chapter(s) from the book's structure
 ```
 
-`--json` adds `layout`, `documents`, and `paragraphs` beside the acceptance report.
+`--json` adds `layout`, `documents`, `paragraphs`, `images` and `cover_image`
+(`page`, `file`, `media_type`, `sha256` of the cover, or `null`) beside the
+acceptance report.
 
 `--modified` accepts an ISO 8601 timestamp (a trailing `Z` is accepted); naive
 values are interpreted as UTC. Supplying it makes the build reproducible: the
