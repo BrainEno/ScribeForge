@@ -26,6 +26,7 @@ _OPF_NS = {
     "dc": "http://purl.org/dc/elements/1.1/",
 }
 _XHTML_NS = {"x": "http://www.w3.org/1999/xhtml"}
+_EPUB_NS = {"epub": "http://www.idpf.org/2007/ops"}
 _CONTENT_TYPES_NS = {"ct": "http://schemas.openxmlformats.org/package/2006/content-types"}
 _RELATIONSHIPS_NS = {"r": "http://schemas.openxmlformats.org/package/2006/relationships"}
 _WORD_NS_URI = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -144,6 +145,7 @@ def check_epub(
 
         references: Counter[str] = Counter()
         _check_images(archive, package, manifest, book)
+        _check_nav(archive, package, manifest, package_name)
 
         for expected in flow.documents:
             document_name = _resolve(package_name, manifest[expected.item_id])
@@ -248,6 +250,67 @@ def _check_images(
         _require(
             meta is not None and meta.get("content") == declared[cover_href][0],
             "package does not point EPUB 2 readers at the cover image",
+        )
+
+
+def _check_nav(
+    archive: zipfile.ZipFile,
+    package: ET.Element,
+    manifest: dict[str, str],
+    package_name: str,
+) -> None:
+    """A reading system needs a navigation document it can actually use.
+
+    EPUB 3 reading systems (Readium, epub.js and most library grids) require:
+
+    * an ``OEBPS/nav.xhtml`` navigation document whose ``<nav>`` carries
+      ``epub:type="toc"``;
+    * a manifest item ``nav`` with ``properties="nav"`` pointing at it;
+    * every spine document reachable from that navigation — a book a reader
+      cannot navigate to is effectively missing.
+    """
+
+    names = set(archive.namelist())
+    nav_name = "OEBPS/nav.xhtml"
+    _require(nav_name in names, "missing OEBPS/nav.xhtml navigation document")
+    nav = _parse(archive, nav_name)
+    nav_element = nav.find(".//x:nav", _XHTML_NS)
+    _require(nav_element is not None, "nav document has no <nav> element")
+    assert nav_element is not None
+    _require(
+        nav_element.get("{http://www.idpf.org/2007/ops}type") == "toc",
+        "nav document's <nav> is not epub:type=\"toc\"",
+    )
+
+    nav_items = [
+        item
+        for item in package.findall("o:manifest/o:item", _OPF_NS)
+        if item.get("id") == "nav"
+    ]
+    _require(len(nav_items) == 1, "manifest must declare exactly one nav item")
+    nav_item = nav_items[0]
+    _require(
+        nav_item.get("media-type") == "application/xhtml+xml",
+        "nav manifest item must be application/xhtml+xml",
+    )
+    _require(
+        "nav" in (nav_item.get("properties") or "").split(),
+        "nav manifest item must carry properties=\"nav\"",
+    )
+    _require(
+        manifest.get("nav") == posixpath.relpath(nav_name, "OEBPS"),
+        "nav manifest item must point at OEBPS/nav.xhtml",
+    )
+
+    spine_hrefs = [
+        manifest[item.get("idref") or ""]
+        for item in package.findall("o:spine/o:itemref", _OPF_NS)
+    ]
+    nav_hrefs = [link.get("href") or "" for link in nav.findall(".//x:a", _XHTML_NS)]
+    for href in spine_hrefs:
+        _require(
+            href in nav_hrefs,
+            f"spine document {href!r} is not reachable from the navigation",
         )
 
 
