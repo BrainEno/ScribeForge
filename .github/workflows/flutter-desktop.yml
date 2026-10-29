@@ -31,6 +31,18 @@ jobs:
         # 与项目的 UnifiedWorkspace 不兼容，需删除后使用项目自己的测试。
       - name: Remove default generated test
         run: rm -f test/widget_test.dart
+      # flutter create 可能会重置 analysis_options.yaml，恢复项目自定义的宽松配置
+      - name: Restore analysis_options.yaml
+        run: cat > analysis_options.yaml << 'EOF'
+analyzer:
+  errors:
+    unnecessary_null_comparison: ignore
+    deprecated_member_use: ignore
+
+linter:
+  rules:
+    avoid_print: true
+EOF
       - name: Resolve dependencies
         run: flutter pub get
       - name: Format Dart source
