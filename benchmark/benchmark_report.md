@@ -87,6 +87,35 @@ not the bottleneck at 800 pages; they say nothing about transcription quality.
 | C — dual-engine decisions (`--include-pipeline`) | runnable, **not measured** |
 | D — C + VLM crop review (`--include-vlm`) | runnable with a configured endpoint, **not measured** |
 
+## Pipeline text loss ceiling (measured end to end, not OCR accuracy)
+
+`--oracle-ceiling` replays the corpus ground truth through two oracle engines and
+the full production pipeline (alignment → risk → decisions → assembly). Scores
+therefore contain **no recognition error**: whatever CER is left is text the
+pipeline itself removed or reordered. It is a ceiling on quality, not a
+transcription accuracy claim.
+
+| Variant | Cases | Mean CER | Missing lines | Extra lines | Reading-order errors | Accepted pairs | Unresolved pairs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `oracle` (engine level) | 6 | **0.0000** | 0 | 0 | 0 | — | — |
+| `oracle-ceiling` (full pipeline) | 6 | **0.0000** | 0 | 0 | 0 | 36 | 0 |
+
+Reading: on these six real pages the pipeline loses nothing — furniture removal,
+page labels, footnotes and adjudication do not eat body text, and every pair is
+resolved. The end-to-end CER path itself is therefore proven to work; only real
+model weights are missing for variants A–D.
+
+A metric defect was fixed while measuring: a ground-truth file's trailing newline
+was scored as one inserted character on every page, inflating a 0.5%-order CER by
+roughly 20% relative. Scoring now runs through `scoring_text()` (CRLF, trailing
+whitespace and document-edge blank lines normalised; interior blank lines kept).
+
+```bash
+python -m scribeforge.cli benchmark \
+  --manifest benchmark/corpus/v/manifest.json \
+  --out /tmp/ceiling.md --oracle-ceiling
+```
+
 ## Preprocessing repair (measured, pixel-level — not CER)
 
 `benchmark/analysis/preprocess_benchmark.py` derives deterministic degradations
