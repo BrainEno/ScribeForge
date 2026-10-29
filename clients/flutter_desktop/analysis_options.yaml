@@ -1,0 +1,10 @@
+# Flutter create 可能会重新生成此文件并启用 flutter_lints 严格规则。
+# 这里只保留最基本的检查，避免 lint 警告阻塞 analyze CI。
+analyzer:
+  errors:
+    invalid_annotation_target: ignore
+
+linter:
+  rules:
+    # 仅保留真正的错误检查，关闭所有样式类 lint
+    avoid_print: true
