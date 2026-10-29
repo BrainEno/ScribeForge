@@ -486,7 +486,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               children: <Widget>[
                 NavigationRail(
                   selectedIndex: _selectedIndex,
-                  onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+                  onDestinationSelected: (index) {
+                    if (index != null) setState(() => _selectedIndex = index);
+                  },
                   labelType: NavigationRailLabelType.all,
                   destinations: List.generate(
                     _navTitles.length,
