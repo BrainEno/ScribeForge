@@ -1,6 +1,0 @@
-linter:
-  rules:
-    # Only correctness-adjacent rules; const/declaration style rules are
-    # intentionally disabled so analyze is not blocked by non-const widget
-    # constructions in a growing UI codebase.
-    avoid_print: true
