@@ -8,7 +8,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from scribeforge.workers.protocol import normalize_polygon, result_document
+from scribeforge.workers.protocol import (
+    canonical_block_label,
+    clamp_box,
+    normalize_polygon,
+    result_document,
+)
 
 
 def build_command(image: str) -> list[str]:
@@ -83,6 +88,72 @@ def extract_lines(
     return lines
 
 
+
+def _layout_blocks(raw: Any) -> list[dict[str, Any]]:
+    """Report structural blocks when PP-Structure output is present.
+
+    The plain PP-OCR path returns only recognition polygons and carries no
+    layout labels. In that case this returns an empty list: claiming block
+    evidence that does not exist would let downstream stages drop text they
+    should keep, so absence is reported honestly.
+    """
+
+    if not isinstance(raw, list) and not isinstance(raw, dict):
+        return []
+    if isinstance(raw, list) and len(raw) == 1:
+        raw = raw[0]
+    if not isinstance(raw, dict):
+        return []
+    layout = raw.get("layout_det_res") or raw.get("layout")
+    if not isinstance(layout, list):
+        return []
+
+    blocks: list[dict[str, Any]] = []
+    for region in layout:
+        if not isinstance(region, dict):
+            continue
+        label = canonical_block_label(region.get("label") or region.get("type"))
+        raw_box = region.get("bbox") or region.get("box")
+        if not isinstance(raw_box, list) or len(raw_box) != 4:
+            continue
+        try:
+            box = _normalized_box(raw_box, region)
+        except (TypeError, ValueError):
+            continue
+        # PaddleOCR layout regions carry no line range; the block describes a
+        # page area, so it deliberately covers no lines.
+        blocks.append({"type": label, "box": box, "line_start": 0, "line_end": 0})
+    return blocks
+
+
+def _normalized_box(raw_box: list[Any], region: dict[str, Any]) -> list[float]:
+    """Convert a layout box into normalized ``[x, y, width, height]``.
+
+    PP-Structure reports boxes as pixel ``[x1, y1, x2, y2]`` corners, not as an
+    origin plus size. Treating that pair as width/height silently shrinks or
+    grows every region, so the corner semantics are explicit here.
+    """
+
+    x1, y1, x2, y2 = (float(value) for value in raw_box)
+    width = region.get("width")
+    height = region.get("height")
+    if isinstance(width, (int, float)) and isinstance(height, (int, float)):
+        if width <= 0 or height <= 0:
+            raise ValueError("layout region has non-positive page dimensions")
+        return clamp_box(
+            [
+                x1 / width,
+                y1 / height,
+                (x2 - x1) / width,
+                (y2 - y1) / height,
+            ]
+        )
+    # No page dimensions to scale by: accept an already-normalized corner pair.
+    if all(0.0 <= value <= 1.0 for value in (x1, y1, x2, y2)):
+        return clamp_box([x1, y1, x2 - x1, y2 - y1])
+    raise TypeError("layout region is missing page dimensions")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
@@ -109,6 +180,7 @@ def main() -> None:
                     version,
                     args.page_index,
                     extract_lines(raw, image_size=_image_size(args.image)),
+                    blocks=_layout_blocks(raw),
                 ),
                 ensure_ascii=False,
             )

@@ -77,3 +77,98 @@ def test_subprocess_adapter_rejects_wrong_schema(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="unsupported OCR worker schema"):
         SubprocessOCREngine("fixture", [sys.executable, str(script)]).analyze_page(str(image), 0)
+
+
+def _engine() -> object:
+    from scribeforge.adapters.subprocess_ocr import SubprocessOCREngine
+
+    return SubprocessOCREngine("fixture", ("worker",))
+
+
+def test_adapter_parses_contract_v2_blocks_and_direction() -> None:
+    """Blocks, labels and direction must reach the domain layer."""
+
+    from scribeforge.domain.ocr import BlockType, PageDirection
+
+    raw = {
+        "schema_version": 2,
+        "engine": "fixture",
+        "engine_version": "1.0",
+        "page_index": 0,
+        "direction": "vertical-rl",
+        "lines": [
+            {"text": "V．", "box": [0.8, 0.02, 0.1, 0.03], "tokens": []},
+            {"text": "第一行", "box": [0.7, 0.1, 0.05, 0.8], "tokens": [],
+             "confidence": 0.55},
+        ],
+        "blocks": [
+            {"type": "header", "box": [0.8, 0.02, 0.1, 0.03], "line_start": 0, "line_end": 1},
+            {"type": "text", "box": [0.7, 0.1, 0.05, 0.8], "line_start": 1, "line_end": 2},
+        ],
+    }
+
+    result = _engine().parse_document(raw, 0)
+
+    assert result.direction is PageDirection.VERTICAL_RL
+    assert [block.block_type for block in result.blocks] == [BlockType.HEADER, BlockType.TEXT]
+    assert result.lines[1].confidence == pytest.approx(0.55)
+    # The header is page furniture and must not pollute the readable text layer.
+    assert result.text_line_indexes == (1,)
+
+
+def test_adapter_treats_a_v1_document_as_blockless_evidence() -> None:
+    """Old workers keep working: no blocks means every line counts as text."""
+
+    raw = {
+        "schema_version": 1,
+        "engine": "fixture",
+        "engine_version": "1.0",
+        "page_index": 0,
+        "lines": [
+            {"text": "甲", "box": [0.1, 0.1, 0.5, 0.05], "tokens": []},
+            {"text": "乙", "box": [0.1, 0.2, 0.5, 0.05], "tokens": []},
+        ],
+    }
+
+    result = _engine().parse_document(raw, 0)
+
+    assert result.blocks == ()
+    assert result.text_line_indexes == (0, 1)
+
+
+def test_adapter_maps_unknown_block_labels_instead_of_failing() -> None:
+    from scribeforge.domain.ocr import BlockType
+
+    raw = {
+        "schema_version": 2,
+        "engine": "fixture",
+        "engine_version": "1.0",
+        "page_index": 0,
+        "lines": [{"text": "甲", "box": [0.1, 0.1, 0.5, 0.05], "tokens": []}],
+        "blocks": [
+            {"type": "some_new_label", "box": [0.1, 0.1, 0.5, 0.05],
+             "line_start": 0, "line_end": 1}
+        ],
+    }
+
+    result = _engine().parse_document(raw, 0)
+
+    assert result.blocks[0].block_type is BlockType.UNKNOWN
+    # Unknown is neither furniture nor a figure, so the text is retained.
+    assert result.text_line_indexes == (0,)
+
+
+def test_adapter_rejects_a_block_range_beyond_reported_lines() -> None:
+    raw = {
+        "schema_version": 2,
+        "engine": "fixture",
+        "engine_version": "1.0",
+        "page_index": 0,
+        "lines": [{"text": "甲", "box": [0.1, 0.1, 0.5, 0.05], "tokens": []}],
+        "blocks": [
+            {"type": "text", "box": [0.1, 0.1, 0.5, 0.05], "line_start": 0, "line_end": 9}
+        ],
+    }
+
+    with pytest.raises(ValueError, match="block line range exceeds"):
+        _engine().parse_document(raw, 0)

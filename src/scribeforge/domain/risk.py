@@ -38,10 +38,15 @@ def _line(result: PageOCRResult, index: int | None) -> OCRLine | None:
 
 
 def _confidence(line: OCRLine | None) -> float | None:
-    if line is None:
-        return None
-    values = [token.confidence for token in line.tokens if token.confidence is not None]
-    return min(values) if values else None
+    """Lowest known confidence for a line, or ``None`` when the engine gave none.
+
+    Line-level confidence (worker contract v2) is considered alongside token
+    confidence so a backend that scores whole lines can still raise the
+    low-confidence risk. ``None`` stays "unknown" and never contributes a score:
+    missing confidence must not be read as agreement.
+    """
+
+    return None if line is None else line.lowest_confidence
 
 
 def _has_unicode_anomaly(text: str) -> bool:
