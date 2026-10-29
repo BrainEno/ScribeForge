@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import re
+import sqlite3
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -350,6 +351,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit a stable JSON audit report."
     )
 
+    rehash_pages = subparsers.add_parser(
+        "rehash-pages",
+        help="Record page asset digests for pages that were imported before schema v11.",
+    )
+    rehash_pages.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    rehash_pages.add_argument(
+        "--json", action="store_true", help="Emit a JSON rehash report."
+    )
+
     backup = subparsers.add_parser(
         "backup",
         help="Create a verified, self-contained archive of a project store.",
@@ -564,6 +574,8 @@ def run(
         return _relink_source(args, out)
     if args.command == "audit":
         return _audit_project(args, out)
+    if args.command == "rehash-pages":
+        return _rehash_pages(args, out)
     if args.command == "backup":
         return _backup_project(args, out)
     if args.command == "verify-backup":
@@ -1038,6 +1050,32 @@ def _audit_project(args: argparse.Namespace, out: TextIO) -> int:
     if any(finding.severity == "fatal" for finding in report.findings):
         return EXIT_FATAL
     return EXIT_PARTIAL if report.findings else EXIT_OK
+
+
+def _rehash_pages(args: argparse.Namespace, out: TextIO) -> int:
+    """Record page asset digests for pages imported before schema v11."""
+
+    store = SQLiteStore(StoreLayout(args.store).db_path)
+    try:
+        store.initialize()
+    except (OSError, sqlite3.Error) as exc:
+        print(f"error: could not open store at {args.store}: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    rehashed, missing = store.rehash_missing_page_assets()
+    payload = {
+        "store": str(args.store),
+        "rehashed": rehashed,
+        "missing": missing,
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True), file=out)
+    else:
+        print(
+            f"rehash-pages: {rehashed} page digest(es) recorded, "
+            f"{missing} page raster(s) missing from disk",
+            file=out,
+        )
+    return EXIT_FATAL if missing else EXIT_OK
 
 
 def _backup_project(args: argparse.Namespace, out: TextIO) -> int:

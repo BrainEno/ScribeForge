@@ -77,14 +77,22 @@ Version 9 databases migrate forward to 10 without deleting any evidence.
 
 `exports` remains planned and will be added through a later versioned migration rather than a destructive database reset.
 
-Page rasters need no new column. `pages.source_image` already names the immutable
-import, and an embedded cover or plate is read from that same file at assembly, so
-the image a reader sees is the image `page_structure.ink_ratio` and the audit were
-measured from. The bytes and their SHA-256 travel on `VerifiedImage` (in memory
-only), and the export check re-derives the digest from the archive entry it wrote:
-nothing about the image is inferred from the database. Recording the digest in
-`pages` is a separate change (issue #82), because that one has to migrate existing
-projects.
+**Schema v11 records the page raster's identity.** `pages` gains four nullable
+columns — `page_asset_sha256`, `page_asset_byte_size`,
+`page_asset_parameters_json`, `page_asset_version` — populated at import time from
+the rendered page's bytes and render parameters (DPI, renderer, source format).
+They are nullable so projects imported before v11 keep opening; a NULL digest means
+"evidence from before v11" and is reported by the audit, not treated as an error.
+`scribeforge rehash-pages` fills the gap for those pages without overwriting an
+existing digest, so a changed page can never launder itself through a rehash.
+
+The import pipeline writes these columns for every page it materializes, the
+orchestrator verifies the source raster against them before any engine reads it,
+the audit reports missing / mismatched / unreadable page assets, and `scribeforge
+export` re-checks the digest before a cover or plate is embedded. The bytes and
+their SHA-256 also travel on `VerifiedImage` (in memory only), and the export
+check re-derives the digest from the archive entry it wrote: the image a reader
+sees is provably the image that was imported, measured, and audited.
 
 One consequence of the chapter layout is worth stating here because it changes an
 old assumption: **a document in the exported EPUB is no longer a page.** One

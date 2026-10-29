@@ -34,4 +34,9 @@ class ImagePageSource:
             height=self._height,
             image_bytes=self._path.read_bytes(),
             extension=self._extension,
+            render_parameters={
+                "dpi": None,
+                "renderer": "passthrough",
+                "source_format": self._extension.upper(),
+            },
         )

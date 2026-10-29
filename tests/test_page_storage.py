@@ -192,7 +192,7 @@ def test_v7_database_migrates_to_v8_adding_run_scope(tmp_path: Path) -> None:
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         columns = {
             row[1]
             for row in connection.execute("PRAGMA table_info(engine_runs)").fetchall()
@@ -233,7 +233,7 @@ def test_v8_database_migrates_to_v9_adding_risk_and_confirmation_columns(
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         decision_columns = {
             row[1] for row in connection.execute("PRAGMA table_info(decisions)").fetchall()
         }
@@ -285,7 +285,7 @@ def test_v9_database_migrates_to_v10_adding_ink_and_chapter_source(
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         structure_columns = {
             row[1]
             for row in connection.execute("PRAGMA table_info(page_structure)").fetchall()

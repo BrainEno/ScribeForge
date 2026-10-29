@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from scribeforge.domain.jobs import JobStage, JobState
+from scribeforge.domain.page_asset import PageAssetEvidence
 from scribeforge.domain.source import RenderedPage
 from scribeforge.pipeline.importing import import_source
 from scribeforge.storage.sqlite import SQLiteStore
@@ -59,6 +60,27 @@ def test_import_source_persists_pages_and_completes_job(tmp_path: Path) -> None:
     assert job.state is JobState.SUCCEEDED
     assert job.stage is JobStage.IMPORT
     assert job.attempts == 1
+
+
+def test_import_source_records_page_asset_digest(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    assets = tmp_path / "assets"
+
+    result = import_source(store, project_id, FakePageSource(_pages(2)), assets)
+
+    pages = store.list_pages(project_id)
+    assert pages[0].page_asset_sha256 == PageAssetEvidence.from_bytes(
+        b"bytes-0"
+    ).sha256
+    assert pages[0].page_asset_byte_size == len(b"bytes-0")
+    assert pages[0].page_asset_version == 1
+    assert pages[0].page_asset_parameters_json is not None
+    assert pages[1].page_asset_sha256 == PageAssetEvidence.from_bytes(
+        b"bytes-1"
+    ).sha256
+
+    job = store.load_job(result.job_id)
+    assert job.state is JobState.SUCCEEDED
 
 
 def test_import_source_skips_already_imported_pages(tmp_path: Path) -> None:
