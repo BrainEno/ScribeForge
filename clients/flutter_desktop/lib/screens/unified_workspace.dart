@@ -619,17 +619,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             onChanged: (value) => setState(() => _pdfPath = value.trim()),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: <Widget>[
-              ElevatedButton.icon(
-                icon: Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
-                label: Text(_busy ? '处理中…' : '开始处理'),
-                onPressed: _busy || _pdfPath == null ? null : () { _runProcess(); },
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
-                ),
-              ),
-            ],
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              icon: Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
+              label: Text(_busy ? '处理中…' : '开始处理'),
+              onPressed: _busy || _pdfPath == null ? null : () { _runProcess(); },
+            ),
           ),
           const SizedBox(height: 16),
           if (_pdfPath != null) ...[

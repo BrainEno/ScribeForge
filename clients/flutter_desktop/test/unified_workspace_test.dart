@@ -1,6 +1,6 @@
 import 'dart:ui' show Size;
 
-import 'package:flutter/material.dart' show CheckboxListTile;
+import 'package:flutter/material.dart' show CheckboxListTile, ElevatedButton;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/main.dart';
 
@@ -64,6 +64,12 @@ void main() {
         expect(find.text('开始处理'), findsOneWidget);
         expect(find.text('源文件'), findsOneWidget);
 
+        final startButtonFinder = find.ancestor(
+          of: find.text('开始处理'),
+          matching: find.byType(ElevatedButton),
+        );
+        expect(startButtonFinder, findsOneWidget);
+        expect(tester.getSize(startButtonFinder).width.isFinite, isTrue);
         expect(tester.takeException(), isNull);
       },
     );
