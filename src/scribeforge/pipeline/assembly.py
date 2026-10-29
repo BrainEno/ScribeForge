@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scribeforge.domain.content import VerifiedBook, VerifiedPage
+from scribeforge.domain.content import VerifiedBook, VerifiedChapter, VerifiedPage
 from scribeforge.storage.sqlite import SQLiteStore
 
 
@@ -41,6 +41,9 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
     if project is None:
         raise KeyError(f"unknown project: {project_id}")
 
+    structure = store.load_book_structure(project_id)
+    labels = structure.printed_labels_by_page()
+
     pages: list[VerifiedPage] = []
     unverified_pages: list[int] = []
     unresolved_pairs: list[UnresolvedPair] = []
@@ -59,11 +62,30 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
                 unresolved_pairs.append(UnresolvedPair(page.page_index, pair_index))
                 continue
             lines.append(decision.selected_text)
-        pages.append(VerifiedPage(page.page_index, tuple(lines)))
+        pages.append(
+            VerifiedPage(
+                page.page_index,
+                tuple(lines),
+                printed_label=labels.get(page.page_index, ""),
+            )
+        )
 
     if unverified_pages or unresolved_pairs:
         raise UnresolvedContentError(
             unverified_pages=tuple(unverified_pages),
             unresolved_pairs=tuple(unresolved_pairs),
         )
-    return VerifiedBook(project.title, tuple(pages))
+    exportable = {page.page_index for page in pages}
+    chapters = tuple(
+        VerifiedChapter(
+            title=chapter.title,
+            level=chapter.level,
+            page_index=chapter.start_page_index,
+            printed_page=chapter.printed_page,
+        )
+        for chapter in structure.chapters
+        # A chapter anchored to a page that did not survive verification would
+        # point a reader at a missing file.
+        if chapter.start_page_index in exportable
+    )
+    return VerifiedBook(project.title, tuple(pages), chapters=chapters)

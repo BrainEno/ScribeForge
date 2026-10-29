@@ -231,3 +231,76 @@ def test_write_epub_replaces_the_target_atomically(tmp_path: Path) -> None:
     assert written == path
     assert path.read_bytes() == _build()
     assert [entry.name for entry in path.parent.iterdir()] == ["book.epub"]
+
+
+def _chapter_book() -> VerifiedBook:
+    from scribeforge.domain.content import VerifiedChapter
+
+    return VerifiedBook(
+        "V.",
+        (
+            VerifiedPage(0, ("第一部的正文。",), printed_label="1"),
+            VerifiedPage(1, ("第一章的正文。",), printed_label="3"),
+            VerifiedPage(2, ("第二节的内容。",), printed_label="7"),
+        ),
+        chapters=(
+            VerifiedChapter("第一部", 1, 0, printed_page="1"),
+            VerifiedChapter("第一章", 2, 1, printed_page="3"),
+            VerifiedChapter("第二节", 3, 2, printed_page="7"),
+        ),
+    )
+
+
+def test_epub_nav_nests_chapters_by_level() -> None:
+    """A 562-page book must not export as 562 flat "Page N" entries."""
+
+    data = build_epub(
+        _chapter_book(),
+        identifier="urn:uuid:11111111-2222-3333-4444-555555555555",
+        language="zh",
+        modified=datetime(2026, 10, 29, tzinfo=UTC),
+    )
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        nav = archive.read("OEBPS/nav.xhtml").decode("utf-8")
+
+    assert "Page 1</a>" not in nav
+    assert "第一部" in nav and "第一章" in nav and "第二节" in nav
+    # Level 2 must be nested inside level 1, level 3 inside level 2.
+    first = nav.index("第一部")
+    first_nested = nav.index("<ol>", first)
+    assert nav.index("第一章") > first_nested
+    second_nested = nav.index("<ol>", nav.index("第一章"))
+    assert nav.index("第二节") > second_nested
+    assert nav.count("<ol>") == nav.count("</ol>")
+
+
+def test_epub_page_titles_use_the_printed_page_number() -> None:
+    data = build_epub(
+        _chapter_book(),
+        identifier="urn:uuid:11111111-2222-3333-4444-555555555555",
+        language="zh",
+        modified=datetime(2026, 10, 29, tzinfo=UTC),
+    )
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        second = archive.read("OEBPS/page-000002.xhtml").decode("utf-8")
+
+    # Physical index 1, printed page 3: the reader's number wins.
+    assert "<title>Page 3</title>" in second
+
+
+def test_epub_falls_back_to_physical_pages_without_chapters() -> None:
+    book = VerifiedBook("V.", (VerifiedPage(0, ("正文。",)),))
+
+    data = build_epub(
+        book,
+        identifier="urn:uuid:11111111-2222-3333-4444-555555555555",
+        language="zh",
+        modified=datetime(2026, 10, 29, tzinfo=UTC),
+    )
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        nav = archive.read("OEBPS/nav.xhtml").decode("utf-8")
+
+    assert "Page 1</a>" in nav

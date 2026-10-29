@@ -31,7 +31,7 @@ def test_latest_schema_contains_resumable_jobs_table(tmp_path: Path) -> None:
             )
         }
 
-    assert version == 5
+    assert version == 6
     assert "jobs" in tables
 
 
@@ -143,14 +143,14 @@ def test_v3_database_migrates_to_latest_without_losing_project(tmp_path: Path) -
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='jobs'"
         ).fetchone()[0] == 1
 
 
-def test_v4_database_migrates_to_v5_keeping_jobs_and_adding_preprocess(
+def test_v4_database_migrates_to_latest_keeping_jobs_and_adding_preprocess(
     tmp_path: Path,
 ) -> None:
     """The v5 rebuild must preserve job rows, ids and uniqueness.
@@ -189,7 +189,7 @@ def test_v4_database_migrates_to_v5_keeping_jobs_and_adding_preprocess(
 
     with sqlite3.connect(path) as connection:
         connection.row_factory = sqlite3.Row
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
         row = connection.execute(
             "SELECT id, project_id, page_id, stage, state, attempts, last_error FROM jobs"
         ).fetchone()
@@ -208,6 +208,45 @@ def test_v4_database_migrates_to_v5_keeping_jobs_and_adding_preprocess(
             WHERE type='index' AND name='uq_jobs_scope_stage'
             """
         ).fetchone()[0] == 1
+
+
+def test_v5_database_migrates_to_v6_adding_structure_tables(tmp_path: Path) -> None:
+    """v6 adds page roles, chapter rows and persisted OCR blocks."""
+
+    path = tmp_path / "legacy-v5.sqlite3"
+    store = SQLiteStore(path)
+    with sqlite3.connect(path) as connection:
+        store._create_v1(connection)
+        store._create_v2(connection)
+        store._create_v3(connection)
+        store._create_v4(connection)
+        store._create_v5(connection)
+        connection.execute(
+            "INSERT INTO projects(title, source_uri, source_sha256) VALUES (?, ?, ?)",
+            ("Legacy", "old.pdf", "oldhash"),
+        )
+        connection.execute("PRAGMA user_version = 5")
+
+    store.initialize()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert {"page_structure", "chapters", "ocr_blocks"} <= names
+        # Direction and confidence arrive as columns on existing tables.
+        run_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(engine_runs)")
+        }
+        line_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(ocr_lines)")
+        }
+        assert "direction" in run_columns
+        assert "confidence" in line_columns
 
 
 def test_v5_accepts_the_preprocess_stage(tmp_path: Path) -> None:

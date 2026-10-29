@@ -36,6 +36,7 @@ from scribeforge.pipeline.adjudication import record_human_decision, review_deta
 from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
+from scribeforge.pipeline.structure import build_book_structure, persist_book_structure
 from scribeforge.project_audit import audit_project_store
 from scribeforge.project_backup import (
     ProjectBackupError,
@@ -268,6 +269,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit a stable JSON summary for desktop clients."
     )
 
+    structure = subparsers.add_parser(
+        "structure",
+        help="Derive page roles, printed page numbers and chapters from stored OCR evidence.",
+    )
+    structure.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    structure.add_argument(
+        "--engine",
+        default="primary",
+        help="Engine whose stored run supplies the evidence (default: primary).",
+    )
+    structure.add_argument(
+        "--json", action="store_true", help="Emit a machine-readable structure report."
+    )
+
     relink = subparsers.add_parser(
         "relink-source",
         help="Update a project source path only when its SHA-256 matches.",
@@ -430,6 +445,8 @@ def run(
         return _vlm_check(args, out)
     if args.command == "status":
         return _status(args, out)
+    if args.command == "structure":
+        return _structure(args, out)
     if args.command == "relink-source":
         return _relink_source(args, out)
     if args.command == "audit":
@@ -543,12 +560,68 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
         f"processed {len(outcome.pages)} page(s), {len(outcome.failed_pages)} failed",
         file=out,
     )
+    # Structure is derived after OCR, from the runs that were just stored. It is
+    # advisory: a failure here must not turn a successful book into a failed run,
+    # because the export falls back to physical page numbering.
+    try:
+        derived = build_book_structure(store, project_id, engine=engines.primary.name)
+        report = persist_book_structure(store, project_id, derived)
+        print(
+            f"structure: {report.chapters} chapter(s), "
+            f"{len(report.labelled_pages)} numbered page(s)",
+            file=out,
+        )
+    except Exception as exc:  # noqa: BLE001 - structure is advisory, never fatal
+        print(f"structure: skipped ({exc})", file=out)
     decisions = sum(page.decision_count for page in outcome.pages)
     queued = sum(len(page.unresolved_pairs) for page in outcome.pages)
     print(f"recorded {decisions} decision(s), {queued} pair(s) need review", file=out)
     for page_index, error in outcome.failed_pages:
         print(f"  page {page_index}: {error}", file=out)
     return EXIT_PARTIAL if outcome.failed_pages else EXIT_OK
+
+
+def _structure(args: argparse.Namespace, out: TextIO) -> int:
+    """Derive and persist book structure from the stored OCR evidence."""
+
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+    projects = store.list_projects()
+    if not projects:
+        print("error: store contains no projects", file=sys.stderr)
+        return EXIT_FATAL
+    project_id = projects[-1].id
+    try:
+        derived = build_book_structure(store, project_id, engine=args.engine)
+    except KeyError:
+        print(
+            f"error: no stored OCR run for engine {args.engine!r}; "
+            "run `scribeforge process` first or pass --engine",
+            file=sys.stderr,
+        )
+        return EXIT_FATAL
+    report = persist_book_structure(store, project_id, derived)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "pages": len(report.pages),
+                    "labelled_pages": list(report.labelled_pages),
+                    "chapters": report.chapters,
+                    "roles": report.roles,
+                },
+                ensure_ascii=False,
+            ),
+            file=out,
+        )
+        return EXIT_OK
+    print(f"pages {len(report.pages)}, labelled {len(report.labelled_pages)}", file=out)
+    print(f"chapters {report.chapters}", file=out)
+    for role, count in sorted(report.roles.items()):
+        print(f"  {role}: {count}", file=out)
+    return EXIT_OK
 
 
 def _status(args: argparse.Namespace, out: TextIO) -> int:
