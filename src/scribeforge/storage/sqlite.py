@@ -105,7 +105,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -148,6 +148,9 @@ class SQLiteStore:
             if version < 6:
                 self._create_v6(connection)
                 connection.execute("PRAGMA user_version = 6")
+            if version < 7:
+                self._create_v7(connection)
+                connection.execute("PRAGMA user_version = 7")
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -487,6 +490,23 @@ class SQLiteStore:
 
             CREATE INDEX IF NOT EXISTS idx_chapters_project_start
                 ON chapters(project_id, start_page_index, ordinal);
+            """
+        )
+
+    @staticmethod
+    def _create_v7(connection: sqlite3.Connection) -> None:
+        """Record the reading direction an alignment was computed in.
+
+        Direction changes the meaning of every stored pair: the same geometry
+        aligned horizontally versus vertically pairs different lines. Without the
+        direction on the verification run, a stored alignment cannot be
+        interpreted (let alone reproduced) once a page's declared direction or a
+        detection heuristic changes.
+        """
+
+        connection.executescript(
+            """
+            ALTER TABLE verification_runs ADD COLUMN direction TEXT;
             """
         )
 
@@ -1084,7 +1104,12 @@ class SQLiteStore:
                 INSERT INTO engine_runs(page_id, engine, engine_version, direction)
                 VALUES (?, ?, ?, ?)
                 """,
-                (page_id, result.engine, result.engine_version, result.direction.value),
+                (
+                    page_id,
+                    result.engine,
+                    result.engine_version,
+                    result.direction.value if result.direction_declared else None,
+                ),
             )
             run_id = self._last_id(cursor)
             for line_index, line in enumerate(result.lines):
@@ -1252,6 +1277,7 @@ class SQLiteStore:
                     if direction is None
                     else PageDirection(str(direction))
                 ),
+                direction_declared=direction is not None,
             )
 
     @staticmethod
@@ -1312,10 +1338,17 @@ class SQLiteStore:
             self._validate_verification(primary, secondary, alignment, risks, candidates)
             cursor = connection.execute(
                 """
-                INSERT INTO verification_runs(page_id, primary_run_id, secondary_run_id)
-                VALUES (?, ?, ?)
+                INSERT INTO verification_runs(
+                    page_id, primary_run_id, secondary_run_id, direction
+                )
+                VALUES (?, ?, ?, ?)
                 """,
-                (int(primary["page_id"]), primary_run_id, secondary_run_id),
+                (
+                    int(primary["page_id"]),
+                    primary_run_id,
+                    secondary_run_id,
+                    alignment.direction.value,
+                ),
             )
             verification_id = self._last_id(cursor)
             alignment_ids: list[int] = []
@@ -1333,7 +1366,7 @@ class SQLiteStore:
                         pair.primary_line_index,
                         pair.secondary_line_index,
                         pair.text_similarity,
-                        pair.vertical_distance,
+                        pair.cross_axis_distance,
                     ),
                 )
                 alignment_id = self._last_id(pair_cursor)
@@ -1401,6 +1434,7 @@ class SQLiteStore:
             run = connection.execute(
                 """
                 SELECT vr.primary_run_id, vr.secondary_run_id, pages.page_index,
+                       vr.direction AS direction,
                        primary_run.engine AS primary_engine,
                        secondary_run.engine AS secondary_engine
                 FROM verification_runs AS vr
@@ -1466,7 +1500,7 @@ class SQLiteStore:
                             else int(row["secondary_line_index"])
                         ),
                         text_similarity=float(row["text_similarity"]),
-                        vertical_distance=(
+                        cross_axis_distance=(
                             None
                             if row["vertical_distance"] is None
                             else float(row["vertical_distance"])
@@ -1521,11 +1555,17 @@ class SQLiteStore:
                 )
                 for row in candidate_rows
             )
+            stored_direction = run["direction"]
             alignment = PageAlignment(
                 page_index=int(run["page_index"]),
                 primary_engine=str(run["primary_engine"]),
                 secondary_engine=str(run["secondary_engine"]),
                 pairs=tuple(pairs),
+                direction=(
+                    PageDirection.HORIZONTAL_LR
+                    if stored_direction is None
+                    else PageDirection(str(stored_direction))
+                ),
             )
             return VerificationRecord(
                 id=verification_id,

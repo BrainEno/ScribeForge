@@ -142,6 +142,11 @@ class PageOCRResult:
     lines: tuple[OCRLine, ...]
     blocks: tuple[OCRBlock, ...] = ()
     direction: PageDirection = PageDirection.HORIZONTAL_LR
+    # True only when the engine actually reported a direction. The default value is
+    # the absence of evidence, not a claim, and the two must stay distinguishable:
+    # otherwise a v1 worker (which cannot report one) looks like an engine that
+    # examined the page and pronounced it horizontal.
+    direction_declared: bool = False
 
     def __post_init__(self) -> None:
         if self.page_index < 0:
