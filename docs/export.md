@@ -73,8 +73,20 @@ There is no "export anyway" switch: silently dropping or substituting unverified
 text would break the evidence-grade guarantee.
 
 A page with zero aligned pairs is not evidence of a blank leaf — a crashed worker, a
-mis-decoded raster and an empty leaf look identical in the OCR tables. Such a page
-becomes exportable only after an explicit confirmation:
+mis-decoded raster and an empty leaf look identical in the OCR tables. The refusal
+quotes the measured ink so the operator can tell the two apart:
+
+```
+  2 page(s) with no text at all, not yet confirmed as textless:
+    page 7: measured ink 6.93% — there is content here that was not read
+    page 12: measured ink 0.03% — nothing on the page
+    if the page really has no text: 'scribeforge confirm --page N --kind blank --reason ...'
+    if it is a plate or illustration with no caption to read: --kind non_text
+```
+
+A page measuring under 1% ink is confirmed textless by the measurement itself
+(`actor = evidence`) during the structure pass, so genuinely blank leaves do not
+need a person. Everything above that needs an explicit confirmation:
 
 ```
 scribeforge confirm --store <dir> --page 3 --kind blank --reason "empty leaf before the plate"
@@ -104,6 +116,11 @@ deliverables that must be human-certified. `--json` prints the whole summary
 (`machine_accepted`, `human_accepted`, `max_machine_content_risk`,
 `requires_human_review`, `spot_check[]`) next to the output path.
 
+Export also reports the table of contents it wrote (`table of contents: N chapter(s)
+from the book's structure`), and `--json` includes `chapters`. Chapter titles come
+from the book's own contents page when it can be anchored, otherwise from headings
+on the pages; see [Book structure](./book-structure.md).
+
 See [The acceptance gate](./acceptance-gate.md) for the rule that decides what a
 machine may accept at all.
 
@@ -117,7 +134,7 @@ standard zip layout:
 | `mimetype` | `application/epub+zip`, first entry, stored uncompressed |
 | `META-INF/container.xml` | points at `OEBPS/content.opf` |
 | `OEBPS/content.opf` | EPUB 3 package: identifier, title, author, language, `dcterms:modified`, manifest, spine |
-| `OEBPS/nav.xhtml` | EPUB 3 navigation document listing every page |
+| `OEBPS/nav.xhtml` | EPUB 3 navigation document: the chapter tree when the book's structure was derived, one entry per page otherwise |
 | `OEBPS/page-000001.xhtml` … | one XHTML document per verified page; one element per reconstructed paragraph (`<p>`, `<h2>`, `<aside epub:type="footnote">`) |
 
 Metadata:

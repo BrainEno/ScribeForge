@@ -153,6 +153,7 @@ scribeforge process book.pdf                  # import + process every page
 scribeforge process book.pdf --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model # optional local crop review
 scribeforge process book.pdf --store store/   # explicit project store
 scribeforge status --store store/             # persisted jobs + review queue
+scribeforge structure --store store/ --json   # page roles, printed page numbers, chapter tree
 scribeforge audit --store store/ --json        # read-only project integrity audit
 scribeforge backup --store store/ --out Book.zip # project DB, assets and verified source PDF
 scribeforge verify-backup --backup Book.zip     # verify hashes, manifest and SQLite integrity
@@ -182,6 +183,19 @@ Run `scribeforge audit --store store/ --json` before archiving or resuming a pro
 Create a project backup with `scribeforge backup --store store/ --out Book.zip`. The archive includes a consistent SQLite snapshot, all regular project-store files, and each original source document after confirming its recorded SHA-256. Backup is refused while a job is running or when database/page evidence is damaged or the source identity cannot be verified. Existing archives are never overwritten unless `--overwrite` is supplied. Run `scribeforge verify-backup --backup Book.zip` before restoring; `scribeforge restore --backup Book.zip --to Book-restored.scribeforge` verifies member hashes and SQLite integrity, then restores into a new directory without overwriting an existing destination. Internal page-image and source paths are updated to the restored location; processing/review evidence remains intact.
 
 When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
+
+A scanned book is not a list of rasters. `structure` derives what each page *is*
+(cover, copyright, contents, front matter, body, plate, blank), the printed page
+number a reader would cite (three separate numbering runs in this book, restarting
+at 1), and the chapter tree — from the book's own contents page when an entry can be
+proved against the page it points at, otherwise from heading typography. The EPUB
+nav then mirrors that tree instead of emitting 562 flat `Page N` entries, and each
+page keeps its printed folio in the title. Roles are decided from engine report plus
+a **measured ink ratio** (this book: blank leaves 0.39%, sparsest text page 2.45%,
+body 6-13%, coloured cover 94%): a textless page measuring under 1% is confirmed
+blank by the measurement, while anything above it stays blocked until a person says
+whether it is a plate or a page the engines failed to read. See
+[Book structure](./docs/book-structure.md).
 
 Two facts are never inferred. First, *agreement is not acceptance*: `adjudicate_pair` sends every automatic path through an acceptance gate that refuses text no machine should certify — the replacement character `U+FFFD`, XML-illegal control characters, a pair where both readers admit low confidence, or a pair whose evidence-quality risk exceeds the policy ceiling. Blocked pairs stay in `review_queue`, which lists every undecided pair (not just score-thresholded candidates), so a blocked pair always has a command that can clear it. Second, *an empty page is not a blank page*: a page with zero aligned pairs blocks export until `scribeforge confirm` records who says it carries no text and why. The export report says how much of the book a machine certified (`machine_accepted` vs `human_accepted`, the highest machine-accepted content risk, and the pairs worth a spot check); `--strict-acceptance` refuses while any of those remain. See [The acceptance gate](./docs/acceptance-gate.md).
 

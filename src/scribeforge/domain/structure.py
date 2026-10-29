@@ -17,7 +17,7 @@ and the chapter tree that gives the EPUB a usable table of contents.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
@@ -193,6 +193,14 @@ class PageStructure:
     label: PageLabel = field(
         default_factory=lambda: PageLabel("", NumberingScheme.NONE, None)
     )
+    #: Measured share of non-background pixels, when the raster could be read.
+    #: The only evidence that separates "blank leaf" from "full-page illustration"
+    #: without guessing (issues #87 and #74).
+    ink_ratio: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.ink_ratio is not None and not 0.0 <= self.ink_ratio <= 1.0:
+            raise ValueError("ink_ratio must be between 0 and 1")
 
     @property
     def display_label(self) -> str:
@@ -253,8 +261,14 @@ class Chapter:
     title: str
     start_page_index: int
     printed_page: str = ""
+    #: Where the title came from: the book's own table of contents (``toc``) or a
+    #: heading found on the page (``heading``). A TOC entry is the author's own
+    #: list; a heading is one page's typography. Not equally strong evidence.
+    source: str = "heading"
 
     def __post_init__(self) -> None:
+        if self.source not in ("toc", "heading", "manual"):
+            raise ValueError("chapter source must be 'toc', 'heading' or 'manual'")
         if self.level < 1:
             raise ValueError("chapter level starts at 1")
         if self.start_page_index < 0:
@@ -269,6 +283,12 @@ class BookStructure:
 
     pages: tuple[PageStructure, ...]
     chapters: tuple[Chapter, ...]
+    #: How many entries the book's own contents page(s) listed. Kept on the
+    #: structure because "the book lists 40 chapters and 36 could be located" is a
+    #: fact about the book that an operator has to see, not a pipeline statistic.
+    toc_entries: int = 0
+    #: TOC titles that no page could be proved to match. Reported, never guessed.
+    unplaced_toc_titles: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         indexes = [page.page_index for page in self.pages]
@@ -345,28 +365,404 @@ class BookStructure:
         )
 
 
+#: Ink coverage above which a textless page is a plate rather than a blank leaf.
+#:
+#: Measured on `benchmark/V..pdf` (562-page 300 dpi scan, reduced to 512 px before
+#: counting): the book's blank separator leaves measure 0.39%, its sparsest pages
+#: that *do* carry text 2.45% and 3.40%, and ordinary body pages 6-13%. Two percent
+#: therefore separates "there is a picture or a page nobody managed to read" from
+#: "there is a blank leaf" with margin on both sides.
+PLATE_INK_RATIO = 0.02
+
+#: Ink coverage below which a textless page has nothing to read at all, so the
+#: measurement itself can confirm it as blank. Deliberately stricter than
+#: ``PLATE_INK_RATIO``: on the same book it sits between the 0.39% blank leaf and
+#: the 2.45% sparsest text page, which leaves room for a scanner's noise floor
+#: without ever certifying a page that carries even one line of type.
+BLANK_INK_RATIO = 0.01
+
+#: A page dominated by something that is not paper (a coloured cover, a full-page
+#: photograph) measures as almost entirely "ink". This book's front cover measures
+#: 94%, which is why a first page like that is a cover whatever its caption says.
+COVER_INK_RATIO = 0.5
+
+#: Evidence for one page, as the whole-book classifier sees it.
+@dataclass(frozen=True, slots=True)
+class RoleEvidence:
+    """What the classifier is allowed to know about a page.
+
+    Only things an engine reported or a measurement produced: no filename hints,
+    no position-in-the-book guesses beyond ordering.
+    """
+
+    page_index: int
+    lines: tuple[str, ...] = ()
+    label: PageLabel = field(
+        default_factory=lambda: PageLabel("", NumberingScheme.NONE, None)
+    )
+    ink_ratio: float | None = None
+    headings: tuple[str, ...] = ()
+
+    @property
+    def text(self) -> str:
+        return "".join(self.lines)
+
+    @property
+    def is_textual(self) -> bool:
+        return bool(self.text.strip())
+
+
+_COPYRIGHT_HINTS = (
+    "isbn",
+    "图书在版编目",
+    "cip",
+    "版权所有",
+    "出版发行",
+    "责任编辑",
+    "印张",
+    "插页",
+    "开本",
+    "字数",
+    "印次",
+    "印刷",
+    "出版社",
+    "出版者",
+)
+_TOC_HEADINGS = frozenset({"目录", "目次", "contents", "content", "table of contents"})
+_TOC_LEADER = " .．·…・-—–_"
+#: Punctuation that must not decide whether two titles are the same: OCR renders
+#: the same comma differently on two passes, and quotation marks come in pairs.
+_TEXT_NOISE = "，。、；：！？·…—–-.,;:!?《》〈〉\"'“”‘’()（）[]【】"
+
+
+def _text_key(text: str) -> str:
+    """Squash a string for comparison: no spaces, no punctuation variants."""
+
+    return "".join(
+        character
+        for character in text.strip().lower()
+        if not character.isspace() and character not in _TEXT_NOISE
+    )
+
+
+def _title_matches(title: str, headings: Iterable[str]) -> bool:
+    """Whether a TOC title and a page heading say the same thing.
+
+    Deliberately loose (containment either way after squashing) because OCR reads
+    the same title twice through different paths; deliberately not fuzzy-scored,
+    because a near-miss must stay unmapped rather than anchor a chapter wrongly.
+    """
+
+    key = _text_key(title)
+    if len(key) < 2:
+        return False
+    for heading in headings:
+        other = _text_key(heading)
+        if not other:
+            continue
+        if key in other or other in key:
+            return True
+    return False
+
+
+@dataclass(frozen=True, slots=True)
+class TocEntry:
+    """One line of the book's own table of contents."""
+
+    title: str
+    printed_label: str
+    #: ``part`` | ``chapter`` | ``section`` | ``entry`` — inferred from the title's
+    #: numbering pattern, which is the only structural hint a TOC line carries.
+    kind: str = "entry"
+
+
+@dataclass(frozen=True, slots=True)
+class TocPage:
+    """A page a TOC entry may point at: its printed label and its headings."""
+
+    page_index: int
+    label: PageLabel
+    headings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TocMapping:
+    """Chapters recovered from the TOC, plus the entries that could not be placed."""
+
+    chapters: tuple[Chapter, ...] = ()
+    unmapped: tuple[TocEntry, ...] = ()
+
+
+def _number_words() -> str:
+    return "〇零一二三四五六七八九十百千两0-9"
+
+
+_PART_PATTERN = re.compile(rf"^第[{_number_words()}]{{1,4}}[卷部篇编]")
+_CHAPTER_PATTERN = re.compile(rf"^第[{_number_words()}]{{1,4}}章")
+_SECTION_PATTERN = re.compile(
+    rf"^(第[{_number_words()}]{{1,4}}节|[{_number_words()}]{{1,4}}、)"
+)
+_APPENDIX_PATTERN = re.compile(r"^(附录|后记|译后记|跋|尾声|索引|致谢)")
+
+
+def toc_entry_kind(title: str) -> str:
+    """Classify a TOC title's numbering, or ``entry`` when it has none."""
+
+    stripped = title.strip()
+    if _PART_PATTERN.match(stripped):
+        return "part"
+    if _CHAPTER_PATTERN.match(stripped):
+        return "chapter"
+    if _SECTION_PATTERN.match(stripped):
+        return "section"
+    return "entry"
+
+
+def parse_toc_entry(line: str) -> TocEntry | None:
+    """Interpret one TOC line as ``title … printed page``, or reject it.
+
+    Rejects more than it accepts on purpose. A body line that happens to end in a
+    number ("…1923") would otherwise become a chapter titled after half a
+    sentence, and a wrong TOC entry is worse than a missing one.
+    """
+
+    raw = line.strip()
+    if not raw or len(raw) < 3:
+        return None
+    # The page number must be the last token, optionally behind leader dots.
+    match = re.search(r"([0-9]{1,4}|[ivxlcdmIVXLCDM]{1,7}|[〇零一二三四五六七八九十百]{1,4})[.．·…・]?$", raw)
+    if match is None:
+        return None
+    page_text = match.group(1)
+    title = raw[: match.start()].strip().rstrip(_TOC_LEADER).strip()
+    if len(title) < 2 or len(title) > 60:
+        return None
+    label = parse_page_label(page_text)
+    if not label.is_numbered:
+        return None
+    # A title made only of digits or punctuation is a table rule, not a chapter.
+    if not any(character.isalpha() or "\u4e00" <= character <= "\u9fff" for character in title):
+        return None
+    # The page number must be separated from the title, or "1923年" style prose
+    # tails become folios.
+    gap = raw[match.start() :].lstrip()
+    if gap and not any(character in _TOC_LEADER or character.isspace() for character in raw[match.start() - 1 : match.start()]):
+        return None
+    return TocEntry(title=title, printed_label=page_text, kind=toc_entry_kind(title))
+
+
+def parse_toc_entries(lines: Iterable[str]) -> tuple[TocEntry, ...]:
+    """Every parseable entry of one TOC page, in printed order."""
+
+    entries: list[TocEntry] = []
+    for line in lines:
+        entry = parse_toc_entry(line)
+        if entry is not None:
+            entries.append(entry)
+    return tuple(entries)
+
+
+def looks_like_toc_page(lines: Iterable[str]) -> bool:
+    """Whether a page is a table of contents.
+
+    Two independent shapes qualify: an explicit "目录/Contents" heading, or a page
+    where at least three lines parse as *title … page number* and those lines are
+    the majority. Body pages fail both: they rarely end lines with a bare number,
+    and they have no such heading.
+    """
+
+    materialised = [line for line in lines if line.strip()]
+    if not materialised:
+        return False
+    for line in materialised[:3]:
+        if _text_key(line) in _TOC_HEADINGS:
+            return True
+    entries = sum(1 for line in materialised if parse_toc_entry(line) is not None)
+    return entries >= 3 and entries * 2 >= len(materialised)
+
+
 def detect_page_roles(
     page_index: int,
     *,
     text: str,
     ink_ratio: float | None = None,
 ) -> PageRole:
-    """Classify a page from its accepted text and ink coverage.
+    """Classify a single page without book context.
 
-    Conservative by design: an unrecognised page becomes ``UNKNOWN`` rather than
-    being forced into a role it may not have, because roles drive export
-    decisions (a cover must not be typeset as body text).
+    Only the two roles that need no context are decided here: a page with no text
+    is blank or a plate. Everything else (cover, copyright, TOC, body span) needs
+    the whole book and is decided by :func:`classify_page_roles`.
     """
 
-    stripped = text.strip()
-    if not stripped:
-        # No text at all: either a blank leaf or a full-page illustration.
-        if ink_ratio is not None and ink_ratio > 0.05:
-            return PageRole.PLATE
-        return PageRole.BLANK
-    if page_index == 0:
-        return PageRole.COVER
-    return PageRole.UNKNOWN
+    if text.strip():
+        return PageRole.UNKNOWN
+    if ink_ratio is not None and ink_ratio >= PLATE_INK_RATIO:
+        return PageRole.PLATE
+    return PageRole.BLANK
+
+
+def _body_run(pages: Sequence[RoleEvidence]) -> tuple[int, int] | None:
+    """Physical span of the longest run of printed page numbers.
+
+    A book numbers its body in one continuous run; front matter and back matter
+    restart at 1 or use another scheme. The longest run is therefore the body, and
+    its span is what separates front matter from body from back matter.
+    """
+
+    runs: dict[int, list[int]] = {}
+    for page in pages:
+        ordinal = page.label.sequence_ordinal
+        if ordinal is None:
+            continue
+        runs.setdefault(ordinal // 1_000_000, []).append(page.page_index)
+    if not runs:
+        return None
+    # Longest run wins; ties go to the later run, because a body that restarts
+    # numbering sits after the front matter that also restarted it.
+    chosen = max(runs.items(), key=lambda item: (len(item[1]), item[0]))[1]
+    return min(chosen), max(chosen)
+
+
+def classify_page_roles(pages: Sequence[RoleEvidence]) -> Mapping[int, PageRole]:
+    """Classify every page of a book from its own evidence.
+
+    Roles drive export decisions, so a page whose evidence does not clearly say
+    what it is stays ``UNKNOWN`` — an unclassified page is exported as text, which
+    is the safe failure. Nothing here looks at file names or expected layouts.
+    """
+
+    ordered = sorted(pages, key=lambda page: page.page_index)
+    textual = [page for page in ordered if page.is_textual]
+    first_textual = textual[0].page_index if textual else None
+    span = _body_run(ordered)
+    roles: dict[int, PageRole] = {}
+
+    for page in ordered:
+        if not page.is_textual:
+            roles[page.page_index] = detect_page_roles(
+                page.page_index, text=page.text, ink_ratio=page.ink_ratio
+            )
+            continue
+        lowered = page.text.lower()
+        hints = sum(1 for hint in _COPYRIGHT_HINTS if hint in lowered)
+        if hints >= 2 and not page.label.is_numbered:
+            roles[page.page_index] = PageRole.COPYRIGHT
+            continue
+        if looks_like_toc_page(page.lines):
+            roles[page.page_index] = PageRole.TABLE_OF_CONTENTS
+            continue
+        if (
+            page.page_index == first_textual
+            and not page.label.is_numbered
+            and not page.headings
+            and (
+                len(page.text.strip()) <= 40
+                or (page.ink_ratio is not None and page.ink_ratio >= COVER_INK_RATIO)
+            )
+        ):
+            # A cover carries a short title block and no folio. A first page that
+            # is long, numbered or has a heading is body text, not a cover: some
+            # scans start mid-book.
+            roles[page.page_index] = PageRole.COVER
+            continue
+        if span is None:
+            roles[page.page_index] = PageRole.UNKNOWN
+            continue
+        start, end = span
+        if page.page_index < start:
+            roles[page.page_index] = PageRole.FRONT_MATTER
+        elif page.page_index <= end:
+            roles[page.page_index] = PageRole.BODY
+        else:
+            roles[page.page_index] = PageRole.BACK_MATTER
+    return MappingProxyType(roles)
+
+
+def map_toc_chapters(
+    entries: Sequence[TocEntry],
+    pages: Sequence[TocPage],
+) -> TocMapping:
+    """Anchor TOC entries to physical pages, using two independent signals.
+
+    A printed page number alone is ambiguous on purpose in this kind of book: three
+    sections each number from 1, so "1" names three different physical pages. An
+    entry is therefore only accepted when the *page it points at carries a heading
+    that matches the entry's title* — the label narrows it down, the page's own
+    typography confirms it. Everything else is reported as unmapped rather than
+    guessed, and the caller falls back to per-page heading detection.
+    """
+
+    by_label: dict[tuple[NumberingScheme, int], list[TocPage]] = {}
+    for page in pages:
+        if page.label.is_numbered and page.label.sequence is not None:
+            by_label.setdefault(
+                (page.label.scheme, page.label.sequence), []
+            ).append(page)
+
+    chapters: list[Chapter] = []
+    unmapped: list[TocEntry] = []
+    used: set[int] = set()
+    previous = -1
+    has_part = any(entry.kind == "part" for entry in entries)
+    ordinal = 0
+
+    for entry in entries:
+        label = parse_page_label(entry.printed_label)
+        if label.sequence is None:
+            unmapped.append(entry)
+            continue
+        candidates = [
+            page
+            for page in by_label.get((label.scheme, label.sequence), [])
+            if page.page_index not in used and page.headings
+        ]
+        matched = [
+            page for page in candidates if _title_matches(entry.title, page.headings)
+        ]
+        pool = matched or (candidates if len(candidates) == 1 else [])
+        if not pool:
+            unmapped.append(entry)
+            continue
+        ahead = [page for page in pool if page.page_index > previous]
+        chosen = min(ahead or pool, key=lambda page: page.page_index)
+        used.add(chosen.page_index)
+        previous = chosen.page_index
+        chapters.append(
+            Chapter(
+                ordinal=ordinal,
+                level=_entry_level(entry.kind, has_part),
+                title=entry.title,
+                start_page_index=chosen.page_index,
+                printed_page=entry.printed_label,
+                source="toc",
+            )
+        )
+        ordinal += 1
+
+    # A contents page can list an appendix before a chapter that precedes it in the
+    # book, and its own order is not guaranteed to be the physical order. The tree
+    # must be ordered by page, so sort and renumber rather than trusting the page.
+    chapters.sort(key=lambda chapter: chapter.start_page_index)
+    ordered = tuple(
+        Chapter(
+            ordinal=index,
+            level=chapter.level,
+            title=chapter.title,
+            start_page_index=chapter.start_page_index,
+            printed_page=chapter.printed_page,
+            source=chapter.source,
+        )
+        for index, chapter in enumerate(chapters)
+    )
+    return TocMapping(chapters=ordered, unmapped=tuple(unmapped))
+
+
+def _entry_level(kind: str, has_part: bool) -> int:
+    if kind == "part":
+        return 1
+    if kind == "section":
+        return 3 if has_part else 2
+    return 2 if has_part else 1
 
 
 def assign_sequences(

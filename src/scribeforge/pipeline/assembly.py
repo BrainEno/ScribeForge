@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from scribeforge.domain.acceptance import (
@@ -54,10 +55,16 @@ class UnresolvedContentError(Exception):
         unverified_pages: tuple[int, ...],
         unresolved_pairs: tuple[UnresolvedPair, ...],
         unconfirmed_pages: tuple[int, ...] = (),
+        measured_ink: Mapping[int, float] | None = None,
     ) -> None:
         self.unverified_pages = unverified_pages
         self.unresolved_pairs = unresolved_pairs
         self.unconfirmed_pages = unconfirmed_pages
+        #: Ink coverage of each unconfirmed page, when it could be measured. An
+        #: operator deciding "is this really blank?" is helped by knowing that the
+        #: page measures 0.4% ink rather than 12%: the first is a leaf, the second
+        #: is a page the engines failed to read.
+        self.measured_ink = dict(measured_ink or {})
         super().__init__(
             f"{len(unverified_pages)} unverified page(s), "
             f"{len(unresolved_pairs)} unresolved pair(s), "
@@ -86,6 +93,11 @@ def assemble_verified_content(
     labels = structure.printed_labels_by_page()
     furniture = _detect_furniture(store, project_id)
     confirmations = store.latest_page_confirmations(project_id)
+    measured_ink = {
+        entry.page_index: entry.ink_ratio
+        for entry in structure.pages
+        if entry.ink_ratio is not None
+    }
 
     pages: list[VerifiedPage] = []
     dropped: list[DroppedFurniture] = []
@@ -209,6 +221,7 @@ def assemble_verified_content(
             unverified_pages=tuple(unverified_pages),
             unresolved_pairs=tuple(unresolved_pairs),
             unconfirmed_pages=tuple(unconfirmed_pages),
+            measured_ink=measured_ink,
         )
     exportable = {page.page_index for page in pages}
     chapters = tuple(

@@ -45,7 +45,11 @@ from scribeforge.pipeline.rounds import (
     reader_for,
     repair_book,
 )
-from scribeforge.pipeline.structure import build_book_structure, persist_book_structure
+from scribeforge.pipeline.structure import (
+    StructureReport,
+    build_book_structure,
+    persist_book_structure,
+)
 from scribeforge.project_audit import audit_project_store
 from scribeforge.project_backup import (
     ProjectBackupError,
@@ -667,11 +671,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
     try:
         derived = build_book_structure(store, project_id, engine=engines.primary.name)
         report = persist_book_structure(store, project_id, derived)
-        print(
-            f"structure: {report.chapters} chapter(s), "
-            f"{len(report.labelled_pages)} numbered page(s)",
-            file=out,
-        )
+        print(f"structure: {_structure_summary(report)}", file=out)
     except Exception as exc:  # noqa: BLE001 - structure is advisory, never fatal
         print(f"structure: skipped ({exc})", file=out)
     decisions = sum(page.decision_count for page in outcome.pages)
@@ -718,18 +718,50 @@ def _structure(args: argparse.Namespace, out: TextIO) -> int:
                     "pages": len(report.pages),
                     "labelled_pages": list(report.labelled_pages),
                     "chapters": report.chapters,
+                    "chapter_source": report.chapter_source,
                     "roles": report.roles,
+                    "blank_pages": list(report.blank_pages),
+                    "plate_pages": list(report.plate_pages),
+                    "unmeasured_pages": list(report.unmeasured_pages),
+                    "confirmed_textless": list(report.confirmed_textless),
+                    "toc_entries": report.toc_entries,
+                    "toc_mapped": report.toc_mapped,
+                    "toc_unmapped": list(report.toc_unmapped),
                 },
                 ensure_ascii=False,
             ),
             file=out,
         )
         return EXIT_OK
-    print(f"pages {len(report.pages)}, labelled {len(report.labelled_pages)}", file=out)
-    print(f"chapters {report.chapters}", file=out)
+    print(_structure_summary(report), file=out)
     for role, count in sorted(report.roles.items()):
         print(f"  {role}: {count}", file=out)
+    for title in report.toc_unmapped[:10]:
+        print(f"  contents entry not anchored to a page: {title}", file=out)
+    if len(report.toc_unmapped) > 10:
+        print(
+            f"  ... and {len(report.toc_unmapped) - 10} more unanchored contents entries",
+            file=out,
+        )
     return EXIT_OK
+
+
+def _structure_summary(report: StructureReport) -> str:
+    """One line an operator can read: where the chapter tree came from."""
+
+    summary = (
+        f"pages {len(report.pages)}, labelled {len(report.labelled_pages)}, "
+        f"chapters {report.chapters} from {report.chapter_source}"
+    )
+    if report.toc_entries:
+        summary += (
+            f" (contents lists {report.toc_entries}, {report.toc_mapped} anchored)"
+        )
+    if report.blank_pages or report.plate_pages:
+        summary += (
+            f"; blank {len(report.blank_pages)}, plate {len(report.plate_pages)}"
+        )
+    return summary
 
 
 def _print_rounds(out: TextIO, rounds: Sequence[RoundReport]) -> None:
@@ -1191,10 +1223,26 @@ def _report_blocked_export(exc: UnresolvedContentError, out: TextIO) -> None:
             "not yet confirmed as textless:",
             file=out,
         )
-        print("    " + ", ".join(str(index) for index in exc.unconfirmed_pages[:20]), file=out)
+        for index in exc.unconfirmed_pages[:20]:
+            ink = exc.measured_ink.get(index)
+            if ink is None:
+                print(f"    page {index}: no ink measurement available", file=out)
+            else:
+                # The number tells the operator which of the two problems this is.
+                hint = (
+                    "nothing on the page"
+                    if ink < 0.01
+                    else "there is content here that was not read"
+                )
+                print(f"    page {index}: measured ink {ink:.2%} — {hint}", file=out)
         print(
             "    if the page really has no text: "
             "'scribeforge confirm --page N --kind blank --reason ...'",
+            file=out,
+        )
+        print(
+            "    if it is a plate or illustration with no caption to read: "
+            "--kind non_text",
             file=out,
         )
         print("    otherwise those pages failed to read and must be re-run", file=out)
@@ -1277,6 +1325,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         report = {
             "output": str(args.out),
             "pages": len(book.pages),
+            "chapters": len(book.chapters),
             "confirmed_blank_pages": list(book.confirmed_blank_pages),
             "empty_pairs": len(book.empty_pairs),
             "accepted_pairs": summary.pairs,
@@ -1302,6 +1351,12 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_OK
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    if book.chapters:
+        print(
+            f"table of contents: {len(book.chapters)} chapter(s) from the book's "
+            "structure",
+            file=out,
+        )
     print(
         f"accepted pairs: {summary.pairs} "
         f"(machine {summary.machine_accepted}, human {summary.human_accepted})",
