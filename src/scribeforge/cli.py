@@ -26,6 +26,11 @@ from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
 from scribeforge.domain.ocr import OCREngine
+from scribeforge.domain.preprocess import (
+    PreprocessOperation,
+    PreprocessSettings,
+    default_settings,
+)
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
 from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
@@ -194,6 +199,28 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Managed runtime root (default: the per-user ScribeForge runtime folder).",
+    )
+    process.add_argument(
+        "--no-preprocess",
+        action="store_true",
+        help=(
+            "Skip the preprocessing stage and send the raw scans to the OCR engines. "
+            "Use this for clean born-digital renders where deskewing only adds work."
+        ),
+    )
+    process.add_argument(
+        "--preprocess-binarize",
+        action="store_true",
+        help=(
+            "Threshold pages to black and white after denoising. Off by default: "
+            "binarization discards the greyscale evidence reviewers rely on."
+        ),
+    )
+    process.add_argument(
+        "--preprocess-max-skew",
+        type=float,
+        default=None,
+        help="Maximum deskew correction in degrees (default: 8).",
     )
     _add_vlm_arguments(process)
 
@@ -447,6 +474,27 @@ def run(
     return _process(args, out, factory)
 
 
+def _preprocess_settings(args: argparse.Namespace) -> PreprocessSettings | None:
+    """Translate the CLI preprocessing flags into a plan.
+
+    Returns ``None`` when the operator disabled the stage, which keeps the raw
+    scan path byte-for-byte identical to earlier versions.
+    """
+
+    if getattr(args, "no_preprocess", False):
+        return None
+    operations = list(default_settings().operations)
+    if getattr(args, "preprocess_binarize", False):
+        operations.append(PreprocessOperation.BINARIZE)
+    max_skew = getattr(args, "preprocess_max_skew", None)
+    return PreprocessSettings(
+        operations=tuple(operations),
+        max_skew_degrees=(
+            default_settings().max_skew_degrees if max_skew is None else max_skew
+        ),
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     return run(sys.argv[1:] if argv is None else argv)
 
@@ -475,6 +523,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
             secondary_engine=engines.secondary,
             reviewer=engines.reviewer,
             crops_dir=layout.crops_dir,
+            preprocess=_preprocess_settings(args),
         )
     except Exception as exc:  # noqa: BLE001 - report any setup/stage failure as a fatal exit
         message = str(exc)

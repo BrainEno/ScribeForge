@@ -18,7 +18,7 @@ def _store(tmp_path: Path) -> tuple[SQLiteStore, int]:
     return store, project_id
 
 
-def test_schema_v4_contains_resumable_jobs_table(tmp_path: Path) -> None:
+def test_latest_schema_contains_resumable_jobs_table(tmp_path: Path) -> None:
     path = tmp_path / "project.sqlite3"
     SQLiteStore(path).initialize()
 
@@ -31,7 +31,7 @@ def test_schema_v4_contains_resumable_jobs_table(tmp_path: Path) -> None:
             )
         }
 
-    assert version == 4
+    assert version == 5
     assert "jobs" in tables
 
 
@@ -127,7 +127,7 @@ def test_job_transitions_require_running_state_and_nonblank_error(tmp_path: Path
         store.fail_job(job_id, "   ")
 
 
-def test_v3_database_migrates_to_v4_without_losing_project(tmp_path: Path) -> None:
+def test_v3_database_migrates_to_latest_without_losing_project(tmp_path: Path) -> None:
     path = tmp_path / "legacy-v3.sqlite3"
     store = SQLiteStore(path)
     with sqlite3.connect(path) as connection:
@@ -143,8 +143,101 @@ def test_v3_database_migrates_to_v4_without_losing_project(tmp_path: Path) -> No
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='jobs'"
         ).fetchone()[0] == 1
+
+
+def test_v4_database_migrates_to_v5_keeping_jobs_and_adding_preprocess(
+    tmp_path: Path,
+) -> None:
+    """The v5 rebuild must preserve job rows, ids and uniqueness.
+
+    SQLite cannot alter a CHECK constraint, so v5 recreates ``jobs``. Getting the
+    copy wrong would silently lose resumable work, so the rows are asserted
+    field by field rather than only counted.
+    """
+
+    path = tmp_path / "legacy-v4.sqlite3"
+    store = SQLiteStore(path)
+    with sqlite3.connect(path) as connection:
+        store._create_v1(connection)
+        store._create_v2(connection)
+        store._create_v3(connection)
+        store._create_v4(connection)
+        connection.execute(
+            "INSERT INTO projects(title, source_uri, source_sha256) VALUES (?, ?, ?)",
+            ("Legacy", "old.pdf", "oldhash"),
+        )
+        connection.execute(
+            """
+            INSERT INTO pages(project_id, page_index, source_image, width, height)
+            VALUES (1, 0, 'page-00000.png', 100, 200)
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO jobs(project_id, page_id, stage, state, attempts, last_error)
+            VALUES (1, 1, 'primary_ocr', 'failed', 2, 'engine crashed')
+            """
+        )
+        connection.execute("PRAGMA user_version = 4")
+
+    store.initialize()
+
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        row = connection.execute(
+            "SELECT id, project_id, page_id, stage, state, attempts, last_error FROM jobs"
+        ).fetchone()
+        assert row["id"] == 1
+        assert row["stage"] == "primary_ocr"
+        assert row["state"] == "failed"
+        assert row["attempts"] == 2
+        assert row["last_error"] == "engine crashed"
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='page_preprocess'"
+        ).fetchone()[0] == 1
+        # The scope-uniqueness index must survive the rebuild.
+        assert connection.execute(
+            """
+            SELECT COUNT(*) FROM sqlite_master
+            WHERE type='index' AND name='uq_jobs_scope_stage'
+            """
+        ).fetchone()[0] == 1
+
+
+def test_v5_accepts_the_preprocess_stage(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+
+    job_id = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=0)
+    store.start_job(job_id)
+    completed = store.complete_job(job_id)
+
+    assert completed.stage is JobStage.PREPROCESS
+    assert completed.state.value == "succeeded"
+
+
+def test_preprocess_runs_before_ocr_in_stage_order() -> None:
+    from scribeforge.domain.jobs import stage_before
+
+    assert stage_before(JobStage.PREPROCESS, JobStage.PRIMARY_OCR)
+    assert JobStage.PREPROCESS.page_scoped
+    assert not JobStage.IMPORT.page_scoped
+
+
+def test_reopen_job_returns_a_succeeded_stage_to_pending(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    job_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+    store.start_job(job_id)
+    store.complete_job(job_id)
+
+    reopened = store.reopen_job(job_id, "asset deleted")
+
+    assert reopened.state.value == "pending"
+    assert reopened.last_error == "asset deleted"
+    with pytest.raises(ValueError, match="only a succeeded job"):
+        store.reopen_job(job_id, "again")

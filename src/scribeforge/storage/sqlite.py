@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +52,22 @@ class PageRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class PreprocessRecord:
+    """Stored preprocessing evidence for one page."""
+
+    page_index: int
+    settings: dict[str, Any]
+    applied: tuple[str, ...]
+    measured_skew_degrees: float
+    output_image: str
+    output_sha256: str
+    output_width: int
+    output_height: int
+    notes: dict[str, Any]
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class VerificationRecord:
     id: int
     primary_run_id: int
@@ -73,7 +89,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 5
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -110,6 +126,9 @@ class SQLiteStore:
             if version < 4:
                 self._create_v4(connection)
                 connection.execute("PRAGMA user_version = 4")
+            if version < 5:
+                self._create_v5(connection)
+                connection.execute("PRAGMA user_version = 5")
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -301,6 +320,77 @@ class SQLiteStore:
                 ON jobs(project_id, stage, COALESCE(page_id, -1));
             CREATE INDEX IF NOT EXISTS idx_jobs_resumable
                 ON jobs(project_id, state, id);
+            """
+        )
+
+    @staticmethod
+    def _create_v5(connection: sqlite3.Connection) -> None:
+        """Add the preprocessing stage and its per-page evidence.
+
+        SQLite cannot alter a CHECK constraint, and the v4 ``jobs.stage`` check
+        lists every allowed stage literally. Adding ``preprocess`` therefore
+        requires rebuilding the table: create the new shape, copy the rows,
+        drop the old table, rename, and recreate the indexes.
+        """
+
+        connection.executescript(
+            """
+            CREATE TABLE jobs_v5 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+                page_id INTEGER REFERENCES pages(id) ON DELETE RESTRICT,
+                stage TEXT NOT NULL CHECK(
+                    stage IN (
+                        'import', 'preprocess', 'primary_ocr',
+                        'secondary_ocr', 'verify', 'vlm_review'
+                    )
+                ),
+                state TEXT NOT NULL DEFAULT 'pending' CHECK(
+                    state IN ('pending', 'running', 'succeeded', 'failed')
+                ),
+                attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+                last_error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                started_at TEXT,
+                finished_at TEXT,
+                CHECK(
+                    (stage = 'import' AND page_id IS NULL)
+                    OR
+                    (stage != 'import' AND page_id IS NOT NULL)
+                )
+            );
+
+            INSERT INTO jobs_v5 (
+                id, project_id, page_id, stage, state, attempts, last_error,
+                created_at, started_at, finished_at
+            )
+            SELECT
+                id, project_id, page_id, stage, state, attempts, last_error,
+                created_at, started_at, finished_at
+            FROM jobs;
+
+            DROP TABLE jobs;
+            ALTER TABLE jobs_v5 RENAME TO jobs;
+
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_scope_stage
+                ON jobs(project_id, stage, COALESCE(page_id, -1));
+            CREATE INDEX IF NOT EXISTS idx_jobs_resumable
+                ON jobs(project_id, state, id);
+
+            CREATE TABLE IF NOT EXISTS page_preprocess (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                page_id INTEGER NOT NULL UNIQUE
+                    REFERENCES pages(id) ON DELETE RESTRICT,
+                settings_json TEXT NOT NULL,
+                applied_json TEXT NOT NULL,
+                measured_skew_degrees REAL NOT NULL,
+                output_image TEXT NOT NULL,
+                output_sha256 TEXT NOT NULL,
+                output_width INTEGER NOT NULL CHECK(output_width > 0),
+                output_height INTEGER NOT NULL CHECK(output_height > 0),
+                notes_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
 
@@ -576,6 +666,32 @@ class SQLiteStore:
             )
             return self._job_record(self._job_row(connection, job_id))
 
+    def reopen_job(self, job_id: int, reason: str) -> JobRecord:
+        """Return a succeeded job to pending so its stage can run again.
+
+        Needed when the job's own record says a stage succeeded but the evidence
+        it should have produced is missing or was overwritten — a restored
+        backup, a deleted asset directory, or settings the operator deliberately
+        changed. The reason is preserved so the re-run is explainable.
+        """
+
+        reason = reason.strip()
+        if not reason:
+            raise ValueError("reopen reason must not be blank")
+        with self._connection() as connection:
+            current = self._job_record(self._job_row(connection, job_id))
+            if current.state is not JobState.SUCCEEDED:
+                raise ValueError("only a succeeded job can be reopened")
+            connection.execute(
+                """
+                UPDATE jobs
+                SET state = 'pending', last_error = ?, finished_at = NULL
+                WHERE id = ?
+                """,
+                (reason, job_id),
+            )
+            return self._job_record(self._job_row(connection, job_id))
+
     def fail_job(self, job_id: int, error: str) -> JobRecord:
         error = error.strip()
         if not error:
@@ -630,6 +746,95 @@ class SQLiteStore:
                 (project_id,),
             ).fetchall()
             return tuple(self._job_record(row) for row in rows)
+
+    def record_preprocess(
+        self,
+        project_id: int,
+        page_index: int,
+        *,
+        settings: Mapping[str, object],
+        applied: tuple[str, ...],
+        measured_skew_degrees: float,
+        output_image: str,
+        output_sha256: str,
+        output_width: int,
+        output_height: int,
+        notes: Mapping[str, object],
+    ) -> int:
+        """Persist the preprocessing evidence for one page, replacing any prior run.
+
+        Re-running with different settings must overwrite rather than accumulate:
+        only the raster the OCR engines actually consumed is meaningful, and two
+        conflicting rows would leave no way to tell which one that was.
+        """
+
+        if output_width <= 0 or output_height <= 0:
+            raise ValueError("preprocessed page dimensions must be positive")
+        with self._connection() as connection:
+            page_id = self._page_id(connection, project_id, page_index)
+            connection.execute(
+                """
+                INSERT INTO page_preprocess(
+                    page_id, settings_json, applied_json, measured_skew_degrees,
+                    output_image, output_sha256, output_width, output_height,
+                    notes_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(page_id) DO UPDATE SET
+                    settings_json = excluded.settings_json,
+                    applied_json = excluded.applied_json,
+                    measured_skew_degrees = excluded.measured_skew_degrees,
+                    output_image = excluded.output_image,
+                    output_sha256 = excluded.output_sha256,
+                    output_width = excluded.output_width,
+                    output_height = excluded.output_height,
+                    notes_json = excluded.notes_json,
+                    created_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    page_id,
+                    json.dumps(dict(settings), sort_keys=True),
+                    json.dumps(list(applied)),
+                    float(measured_skew_degrees),
+                    output_image,
+                    output_sha256,
+                    int(output_width),
+                    int(output_height),
+                    json.dumps(dict(notes), sort_keys=True),
+                ),
+            )
+            return page_id
+
+    def load_preprocess(
+        self, project_id: int, page_index: int
+    ) -> PreprocessRecord | None:
+        """Return the stored preprocessing evidence, or ``None`` if absent."""
+
+        with self._connection() as connection:
+            page_id = self._page_id(connection, project_id, page_index)
+            row = connection.execute(
+                """
+                SELECT settings_json, applied_json, measured_skew_degrees,
+                       output_image, output_sha256, output_width, output_height,
+                       notes_json, created_at
+                FROM page_preprocess
+                WHERE page_id = ?
+                """,
+                (page_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return PreprocessRecord(
+                page_index=page_index,
+                settings=json.loads(str(row["settings_json"])),
+                applied=tuple(json.loads(str(row["applied_json"]))),
+                measured_skew_degrees=float(row["measured_skew_degrees"]),
+                output_image=str(row["output_image"]),
+                output_sha256=str(row["output_sha256"]),
+                output_width=int(row["output_width"]),
+                output_height=int(row["output_height"]),
+                notes=json.loads(str(row["notes_json"])),
+                created_at=str(row["created_at"]),
+            )
 
     def record_ocr(self, project_id: int, result: PageOCRResult) -> int:
         with self._connection() as connection:

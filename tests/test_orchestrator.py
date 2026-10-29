@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
+from scribeforge.adapters.image_preprocess import PreprocessError
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.vlm import VLMReading
 from scribeforge.pipeline.orchestrator import process_book, process_page
+from scribeforge.pipeline.preprocessing import preprocess_page
 from scribeforge.storage.sqlite import PageRecord, SQLiteStore
 
 
@@ -274,3 +277,192 @@ def test_process_book_isolates_failed_page_and_resumes(tmp_path: Path) -> None:
     assert all(
         state is JobState.SUCCEEDED for state in _stage_states(store, project_id, 0).values()
     )
+
+
+class RecordingEngine(FakeEngine):
+    """Engine that remembers which raster it was asked to read."""
+
+    def __init__(self, name: str, text: str) -> None:
+        super().__init__(name, text)
+        self.seen: list[tuple[str, int]] = []
+
+    def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        self.seen.append((image_path, page_index))
+        return super().analyze_page(image_path, page_index)
+
+
+def test_process_page_runs_preprocess_before_ocr_and_feeds_it_the_corrected_scan(
+    tmp_path: Path,
+) -> None:
+    """Both engines must read the preprocessed raster, not the imported original.
+
+    Sending engines the raw scan while preprocessing exists would make the stage
+    decorative; the whole point is that OCR sees the corrected frame.
+    """
+
+    from scribeforge.domain.preprocess import PreprocessOperation, PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    primary, secondary = RecordingEngine("primary", "鸦"), RecordingEngine("secondary", "鸦")
+
+    process_page(
+        store,
+        project_id,
+        page,
+        primary_engine=primary,
+        secondary_engine=secondary,
+        crops_dir=tmp_path / "crops",
+        # Adapt-to-page is disabled so the transform is guaranteed to run: the
+        # point of this test is the wiring, not the degradation gate.
+        preprocess=PreprocessSettings(
+            operations=(PreprocessOperation.DESHADOW,), adapt_to_page=False
+        ),
+    )
+
+    expected = store.load_preprocess(project_id, 0)
+    assert expected is not None
+    assert expected.applied == ("deshadow",)
+    assert primary.seen and secondary.seen
+    assert primary.seen[0][0] == expected.output_image
+    assert secondary.seen[0][0] == expected.output_image
+    assert Path(expected.output_image).is_file()
+    # The imported original stays byte-identical: it is the evidence of record.
+    assert page.source_image != expected.output_image
+    assert Path(page.source_image).is_file()
+
+
+def test_process_page_without_preprocess_reads_the_original_scan(tmp_path: Path) -> None:
+    """Opting out must leave the earlier behaviour byte-for-byte unchanged."""
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    primary, secondary = RecordingEngine("primary", "鸦"), RecordingEngine("secondary", "鸦")
+
+    process_page(
+        store,
+        project_id,
+        page,
+        primary_engine=primary,
+        secondary_engine=secondary,
+        crops_dir=tmp_path / "crops",
+    )
+
+    assert primary.seen[0][0] == page.source_image
+    assert store.load_preprocess(project_id, 0) is None
+    states = _stage_states(store, project_id, 0)
+    preprocess_job = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=0)
+    assert store.load_job(preprocess_job).state is JobState.PENDING
+    assert states[JobStage.PRIMARY_OCR] is JobState.SUCCEEDED
+
+
+def test_preprocess_is_idempotent_and_never_double_rotates(tmp_path: Path) -> None:
+    """A second run reuses the stored raster instead of transforming it again."""
+
+    from scribeforge.domain.preprocess import PreprocessOperation, PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    settings = PreprocessSettings(operations=(PreprocessOperation.DESHADOW,))
+
+    first = preprocess_page(
+        store, project_id, page, settings, assets_dir=tmp_path / "preprocessed"
+    )
+    first_bytes = first.image_path.read_bytes()
+    second = preprocess_page(
+        store, project_id, page, settings, assets_dir=tmp_path / "preprocessed"
+    )
+
+    assert second.image_path == first.image_path
+    assert second.image_path.read_bytes() == first_bytes
+    assert second.outcome.output_sha256 == first.outcome.output_sha256
+    job = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=0)
+    # Attempts must not climb on a cache hit.
+    assert store.load_job(job).attempts == 1
+
+
+def test_preprocess_rebuilds_when_the_raster_was_deleted(tmp_path: Path) -> None:
+    """A stage that claims success but has no raster must not lie to the caller."""
+
+    from scribeforge.domain.preprocess import PreprocessOperation, PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    settings = PreprocessSettings(operations=(PreprocessOperation.DESHADOW,))
+    first = preprocess_page(
+        store, project_id, page, settings, assets_dir=tmp_path / "preprocessed"
+    )
+    first.image_path.unlink()
+
+    rebuilt = preprocess_page(
+        store, project_id, page, settings, assets_dir=tmp_path / "preprocessed"
+    )
+
+    assert rebuilt.image_path.is_file()
+    assert rebuilt.outcome.output_sha256 == first.outcome.output_sha256
+
+
+def test_preprocess_failure_marks_the_stage_failed_and_does_not_checkpoint_ocr(
+    tmp_path: Path,
+) -> None:
+    """A corrupt scan must fail loudly at preprocess, not reach the engines."""
+
+    from scribeforge.domain.preprocess import PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    corrupt = tmp_path / "corrupt.png"
+    corrupt.write_bytes(b"not an image")
+    store.add_page(project_id, 0, str(corrupt), 100, 150)
+    page = store.list_pages(project_id)[0]
+    primary, secondary = RecordingEngine("primary", "鸦"), RecordingEngine("secondary", "鸦")
+
+    with pytest.raises(PreprocessError):
+        process_page(
+            store,
+            project_id,
+            page,
+            primary_engine=primary,
+            secondary_engine=secondary,
+            crops_dir=tmp_path / "crops",
+            preprocess=PreprocessSettings(),
+        )
+
+    job = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=0)
+    assert store.load_job(job).state is JobState.FAILED
+    assert store.load_job(job).last_error
+    assert primary.seen == []
+    ocr_job = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+    assert store.load_job(ocr_job).state is JobState.PENDING
+
+
+def test_review_crops_use_the_preprocessed_frame(tmp_path: Path) -> None:
+    """Crops must come from the same frame that produced the normalized boxes."""
+
+    from scribeforge.domain.preprocess import PreprocessOperation, PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    primary, secondary = _engines()
+
+    process_page(
+        store,
+        project_id,
+        page,
+        primary_engine=primary,
+        secondary_engine=secondary,
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
+        preprocess=PreprocessSettings(
+            operations=(PreprocessOperation.CROP_BORDER,),
+            border_threshold=8,
+        ),
+    )
+
+    crops = list((tmp_path / "crops").glob("*.png"))
+    assert crops
+    with Image.open(crops[0]) as crop:
+        # The crop is cut from the preprocessed (cropped) frame, so it can never
+        # be wider than the corrected page itself.
+        corrected = store.load_preprocess(project_id, 0)
+        assert corrected is not None
+        assert crop.size[0] <= corrected.output_width
