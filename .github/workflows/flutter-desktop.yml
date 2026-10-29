@@ -37,24 +37,15 @@ jobs:
         run: dart format lib test
       - name: Analyze Flutter client
         run: flutter analyze 2>&1 | tee analyze_output.txt; exit ${PIPESTATUS[0]}
-      - name: Convert analyze output to GitHub annotations
+      - name: Show full analyze output as annotation
         if: always()
         run: |
           if [ -f analyze_output.txt ]; then
-            grep -E '^(error|warning|info) •' analyze_output.txt | while IFS= read -r line; do
-              # Parse: "error • message • file:line:col • code"
-              type=$(echo "$line" | sed 's/^\([a-z]*\) •.*/\1/')
-              message=$(echo "$line" | sed 's/^[a-z]* • \(.*\) • .*/\1/')
-              location=$(echo "$line" | sed 's/.* • \(.*:.*:.*\) •.*/\1/')
-              file=$(echo "$location" | cut -d: -f1)
-              line_num=$(echo "$location" | cut -d: -f2)
-              col=$(echo "$location" | cut -d: -f3)
-              if [ "$type" = "error" ]; then
-                echo "::error file=$file,line=$line_num,col=$col::$message"
-              elif [ "$type" = "warning" ]; then
-                echo "::warning file=$file,line=$line_num,col=$col::$message"
-              else
-                echo "::notice file=$file,line=$line_num,col=$col::$message"
+            OUTPUT=$(cat analyze_output.txt)
+            # Output each line as a notice so it appears in the Checks tab
+            echo "$OUTPUT" | while IFS= read -r line; do
+              if [ -n "$line" ]; then
+                echo "::notice::$line"
               fi
             done
           fi
