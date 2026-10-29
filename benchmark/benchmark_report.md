@@ -87,6 +87,31 @@ not the bottleneck at 800 pages; they say nothing about transcription quality.
 | C — dual-engine decisions (`--include-pipeline`) | runnable, **not measured** |
 | D — C + VLM crop review (`--include-vlm`) | runnable with a configured endpoint, **not measured** |
 
+## Preprocessing repair (measured, pixel-level — not CER)
+
+`benchmark/analysis/preprocess_benchmark.py` derives deterministic degradations
+from the real corpus pages (seeded, reproducible) and measures whether the
+PREPROCESS stage detects and repairs them. Ink/paper separability is in grey
+levels; residual skew is the worst of the 6 pages.
+
+| Variant | Operations fired | Degraded | Repaired | Residual skew |
+| --- | --- | --- | --- | --- |
+| clean | none | 227.9 | 227.9 | 0.00° |
+| skew-3deg | deskew | 226.6 | 226.1 | 0.00° |
+| skew-6deg | deskew | 226.6 | 226.1 | 0.00° |
+| spine-shadow | deshadow | 191.5 | **228.8** | 0.00° |
+| faded | contrast | 0.0 | **228.6** | 0.00° |
+| speckled | none (denoise off by default) | 221.8 | 221.8 | 0.00° |
+| speckled+denoise | denoise | 221.8 | 224.7 | 0.00° |
+| skew-and-shadow | deskew + deshadow | 192.0 | 222.8 | 0.50° |
+
+The clean row is the important one: the default pipeline measures each page and
+concludes that a healthy 300 DPI scan needs nothing, leaving the raster
+byte-identical. Details and the three estimator defects found while measuring:
+[`docs/preprocessing.md`](../docs/preprocessing.md).
+
+Raw rows: [`analysis/preprocess_measurements.json`](./analysis/preprocess_measurements.json).
+
 ## Reproduce
 
 ```bash
@@ -98,6 +123,12 @@ scribeforge benchmark --manifest benchmark/corpus/v/manifest.json \
 Then add `--include-vlm --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model <model>`
 for variant D. Only crop images are sent; remote endpoints need HTTPS and
 `--allow-remote-vlm`.
+
+Preprocessing measurements are regenerated independently:
+
+```bash
+python benchmark/analysis/preprocess_benchmark.py
+```
 
 ## Capability assessment
 
