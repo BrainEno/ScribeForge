@@ -15,4 +15,26 @@ Signals in the first version:
 
 Scores are capped at 1.0. A configurable threshold converts risky pairs into `ReviewCandidate` records. Each candidate retains the page index, alignment pair index, risk reasons, score, and a normalized crop box that unions the source geometry from both OCR engines.
 
+## Two scores, two purposes
+
+Each `PairRisk` carries the total `score` — the review queue ranks by it — and a
+narrower `content_score` that counts only *evidence quality* signals:
+
+| Signal | `score` | `content_score` |
+| --- | --- | --- |
+| substantive text disagreement | 0.45 | — |
+| variant-only disagreement | 0.10 | — |
+| punctuation disagreement | 0.20 | — |
+| missing/extra line | 0.55 | — |
+| low token confidence (< 0.80) | 0.25 | 0.25 |
+| Unicode anomaly | 0.35 | 0.35 |
+| vertical spatial mismatch (> 0.04) | 0.15 | 0.15 |
+
+`PairRisk.min_confidence` records the lower of the two readers' confidences (`None`
+when neither reports one). Both `content_score` and `min_confidence` exist because
+the [acceptance gate](./acceptance-gate.md) judges *evidence quality*, not
+*structural disagreement*: a disagreement a vision model already settled is a closed
+question, and scoring it into the acceptance decision would block every VLM
+resolution.
+
 The score does not choose which engine is correct. It only decides what evidence deserves additional VLM or human review.

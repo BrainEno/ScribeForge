@@ -7,7 +7,7 @@ import pytest
 from scribeforge.domain.alignment import LineAlignment, PageAlignment
 from scribeforge.domain.content import VerifiedPage
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
-from scribeforge.domain.risk import PairRisk
+from scribeforge.domain.risk import PairRisk, RiskReason
 from scribeforge.pipeline.assembly import (
     UnresolvedContentError,
     UnresolvedPair,
@@ -95,14 +95,112 @@ def test_assembly_uses_the_newest_decision(tmp_path: Path) -> None:
     assert book.pages[0].lines == ("校",)
 
 
-def test_assembly_keeps_a_blank_page_without_pairs(tmp_path: Path) -> None:
+def test_assembly_blocks_a_textless_page_until_it_is_confirmed(tmp_path: Path) -> None:
+    """Zero pairs is ambiguous, not evidence of a blank leaf (issue #74).
+
+    Two crashed workers, a mis-decoded raster and a genuinely empty leaf all leave
+    the OCR tables looking identical. Export must not guess which one it is.
+    """
+
     store, project_id = _store(tmp_path)
     _add_page(store, project_id, 0, ())
     _add_page(store, project_id, 1, ("一",))
 
+    with pytest.raises(UnresolvedContentError) as excinfo:
+        assemble_verified_content(store, project_id)
+
+    assert excinfo.value.unconfirmed_pages == (0,)
+    assert excinfo.value.unresolved_pairs == ()
+
+
+def test_assembly_accepts_a_confirmed_blank_page(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    _add_page(store, project_id, 0, ())
+    _add_page(store, project_id, 1, ("一",))
+    store.record_page_confirmation(
+        project_id=project_id,
+        page_index=0,
+        kind="blank",
+        actor="human",
+        reason="empty leaf between sections, no ink on the scan",
+    )
+
     book = assemble_verified_content(store, project_id)
 
     assert book.pages == (VerifiedPage(0, ()), VerifiedPage(1, ("一",)))
+    assert book.confirmed_blank_pages == (0,)
+
+
+def test_assembly_skips_pairs_where_both_engines_returned_nothing(
+    tmp_path: Path,
+) -> None:
+    """An empty line from both readers is not content, and nobody owes a decision."""
+
+    store, project_id = _store(tmp_path)
+    _add_page(store, project_id, 0, ("一", ""), undecided=frozenset({1}))
+
+    book = assemble_verified_content(store, project_id)
+
+    assert book.pages[0].lines == ("一",)
+    assert book.empty_pairs == ((0, 1),)
+
+
+def test_assembly_summarises_who_accepted_the_text(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    _add_page(store, project_id, 0, ("一",))
+    store.append_decision(
+        project_id=project_id,
+        page_index=0,
+        pair_index=0,
+        selected_text="一",
+        actor="human",
+        evidence_refs=(),
+    )
+
+    summary = assemble_verified_content(store, project_id).acceptance
+
+    assert summary.pairs == 1
+    assert summary.human_accepted == 1
+    assert summary.machine_accepted == 0
+    assert not summary.requires_human_review
+    assert summary.machine_acceptance == 0.0
+
+
+def test_assembly_flags_machine_accepted_text_that_needs_a_spot_check(
+    tmp_path: Path,
+) -> None:
+    """A low-confidence agreement is exportable, but the operator should know."""
+
+    store, project_id = _store(tmp_path)
+    store.add_page(project_id, 0, "pages/0.png", 100, 200)
+    primary_id = store.record_ocr(
+        project_id, PageOCRResult(0, "primary", "1.0", (_line("鸦", 0.1),))
+    )
+    secondary_id = store.record_ocr(
+        project_id, PageOCRResult(0, "secondary", "1.0", (_line("鸦", 0.1),))
+    )
+    store.record_verification(
+        primary_id,
+        secondary_id,
+        PageAlignment(0, "primary", "secondary", (LineAlignment(0, 0, 1.0, 0.0, ()),)),
+        (PairRisk(0, 0.25, (RiskReason.LOW_CONFIDENCE,), min_confidence=0.1, content_score=0.25),),
+        (),
+    )
+    store.append_decision(
+        project_id=project_id,
+        page_index=0,
+        pair_index=0,
+        selected_text="鸦",
+        actor="automatic",
+        evidence_refs=(),
+    )
+
+    summary = assemble_verified_content(store, project_id).acceptance
+
+    assert summary.machine_accepted == 1
+    assert summary.requires_human_review
+    assert summary.spot_check[0].note == ""
+    assert summary.spot_check[0].score == 0.25
 
 
 def test_assembly_returns_an_empty_book_without_pages(tmp_path: Path) -> None:

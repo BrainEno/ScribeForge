@@ -273,3 +273,132 @@ def test_re_adjudication_keeps_a_human_decision(tmp_path: Path) -> None:
     assert latest is not None
     assert latest.selected_text == "鸦"
     assert latest.actor == "human"
+
+
+def _agreeing_page(
+    tmp_path: Path,
+    text: str,
+    *,
+    risk: PairRisk | None = None,
+) -> tuple[SQLiteStore, int, int]:
+    """One page where both engines read exactly the same (possibly bad) line."""
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("Book", "book.pdf", "hash")
+    store.add_page(project_id, 0, "pages/0.png", 100, 200)
+    primary_id = store.record_ocr(
+        project_id, PageOCRResult(0, "primary", "1.0", (_line(text, 0.1),))
+    )
+    secondary_id = store.record_ocr(
+        project_id, PageOCRResult(0, "secondary", "1.0", (_line(text, 0.1),))
+    )
+    alignment = PageAlignment(
+        0, "primary", "secondary", (LineAlignment(0, 0, 1.0, 0.0, ()),)
+    )
+    pair_risk = risk if risk is not None else PairRisk(0, 0.0, ())
+    verification_id = store.record_verification(
+        primary_id, secondary_id, alignment, (pair_risk,), ()
+    )
+    return store, project_id, verification_id
+
+
+def test_agreement_does_not_let_a_replacement_character_through(
+    tmp_path: Path,
+) -> None:
+    """Regression for #75: both engines agreeing on U+FFFD is not a transcription.
+
+    The pair used to be accepted automatically because the two readers "agreed",
+    the queue then showed nothing to do, and the replacement character went into
+    the exported book.
+    """
+
+    store, project_id, verification_id = _agreeing_page(
+        tmp_path,
+        "\ufffd",
+        risk=PairRisk(
+            0,
+            0.6,
+            (RiskReason.LOW_CONFIDENCE, RiskReason.UNICODE_ANOMALY),
+            min_confidence=0.1,
+            content_score=0.6,
+        ),
+    )
+
+    result = adjudicate_verification(store, project_id, verification_id)
+
+    assert result.recorded == 0
+    assert result.resolved == ()
+    assert result.unresolved == (0,)
+    assert result.blocked == (0,)
+    assert store.list_decisions(project_id, 0, 0) == ()
+    # The queue must show it: a blocked pair that no command can reach is a dead end.
+    assert [(item.page_index, item.pair_index) for item in review_queue(store, project_id)] == [
+        (0, 0)
+    ]
+
+
+def test_agreement_at_low_confidence_is_queued_not_accepted(tmp_path: Path) -> None:
+    store, project_id, verification_id = _agreeing_page(
+        tmp_path,
+        "鸦",
+        risk=PairRisk(0, 0.25, (RiskReason.LOW_CONFIDENCE,), min_confidence=0.1, content_score=0.25),
+    )
+
+    result = adjudicate_verification(store, project_id, verification_id)
+
+    assert result.unresolved == (0,)
+    assert store.list_decisions(project_id, 0, 0) == ()
+    assert [item.pair_index for item in review_queue(store, project_id)] == [0]
+
+
+def test_agreement_at_reported_high_confidence_is_still_accepted(tmp_path: Path) -> None:
+    """The gate must not turn the pipeline into a manual transcription tool."""
+
+    store, project_id, verification_id = _agreeing_page(
+        tmp_path, "鸦", risk=PairRisk(0, 0.0, (), min_confidence=0.95, content_score=0.0)
+    )
+
+    result = adjudicate_verification(store, project_id, verification_id)
+
+    assert result.recorded == 1
+    assert store.latest_decision(project_id, 0, 0).selected_text == "鸦"
+    assert review_queue(store, project_id) == ()
+
+
+def test_pairs_where_both_engines_returned_nothing_are_not_decisions(
+    tmp_path: Path,
+) -> None:
+    """An empty line from both readers is not content (issue #74).
+
+    Writing a decision for it would put an invented empty paragraph in the export
+    and hide the fact that the page may simply have failed to read.
+    """
+
+    store, project_id, verification_id = _agreeing_page(tmp_path, "")
+
+    result = adjudicate_verification(store, project_id, verification_id)
+
+    assert result.recorded == 0
+    assert result.empty == (0,)
+    assert result.unresolved == ()
+    assert store.list_decisions(project_id, 0, 0) == ()
+    assert review_queue(store, project_id) == ()
+
+
+def test_blocked_decision_records_the_risk_that_blocked_it(tmp_path: Path) -> None:
+    """A human decision must still cite the risk the machine refused to accept."""
+
+    store, project_id, verification_id = _agreeing_page(
+        tmp_path,
+        "鸚",
+        risk=PairRisk(0, 0.25, (RiskReason.LOW_CONFIDENCE,), min_confidence=0.1, content_score=0.25),
+    )
+    adjudicate_verification(store, project_id, verification_id)
+
+    record_human_decision(store, project_id, 0, 0, "鸚")
+
+    decision = store.latest_decision(project_id, 0, 0)
+    assert decision.actor == "human"
+    assert decision.selected_text == "鸚"
+    assert review_queue(store, project_id) == ()

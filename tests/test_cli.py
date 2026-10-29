@@ -2028,3 +2028,275 @@ def test_repair_command_rejects_a_missing_store(
     captured = capsys.readouterr()
     assert code == 2
     assert "no store found" in captured.err
+
+
+class BlankEngine:
+    """An engine that sees a page and reports no text at all."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        return PageOCRResult(page_index, self._name, "1.0", ())
+
+
+class LowConfidenceEngine(FakeEngine):
+    """An engine that agrees with its twin but reports middling confidence.
+
+    0.5 is below the "worth a second look" line and above the acceptance floor, so
+    the pair is exportable but flagged — the case the spot check exists for.
+    """
+
+    def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        box = BoundingBox(0.1, 0.1, 0.8, 0.02)
+        token = OCRToken(self._text, 0.5, box)
+        return PageOCRResult(
+            page_index, self.name, "1.0", (OCRLine(self._text, box, (token,)),)
+        )
+
+
+def _custom_factory(primary, secondary, reviewer: object = None):
+    def factory(runtime_root: Path) -> Engines:
+        return Engines(primary=primary, secondary=secondary, reviewer=reviewer)
+
+    return factory
+
+
+def test_export_refuses_a_page_with_no_text_until_it_is_confirmed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression for #74: a page nobody could read must not pass as a blank leaf."""
+
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary")),
+    )
+    capsys.readouterr()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "not yet confirmed as textless" in captured.err
+    assert "scribeforge confirm --page N" in captured.err
+    assert not out_path.exists()
+
+
+def test_confirm_makes_a_textless_page_exportable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary")),
+    )
+
+    code = run(
+        [
+            "confirm",
+            "--store",
+            str(store_dir),
+            "--page",
+            "0",
+            "--kind",
+            "blank",
+            "--reason",
+            "empty leaf before the title page",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "confirmed page 0 as blank" in captured.out
+
+    export_code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--json",
+            "--modified",
+            "2024-01-01T00:00:00Z",
+        ]
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert export_code == 0
+    assert out_path.exists()
+    assert report["confirmed_blank_pages"] == [0]
+    assert report["accepted_pairs"] == 0
+    assert report["requires_human_review"] is False
+
+
+def test_confirm_rejects_an_unknown_page(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        ["confirm", "--store", str(store_dir), "--page", "7", "--reason", "blank"]
+    )
+
+    assert code == 2
+    assert "no page 7" in capsys.readouterr().err
+
+
+def test_confirm_requires_a_reason(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        ["confirm", "--store", str(store_dir), "--page", "0", "--reason", "   "]
+    )
+
+    assert code == 2
+    assert "--reason must not be empty" in capsys.readouterr().err
+
+
+def test_export_reports_the_machine_accepted_share(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(
+            LowConfidenceEngine("primary", "鸦"),
+            LowConfidenceEngine("secondary", "鸦"),
+            FakeReviewer(),
+        ),
+    )
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--json",
+            "--modified",
+            "2024-01-01T00:00:00Z",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert report["machine_accepted"] == 1
+    assert report["human_accepted"] == 0
+    assert report["requires_human_review"] is True
+    assert report["spot_check"][0]["reasons"] == ["low_confidence"]
+    assert report["spot_check"][0]["content_risk"] > 0
+
+
+def test_strict_acceptance_refuses_an_unspot_checked_export(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(
+            LowConfidenceEngine("primary", "鸦"),
+            LowConfidenceEngine("secondary", "鸦"),
+            FakeReviewer(),
+        ),
+    )
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--strict-acceptance",
+            "--modified",
+            "2024-01-01T00:00:00Z",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "--strict-acceptance" in captured.err
+    assert not out_path.exists()
+
+
+
+class GuessingEngine(FakeEngine):
+    """An engine that reports 0.1 confidence: it is telling us it cannot read."""
+
+    def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        box = BoundingBox(0.1, 0.1, 0.8, 0.02)
+        token = OCRToken(self._text, 0.1, box)
+        return PageOCRResult(
+            page_index, self.name, "1.0", (OCRLine(self._text, box, (token,)),)
+        )
+
+
+def test_export_names_the_reason_a_pair_is_blocked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A refusal that only says "1 unresolved pair" is not actionable (issue #75)."""
+
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(
+            GuessingEngine("primary", "鸦"), GuessingEngine("secondary", "鸦")
+        ),
+    )
+    capsys.readouterr()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "page 0 pair 0" in captured.err
+    assert "low_confidence" in captured.err
+    assert not out_path.exists()
+
+
+def test_export_reports_unrepresentable_characters(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_custom_factory(
+            GuessingEngine("primary", "\ufffd"), GuessingEngine("secondary", "\ufffd")
+        ),
+    )
+    capsys.readouterr()
+
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "unrepresentable_text" in captured.err
+    assert "U+FFFD" in captured.err
+    assert not out_path.exists()

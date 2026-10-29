@@ -311,3 +311,66 @@ def test_settings_validate_and_escalate() -> None:
         RepairSettings(max_rounds=0)
     with pytest.raises(ValueError, match="max_scale"):
         RepairSettings(max_scale=0)
+
+
+class ConfidentTextEngine:
+    """A reader that reports the confidence of its own reading."""
+
+    def __init__(self, name: str, text: str, confidence: float) -> None:
+        self._name = name
+        self._text = text
+        self._confidence = confidence
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        from scribeforge.domain.ocr import OCRToken
+
+        box = BoundingBox(0.1, 0.1, 0.8, 0.02)
+        token = OCRToken(self._text, self._confidence, box)
+        return PageOCRResult(page_index, self._name, "1.0", (OCRLine(self._text, box, (token,)),))
+
+
+def _page_with(
+    tmp_path: Path, primary: ConfidentTextEngine, secondary: ConfidentTextEngine
+) -> tuple[SQLiteStore, int]:
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("Book", "book.pdf", "source-hash")
+    image_path = tmp_path / "page-0.png"
+    Image.new("RGB", (100, 150), "white").save(image_path)
+    store.add_page(project_id, 0, str(image_path), 100, 150)
+    process_page(
+        store,
+        project_id,
+        store.list_pages(project_id)[0],
+        primary_engine=primary,
+        secondary_engine=secondary,
+        crops_dir=tmp_path / "crops",
+    )
+    return store, project_id
+
+
+def test_progress_separates_structural_disagreement_from_blocked_text(
+    tmp_path: Path,
+) -> None:
+    """A plain disagreement is a question for a reader; bad text is not open at all.
+
+    The two are different kinds of work — one needs a decision, the other needs a
+    better reading — so the summary must not lump them together.
+    """
+
+    store, project_id = _disputed_page(tmp_path)
+    assert progress(store, project_id).open_blocked == 0
+
+    blocked_store, blocked_project = _page_with(
+        tmp_path / "blocked",
+        ConfidentTextEngine("mineru", "\ufffd", 0.1),
+        ConfidentTextEngine("paddleocr", "\ufffd", 0.1),
+    )
+    report = progress(blocked_store, blocked_project)
+
+    assert report.open_pairs == 1
+    assert report.open_blocked == 1

@@ -24,6 +24,17 @@ class PairRisk:
     pair_index: int
     score: float
     reasons: tuple[RiskReason, ...]
+    #: Lowest confidence either reader reported for the pair, or ``None`` when
+    #: neither reported one. Kept separate from the score so an acceptance policy
+    #: can apply a confidence floor without the score having to encode one.
+    min_confidence: float | None = None
+    #: Part of ``score`` that comes from *evidence quality* rather than from
+    #: structural disagreement: low confidence, unicode anomalies, misaligned
+    #: boxes. The acceptance gate reads this and not ``score``, because
+    #: "the engines disagree and a vision model settled it" is a resolved question,
+    #: while "the text is unreadable" is not — folding the two into one number made
+    #: every vision-model resolution look as risky as an unreadable glyph.
+    content_score: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +96,7 @@ def assess_page(
             for conflict in pair.conflicts
             if conflict.kind is ConflictKind.SUBSTITUTION
         ]
+        content_score = 0.0
         if substitutions:
             # A difference that disappears under glyph-variant folding is an
             # orthographic choice (繁/简, 异体字), not a reading disagreement.
@@ -112,17 +124,28 @@ def assess_page(
         confidences = [value for value in (_confidence(left), _confidence(right)) if value is not None]
         if confidences and min(confidences) < 0.80:
             score += 0.25
+            content_score += 0.25
             reasons.append(RiskReason.LOW_CONFIDENCE)
 
         if _has_unicode_anomaly(_pair_text(pair, primary, secondary)):
             score += 0.35
+            content_score += 0.35
             reasons.append(RiskReason.UNICODE_ANOMALY)
 
         if pair.vertical_distance is not None and pair.vertical_distance > 0.04:
             score += 0.15
+            content_score += 0.15
             reasons.append(RiskReason.SPATIAL_MISMATCH)
 
-        assessments.append(PairRisk(pair_index, min(score, 1.0), tuple(reasons)))
+        assessments.append(
+            PairRisk(
+                pair_index,
+                min(score, 1.0),
+                tuple(reasons),
+                min_confidence=min(confidences) if confidences else None,
+                content_score=min(content_score, 1.0),
+            )
+        )
 
     return tuple(assessments)
 
