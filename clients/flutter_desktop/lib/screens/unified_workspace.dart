@@ -639,7 +639,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   controller: TextEditingController(text: _pdfPath ?? ''),
                   decoration: const InputDecoration(
                     labelText: '源文件',
-                    prefixIcon: Icon(Icons.description),
+                    prefixIcon: const Icon(Icons.description),
                   ),
                 ),
               ),
@@ -812,7 +812,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           decoration: const InputDecoration(
             labelText: '输出文件',
             hintText: '选择保存路径',
-            suffixIcon: Icon(Icons.save_outlined),
+            suffixIcon: const Icon(Icons.save_outlined),
           ),
           readOnly: true,
           onTap: () { _pickExportOutput(); },
