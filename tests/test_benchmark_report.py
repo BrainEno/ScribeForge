@@ -106,3 +106,62 @@ def test_render_report_marks_a_case_without_tags() -> None:
     )
 
     assert "| case-1 | zh | - | 0.0000 |" in text
+
+
+def _mixed_report() -> BenchmarkReport:
+    horizontal = _case("h-1", cer=0.10, tags=("body",))
+    vertical = CaseScore(
+        case_id="v-1",
+        language="zh",
+        tags=("body", "vertical"),
+        cer=0.40,
+        wer=0.5,
+        punctuation_accuracy=0.75,
+        missing_lines=0,
+        extra_lines=0,
+        reading_order_errors=3,
+        elapsed_seconds=1.0,
+        direction="vertical-rl",
+    )
+    return BenchmarkReport(
+        engine="mixed",
+        cases=(horizontal, vertical),
+        aggregate=AggregateScore(
+            case_count=2,
+            mean_cer=0.25,
+            mean_wer=0.5,
+            mean_punctuation_accuracy=0.75,
+            missing_lines=0,
+            extra_lines=1,
+            reading_order_errors=5,
+            elapsed_seconds=3.0,
+            pages_per_minute=40.0,
+        ),
+    )
+
+
+def test_report_splits_cer_by_writing_direction() -> None:
+    """R5 requires horizontal and vertical CER to be readable separately.
+
+    Averaging a vertical failure into a horizontal average would hide exactly the
+    regression the ancient-book gate is looking for.
+    """
+
+    text = render_report(
+        [_mixed_report()],
+        corpus="c",
+        manifest_sha256="h",
+        generated_at="now",
+    )
+
+    assert "Results by writing direction" in text
+    assert "| mixed | horizontal-lr | 1 | 0.1000 |" in text
+    assert "| mixed | vertical-rl | 1 | 0.4000 |" in text
+
+
+def test_report_omits_the_direction_table_for_a_single_direction() -> None:
+    text = render_report(
+        [_report("mineru")], corpus="c", manifest_sha256="h", generated_at="now"
+    )
+
+    assert "Results by writing direction" not in text

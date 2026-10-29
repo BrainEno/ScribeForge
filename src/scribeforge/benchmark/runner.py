@@ -33,6 +33,7 @@ class CaseScore:
     elapsed_seconds: float
     accepted_pairs: int | None = None
     unresolved_pairs: int | None = None
+    direction: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +95,7 @@ def run_benchmark(
                     reference.splitlines(), hypothesis.splitlines()
                 ),
                 elapsed_seconds=elapsed,
+                direction=case.direction,
             )
         )
 

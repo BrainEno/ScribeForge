@@ -132,6 +132,7 @@ def run_pipeline_benchmark(
                     elapsed_seconds=elapsed,
                     accepted_pairs=accepted_pairs,
                     unresolved_pairs=unresolved_pairs,
+                    direction=case.direction,
                 )
             )
 

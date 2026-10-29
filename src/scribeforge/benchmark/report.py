@@ -10,7 +10,52 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from scribeforge.benchmark.runner import BenchmarkReport
+from scribeforge.benchmark.runner import BenchmarkReport, CaseScore
+
+
+def _direction_of(case: CaseScore) -> str:
+    """Return the case's declared direction, or ``horizontal-lr`` when unstated.
+
+    A corpus that predates the direction field is horizontal: that is the only
+    thing the existing six pages are, and silently grouping them under "unknown"
+    would hide the very split the vertical gate needs to see.
+    """
+
+    return case.direction or "horizontal-lr"
+
+
+def _mean(values: Sequence[float], empty: float) -> float:
+    return sum(values) / len(values) if values else empty
+
+
+def _direction_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
+    """Aggregate CER per writing direction across every variant."""
+
+    directions = sorted({_direction_of(case) for report in reports for case in report.cases})
+    if len(directions) < 2:
+        return []
+    lines = [
+        "## Results by writing direction",
+        "",
+        (
+            "| Variant | Direction | Cases | Mean CER | Unresolved pairs "
+            "| Reading-order errors |"
+        ),
+        "| --- | --- | ---: | ---: | ---: | ---: |",
+    ]
+    for report in reports:
+        for direction in directions:
+            cases = [case for case in report.cases if _direction_of(case) == direction]
+            if not cases:
+                continue
+            unresolved = sum(case.unresolved_pairs or 0 for case in cases)
+            lines.append(
+                f"| {report.engine} | {direction} | {len(cases)} | "
+                f"{_mean([case.cer for case in cases], 0.0):.4f} | {unresolved} | "
+                f"{sum(case.reading_order_errors for case in cases)} |"
+            )
+    lines.append("")
+    return lines
 
 
 def render_report(
@@ -56,6 +101,10 @@ def render_report(
             f"{aggregate.unresolved_pairs if aggregate.unresolved_pairs is not None else '-'} | "
             f"{aggregate.elapsed_seconds:.3f} | {aggregate.pages_per_minute:.2f} |"
         )
+
+    direction_rows = _direction_rows(reports)
+    if direction_rows:
+        lines += [""] + direction_rows
 
     lines += ["", "## Per-case results", ""]
     for report in reports:

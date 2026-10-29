@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+_DIRECTIONS = ("horizontal-lr", "horizontal-rl", "vertical-rl", "vertical-lr")
+
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkCase:
@@ -13,6 +15,10 @@ class BenchmarkCase:
     ground_truth: str
     language: str
     tags: tuple[str, ...]
+    #: Declared page writing direction, when the corpus owner knows it. Used only
+    #: to split the report; the pipeline still detects direction from geometry, so
+    #: a wrong declaration here cannot corrupt a run — it would only mislabel a row.
+    direction: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +48,12 @@ def load_manifest(path: Path) -> BenchmarkManifest:
         tags = item.get("tags", [])
         if not isinstance(tags, list):
             raise TypeError("benchmark tags must be a list")
+        direction = item.get("direction")
+        if direction is not None:
+            if not isinstance(direction, str):
+                raise TypeError("benchmark direction must be a string")
+            if direction not in _DIRECTIONS:
+                raise ValueError(f"unknown benchmark direction: {direction}")
         cases.append(
             BenchmarkCase(
                 id=case_id,
@@ -49,6 +61,7 @@ def load_manifest(path: Path) -> BenchmarkManifest:
                 ground_truth=str(item["ground_truth"]),
                 language=str(item["language"]),
                 tags=tuple(str(tag) for tag in tags),
+                direction=direction,
             )
         )
     return BenchmarkManifest(schema_version=1, cases=tuple(cases))

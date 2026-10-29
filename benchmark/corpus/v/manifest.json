@@ -15,42 +15,48 @@
       "image": "images/page_010.png",
       "ground_truth": "ground_truth/v-010.txt",
       "language": "zh",
-      "tags": ["body", "preface", "publisher-note", "multi-numbered-section"]
+      "tags": ["body", "preface", "publisher-note", "multi-numbered-section"],
+      "direction": "horizontal-lr"
     },
     {
       "id": "v-014",
       "image": "images/page_014.png",
       "ground_truth": "ground_truth/v-014.txt",
       "language": "zh",
-      "tags": ["body", "translator-preface", "latin-inline", "parenthetical"]
+      "tags": ["body", "translator-preface", "latin-inline", "parenthetical"],
+      "direction": "horizontal-lr"
     },
     {
       "id": "v-018",
       "image": "images/page_018.png",
       "ground_truth": "ground_truth/v-018.txt",
       "language": "zh",
-      "tags": ["chapter-title", "centered-poem", "footnote", "sparse-layout"]
+      "tags": ["chapter-title", "centered-poem", "footnote", "sparse-layout"],
+      "direction": "horizontal-lr"
     },
     {
       "id": "v-020",
       "image": "images/page_020.png",
       "ground_truth": "ground_truth/v-020.txt",
       "language": "zh",
-      "tags": ["body", "footnote", "dialogue", "latin-inline"]
+      "tags": ["body", "footnote", "dialogue", "latin-inline"],
+      "direction": "horizontal-lr"
     },
     {
       "id": "v-030",
       "image": "images/page_030.png",
       "ground_truth": "ground_truth/v-030.txt",
       "language": "zh",
-      "tags": ["body", "dialogue", "footnote", "ellipsis"]
+      "tags": ["body", "dialogue", "footnote", "ellipsis"],
+      "direction": "horizontal-lr"
     },
     {
       "id": "v-040",
       "image": "images/page_040.png",
       "ground_truth": "ground_truth/v-040.txt",
       "language": "zh",
-      "tags": ["body", "dialogue", "dense-punctuation"]
+      "tags": ["body", "dialogue", "dense-punctuation"],
+      "direction": "horizontal-lr"
     }
   ]
 }
