@@ -36,6 +36,12 @@ jobs:
       - name: Format Dart source
         run: dart format lib test
       - name: Analyze Flutter client
-        run: flutter analyze
+        run: flutter analyze 2>&1 | tee analyze_output.txt; exit ${PIPESTATUS[0]}
+      - name: Upload analyze output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-analyze-output
+          path: clients/flutter_desktop/analyze_output.txt
       - name: Run Flutter tests
         run: flutter test
