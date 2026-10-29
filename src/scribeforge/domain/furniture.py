@@ -60,6 +60,12 @@ def _in_margin(result: PageOCRResult, index: int) -> bool:
     line = result.lines[index]
     top = line.box.y
     bottom = line.box.y + line.box.height
+    left = line.box.x
+    right = line.box.x + line.box.width
+    if result.direction.is_vertical:
+        # Vertical text runs down columns; the page margin is the left/right
+        # edge, not the top/bottom edge.
+        return left <= MARGIN_BAND or right >= 1.0 - MARGIN_BAND
     return top <= MARGIN_BAND or bottom >= 1.0 - MARGIN_BAND
 
 
