@@ -64,5 +64,15 @@ jobs:
         with:
           name: flutter-analyze-output
           path: clients/flutter_desktop/analyze_output.txt
+      - name: Post analyze errors to PR comment
+        if: failure()
+        run: |
+          if [ -f analyze_output.txt ]; then
+            ERRORS=$(grep -E '^(error|warning) •' analyze_output.txt)
+            if [ -n "$ERRORS" ]; then
+              COMMENT="## Flutter Analyze Errors\n\`\`\n${ERRORS}\n\`\`\n"
+              gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT" 2>/dev/null || true
+            fi
+          fi
       - name: Run Flutter tests
         run: flutter test
