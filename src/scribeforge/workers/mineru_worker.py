@@ -8,7 +8,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
-from scribeforge.workers.protocol import block_document, canonical_block_label, result_document
+from scribeforge.workers.protocol import (
+    block_document,
+    canonical_block_label,
+    reported_direction,
+    result_document,
+)
 
 PARSE_TIER = "basic"
 
@@ -172,6 +177,9 @@ def main() -> None:
                     args.page_index,
                     lines,
                     blocks=blocks,
+                    direction=reported_direction(
+                        raw.get("direction") if isinstance(raw, dict) else None
+                    ),
                 ),
                 ensure_ascii=False,
             )

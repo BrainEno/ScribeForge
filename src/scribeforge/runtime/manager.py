@@ -68,6 +68,8 @@ class RuntimeManager:
         self._root.mkdir(parents=True, exist_ok=True)
         failures: list[str] = []
         for backend in plan.backends:
+            if backend.optional:
+                continue
             try:
                 self._run_backend(backend)
             except RuntimeInstallError as exc:

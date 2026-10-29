@@ -83,12 +83,32 @@ PaddleOCR-VL 与 Surya 都不需要新的适配器类型——`docs/ocr-worker-c
 - 新增引擎只需：runtime planner 增加一条模型条目 + 一个 worker 脚本 + 基准条目，
   不需要改动 pipeline。
 
+### 3.4 已落地的接入骨架（2026-10-29）
+
+| 项 | 文件 | 说明 |
+| --- | --- | --- |
+| PaddleOCR-VL worker | `workers/paddle_vl_worker.py` | 调用 `PaddleOCRVL().predict()`，把 `parsing_res_list` 映射为 v2 行/块；**行序保留模型自己的区域顺序**（那就是它的阅读顺序） |
+| Surya 结构 worker | `workers/surya_worker.py` | 只出 `blocks`（按 `position` 排序），`lines` 恒为空；不声明方向 |
+| 运行时计划 | `runtime/planner.py` | `paddleocr-vl`、`surya` 两条 `RuntimeBackendPlan`，均标 `optional=True` |
+| 基准注册 | `cli.py` `_BENCHMARK_BACKENDS` | `--engine paddleocr-vl` / `--engine surya` 可直接进基准 |
+
+三条与"诚实性"有关的设计约束：
+
+1. **可选后端不进默认安装。** 两者都是数 GB 的模型栈，`install` 会跳过 `optional`
+   的后端，需要时用 `runtime repair --backend surya` 单独装。
+2. **不声明方向 ≠ 声明横排。** `result_document(direction=None)` 直接**省略**该字段；
+   MinerU/PP-OCR 没有方向结论时也不写。写一个常数 `horizontal-lr` 会被下游当作
+   引擎断言，从而压制几何方向检测——那正是竖排书逐页配错的成因。
+3. **未验证的部分写在文档里，不写进 README 能力声明。** 两个 worker 的上游 API
+   与 JSON 字段名来自文档而非实跑；解析器对字段缺失/改名做降级（宁可"无块证据"
+   也不崩页），但 R1/R2 的"真实权重跑通"仍是未完成的验收动作。
+
 ## 4. 实施阶段与验收门槛
 
-| 阶段 | 内容 | 验收标准（可测量） |
-| --- | --- | --- |
-| **R1** | PaddleOCR-VL worker 接入（`--image/--page-index` 契约不变） | 6 页基准上双引擎均产出 v2 文档；`normalize` 后分歧率低于 PP-OCRv6 × MinerU 组合 |
-| **R2** | Surya 结构 worker（只出 blocks/direction） | 基准页 block 数量与非文本区（图表）排除结果人工抽查通过 |
+| 阶段 | 内容 | 验收标准（可测量） | 状态 |
+| --- | --- | --- | --- |
+| **R1** | PaddleOCR-VL worker 接入（`--image/--page-index` 契约不变） | 6 页基准上双引擎均产出 v2 文档；`normalize` 后分歧率低于 PP-OCRv6 × MinerU 组合 | ⚠️ **代码就绪，未跑真实权重** |
+| **R2** | Surya 结构 worker（只出 blocks/direction） | 基准页 block 数量与非文本区（图表）排除结果人工抽查通过 | ⚠️ **代码就绪，未跑真实权重** |
 | **R3** | 竖排对齐（#79 + P0-2） | 竖排夹具页行序正确率 ≥ 95%；现有横排测试零回归 |
 | **R4** | 竖排/繁体基准语料（公有领域古籍扫描） | 语料 ≥ 20 页，含页眉页脚、双行夹注、竖排正文；人工转写双人校订 |
 | **R5** | 端到端 CER 基准 | 报告 `benchmark_report.md`：每引擎/每组合的 CER，横排与竖排分开 |

@@ -1149,14 +1149,14 @@ def test_benchmark_rejects_an_unknown_engine(
             "--out",
             str(out_path),
             "--engine",
-            "surya",
+            "tesseract",
         ],
         benchmark_engine_factory=_benchmark_factory(),
     )
 
     captured = capsys.readouterr()
     assert code == 2
-    assert "unknown benchmark engine: surya" in captured.err
+    assert "unknown benchmark engine: tesseract" in captured.err
     assert not out_path.exists()
 
 
@@ -1243,7 +1243,7 @@ def test_default_benchmark_engine_factory_rejects_an_unknown_backend(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(ValueError, match="unknown benchmark engine"):
-        default_benchmark_engine_factory(tmp_path / "runtime", ("surya",))
+        default_benchmark_engine_factory(tmp_path / "runtime", ("tesseract",))
 
 
 

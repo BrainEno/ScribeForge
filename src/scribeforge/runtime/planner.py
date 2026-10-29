@@ -192,4 +192,119 @@ def build_runtime_plan(
         environment=runtime_environment,
     )
 
-    return RuntimePlan(root=layout.root, backends=(mineru, paddle))
+    # --- Optional backends (technology route R1 / R2) -----------------------
+    # Neither is part of a default install: both download multi-gigabyte weights
+    # that only specific work needs. ``scribeforge runtime repair --backend X``
+    # installs one on demand.
+    vl_python = layout.python_executable("paddleocr-vl", profile.os_name)
+    vl_prefix = _venv_steps("paddleocr-vl", layout, uv_executable)
+    vl_health = (
+        "import paddle; "
+        "from paddleocr import PaddleOCRVL; "
+        "print(paddle.__version__)"
+    )
+    paddle_vl = RuntimeBackendPlan(
+        name="paddleocr-vl",
+        environment_dir=layout.environment_dir("paddleocr-vl"),
+        acceleration=acceleration,
+        steps=vl_prefix
+        + (
+            InstallStep(
+                "engine",
+                (
+                    uv_executable,
+                    "pip",
+                    "install",
+                    "--python",
+                    str(vl_python),
+                    "-U",
+                    paddle_package,
+                    "-i",
+                    paddle_index,
+                ),
+                attempts=3,
+            ),
+            InstallStep(
+                "install",
+                (
+                    uv_executable,
+                    "pip",
+                    "install",
+                    "--python",
+                    str(vl_python),
+                    "-U",
+                    # PaddleOCR-VL ships inside the 3.x line, not as a separate
+                    # package; the floor is where the VL pipeline landed.
+                    "paddleocr>=3.3,<4",
+                ),
+                attempts=3,
+            ),
+        ),
+        model_steps=(
+            InstallStep(
+                "vl-models",
+                (
+                    str(vl_python),
+                    "-c",
+                    "from paddleocr import PaddleOCRVL; PaddleOCRVL()",
+                ),
+                attempts=3,
+            ),
+        ),
+        health_checks=(InstallStep("runtime-and-models", (str(vl_python), "-c", vl_health)),),
+        environment=runtime_environment,
+        optional=True,
+    )
+
+    surya_python = layout.python_executable("surya", profile.os_name)
+    surya_prefix = _venv_steps("surya", layout, uv_executable)
+    surya = RuntimeBackendPlan(
+        name="surya",
+        environment_dir=layout.environment_dir("surya"),
+        acceleration="cpu-or-cuda",
+        steps=surya_prefix
+        + (
+            InstallStep(
+                "install",
+                (
+                    uv_executable,
+                    "pip",
+                    "install",
+                    "--python",
+                    str(surya_python),
+                    "-U",
+                    "surya-ocr>=0.14,<0.15",
+                ),
+                attempts=3,
+            ),
+        ),
+        model_steps=(
+            InstallStep(
+                "layout-models",
+                (
+                    str(surya_python),
+                    "-c",
+                    "from surya.layout import LayoutPredictor; LayoutPredictor()",
+                ),
+                attempts=3,
+            ),
+        ),
+        health_checks=(
+            InstallStep(
+                "runtime-and-models",
+                (
+                    str(surya_python),
+                    "-c",
+                    (
+                        "from importlib.metadata import version; "
+                        "from surya.layout import LayoutPredictor; "
+                        "print(version('surya-ocr'))"
+                    ),
+                ),
+            ),
+        ),
+        environment=runtime_environment,
+        optional=True,
+    )
+
+    return RuntimePlan(root=layout.root, backends=(mineru, paddle, paddle_vl, surya))

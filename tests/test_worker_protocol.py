@@ -21,7 +21,34 @@ def test_result_document_defaults_to_worker_contract_v2() -> None:
     assert doc["engine"] == "paddleocr"
     assert doc["page_index"] == 4
     assert doc["blocks"] == []
-    assert doc["direction"] == "horizontal-lr"
+
+
+def test_result_document_omits_a_direction_the_worker_cannot_vouch_for() -> None:
+    """Silence is not a horizontal declaration.
+
+    If a worker emitted a constant ``horizontal-lr``, the adapter would record it
+    as an engine assertion and the geometry-based detection would never run —
+    every page of a vertical book would be paired along the wrong axis.
+    """
+
+    doc = result_document("mineru", "4.1.0", 0, [])
+
+    assert "direction" not in doc
+
+
+def test_reported_direction_only_accepts_real_values() -> None:
+    from scribeforge.workers.protocol import reported_direction
+
+    assert reported_direction("VERTICAL-RL") == "vertical-rl"
+    assert reported_direction(" horizontal-lr ") == "horizontal-lr"
+    assert reported_direction("sideways") is None
+    assert reported_direction(None) is None
+    assert reported_direction(7) is None
+
+
+def test_result_document_rejects_an_unknown_direction() -> None:
+    with pytest.raises(ValueError, match="unknown page direction"):
+        result_document("mineru", "4.1.0", 0, [], direction="sideways")
 
 
 def test_polygon_clamps_boxes_that_spill_outside_the_page() -> None:

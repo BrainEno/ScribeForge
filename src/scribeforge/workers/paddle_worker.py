@@ -12,6 +12,7 @@ from scribeforge.workers.protocol import (
     canonical_block_label,
     clamp_box,
     normalize_polygon,
+    reported_direction,
     result_document,
 )
 
@@ -87,6 +88,19 @@ def extract_lines(
         )
     return lines
 
+
+
+def _engine_direction(raw: Any) -> Any:
+    """Return PP-OCR's own direction claim, or ``None`` when it makes none.
+
+    Plain PP-OCR reports text-line polygons and scores; it does not classify a
+    page as vertical. Decorated attributes such as ``text_direction`` only show
+    up when the corresponding subtype pipeline is enabled, so absence is normal.
+    """
+
+    if not isinstance(raw, dict):
+        return None
+    return raw.get("text_direction") or raw.get("direction")
 
 
 def _layout_blocks(raw: Any) -> list[dict[str, Any]]:
@@ -181,6 +195,7 @@ def main() -> None:
                     args.page_index,
                     extract_lines(raw, image_size=_image_size(args.image)),
                     blocks=_layout_blocks(raw),
+                    direction=reported_direction(_engine_direction(raw)),
                 ),
                 ensure_ascii=False,
             )

@@ -66,9 +66,15 @@ class Engines:
 EngineFactory = Callable[[Path], Engines]
 BenchmarkEngineFactory = Callable[[Path, Sequence[str]], tuple[OCREngine, ...]]
 
+#: The two engines the alignment pipeline needs; benchmark backends that only
+#: provide one of them (structure-only Surya) cannot drive ``--include-pipeline``.
+_PIPELINE_BACKENDS = ("mineru", "paddleocr")
+
 _BENCHMARK_BACKENDS = {
     "mineru": "mineru_worker.py",
     "paddleocr": "paddle_worker.py",
+    "paddleocr-vl": "paddle_vl_worker.py",
+    "surya": "surya_worker.py",
 }
 
 
@@ -1161,7 +1167,7 @@ def _benchmark(
 
     backends: list[str] = list(args.engine) if args.engine else ["mineru", "paddleocr"]
     if args.include_pipeline and (
-        len(backends) != 2 or set(backends) != set(_BENCHMARK_BACKENDS)
+        len(backends) != 2 or set(backends) != set(_PIPELINE_BACKENDS)
     ):
         print(
             "error: --include-pipeline requires both mineru and paddleocr exactly once",
