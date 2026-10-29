@@ -426,6 +426,19 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     }
   }
 
+  Future<void> _pickExportOutput() async {
+    final result = await FilePicker.platform.saveFile(
+      dialogTitle: '保存导出文件',
+      fileName: '${_exportTitleController.text.isNotEmpty ? _exportTitleController.text : 'book'}.${_exportFormatEpub ? 'epub' : 'docx'}',
+      type: FileType.custom,
+      allowedExtensions: <String>[_exportFormatEpub ? 'epub' : 'docx'],
+    );
+    if (!mounted) return;
+    if (result != null && result.path != null) {
+      _exportOutputController.text = result.path!;
+    }
+  }
+
   Future<void> _runSetup({String? runtimeRoot}) async {
     setState(() => _busy = true);
     try {
@@ -634,7 +647,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               ElevatedButton.icon(
                 icon: const Icon(Icons.folder_open),
                 label: const Text('选择文件'),
-                onPressed: _busy ? null : _pickPdf,
+                onPressed: _busy ? null : () { _pickPdf(); },
               ),
             ],
           ),
@@ -644,7 +657,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               ElevatedButton.icon(
                 icon: const Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
                 label: Text(_busy ? '处理中…' : '开始处理'),
-                onPressed: _busy || _pdfPath == null ? null : _runProcess,
+                onPressed: _busy || _pdfPath == null ? null : () { _runProcess(); },
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 48),
                 ),
@@ -685,7 +698,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               ElevatedButton.icon(
                 icon: const Icon(_reviewLoading ? Icons.hourglass_empty : Icons.refresh),
                 label: Text(_reviewLoading ? '刷新中…' : '刷新队列'),
-                onPressed: _reviewLoading ? null : _refreshReviewQueue,
+                onPressed: _reviewLoading ? null : () { _refreshReviewQueue(); },
               ),
               const SizedBox(width: 12),
               if (_projectStatus != null)
@@ -750,7 +763,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                 ElevatedButton(
                   onPressed: item.pageIndex == null || item.pairIndex == null || _busy
                       ? null
-                      : () => _resolveReviewPair(item, controller.text),
+                      : () { _resolveReviewPair(item, controller.text); },
                   child: const Text('记录决策'),
                 ),
               ],
@@ -802,17 +815,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             suffixIcon: Icon(Icons.save_outlined),
           ),
           readOnly: true,
-          onTap: () async {
-            final result = await FilePicker.platform.saveFile(
-              dialogTitle: '保存导出文件',
-              fileName: '${_exportTitleController.text.isNotEmpty ? _exportTitleController.text : 'book'}.${_exportFormatEpub ? 'epub' : 'docx'}',
-              type: FileType.custom,
-              allowedExtensions: <String>[_exportFormatEpub ? 'epub' : 'docx'],
-            );
-            if (result != null && result.path != null) {
-              _exportOutputController.text = result.path!;
-            }
-          },
+          onTap: () { _pickExportOutput(); },
         ),
         const SizedBox(height: 12),
         TextField(
@@ -901,7 +904,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             trailing: _runtimeLoading
                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.play_arrow),
-            onTap: _runtimeLoading ? null : () => _runSetup(),
+            onTap: _runtimeLoading ? null : () { _runSetup(); },
           ),
           if (_runtimeStatus != null) ...[
             const Divider(),
@@ -922,7 +925,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           ListTile(
             title: const Text('刷新运行时状态'),
             trailing: const Icon(Icons.refresh),
-            onTap: _refreshRuntimeStatus,
+            onTap: () { _refreshRuntimeStatus(); },
           ),
         ],
       ),
