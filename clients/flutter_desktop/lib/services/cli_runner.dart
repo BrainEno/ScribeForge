@@ -31,6 +31,66 @@ class ScribeForgeCli {
         '--json',
       ];
 
+  static List<String> setupArguments({String? runtimeRoot}) => <String>[
+    'setup',
+    if (runtimeRoot != null && runtimeRoot.trim().isNotEmpty) ...[
+      '--runtime-root',
+      runtimeRoot.trim(),
+    ],
+  ];
+
+  static List<String> reviewArguments({required String storePath}) => <String>[
+    'review',
+    '--store',
+    storePath,
+  ];
+
+  static List<String> resolveArguments({
+    required String storePath,
+    required int page,
+    required int pair,
+    required String text,
+  }) => <String>[
+    'resolve',
+    '--store',
+    storePath,
+    '--page',
+    page.toString(),
+    '--pair',
+    pair.toString(),
+    '--text',
+    text,
+  ];
+
+  static List<String> confirmArguments({
+    required String storePath,
+    required int page,
+    required String kind,
+    required String reason,
+  }) => <String>[
+    'confirm',
+    '--store',
+    storePath,
+    '--page',
+    page.toString(),
+    '--kind',
+    kind,
+    '--reason',
+    reason,
+  ];
+
+  static List<String> structureArguments({
+    required String storePath,
+    String engine = 'primary',
+  }) => <String>[
+    'structure',
+    '--store',
+    storePath,
+    '--engine',
+    engine,
+    '--json',
+  ];
+
   static List<String> backupArguments({
     required String storePath,
     required String outputPath,
