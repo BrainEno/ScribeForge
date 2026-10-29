@@ -33,11 +33,31 @@ Schema version 3 adds append-only `vlm_reviews`. Each row references an existing
 
 Schema version 4 adds resumable `jobs`. Jobs are uniquely scoped by project, stage, and optional page. `import` is project-scoped; OCR, verification, and VLM review stages are page-scoped. A job records `pending`, `running`, `failed`, or `succeeded` state, attempt count, last failure, and start/finish timestamps. `ensure_job` is idempotent for a given scope. Pending, failed, and interrupted-running jobs remain discoverable for resume; succeeded jobs are not restarted accidentally. Version 3 databases migrate forward without deleting existing evidence.
 
+Schema version 5 rebuilds `jobs` to widen the stage constraint, version 6 adds
+`page_structure`, `chapters`, `ocr_blocks` and the line-level confidence/direction
+columns, and version 7 records the direction an alignment was computed in.
+
+Schema version 8 adds `engine_runs.scope`. `NULL` means the run read the whole
+page; `pair:<n>` means it read one aligned pair from a region crop during a repair
+round. Region runs are evidence in their own right (they can support an accepted
+decision) but are deliberately invisible to `latest_engine_run`, so a one-line
+re-read can never masquerade as the newest reading of a page.
+
 `exports` remains planned and will be added through a later versioned migration rather than a destructive database reset.
 
 ## Decision resolution
 
-The decision layer needs no migration: it writes schema-v1 `decisions` rows through `scribeforge.pipeline.adjudication`. `adjudicate_pair` applies one deterministic rule — independent engine agreement is accepted as `automatic`, a confident non-blank VLM reading is accepted as `vlm`, and every other pair stays unresolved for human review. Each recorded decision cites the verification run, both OCR engine runs, and the VLM reading when one was used. Re-running adjudication is idempotent because a pair that already has a decision is left untouched; source OCR is never rewritten.
+The decision layer needs no migration: it writes schema-v1 `decisions` rows through `scribeforge.pipeline.adjudication`. `adjudicate_pair` applies one deterministic rule — independent engine agreement is accepted as `automatic`, a confident non-blank VLM reading is accepted as `vlm` **only when it corroborates one of the engines**, and every other pair stays unresolved for human review. A model that disagrees with both engines is a third claim, not a second vote (issue #76).
+
+Each recorded decision cites the verification run, both OCR engine runs, and the VLM reading when one was used.
+
+Unresolved pairs can be re-read instead of only queued: `scribeforge.pipeline.rounds`
+adds region-scoped engine runs (`engine_runs.scope = "pair:<n>"`) and accepts a text
+when the readings reach consensus — at least two independent readers, strictly more
+than any rival group. Those decisions cite the fresh runs and use the same
+`automatic` / `vlm` actors, so the decision layer stays one append-only table.
+
+Re-running adjudication is idempotent because a pair that already has a decision is left untouched; source OCR is never rewritten.
 
 A human resolves a pair by appending a `decisions` row with `actor = human` (`record_human_decision`, exposed as `scribeforge resolve`). It cites the same evidence and, being newest, becomes the pair's latest decision while earlier rows are preserved, so a human can correct an `automatic` or `vlm` acceptance without mutating any engine, verification, or VLM evidence row.
 

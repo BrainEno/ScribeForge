@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -15,6 +15,13 @@ from scribeforge.domain.risk import assess_page, review_candidates
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import adjudicate_verification
 from scribeforge.pipeline.preprocessing import preprocess_page
+from scribeforge.pipeline.rounds import (
+    RepairReader,
+    RepairSettings,
+    RoundReport,
+    reader_for,
+    repair_book,
+)
 from scribeforge.pipeline.vlm_review import review_pending_candidates
 from scribeforge.storage.sqlite import PageRecord, SQLiteStore
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
@@ -38,6 +45,9 @@ class BookOutcome:
     project_id: int
     pages: tuple[PageOutcome, ...]
     failed_pages: tuple[tuple[int, str], ...]
+    #: Repair rounds that ran after the first pass, in order. Empty when the
+    #: caller did not ask for any, which keeps the old behaviour byte for byte.
+    rounds: tuple[RoundReport, ...] = ()
 
 
 def _run_stage(
@@ -183,6 +193,19 @@ def process_page(
     )
 
 
+def _repair_readers(
+    primary_engine: OCREngine, secondary_engine: OCREngine
+) -> tuple[RepairReader, ...]:
+    """Default repair readers: the two pipeline engines, re-reading one line.
+
+    The same engines on a *different input* (an isolated, wider, enlarged crop)
+    are a genuinely independent attempt: the first pass failed on the page, not on
+    the crop. A third reader can be supplied by the caller when one is available.
+    """
+
+    return (reader_for(primary_engine), reader_for(secondary_engine))
+
+
 def process_book(
     store: SQLiteStore,
     project_id: int,
@@ -192,6 +215,8 @@ def process_book(
     reviewer: VLMReviewer | None = None,
     crops_dir: Path,
     preprocess: PreprocessSettings | None = None,
+    repair: RepairSettings | None = None,
+    repair_readers: Sequence[RepairReader] | None = None,
 ) -> BookOutcome:
     """Process every imported page; a failed page never stops the rest of the book."""
 
@@ -215,4 +240,19 @@ def process_book(
             failed_pages.append(
                 (page.page_index, str(exc).strip() or type(exc).__name__)
             )
-    return BookOutcome(project_id, tuple(outcomes), tuple(failed_pages))
+
+    rounds: tuple[RoundReport, ...] = ()
+    if repair is not None:
+        # Repair runs after the whole book, not per page: it needs book-wide
+        # furniture detection and it must spend the remaining budget on the
+        # riskiest *pairs of the book*, not on the page that happens to be first.
+        rounds = repair_book(
+            store,
+            project_id,
+            readers=repair_readers
+            or _repair_readers(primary_engine, secondary_engine),
+            crops_dir=crops_dir / "repair",
+            reviewer=reviewer,
+            settings=repair,
+        )
+    return BookOutcome(project_id, tuple(outcomes), tuple(failed_pages), rounds)

@@ -37,6 +37,14 @@ from scribeforge.pipeline.adjudication import record_human_decision, review_deta
 from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
+from scribeforge.pipeline.rounds import (
+    ProgressReport,
+    RepairSettings,
+    RoundReport,
+    progress,
+    reader_for,
+    repair_book,
+)
 from scribeforge.pipeline.structure import build_book_structure, persist_book_structure
 from scribeforge.project_audit import audit_project_store
 from scribeforge.project_backup import (
@@ -77,6 +85,34 @@ _BENCHMARK_BACKENDS = {
     "paddleocr-vl": "paddle_vl_worker.py",
     "surya": "surya_worker.py",
 }
+
+
+def _add_repair_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--repair-rounds",
+        type=int,
+        default=0,
+        help=(
+            "Re-read disputed lines after the first pass, up to N rounds "
+            "(0 disables repair; 2 is a good default)."
+        ),
+    )
+    parser.add_argument(
+        "--repair-max-pairs",
+        type=int,
+        default=40,
+        help="Maximum disputed pairs to re-read per round (default: 40).",
+    )
+
+
+def _repair_settings(args: argparse.Namespace) -> RepairSettings | None:
+    rounds = getattr(args, "repair_rounds", 0)
+    if not rounds:
+        return None
+    return RepairSettings(
+        max_rounds=rounds,
+        max_pairs_per_round=getattr(args, "repair_max_pairs", 40),
+    )
 
 
 def _add_vlm_arguments(
@@ -230,6 +266,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum deskew correction in degrees (default: 8).",
     )
+    _add_repair_arguments(process)
     _add_vlm_arguments(process)
 
     setup = subparsers.add_parser(
@@ -331,6 +368,21 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--backup", type=Path, required=True, help="Backup ZIP archive.")
     restore.add_argument("--to", type=Path, required=True, help="New destination directory.")
     restore.add_argument("--json", action="store_true", help="Emit a JSON restore report.")
+
+    repair = subparsers.add_parser(
+        "repair",
+        help="Re-read the disputed lines of an existing store and accept what agrees.",
+    )
+    repair.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    repair.add_argument(
+        "--runtime-root",
+        type=Path,
+        default=None,
+        help="Managed runtime root (default: the per-user ScribeForge runtime folder).",
+    )
+    _add_repair_arguments(repair)
+    _add_vlm_arguments(repair)
+    repair.add_argument("--json", action="store_true", help="Emit a JSON repair report.")
 
     review = subparsers.add_parser(
         "review", help="List the page pairs that still need a human decision."
@@ -503,6 +555,8 @@ def run(
             return replace(original_factory(runtime_root), reviewer=reviewer)
 
         factory = configured_factory
+    if args.command == "repair":
+        return _repair(args, out, factory)
     return _process(args, out, factory)
 
 
@@ -556,6 +610,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
             reviewer=engines.reviewer,
             crops_dir=layout.crops_dir,
             preprocess=_preprocess_settings(args),
+            repair=_repair_settings(args),
         )
     except Exception as exc:  # noqa: BLE001 - report any setup/stage failure as a fatal exit
         message = str(exc)
@@ -589,8 +644,15 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
     except Exception as exc:  # noqa: BLE001 - structure is advisory, never fatal
         print(f"structure: skipped ({exc})", file=out)
     decisions = sum(page.decision_count for page in outcome.pages)
-    queued = sum(len(page.unresolved_pairs) for page in outcome.pages)
-    print(f"recorded {decisions} decision(s), {queued} pair(s) need review", file=out)
+    summary = progress(store, project_id)
+    # Counted after repair rounds, not before: what matters to the operator is how
+    # many pairs still need a person now, not how many needed one mid-run.
+    print(
+        f"recorded {decisions} decision(s), {summary.open_pairs} pair(s) need review",
+        file=out,
+    )
+    _print_rounds(out, outcome.rounds)
+    _print_progress(out, summary)
     for page_index, error in outcome.failed_pages:
         print(f"  page {page_index}: {error}", file=out)
     return EXIT_PARTIAL if outcome.failed_pages else EXIT_OK
@@ -637,6 +699,109 @@ def _structure(args: argparse.Namespace, out: TextIO) -> int:
     for role, count in sorted(report.roles.items()):
         print(f"  {role}: {count}", file=out)
     return EXIT_OK
+
+
+def _print_rounds(out: TextIO, rounds: Sequence[RoundReport]) -> None:
+    for report in rounds:
+        print(
+            f"repair round {report.round_index}: read {len(report.examined)} pair(s), "
+            f"resolved {len(report.resolved)}, "
+            f"still ambiguous {len(report.still_open)}, "
+            f"out of attempts {len(report.skipped)}, "
+            f"deferred {len(report.deferred)}",
+            file=out,
+        )
+
+
+def _print_progress(out: TextIO, report: ProgressReport) -> None:
+    print(
+        f"accepted without a person: {report.accepted_automatic} automatic, "
+        f"{report.accepted_vlm} by vision model, {report.accepted_human} by a human",
+        file=out,
+    )
+    print(
+        f"still open: {report.open_pairs} pair(s), "
+        f"{report.open_high_risk} of them high risk "
+        f"(auto-acceptance {report.auto_acceptance:.1%})",
+        file=out,
+    )
+
+
+def _rounds_json(rounds: Sequence[RoundReport]) -> list[dict[str, object]]:
+    return [
+        {
+            "round": report.round_index,
+            "examined": len(report.examined),
+            "resolved": len(report.resolved),
+            "still_open": len(report.still_open),
+            "skipped": len(report.skipped),
+            "deferred": len(report.deferred),
+        }
+        for report in rounds
+    ]
+
+
+def _repair(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> int:
+    """Re-read the disputed lines of an already-processed store."""
+
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+    projects = store.list_projects()
+    if not projects:
+        print("error: store contains no projects", file=sys.stderr)
+        return EXIT_FATAL
+    project_id = projects[-1].id
+    layout = StoreLayout(args.store)
+    runtime_root: Path = (
+        args.runtime_root
+        if args.runtime_root is not None
+        else runtime_root_for_store(layout.root)
+    )
+    settings = _repair_settings(args) or RepairSettings(max_rounds=1)
+    try:
+        engines = factory(runtime_root)
+        reports = repair_book(
+            store,
+            project_id,
+            readers=(reader_for(engines.primary), reader_for(engines.secondary)),
+            crops_dir=layout.crops_dir / "repair",
+            reviewer=engines.reviewer,
+            settings=settings,
+        )
+    except Exception as exc:  # noqa: BLE001 - report any engine/stage failure as fatal
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    summary = progress(store, project_id)
+    if args.json:
+        print(
+            json.dumps(
+                {"rounds": _rounds_json(reports), "progress": _progress_json(summary)},
+                ensure_ascii=False,
+            ),
+            file=out,
+        )
+    else:
+        if not reports:
+            print("repair: nothing left to re-read", file=out)
+        _print_rounds(out, reports)
+        _print_progress(out, summary)
+    return EXIT_OK if not summary.needs_review else EXIT_PARTIAL
+
+
+def _progress_json(report: ProgressReport) -> dict[str, object]:
+    return {
+        "pages": report.pages,
+        "pairs": report.pairs,
+        "accepted_automatic": report.accepted_automatic,
+        "accepted_vlm": report.accepted_vlm,
+        "accepted_human": report.accepted_human,
+        "open_pairs": report.open_pairs,
+        "open_high_risk": report.open_high_risk,
+        "auto_acceptance": round(report.auto_acceptance, 6),
+    }
 
 
 def _status(args: argparse.Namespace, out: TextIO) -> int:

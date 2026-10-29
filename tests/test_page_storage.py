@@ -145,3 +145,57 @@ def test_latest_decision_returns_most_recent_or_none(tmp_path: Path) -> None:
 
     with pytest.raises(KeyError, match="unknown project/page"):
         store.latest_decision(project_id, 9, 0)
+
+
+def test_scoped_runs_record_what_was_actually_read(tmp_path: Path) -> None:
+    """A repair re-read is evidence of a *region*, not of the whole page."""
+
+    store, project_id = _store(tmp_path)
+    store.add_page(project_id, 0, "pages/0.png", 10, 20)
+    page_run = store.record_ocr(project_id, _ocr("鸦", 0))
+    first = store.record_ocr(project_id, _ocr("鸦", 0), scope="pair:0")
+    second = store.record_ocr(project_id, _ocr("鸦", 0), scope="pair:0")
+
+    assert store.list_scoped_run_ids(project_id, 0, "pair:0") == (first, second)
+    assert store.list_scoped_run_ids(project_id, 0, "pair:1") == ()
+    # The whole-page run stays the newest run for its engine: a region re-read
+    # must never masquerade as a fresher page reading.
+    assert store.latest_engine_run(project_id, 0, "primary") == page_run
+
+    with pytest.raises(ValueError, match="scope"):
+        store.record_ocr(project_id, _ocr("鸦", 0), scope="  ")
+    with pytest.raises(ValueError, match="scope"):
+        store.list_scoped_run_ids(project_id, 0, "")
+
+
+def test_v7_database_migrates_to_v8_adding_run_scope(tmp_path: Path) -> None:
+    """v8 adds the column that lets a run describe a region instead of a page."""
+
+    import sqlite3
+
+    path = tmp_path / "legacy-v7.sqlite3"
+    store = SQLiteStore(path)
+    with sqlite3.connect(path) as connection:
+        store._create_v1(connection)
+        store._create_v2(connection)
+        store._create_v3(connection)
+        store._create_v4(connection)
+        store._create_v5(connection)
+        store._create_v6(connection)
+        store._create_v7(connection)
+        connection.execute(
+            "INSERT INTO projects(title, source_uri, source_sha256) VALUES (?, ?, ?)",
+            ("Legacy", "old.pdf", "oldhash"),
+        )
+        connection.execute("PRAGMA user_version = 7")
+
+    store.initialize()
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(engine_runs)").fetchall()
+        }
+        assert "scope" in columns
+        assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"

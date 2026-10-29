@@ -50,6 +50,17 @@ def materialize_review_crops(
             destination = output_dir / plan.file_name
             temporary = output_dir / f".{plan.file_name}.tmp"
             crop = page.crop((box.x, box.y, right, bottom))
+            if plan.scale > 1:
+                # Nearest-neighbour keeps the strokes it enlarges identical to the
+                # scan; a smoothing filter would invent grey the engine then has to
+                # interpret. The upscale exists to give the reader more pixels per
+                # stroke, not to make the image prettier.
+                enlarged = crop.resize(
+                    (crop.width * plan.scale, crop.height * plan.scale),
+                    Image.Resampling.NEAREST,
+                )
+                crop.close()
+                crop = enlarged
             try:
                 crop.save(temporary, format="PNG", optimize=False, compress_level=6)
                 temporary.replace(destination)

@@ -96,3 +96,20 @@ def test_empty_plan_does_not_require_source_image(tmp_path: Path) -> None:
 
     assert materialize_review_crops(missing, (), tmp_path / "out") == {}
     assert not (tmp_path / "out").exists()
+
+
+def test_a_scaled_crop_is_enlarged_without_inventing_detail(tmp_path: Path) -> None:
+    """Enlargement exists to give the reader more pixels per stroke."""
+
+    source = tmp_path / "page.png"
+    _page(source)
+    plan = ReviewCropPlan(4, 2, PixelBox(2, 1, 3, 2), "read-02.png", scale=3)
+
+    paths = materialize_review_crops(source, (plan,), tmp_path / "out")
+
+    with Image.open(paths[2]) as crop:
+        assert crop.size == (9, 6)
+        # Nearest-neighbour: the enlarged pixel is the scanned pixel, not a blur.
+        assert crop.getpixel((0, 0)) == (40, 30, 30)
+        assert crop.getpixel((1, 1)) == (40, 30, 30)
+        assert crop.getpixel((3, 0)) == (60, 30, 40)

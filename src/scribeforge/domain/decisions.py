@@ -39,9 +39,11 @@ def adjudicate_pair(
 
     Independent agreement is accepted automatically, including agreement that
     differs only by glyph variant (the primary engine's characters are kept
-    verbatim). Otherwise a confident, non-blank VLM reading may be accepted.
-    Everything else stays unresolved for human review. Source OCR text is never
-    rewritten by this rule.
+    verbatim). A confident, non-blank VLM reading is accepted only when one of the
+    engines reads the same text: a vision model that disagrees with *both* engines
+    is a third opinion, not a corroboration, and self-reported confidence is not
+    evidence (issue #76). Everything else stays unresolved for human review.
+    Source OCR text is never rewritten by this rule.
     """
 
     if primary_text is None and secondary_text is None:
@@ -71,4 +73,13 @@ def adjudicate_pair(
         return PairAdjudication(None, None, "vlm_uncertain")
     if not vlm.text.strip():
         return PairAdjudication(None, None, "vlm_blank")
+    engine_texts = [text for text in (primary_text, secondary_text) if text is not None]
+    if not any(
+        vlm.text == text or is_variant_only_difference(vlm.text, text)
+        for text in engine_texts
+    ):
+        # A third reading that matches nothing is the *most* suspicious case: two
+        # engines and a model all disagree, so there is no independent agreement to
+        # accept, only three claims. It goes to a person.
+        return PairAdjudication(None, None, "vlm_uncorroborated")
     return PairAdjudication(vlm.text, DecisionActor.VLM, "vlm_confident")

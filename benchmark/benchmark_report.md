@@ -87,6 +87,18 @@ not the bottleneck at 800 pages; they say nothing about transcription quality.
 | C — dual-engine decisions (`--include-pipeline`) | runnable, **not measured** |
 | D — C + VLM crop review (`--include-vlm`) | runnable with a configured endpoint, **not measured** |
 
+Since issue #76 variant D only accepts a vision-model reading that corroborates one
+of the engines; a model answer matching neither engine stays unresolved instead of
+being taken on its own confidence. Variant D therefore reports *fewer* accepted
+pairs than before, by design — the difference is a correctness fix, not a
+regression, and it is not comparable to any earlier D number.
+
+Disputed pairs can also be re-read before they are scored as unresolved:
+`scribeforge repair` / `process --repair-rounds N` (see
+[Self-comparison and self-correction](../docs/self-correction.md)). The benchmark
+harness does not enable repair rounds, so variant C/D numbers stay comparable with
+earlier runs; the repair yield per corpus is not measured yet.
+
 ## Pipeline text loss ceiling (measured end to end, not OCR accuracy)
 
 `--oracle-ceiling` replays the corpus ground truth through two oracle engines and
