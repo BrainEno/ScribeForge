@@ -20,7 +20,8 @@ from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReview
 from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.benchmark.corpus import validate_corpus
-from scribeforge.benchmark.manifest import load_manifest
+from scribeforge.benchmark.manifest import BenchmarkManifest, load_manifest
+from scribeforge.benchmark.oracle import OracleEngine
 from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
 from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
@@ -426,6 +427,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--include-pipeline",
         action="store_true",
         help="Also score variant C through alignment, risk assessment and conservative decisions.",
+    )
+    benchmark.add_argument(
+        "--oracle-ceiling",
+        action="store_true",
+        help=(
+            "Score the pipeline against replayed ground truth instead of engines: "
+            "measures the pipeline's own text loss (a ceiling, not OCR accuracy)."
+        ),
     )
     _add_vlm_arguments(benchmark, include_vlm_switch=True)
 
@@ -1165,6 +1174,9 @@ def _benchmark(
             print(f"error: case {problem.case_id}: {problem.problem}", file=sys.stderr)
         return EXIT_FATAL
 
+    if args.oracle_ceiling:
+        return _oracle_ceiling(args, out, manifest, root, manifest_path)
+
     backends: list[str] = list(args.engine) if args.engine else ["mineru", "paddleocr"]
     if args.include_pipeline and (
         len(backends) != 2 or set(backends) != set(_PIPELINE_BACKENDS)
@@ -1239,6 +1251,63 @@ def _benchmark(
         f"wrote benchmark report for {len(reports)} variant(s) to {args.out}",
         file=out,
     )
+    return EXIT_OK
+
+
+def _oracle_ceiling(
+    args: argparse.Namespace,
+    out: TextIO,
+    manifest: BenchmarkManifest,
+    root: Path,
+    manifest_path: Path,
+) -> int:
+    """Score the pipeline with recognition error forced to zero.
+
+    Two identical oracle engines agree on every pair, so nothing is left
+    unresolved and the only error left in the report is what the pipeline itself
+    removes or reorders. Reported as a ceiling so it cannot be mistaken for an
+    accuracy figure.
+    """
+
+    if args.engine:
+        print(
+            "error: --oracle-ceiling cannot be combined with --engine",
+            file=sys.stderr,
+        )
+        return EXIT_FATAL
+
+    primary = OracleEngine("oracle")
+    secondary = OracleEngine("oracle")
+    for case in manifest.cases:
+        image = (root / case.image).resolve()
+        text = (root / case.ground_truth).read_text(encoding="utf-8")
+        primary.register(image, text)
+        secondary.register(image, text)
+
+    try:
+        reports = [
+            run_benchmark(manifest, root, primary),
+            run_pipeline_benchmark(
+                manifest, root, primary, secondary, label="oracle-ceiling"
+            ),
+        ]
+    except Exception as exc:  # noqa: BLE001 - a harness failure must fail loudly
+        print(f"error: oracle ceiling failed: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    report_text = render_report(
+        reports,
+        corpus=str(manifest_path),
+        manifest_sha256=_file_sha256(manifest_path),
+        generated_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    try:
+        args.out.write_text(report_text, encoding="utf-8")
+    except OSError as exc:
+        print(f"error: cannot write report: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    print(f"wrote oracle ceiling report to {args.out}", file=out)
     return EXIT_OK
 
 

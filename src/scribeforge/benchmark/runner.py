@@ -11,6 +11,7 @@ from scribeforge.benchmark.metrics import (
     line_error_counts,
     punctuation_accuracy,
     reading_order_errors,
+    scoring_text,
     word_error_rate,
 )
 from scribeforge.domain.ocr import OCREngine, page_text
@@ -71,11 +72,13 @@ def run_benchmark(
 
     scores: list[CaseScore] = []
     for page_index, case in enumerate(manifest.cases):
-        reference = (root / case.ground_truth).read_text(encoding="utf-8")
+        reference = scoring_text(
+            (root / case.ground_truth).read_text(encoding="utf-8")
+        )
         started = clock()
         result = engine.analyze_page(str(root / case.image), page_index)
         elapsed = clock() - started
-        hypothesis = page_text(result)
+        hypothesis = scoring_text(page_text(result))
         missing, extra = line_error_counts(reference.splitlines(), hypothesis.splitlines())
         scores.append(
             CaseScore(

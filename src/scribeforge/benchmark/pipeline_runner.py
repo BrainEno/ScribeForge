@@ -21,6 +21,7 @@ from scribeforge.benchmark.metrics import (
     line_error_counts,
     punctuation_accuracy,
     reading_order_errors,
+    scoring_text,
     word_error_rate,
 )
 from scribeforge.benchmark.runner import (
@@ -49,6 +50,7 @@ def run_pipeline_benchmark(
     secondary_engine: OCREngine,
     *,
     reviewer: VLMReviewer | None = None,
+    label: str | None = None,
     clock: Callable[[], float] = time.perf_counter,
 ) -> BenchmarkReport:
     """Score accepted pipeline text over every manifest case.
@@ -63,7 +65,9 @@ def run_pipeline_benchmark(
     scores: list[CaseScore] = []
     for case in manifest.cases:
         image_path = (root / case.image).resolve()
-        reference = (root / case.ground_truth).read_text(encoding="utf-8")
+        reference = scoring_text(
+            (root / case.ground_truth).read_text(encoding="utf-8")
+        )
         with Image.open(image_path) as image:
             width, height = image.size
 
@@ -108,7 +112,7 @@ def run_pipeline_benchmark(
                 accepted_pairs += 1
                 accepted_text.append(decision.selected_text)
 
-            hypothesis = "\n".join(accepted_text)
+            hypothesis = scoring_text("\n".join(accepted_text))
             missing, extra = line_error_counts(
                 reference.splitlines(), hypothesis.splitlines()
             )
@@ -148,5 +152,5 @@ def run_pipeline_benchmark(
         accepted_pairs=sum(score.accepted_pairs or 0 for score in scores),
         unresolved_pairs=sum(score.unresolved_pairs or 0 for score in scores),
     )
-    label = "dual-engine+vlm" if reviewer is not None else "dual-engine"
-    return BenchmarkReport(engine=label, cases=tuple(scores), aggregate=aggregate)
+    variant = label or ("dual-engine+vlm" if reviewer is not None else "dual-engine")
+    return BenchmarkReport(engine=variant, cases=tuple(scores), aggregate=aggregate)
