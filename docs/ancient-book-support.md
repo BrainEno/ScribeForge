@@ -432,8 +432,10 @@ worker 会被静默当成"已看过页面并判定为横排"。因此新增 `dir
 
 1. ~~竖排/从右到左的对齐主轴与阅读顺序~~ → 主轴与阅读顺序已实现（§10.1）；
    导出层竖排拼接规则、以及独立阅读顺序层仍未做；
-2. 真实竖排古籍基准语料（现有 6 页全为现代简体横排）；
-3. 端到端 CER 数字（至今全部为"未测量"，只有像素级测量）。
+2. 真实竖排古籍基准语料（现有 6 页全为现代简体横排；规范与切页工具已就绪，
+   缺材料本身，见 §10.3）；
+3. 端到端 **CER 数字**中的识别准确率部分（管线自身的文本损失已实测为 0，见
+   §10.2；真实识别误差仍需装了模型权重的机器）。
 
 因此 README 的门槛声明保持不变：**竖排古籍不可宣称支持**。
 
@@ -475,6 +477,37 @@ python -m scribeforge.cli benchmark \
 
 这条命令与 `--oracle-ceiling` 走同一套评分与渲染代码，跑完就是真数字。R5 的验收
 标准（每引擎/每组合 CER，横排竖排分开）因此只差机器与语料，不缺代码。
+
+### 10.3 竖排 / 繁体语料：规范与工具就绪，页面仍缺
+
+R4 要求真实竖排语料（≥ 20 页、繁体、含页眉脚注与双行夹注、双人校订）。
+本环境出网仅限 GitHub / PyPI，且没有竖排扫描件，**不能凭空构造页面**——
+把横排页旋转 90° 产出的"竖排页"既是伪造页面，也测不出竖排的字形连写与行间
+关系，已被明确排除。
+
+已就绪的部分：
+
+| 项 | 状态 |
+| --- | --- |
+| 语料规范 | [`benchmark-corpus.md`](./benchmark-corpus.md)：一条合格页的门槛、manifest 字段、R4 规模 |
+| manifest 方向字段 | `direction`（可选）已支持，报告按横排/竖排分列输出 CER |
+| 切页工具 | `benchmark/analysis/build_corpus.py`：一条命令把真实 PDF 的指定页渲染成灰度 PNG + manifest + 空转写 |
+| 空转写防护 | `validate_corpus()` 拒绝空真值；未填写的语料无法参与评分 |
+| 现有语料标注 | 6 页全部标为 `horizontal-lr` |
+
+仍缺的只有材料本身：一份**公有领域或已获授权**的竖排繁体扫描件（PDF 或图像 +
+出处说明）。拿到后是：
+
+```bash
+python benchmark/analysis/build_corpus.py --pdf <扫描件> \
+  --out benchmark/corpus/ancient --name gj --pages 3,7,11,15 \
+  --direction vertical-rl --language zh-Hant --dpi 200 --source "<出处与许可>"
+# 人工填写 benchmark/corpus/ancient/ground_truth/*.txt 后
+scribeforge benchmark --manifest benchmark/corpus/ancient/manifest.json \
+  --out benchmark/ancient_report.md --include-pipeline
+```
+
+在页面与转写到位之前，R4 未通过，README 的门槛声明不变。
 
 ## 11. 已知风险
 
