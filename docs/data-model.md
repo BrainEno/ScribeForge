@@ -77,6 +77,18 @@ Version 9 databases migrate forward to 10 without deleting any evidence.
 
 `exports` remains planned and will be added through a later versioned migration rather than a destructive database reset.
 
+One consequence of the chapter layout is worth stating here because it changes an
+old assumption: **a document in the exported EPUB is no longer a page.** One
+XHTML file now holds a whole chapter, so text can no longer be attributed to a
+single page by looking at which file it is in. Nothing in the database changes —
+`VerifiedPage.lines` and `page_structure` stay per page — and the exported document
+keeps a `pagebreak` marker per page, so the mapping back to evidence survives.
+Anything that wants to infer "page N = file N" must use `--layout page`, where that
+identity holds by construction. The raw `export-candidates` path is unaffected: it
+is a separate writer (`scribeforge.adapters.candidate_epub`) that still emits one
+spine item per source page, which is what the Flutter comparator aligns on. See
+[Export](./export.md).
+
 ## Decision resolution
 
 The decision layer needs no migration: it writes schema-v1 `decisions` rows through `scribeforge.pipeline.adjudication`. `adjudicate_pair` applies one deterministic rule — independent engine agreement is accepted as `automatic`, a confident non-blank VLM reading is accepted as `vlm` **only when it corroborates one of the engines**, and every other pair stays unresolved for human review. A model that disagrees with both engines is a third claim, not a second vote (issue #76).

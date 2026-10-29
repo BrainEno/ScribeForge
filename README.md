@@ -86,8 +86,21 @@ line, line gap, sentence-final punctuation, hyphenless-Latin rules), keeps
 headings and footnotes distinct (`<h2>`, `<aside epub:type="footnote">`), and the
 six pages recover **36 / 36** paragraphs exactly, with no character lost. The
 evidence layer is untouched: `VerifiedPage.lines` stays one entry per accepted
-line and every export is re-read and compared block by block. Cross-page
-continuation is still open because it needs the chapter flow from issue #87. See
+line and every export is re-read and compared block by block.
+
+Export also stopped writing one XHTML file per scan. A verified book now re-flows
+into **one document per chapter** (`--layout chapter`, the default once a chapter
+tree exists), so a paragraph cut by a page turn is one paragraph again: two
+independent signals must agree before lines are joined — the previous page's last
+line does not end a sentence and is not a short line, and the next page's first
+line is not indented. Every scanned page still leaves an
+`epub:type="pagebreak"` marker carrying its printed folio, and the self-check
+proves each page appears exactly once, in order, before the file is written.
+On the six real transcriptions in `benchmark/corpus/v`, placing the page break
+inside the page's longest paragraph rejoins the paragraph on **6 / 6** pages with
+the paragraph count and every character unchanged (`pytest tests/test_flow.py -m
+benchmark`). `--layout page` keeps the old facsimile shape for comparing against
+the scans, and DOCX stays page-by-page. See [Export](./docs/export.md) and
 [Paragraphs and structural fidelity](./docs/paragraphs.md).
 
 A disagreement no longer ends in the human queue by default. `scribeforge repair`
@@ -167,6 +180,7 @@ scribeforge export --store store/ --out book.epub   # verified text -> EPUB 3
 scribeforge export --store store/ --out book.docx   # verified text -> DOCX
 scribeforge export --store store/ --out book.epub --json           # acceptance report
 scribeforge export --store store/ --out book.epub --strict-acceptance # machine-certified only
+scribeforge export --store store/ --out scans.epub --layout page    # facsimile layout
 scribeforge export-candidates --store store/ --out-dir comparison/ # raw OCR EPUB candidates
 cd clients/flutter_desktop && flutter run -d windows # Flutter comparison UI
 scribeforge export --store store/ --out book.epub \
@@ -189,8 +203,9 @@ A scanned book is not a list of rasters. `structure` derives what each page *is*
 number a reader would cite (three separate numbering runs in this book, restarting
 at 1), and the chapter tree — from the book's own contents page when an entry can be
 proved against the page it points at, otherwise from heading typography. The EPUB
-nav then mirrors that tree instead of emitting 562 flat `Page N` entries, and each
-page keeps its printed folio in the title. Roles are decided from engine report plus
+nav then mirrors that tree instead of emitting 562 flat `Page N` entries, each
+chapter becomes a real document instead of a nav entry pointing at a flat run of
+pages, and every page keeps its printed folio in a page-break marker. Roles are decided from engine report plus
 a **measured ink ratio** (this book: blank leaves 0.39%, sparsest text page 2.45%,
 body 6-13%, coloured cover 94%): a textless page measuring under 1% is confirmed
 blank by the measurement, while anything above it stays blocked until a person says
@@ -199,7 +214,7 @@ whether it is a plate or a page the engines failed to read. See
 
 Two facts are never inferred. First, *agreement is not acceptance*: `adjudicate_pair` sends every automatic path through an acceptance gate that refuses text no machine should certify — the replacement character `U+FFFD`, XML-illegal control characters, a pair where both readers admit low confidence, or a pair whose evidence-quality risk exceeds the policy ceiling. Blocked pairs stay in `review_queue`, which lists every undecided pair (not just score-thresholded candidates), so a blocked pair always has a command that can clear it. Second, *an empty page is not a blank page*: a page with zero aligned pairs blocks export until `scribeforge confirm` records who says it carries no text and why. The export report says how much of the book a machine certified (`machine_accepted` vs `human_accepted`, the highest machine-accepted content risk, and the pairs worth a spot check); `--strict-acceptance` refuses while any of those remain. See [The acceptance gate](./docs/acceptance-gate.md).
 
-`export-candidates` writes explicitly **unverified** raw OCR outputs for each requested engine (MinerU and PaddleOCR by default), preserving the source page index in each XHTML spine item. It also writes a `candidate-manifest.json` with source hash, engine version, run IDs, candidate hashes and paths. These files are for visual comparison only and are never accepted by the verified export pipeline. `export` writes the accepted decisions as an EPUB 3 or DOCX file (chosen by the destination extension) and refuses to run while any page is unverified or any pair is still unresolved, so a partial book can never be exported silently. `--title` and `--author` override the export metadata (the author becomes `dc:creator` in both formats), and `--modified` pins the timestamp for byte-reproducible builds. Every build is re-read and checked against the accepted text before it is written. See [Export](./docs/export.md).
+`export-candidates` writes explicitly **unverified** raw OCR outputs for each requested engine (MinerU and PaddleOCR by default), preserving the source page index in each XHTML spine item. It also writes a `candidate-manifest.json` with source hash, engine version, run IDs, candidate hashes and paths. These files are for visual comparison only and are never accepted by the verified export pipeline. `export` writes the accepted decisions as an EPUB 3 or DOCX file (chosen by the destination extension), re-flowing EPUB into chapter documents with page-break markers (`--layout chapter`, the default when a chapter tree exists; `--layout page` for the facsimile shape; DOCX stays page-by-page), and refuses to run while any page is unverified or any pair is still unresolved, so a partial book can never be exported silently. `--title` and `--author` override the export metadata (the author becomes `dc:creator` in both formats), and `--modified` pins the timestamp for byte-reproducible builds. Every build is re-read and checked against the accepted text before it is written. See [Export](./docs/export.md).
 
 `ui` opens the desktop review shell over the store: library/job status, an unresolved-pair queue, evidence, page raster, and review crop. Selecting a conflict focuses its region on the source-page preview; `a`/`d` locate the primary/secondary OCR line, while `p` restores the pair region. The `Compare` tab displays both OCR lines side by side and highlights persisted character-level substitutions, insertions, deletions, and punctuation differences. Reviewers can explicitly accept either OCR reading or a VLM reading, or enter literal corrected text; keyboard shortcuts (`1`, `2`, `3`, `n`, `Ctrl+Enter`) keep the common path fast. Source highlights are drawn only on transient previews, and each decision appends a human record with evidence references. See [Desktop shell](./docs/ui.md).
 

@@ -217,7 +217,7 @@ def test_build_epub_rechecks_the_rendered_archive(monkeypatch: pytest.MonkeyPatc
     checked: list[int] = []
     monkeypatch.setattr(
         "scribeforge.adapters.epub.check_epub",
-        lambda data, book: checked.append(len(data)),
+        lambda data, book, **kwargs: checked.append(len(data)),
     )
 
     data = _build()
@@ -279,7 +279,9 @@ def test_epub_nav_nests_chapters_by_level() -> None:
     assert nav.count("<ol>") == nav.count("</ol>")
 
 
-def test_epub_page_titles_use_the_printed_page_number() -> None:
+def test_epub_pagebreaks_carry_the_printed_page_number() -> None:
+    """A reader cites the printed folio, so the page marker must carry it."""
+
     data = build_epub(
         _chapter_book(),
         identifier="urn:uuid:11111111-2222-3333-4444-555555555555",
@@ -288,10 +290,11 @@ def test_epub_page_titles_use_the_printed_page_number() -> None:
     )
 
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        second = archive.read("OEBPS/page-000002.xhtml").decode("utf-8")
+        second = archive.read("OEBPS/doc-000002.xhtml").decode("utf-8")
 
     # Physical index 1, printed page 3: the reader's number wins.
-    assert "<title>Page 3</title>" in second
+    assert 'id="page-1" title="3"' in second
+    assert 'id="page-1"' in second
 
 
 def test_epub_falls_back_to_physical_pages_without_chapters() -> None:

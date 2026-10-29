@@ -109,7 +109,7 @@ def test_check_epub_rejects_altered_page_text() -> None:
         },
     )
 
-    with pytest.raises(ExportIntegrityError, match="page 0 text"):
+    with pytest.raises(ExportIntegrityError, match="text differs from the verified book"):
         check_epub(data, _book())
 
 
@@ -119,7 +119,7 @@ def test_check_epub_rejects_a_book_that_does_not_match_the_archive() -> None:
         (VerifiedPage(0, ("one", "two", "extra")), VerifiedPage(1, ("three",))),
     )
 
-    with pytest.raises(ExportIntegrityError, match="page 0 text"):
+    with pytest.raises(ExportIntegrityError, match="text differs from the verified book"):
         check_epub(_epub(), book)
 
 
@@ -230,7 +230,7 @@ def test_check_docx_rejects_altered_page_text() -> None:
 
     data = _rewrite(_docx(), replace={"word/document.xml": document.encode("utf-8")})
 
-    with pytest.raises(ExportIntegrityError, match="page 0 text"):
+    with pytest.raises(ExportIntegrityError, match="text differs from the verified book"):
         check_docx(data, _book())
 
 

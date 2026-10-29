@@ -12,8 +12,10 @@ import posixpath
 import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from scribeforge.domain.content import VerifiedBook
+from scribeforge.domain.flow import AUTO_LAYOUT, BookFlow, build_flow
 
 _CONTAINER_NS = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
 _OPF_NS = {
@@ -80,7 +82,9 @@ def _relationship_base(name: str) -> str:
     return posixpath.dirname(posixpath.dirname(name))
 
 
-def check_epub(data: bytes, book: VerifiedBook) -> None:
+def check_epub(
+    data: bytes, book: VerifiedBook, *, layout: str = AUTO_LAYOUT
+) -> None:
     """Verify a rendered EPUB 3 archive against the verified book."""
 
     with _open(data) as archive:
@@ -120,7 +124,8 @@ def check_epub(data: bytes, book: VerifiedBook) -> None:
                 f"manifest item {item_id!r} points at missing {href!r}",
             )
 
-        expected_spine = [f"page-{page.page_index}" for page in book.pages]
+        flow = build_flow(book, layout=layout)
+        expected_spine = [document.item_id for document in flow.documents]
         spine = [
             item.get("idref") or ""
             for item in package.findall("o:spine/o:itemref", _OPF_NS)
@@ -134,16 +139,29 @@ def check_epub(data: bytes, book: VerifiedBook) -> None:
             "package title differs from the book",
         )
 
-        for page in book.pages:
-            document = _parse(
-                archive, _resolve(package_name, manifest[f"page-{page.page_index}"])
+        for expected in flow.documents:
+            rendered = _xhtml_blocks(
+                _parse(archive, _resolve(package_name, manifest[expected.item_id]))
             )
-            rendered = _xhtml_blocks(document)
             _require(
-                rendered == [block.text for block in page.blocks()],
-                f"page {page.page_index} text differs from the verified book",
+                rendered.paragraphs
+                == [paragraph.text for paragraph in expected.paragraphs],
+                f"document {expected.file_name} text differs from the verified book",
+            )
+            _require(
+                rendered.pages == [page_index for page_index, _ in expected.page_labels],
+                f"document {expected.file_name} does not carry a marker per scanned page",
+            )
+            covered = set(expected.pages)
+            accepted = "".join(
+                line for page in book.pages if page.page_index in covered for line in page.lines
+            )
+            _require(
+                _squash("".join(rendered.paragraphs)) == _squash(accepted),
+                f"document {expected.file_name} lost or gained text",
             )
         _require_no_text_lost(book)
+        _require_flow_preserves_pages(book, flow)
 
 
 def _squash(text: str) -> str:
@@ -158,29 +176,63 @@ def _squash(text: str) -> str:
     return "".join(text.split())
 
 
-def _xhtml_blocks(document: ET.Element) -> list[str]:
-    """Read a page's rendered blocks back, in document order.
+@dataclass(frozen=True, slots=True)
+class _Rendered:
+    """What one rendered document contains: its text blocks and its page markers."""
+
+    paragraphs: list[str]
+    pages: list[int]
+
+
+def _xhtml_blocks(document: ET.Element) -> _Rendered:
+    """Read a document's rendered blocks back, in document order.
 
     Headings, body paragraphs and footnotes are separate elements now, so a flat
     ``.//p`` query would silently skip every heading and reorder notes. Reading the
     section's children in order is the only comparison that matches what a reader
-    actually receives.
+    actually receives. ``pagebreak`` spans are read too: they are how the export
+    proves the book's own pagination survived the regrouping.
     """
 
     section = document.find(".//x:section", _XHTML_NS)
     if section is None:
-        return []
+        return _Rendered([], [])
     xhtml = _XHTML_NS["x"]
     text_block_tags = {f"{{{xhtml}}}h1", f"{{{xhtml}}}h2", f"{{{xhtml}}}p"}
     text: list[str] = []
+    pages: list[int] = []
     for child in section:
         if child.tag in text_block_tags:
             text.append(child.text or "")
         elif child.tag == f"{{{xhtml}}}aside":
             text.extend(element.text or "" for element in child.findall("x:p", _XHTML_NS))
+        elif child.tag == f"{{{xhtml}}}span":
+            identifier = child.get("id") or ""
+            if not identifier.startswith("page-"):
+                raise ExportIntegrityError(f"unexpected span in a document: {identifier!r}")
+            pages.append(int(identifier.removeprefix("page-")))
         else:
             raise ExportIntegrityError(f"unexpected page element: {child.tag}")
-    return text
+    return _Rendered(text, pages)
+
+
+def _require_flow_preserves_pages(book: VerifiedBook, flow: BookFlow) -> None:
+    """Every scanned page must appear exactly once, in order, across the documents.
+
+    A paragraph may be joined across a page turn, so text cannot be compared page by
+    page any more. What must still hold is that the pages themselves are neither
+    dropped, duplicated nor reordered — the failure that would silently shorten a
+    book.
+    """
+
+    placed = [
+        page_index for document in flow.documents for page_index, _ in document.page_labels
+    ]
+    expected = [page.page_index for page in book.pages]
+    _require(
+        sorted(placed) == sorted(expected) and placed == sorted(placed),
+        "flow documents do not place every scanned page exactly once, in order",
+    )
 
 
 def _require_no_text_lost(book: VerifiedBook) -> None:
