@@ -89,8 +89,13 @@ class Paragraph:
 
 
 @dataclass(frozen=True, slots=True)
-class _Geometry:
-    """Per-page layout measurements, derived from the lines themselves."""
+class PageMetrics:
+    """Per-page layout measurements, derived from the lines themselves.
+
+    Public because paragraph reconstruction and cross-page flow have to agree on
+    what "short line" and "indented line" mean. Two copies of that rule would drift,
+    and the drift shows up as a paragraph joined on one page and split on the next.
+    """
 
     left_margin: float
     measure_right: float
@@ -109,6 +114,20 @@ class _Geometry:
     def gap_threshold(self) -> float:
         return self.line_gap * GAP_RATIO
 
+    def is_short(self, line: TextLine) -> bool:
+        """Whether ``line`` stops well before the page's right edge."""
+
+        if line.box is None:
+            return False
+        return (self.measure_right - line.right) > self.short_threshold
+
+    def is_indented(self, line: TextLine) -> bool:
+        """Whether ``line`` starts to the right of the body's left margin."""
+
+        if line.box is None:
+            return False
+        return (line.box.x - self.left_margin) > self.indent_threshold
+
 
 def _median(values: Sequence[float]) -> float:
     ordered = sorted(values)
@@ -118,7 +137,7 @@ def _median(values: Sequence[float]) -> float:
     return (ordered[middle - 1] + ordered[middle]) / 2
 
 
-def _geometry(lines: Sequence[TextLine]) -> _Geometry | None:
+def measure_page(lines: Sequence[TextLine]) -> PageMetrics | None:
     """Measure the page, or report that there is nothing to measure."""
 
     measured = [(line, line.box) for line in lines if line.box is not None]
@@ -144,7 +163,7 @@ def _geometry(lines: Sequence[TextLine]) -> _Geometry | None:
             gaps.append(gap)
     line_gap = _median(gaps) if gaps else 0.0
 
-    return _Geometry(
+    return PageMetrics(
         left_margin=left_margin,
         measure_right=measure_right,
         character_width=character_width,
@@ -152,7 +171,7 @@ def _geometry(lines: Sequence[TextLine]) -> _Geometry | None:
     )
 
 
-def _ends_sentence(text: str) -> bool:
+def ends_sentence(text: str) -> bool:
     """True when ``text`` closes a sentence, ignoring trailing quotation marks."""
 
     stripped = text.rstrip()
@@ -175,7 +194,7 @@ def _is_latin(character: str) -> bool:
     return character.isascii() and (character.isalnum())
 
 
-def _join(left: str, right: str) -> str:
+def join_lines(left: str, right: str) -> str:
     """Join two visual lines the way a typesetter would have set them.
 
     Chinese text is joined with nothing: a paragraph is a continuous run of
@@ -198,7 +217,7 @@ def _join(left: str, right: str) -> str:
 def _starts_new_paragraph(
     previous: TextLine,
     current: TextLine,
-    geometry: _Geometry | None,
+    geometry: PageMetrics | None,
     *,
     vertical: bool,
 ) -> bool:
@@ -215,13 +234,13 @@ def _starts_new_paragraph(
     if vertical:
         # A vertical column is a paragraph fragment: it ends a paragraph only when
         # the column ends a sentence. Indentation and measure do not apply.
-        return _ends_sentence(previous.text)
+        return ends_sentence(previous.text)
 
     if geometry is None:
         # Text-only fallback: punctuation is the only evidence left. Splitting at
         # every full stop is closer to the truth than one paragraph per line, and
         # it is the same rule the vertical splice uses.
-        return _ends_sentence(previous.text)
+        return ends_sentence(previous.text)
 
     assert previous.box is not None and current.box is not None
     indented = (current.box.x - geometry.left_margin) > geometry.indent_threshold
@@ -235,7 +254,7 @@ def _starts_new_paragraph(
         # Both signals agree, which is the common case: a paragraph ended short and
         # the next one was indented.
         return True
-    if _ends_sentence(previous.text):
+    if ends_sentence(previous.text):
         # Punctuation alone is not enough: a full-measure line can end in a full
         # stop and continue on the next line. Demand corroboration from layout — the
         # next line indented, or the closed line short enough that the paragraph
@@ -261,7 +280,7 @@ def assemble_paragraphs(
     if not any(line.text.strip() for line in kept):
         return ()
 
-    geometry = _geometry([line for line in kept if line.text.strip()])
+    geometry = measure_page([line for line in kept if line.text.strip()])
     vertical = direction.is_vertical
     paragraphs: list[Paragraph] = []
     role = LineRole.BODY
@@ -282,7 +301,7 @@ def assemble_paragraphs(
             # closes, and it also ends that sentence: leaving the marks in their own
             # paragraph would orphan them, joining the next line onto them would
             # merge two paragraphs.
-            paragraphs.append(Paragraph(role, _join(text, current.text.strip())))
+            paragraphs.append(Paragraph(role, join_lines(text, current.text.strip())))
             role, text, previous = LineRole.BODY, "", None
             continue
         assert previous is not None
@@ -290,8 +309,16 @@ def assemble_paragraphs(
             paragraphs.append(Paragraph(role, text))
             role, text = current.role, current.text.strip()
         else:
-            text = _join(text, current.text.strip())
+            text = join_lines(text, current.text.strip())
         previous = current
     if text:
         paragraphs.append(Paragraph(role, text))
     return tuple(paragraphs)
+
+
+#: Backwards-compatible private aliases: the names were module-private before the
+#: flow layer needed them, and renaming callers of a private helper is churn without
+#: benefit.
+_ends_sentence = ends_sentence
+_join = join_lines
+_geometry = measure_page

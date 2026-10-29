@@ -90,6 +90,9 @@ pytest tests/test_paragraphs.py -q -m "not benchmark"
 
 # 真实语料上的段落恢复率（需要 benchmark/corpus/v）
 pytest tests/test_paragraphs.py -q -m benchmark
+
+# 真实语料上的跨页续段：把页断点放进最长段落中部，看能否接回原段
+pytest tests/test_flow.py -q -m benchmark --no-cov
 ```
 
 `tests/test_paragraphs.py::_rebuild_page()` 把真值转录**按本书的版心（28 字）
@@ -102,11 +105,19 @@ pytest tests/test_paragraphs.py -q -m benchmark
 
 ## 6. 已知边界（未完成）
 
-- **跨页续段尚未合并。** 第 30 页最后一行是 `……手紧攥成拳头。特`，第 40 页
-  开头是 `些爱。` —— 同一个句子被切在两页上。目前 EPUB 每页一个 XHTML 文档，
-  一个段落在物理上不可能跨文件闭合；正确的做法是等章节化（issue #87，
-  `docs/book-structure.md`）把页面合并成"每章一条文字流"之后再拼接。
-  在那之前，本文档不宣称跨页段落正确。
+- **跨页续段已合并，但只在章节文档里。** 第 30 页最后一行是
+  `……手紧攥成拳头。特`，第 40 页开头是 `些爱。` —— 同一个句子被切在两页上。
+  `--layout chapter`（有章节树时的默认值）把一章渲染成一个 XHTML 文档，
+  `domain/flow.py` 按"上一页末行未收句且不短行 + 下一页首行不缩进"合并，
+  每页留 `epub:type="pagebreak"` 标记；`--layout page` 仍是逐页对照，
+  那种布局下一个段落物理上不可能跨文件闭合。规则与已知边界见
+  [Export](./export.md)。
+- **跨页合并的实测范围只有"页断点落在段中"这一种情形。**
+  `tests/test_flow.py::test_a_real_page_turn_inside_a_paragraph_is_undone`
+  把 `benchmark/corpus/v` 六页的真实转录按本书版心重新折行，再把页断点放进
+  当页最长段落的中部：**6/6 页都把被切开的段落接回原段，段落总数不变、字符不丢**。
+  文本、版心、缩进惯例是真的，**页断点的位置是测试选的**；真实相邻两页的转录
+  对还没有成对跑过，所以本文档不报告"整本合并率"。
 - **无几何时只能按标点断段。** 只上报纯文本的引擎（或旧 store）会退化为标点
   规则，"满行以句号结尾"会多切一刀。这是有意选择的降级方向：宁可多切，
   也不要一行一段。

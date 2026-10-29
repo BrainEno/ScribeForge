@@ -132,7 +132,13 @@ BookStructure(pages, chapters, toc_entries, unplaced_toc_titles)
 
 - EPUB 导航由章节树生成，按 level 嵌套（`<ol>` 栈式生成，含 XHTML 结构校验）；
 - 章节树为空时回退到旧的逐页列表，保证向后兼容；
-- 每页 `<title>` 使用印刷页码（`Page 3`），而不是物理序号；
+- **一章一个 XHTML 文档**（`doc-000001.xhtml`…，见 `domain/flow.py`）：
+  章节不再是目录里的一条链接，而是真正的文档边界，跨页段落因此能合成一句；
+  每个被覆盖的扫描页在文档内留 `<span epub:type="pagebreak" id="page-N"
+  title="印刷页码"/>`，`--layout page` 可退回逐页对照的旧形状；
+- 章节树为空时退回逐页文档（`page-000001.xhtml`…）；
+- 每页的印刷页码写进 pagebreak marker 的 `title`（`--layout page` 时写进
+  该文档的 `<title>`），而不是物理序号；
 - 章节锚定页若未通过校验则被剔除，避免导航指向不存在的文件；
 - 章节来源（`toc` / `heading`）写入 `chapters.source`，导出报告与 `structure --json` 都会给出；
 - 没有文字但有墨迹的页（`plate`）在确认前挡住导出，拒绝信息里会带上**实测墨迹**：

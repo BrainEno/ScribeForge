@@ -26,6 +26,7 @@ from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
 from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
+from scribeforge.domain.flow import build_flow
 from scribeforge.domain.ocr import OCREngine, PageDirection
 from scribeforge.domain.preprocess import (
     PreprocessOperation,
@@ -427,10 +428,12 @@ def build_parser() -> argparse.ArgumentParser:
     ui.add_argument("--store", type=Path, required=True, help="Project store directory.")
 
     export = subparsers.add_parser(
-        "export", help="Write the verified text of a project to an EPUB 3 file."
+        "export", help="Write the verified text of a project to EPUB 3 or DOCX."
     )
     export.add_argument("--store", type=Path, required=True, help="Project store directory.")
-    export.add_argument("--out", type=Path, required=True, help="Destination EPUB file.")
+    export.add_argument(
+        "--out", type=Path, required=True, help="Destination .epub or .docx file."
+    )
     export.add_argument(
         "--language", default="und", help="BCP 47 language tag (default: und)."
     )
@@ -452,6 +455,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Refuse to export while any accepted pair still needs a spot check "
             "(low confidence, unrepresentable characters, or risk above the ceiling)."
+        ),
+    )
+    export.add_argument(
+        "--layout",
+        choices=("auto", "chapter", "page"),
+        default="auto",
+        help=(
+            "EPUB document layout: chapter documents with page-break markers "
+            "(auto = when the book has a chapter tree), or one document per "
+            "scanned page (page = facsimile). DOCX always writes one page at a time."
         ),
     )
     export.add_argument(
@@ -1297,11 +1310,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         book = replace(book, title=args.title)
 
     suffix = args.out.suffix.lower()
-    if suffix == ".epub":
-        writer = write_epub
-    elif suffix == ".docx":
-        writer = write_docx
-    else:
+    if suffix not in (".epub", ".docx"):
         print(
             f"error: unsupported export extension {suffix or '(none)'}; use .epub or .docx",
             file=sys.stderr,
@@ -1309,18 +1318,32 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     try:
-        writer(
-            book,
-            args.out,
-            identifier=f"urn:scribeforge:{project.source_sha256}",
-            language=args.language,
-            modified=modified,
-            author=author,
-        )
+        if suffix == ".epub":
+            write_epub(
+                book,
+                args.out,
+                identifier=f"urn:scribeforge:{project.source_sha256}",
+                language=args.language,
+                modified=modified,
+                author=author,
+                layout=args.layout,
+            )
+        else:
+            write_docx(
+                book,
+                args.out,
+                identifier=f"urn:scribeforge:{project.source_sha256}",
+                language=args.language,
+                modified=modified,
+                author=author,
+            )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
+    # DOCX is written page by page, so a layout would be a claim about a file that
+    # was never re-flowed; only EPUB reports one.
+    written = build_flow(book, layout=args.layout) if suffix == ".epub" else None
     if args.json:
         report = {
             "output": str(args.out),
@@ -1347,10 +1370,28 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             ],
             "dropped_furniture": len(book.dropped_furniture),
         }
+        if written is not None:
+            report["layout"] = written.layout
+            report["documents"] = len(written.documents)
+            report["paragraphs"] = len(written.paragraphs)
         print(json.dumps(report, ensure_ascii=False, indent=2), file=out)
         return EXIT_OK
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    if written is not None:
+        print(
+            f"layout: {written.layout} — {len(written.documents)} document(s), "
+            f"{len(written.paragraphs)} paragraph(s)",
+            file=out,
+        )
+        carried = sum(
+            1 for paragraph in written.paragraphs if paragraph.end_page > paragraph.start_page
+        )
+        if carried:
+            print(
+                f"paragraphs continued across a page turn: {carried}",
+                file=out,
+            )
     if book.chapters:
         print(
             f"table of contents: {len(book.chapters)} chapter(s) from the book's "

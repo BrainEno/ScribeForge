@@ -54,6 +54,18 @@ class VerifiedPage:
         if self.line_roles and len(self.line_roles) != len(self.lines):
             raise ValueError("line roles must match the accepted lines one to one")
 
+    def text_lines(self) -> tuple[TextLine, ...]:
+        """Accepted lines with the layout evidence that survived verification."""
+
+        return tuple(
+            TextLine(
+                text,
+                self.line_boxes[index] if self.line_boxes else None,
+                self.line_roles[index] if self.line_roles else LineRole.BODY,
+            )
+            for index, text in enumerate(self.lines)
+        )
+
     def blocks(self) -> tuple[Paragraph, ...]:
         """The page as paragraphs, with headings and footnotes kept distinct.
 
@@ -65,15 +77,7 @@ class VerifiedPage:
         reads like.
         """
 
-        text_lines = [
-            TextLine(
-                text,
-                self.line_boxes[index] if self.line_boxes else None,
-                self.line_roles[index] if self.line_roles else LineRole.BODY,
-            )
-            for index, text in enumerate(self.lines)
-        ]
-        return assemble_paragraphs(text_lines, self.direction)
+        return assemble_paragraphs(self.text_lines(), self.direction)
 
     def paragraphs(self) -> tuple[str, ...]:
         """Paragraph text only, for callers that do not care about roles."""

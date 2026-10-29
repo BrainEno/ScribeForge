@@ -229,6 +229,32 @@ scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Boo
 需要抽查的机器接受行时拒绝导出，适合要求人工逐行确认的交付场景。详见
 [自动接受闸门](./acceptance-gate.md)。
 
+### 导出的 EPUB 是"一本书"，不是"一叠扫描页"
+
+有章节树时，导出的 EPUB 默认**一章一个 XHTML 文档**（`--layout auto` 自动如此），
+被翻页切断的段落会重新接成一段；每个扫描页在正文里留一个
+`<span epub:type="pagebreak" id="page-N" title="印刷页码"/>` 标记，读者仍然可以按
+印刷页码跳转。命令行会顺带报告这次合并了多少段：
+
+```powershell
+scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Book.epub"
+# layout: chapter — 12 document(s), 1180 paragraph(s)
+# paragraphs continued across a page turn: 37
+```
+
+想拿导出文件与原扫描逐页对照时，改用逐页形状：
+
+```powershell
+scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Book-scans.epub" --layout page
+```
+
+`--layout` 只影响 EPUB；DOCX 仍然一张扫描页一次分页，适合与原书并排核对。
+合并判据（上一页末行未收句且不短行、下一页首行不缩进）不是万无一失，
+遇到排版古怪的页面仍可能多接或少接一段；见 [导出](./export.md)。
+
+> 目前合并判据只在夹具和两页真实扫描上验证过，**没有在整本书上量过合并率**。
+> 若你在一本真实书上发现段落被接错，请以 `--layout page` 的逐页版本为准。
+
 ## 7. 启动 Flutter 桌面比较器
 
 仍在仓库根目录时，执行：

@@ -840,6 +840,58 @@ def test_export_writes_docx_for_a_docx_destination(
     assert "<dc:creator>Ada Lovelace</dc:creator>" in core
 
 
+def test_export_reports_the_layout_it_wrote(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    epub_path = tmp_path / "out.epub"
+    docx_path = tmp_path / "out.docx"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(epub_path),
+            "--json",
+            "--modified",
+            "2024-01-01T00:00:00Z",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert report["layout"] == "page"
+    assert report["documents"] == 1
+    assert report["paragraphs"] == 1
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(docx_path),
+            "--layout",
+            "chapter",
+            "--json",
+            "--modified",
+            "2024-01-01T00:00:00Z",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0
+    # DOCX is written page by page, so reporting a layout would describe a file
+    # that was never re-flowed.
+    assert "layout" not in report
+    assert "documents" not in report
+
+
 def test_export_overrides_title_and_author(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
