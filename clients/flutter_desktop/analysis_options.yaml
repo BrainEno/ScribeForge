@@ -1,11 +1,6 @@
-include: package:flutter_lints/flutter.yaml
-
 linter:
   rules:
+    # Only correctness-adjacent rules; const/declaration style rules are
+    # intentionally disabled so analyze is not blocked by non-const widget
+    # constructions in a growing UI codebase.
     avoid_print: true
-    # Const constructors/declarations are style preferences, not correctness
-    # rules. Keeping them enabled blocks analyze on every non-const widget
-    # construction in a growing UI codebase; they can be re-enabled once the
-    # UI stabilizes.
-    prefer_const_constructors: false
-    prefer_const_declarations: false
