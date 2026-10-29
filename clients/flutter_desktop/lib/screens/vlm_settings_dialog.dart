@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../services/cli_runner.dart';
@@ -28,6 +27,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
   late bool _allowRemote;
   bool _testing = false;
   String? _testOutput;
+  late final TextEditingController _testImagePathController;
 
   @override
   void initState() {
@@ -41,6 +41,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
         TextEditingController(text: initial.timeoutSeconds.toString());
     _enabled = initial.enabled;
     _allowRemote = initial.allowRemote;
+    _testImagePathController = TextEditingController();
   }
 
   @override
@@ -49,6 +50,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
     _modelController.dispose();
     _apiKeyEnvironmentController.dispose();
     _timeoutController.dispose();
+    _testImagePathController.dispose();
     super.dispose();
   }
 
@@ -80,15 +82,9 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
       return;
     }
 
-    final result = await FilePicker.pickFile(
-      dialogTitle: 'Choose an image or review crop for VLM preflight',
-      type: FileType.custom,
-      allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
-    );
-    if (result == null || !mounted) return;
-    final imagePath = result.files.single.path;
-    if (imagePath == null || imagePath.trim().isEmpty) {
-      setState(() => _testOutput = 'The file picker did not return a local image path.');
+    final imagePath = _testImagePathController.text.trim();
+    if (imagePath.isEmpty) {
+      setState(() => _testOutput = '请输入测试图片的本地路径。');
       return;
     }
 
@@ -227,6 +223,15 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                   const Text(
                     'Preflight sends only the image you explicitly choose. It does not open the project database and never saves the result as accepted text.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF68766F)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _testImagePathController,
+                    decoration: const InputDecoration(
+                      labelText: '测试图片路径',
+                      hintText: '输入本地图片文件的完整路径',
+                      prefixIcon: Icon(Icons.image),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(

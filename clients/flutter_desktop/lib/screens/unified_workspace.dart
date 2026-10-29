@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/project_status.dart';
@@ -33,6 +32,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   String? _pdfPath;
   String? _projectStorePath;
+  late final TextEditingController _pdfPathController;
   bool _projectSourceMatches = true;
   String? _projectSourceMismatchMessage;
 
@@ -88,6 +88,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   @override
   void initState() {
     super.initState();
+    _pdfPathController = TextEditingController(text: _pdfPath ?? '');
     _loadSettings();
     _refreshStatus();
     _refreshRuntimeStatus();
@@ -95,6 +96,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   @override
   void dispose() {
+    _pdfPathController.dispose();
     _exportOutputController.dispose();
     _exportLanguageController.dispose();
     _exportTitleController.dispose();
@@ -243,23 +245,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   // ---------------------------------------------------------------- actions
-
-  Future<void> _pickPdf() async {
-    final result = await FilePicker.pickFile(
-      type: FileType.custom,
-      allowedExtensions: <String>['pdf', 'png', 'jpg', 'jpeg'],
-    );
-    if (!mounted || result == null || result.files.single.path == null) return;
-    setState(() {
-      _pdfPath = result.files.single.path;
-      _projectStorePath = null;
-      _projectSourceMatches = true;
-      _projectSourceMismatchMessage = null;
-      _projectStatus = null;
-      _error = null;
-      _notice = null;
-    });
-  }
 
   Future<void> _runProcess() async {
     if (_pdfPath == null) return;
@@ -428,19 +413,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (mounted) {
         setState(() => _busy = false);
       }
-    }
-  }
-
-  Future<void> _pickExportOutput() async {
-    final result = await FilePicker.saveFile(
-      dialogTitle: '保存导出文件',
-      fileName: '${_exportTitleController.text.isNotEmpty ? _exportTitleController.text : 'book'}.${_exportFormatEpub ? 'epub' : 'docx'}',
-      type: FileType.custom,
-      allowedExtensions: <String>[_exportFormatEpub ? 'epub' : 'docx'],
-    );
-    if (!mounted) return;
-    if (result != null && result.files.single.path != null) {
-      _exportOutputController.text = result.files.single.path!;
     }
   }
 
@@ -637,25 +609,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           Text('选择扫描书籍的 PDF 或页面图片，运行 OCR 与双引擎对齐管线。',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
           const SizedBox(height: 20),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: TextField(
-                  readOnly: true,
-                  controller: TextEditingController(text: _pdfPath ?? ''),
-                  decoration: const InputDecoration(
-                    labelText: '源文件',
-                    prefixIcon: const Icon(Icons.description),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.folder_open),
-                label: const Text('选择文件'),
-                onPressed: _busy ? null : () { _pickPdf(); },
-              ),
-            ],
+          TextField(
+            controller: _pdfPathController,
+            decoration: const InputDecoration(
+              labelText: '源文件 PDF 路径',
+              hintText: '手动输入扫描书籍 PDF 的完整路径',
+              prefixIcon: Icon(Icons.description),
+            ),
+            onChanged: (value) => setState(() => _pdfPath = value.trim()),
           ),
           const SizedBox(height: 16),
           Row(
@@ -817,11 +778,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           controller: _exportOutputController,
           decoration: const InputDecoration(
             labelText: '输出文件',
-            hintText: '选择保存路径',
+            hintText: '手动输入导出文件的完整路径',
             suffixIcon: const Icon(Icons.save_outlined),
           ),
-          readOnly: true,
-          onTap: () { _pickExportOutput(); },
         ),
         const SizedBox(height: 12),
         TextField(
