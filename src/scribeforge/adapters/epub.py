@@ -146,7 +146,7 @@ def _nav_xhtml(book: VerifiedBook, language: str) -> str:
 
 def _page_xhtml(page: VerifiedPage, language: str) -> str:
     lang = quoteattr(language)
-    paragraphs = "".join(f"<p>{escape(text)}</p>" for text in page.lines)
+    paragraphs = "".join(f"<p>{escape(text)}</p>" for text in page.paragraphs())
     # Prefer the number printed in the book. Readers cite that number, and in a
     # book whose numbering restarts per section the physical index is meaningless
     # to them.

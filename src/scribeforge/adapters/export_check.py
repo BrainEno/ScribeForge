@@ -142,9 +142,28 @@ def check_epub(data: bytes, book: VerifiedBook) -> None:
                 element.text or "" for element in document.findall(".//x:p", _XHTML_NS)
             ]
             _require(
-                paragraphs == list(page.lines),
+                paragraphs == list(page.paragraphs()),
                 f"page {page.page_index} text differs from the verified book",
             )
+        _require_no_text_lost(book)
+
+
+def _require_no_text_lost(book: VerifiedBook) -> None:
+    """Splicing may merge lines but must never drop or add a character.
+
+    A vertical paragraph is assembled by joining columns, so the paragraph list is
+    a *re-grouping* of the accepted lines. Comparing the two concatenations catches
+    a splice rule that quietly swallowed a line — the one failure mode that would
+    survive a paragraph-by-paragraph comparison.
+    """
+
+    for page in book.pages:
+        joined = "".join(page.paragraphs())
+        accepted = "".join(line.strip() for line in page.lines)
+        _require(
+            joined == accepted,
+            f"page {page.page_index} lost or gained text while splicing paragraphs",
+        )
 
 
 def check_docx(data: bytes, book: VerifiedBook) -> None:
@@ -206,16 +225,17 @@ def check_docx(data: bytes, book: VerifiedBook) -> None:
                     token.text or "" for token in paragraph.iter(f"{{{_WORD_NS_URI}}}t")
                 )
             )
-        expected = [list(page.lines) for page in book.pages]
+        expected = [list(page.paragraphs()) for page in book.pages]
         _require(
             len(page_texts) == len(expected),
             f"document has {len(page_texts)} page(s), expected {len(expected)}",
         )
         for page, actual in zip(book.pages, page_texts):
             _require(
-                actual == list(page.lines),
+                actual == list(page.paragraphs()),
                 f"page {page.page_index} text differs from the verified book",
             )
+        _require_no_text_lost(book)
 
         _require("docProps/core.xml" in names, "missing docProps/core.xml")
         core = _parse(archive, "docProps/core.xml")

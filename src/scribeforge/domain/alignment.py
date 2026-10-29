@@ -8,6 +8,7 @@ from enum import Enum
 from scribeforge.domain.direction import resolve_page_direction
 from scribeforge.domain.normalize import similarity_for_comparison
 from scribeforge.domain.ocr import OCRLine, PageDirection, PageOCRResult
+from scribeforge.domain.reading_order import reading_order_key
 
 
 class ConflictKind(str, Enum):
@@ -80,28 +81,6 @@ def _cross_axis_center(line: OCRLine, direction: PageDirection) -> float:
     """
 
     return _center_x(line) if direction.is_vertical else _center_y(line)
-
-
-def _reading_order_key(
-    line: OCRLine, direction: PageDirection
-) -> tuple[float, float]:
-    """Sort key placing lines in the order a reader reads them.
-
-    Horizontal: top to bottom, then left to right.
-    Vertical right-to-left: rightmost column first, then top to bottom.
-    Vertical left-to-right: leftmost column first, then top to bottom.
-
-    A stable sort keeps the engine's own order for genuine ties, so an engine that
-    already returns reading order is left untouched.
-    """
-
-    if direction is PageDirection.VERTICAL_RL:
-        return (-_center_x(line), line.box.y)
-    if direction is PageDirection.VERTICAL_LR:
-        return (_center_x(line), line.box.y)
-    if direction is PageDirection.HORIZONTAL_RL:
-        return (_center_y(line), -_center_x(line))
-    return (_center_y(line), _center_x(line))
 
 
 def _is_punctuation(text: str) -> bool:
@@ -287,7 +266,7 @@ def align_pages(
     # once, rather than left to whatever order the engine happened to return.
     order = sorted(
         range(len(pairs)),
-        key=lambda index: _reading_order_key(
+        key=lambda index: reading_order_key(
             _pair_reference_line(pairs[index], primary, secondary), page_direction
         ),
     )
