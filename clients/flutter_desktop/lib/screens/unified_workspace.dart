@@ -478,7 +478,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         title: Text(_navTitles[_selectedIndex]),
         actions: <Widget>[
           if (_busy)
-            const Padding(
+            Padding(
               padding: EdgeInsets.all(8),
               child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
             ),
@@ -708,7 +708,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           ),
           const SizedBox(height: 12),
           if (_reviewLoading)
-            const Center(child: CircularProgressIndicator())
+            const Center(child: CircularProgressIndicator(strokeWidth: 2))
           else if (_reviewQueue.isEmpty)
             const Text('暂无待处理配对。', style: TextStyle(color: Colors.grey))
           else
@@ -799,9 +799,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       children: <Widget>[
         DropdownButtonFormField<String>(
           value: _exportFormatEpub ? 'epub' : 'docx',
-          items: const <DropdownMenuItem<String>>[
-            DropdownMenuItem(value: 'epub', child: Text('EPUB 3')),
-            DropdownMenuItem(value: 'docx', child: Text('DOCX')),
+          items: <DropdownMenuItem<String>>[
+            DropdownMenuItem(value: 'epub', child: const Text('EPUB 3')),
+            DropdownMenuItem(value: 'docx', child: const Text('DOCX')),
           ],
           onChanged: (value) => setState(() => _exportFormatEpub = value == 'epub'),
           decoration: const InputDecoration(labelText: '导出格式'),
@@ -902,7 +902,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             title: const Text('运行时配置 (setup)'),
             subtitle: const Text('检测硬件、安装 OCR 运行环境与模型'),
             trailing: _runtimeLoading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.play_arrow),
             onTap: _runtimeLoading ? null : () { _runSetup(); },
           ),
