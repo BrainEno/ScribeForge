@@ -11,7 +11,7 @@ import unicodedata
 import zipfile
 from collections.abc import Iterable
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -83,7 +83,7 @@ def create_project_backup(
         manifest = {
             "format": _FORMAT,
             "schema_version": _SCHEMA_VERSION,
-            "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "source_store": str(root),
             "files": files,
             "sources": sources,

@@ -10,7 +10,7 @@ import sqlite3
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
@@ -474,7 +474,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "ISO 8601 export timestamp for reproducible builds "
-            "(default: now; naive values are treated as UTC)."
+            "(default: now; naive values are treated as timezone.utc)."
         ),
     )
     export.add_argument(
@@ -1348,7 +1348,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         modified = (
             _parse_modified(args.modified)
             if args.modified is not None
-            else datetime.now(UTC)
+            else datetime.now(timezone.utc)
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1565,7 +1565,7 @@ def _export_candidates(args: argparse.Namespace, out: TextIO) -> int:
         print(f"error: invalid candidate engine name: {invalid[0]!r}", file=sys.stderr)
         return EXIT_FATAL
 
-    modified = datetime.now(UTC)
+    modified = datetime.now(timezone.utc)
     candidate_payloads: list[tuple[str, bytes, dict[str, object]]] = []
     try:
         for engine in engines:
@@ -1662,7 +1662,7 @@ def _parse_modified(value: str) -> datetime:
         parsed = datetime.fromisoformat(text)
     except ValueError as exc:
         raise ValueError(f"invalid ISO 8601 timestamp: {value!r}") from exc
-    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
 
 
 def _benchmark(
@@ -1756,7 +1756,7 @@ def _benchmark(
         reports,
         corpus=str(manifest_path),
         manifest_sha256=_file_sha256(manifest_path),
-        generated_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
     try:
         args.out.write_text(report_text, encoding="utf-8")
@@ -1821,7 +1821,7 @@ def _oracle_ceiling(
         reports,
         corpus=str(manifest_path),
         manifest_sha256=_file_sha256(manifest_path),
-        generated_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
     try:
         args.out.write_text(report_text, encoding="utf-8")
