@@ -72,6 +72,16 @@ def _store(tmp_path: Path) -> tuple[SQLiteStore, int]:
         ),
     )
     store.record_verification(primary_id, secondary_id, alignment, risks, candidates)
+    # Pair 1 agrees, so adjudication would already have accepted it. Only the
+    # disputed pair is left for a person — that is the state the UI shows.
+    store.append_decision(
+        project_id=project_id,
+        page_index=0,
+        pair_index=1,
+        selected_text="乙",
+        actor="automatic",
+        evidence_refs=(),
+    )
     return store, project_id
 
 

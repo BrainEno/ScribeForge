@@ -165,6 +165,47 @@ Manifest 会记录源文件哈希、引擎版本、每页的 OCR 运行 ID 和�
 
 这些 EPUB 是**未校对的原始候选**，只用于比较。最终已校对的 EPUB/DOCX 应通过 scribeforge export 导出；该命令会阻止尚有未解决校对项的项目被误当作完整成品。
 
+## 6.1 处理被拦下的行与空白页
+
+导出被拒绝时，命令会逐条说明原因，例如：
+
+```
+error: cannot export unresolved content:
+  1 unresolved pair(s):
+    page 0 pair 0: unrepresentable_text (U+FFFD)
+    inspect with 'scribeforge review'
+    decide with 'scribeforge resolve --page N --pair M --text ...'
+```
+
+这表示两个引擎虽然“读得一样”，但读出来的内容机器不能签字（替换字符、控制字符、
+置信度过低、或证据质量风险过高）。处理方式：
+
+```powershell
+scribeforge review --store "D:\Books\My Book.scribeforge"
+scribeforge resolve --store "D:\Books\My Book.scribeforge" --page 0 --pair 0 --text "鸦"
+```
+
+如果整页都没有可识别文字（空白页、图版），必须显式确认，不能默认当成空白：
+
+```powershell
+scribeforge confirm --store "D:\Books\My Book.scribeforge" --page 5 --kind blank --reason "章节之间的空白页"
+```
+
+确认记录会追加保存（谁、何时、为什么），导出时也会写进报告。若某页其实是识别失败
+而非空白，不要使用 confirm，而应重跑该页。
+
+导出后可以查看这本书有多少内容由机器自动接受：
+
+```powershell
+scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Book.epub" --json
+scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Book.epub" --strict-acceptance
+```
+
+`--json` 报告包含 `machine_accepted`、`human_accepted`、`max_machine_content_risk`、
+`requires_human_review` 和抽查清单 `spot_check`。`--strict-acceptance` 会在仍存在
+需要抽查的机器接受行时拒绝导出，适合要求人工逐行确认的交付场景。详见
+[自动接受闸门](./acceptance-gate.md)。
+
 ## 7. 启动 Flutter 桌面比较器
 
 仍在仓库根目录时，执行：

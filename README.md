@@ -160,8 +160,12 @@ scribeforge restore --backup Book.zip --to Book-restored.scribeforge # restore t
 scribeforge review --store store/             # pairs awaiting a human decision
 scribeforge resolve --store store/ \
   --page 0 --pair 3 --text "鸦"              # record the accepted reading
+scribeforge confirm --store store/ --page 5 \
+  --kind blank --reason "empty leaf"        # declare a page has no text
 scribeforge export --store store/ --out book.epub   # verified text -> EPUB 3
 scribeforge export --store store/ --out book.docx   # verified text -> DOCX
+scribeforge export --store store/ --out book.epub --json           # acceptance report
+scribeforge export --store store/ --out book.epub --strict-acceptance # machine-certified only
 scribeforge export-candidates --store store/ --out-dir comparison/ # raw OCR EPUB candidates
 cd clients/flutter_desktop && flutter run -d windows # Flutter comparison UI
 scribeforge export --store store/ --out book.epub \
@@ -178,6 +182,8 @@ Run `scribeforge audit --store store/ --json` before archiving or resuming a pro
 Create a project backup with `scribeforge backup --store store/ --out Book.zip`. The archive includes a consistent SQLite snapshot, all regular project-store files, and each original source document after confirming its recorded SHA-256. Backup is refused while a job is running or when database/page evidence is damaged or the source identity cannot be verified. Existing archives are never overwritten unless `--overwrite` is supplied. Run `scribeforge verify-backup --backup Book.zip` before restoring; `scribeforge restore --backup Book.zip --to Book-restored.scribeforge` verifies member hashes and SQLite integrity, then restores into a new directory without overwriting an existing destination. Internal page-image and source paths are updated to the restored location; processing/review evidence remains intact.
 
 When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
+
+Two facts are never inferred. First, *agreement is not acceptance*: `adjudicate_pair` sends every automatic path through an acceptance gate that refuses text no machine should certify — the replacement character `U+FFFD`, XML-illegal control characters, a pair where both readers admit low confidence, or a pair whose evidence-quality risk exceeds the policy ceiling. Blocked pairs stay in `review_queue`, which lists every undecided pair (not just score-thresholded candidates), so a blocked pair always has a command that can clear it. Second, *an empty page is not a blank page*: a page with zero aligned pairs blocks export until `scribeforge confirm` records who says it carries no text and why. The export report says how much of the book a machine certified (`machine_accepted` vs `human_accepted`, the highest machine-accepted content risk, and the pairs worth a spot check); `--strict-acceptance` refuses while any of those remain. See [The acceptance gate](./docs/acceptance-gate.md).
 
 `export-candidates` writes explicitly **unverified** raw OCR outputs for each requested engine (MinerU and PaddleOCR by default), preserving the source page index in each XHTML spine item. It also writes a `candidate-manifest.json` with source hash, engine version, run IDs, candidate hashes and paths. These files are for visual comparison only and are never accepted by the verified export pipeline. `export` writes the accepted decisions as an EPUB 3 or DOCX file (chosen by the destination extension) and refuses to run while any page is unverified or any pair is still unresolved, so a partial book can never be exported silently. `--title` and `--author` override the export metadata (the author becomes `dc:creator` in both formats), and `--modified` pins the timestamp for byte-reproducible builds. Every build is re-read and checked against the accepted text before it is written. See [Export](./docs/export.md).
 

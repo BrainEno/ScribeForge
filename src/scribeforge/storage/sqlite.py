@@ -46,6 +46,42 @@ class DecisionRecord:
     actor: str
     evidence_refs: tuple[str, ...]
     created_at: str
+    #: Risk the page reported for this pair when the decision was accepted, and the
+    #: reason codes behind it. ``None`` for rows written before schema v9 and for
+    #: pairs whose page reported no risk at all. Stored rather than recomputed so an
+    #: audit years later sees the numbers the decision was actually made on, even
+    #: after the scoring heuristics change.
+    risk_score: float | None = None
+    risk_reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PageConfirmation:
+    """A deliberate statement that a page has no text to transcribe.
+
+    Both engines returning nothing is *not* the same fact as a blank leaf: it is
+    also what a crashed worker, a mis-decoded raster or a page torn out of the scan
+    look like. Only an explicit confirmation — by a person, or by a measurement
+    that proves there is no ink — lets such a page into the export (issue #74).
+    """
+
+    id: int
+    page_index: int
+    kind: str
+    actor: str
+    reason: str
+    ink_ratio: float | None
+    created_at: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("blank", "non_text"):
+            raise ValueError("page confirmation kind must be 'blank' or 'non_text'")
+        if self.actor not in ("human", "evidence"):
+            raise ValueError("page confirmation actor must be 'human' or 'evidence'")
+        if not self.reason.strip():
+            raise ValueError("a page confirmation must record why it was made")
+        if self.ink_ratio is not None and not 0.0 <= self.ink_ratio <= 1.0:
+            raise ValueError("ink ratio must be between 0 and 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +141,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 8
+    SCHEMA_VERSION = 9
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -154,6 +190,9 @@ class SQLiteStore:
             if version < 8:
                 self._create_v8(connection)
                 connection.execute("PRAGMA user_version = 8")
+            if version < 9:
+                self._create_v9(connection)
+                connection.execute("PRAGMA user_version = 9")
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -528,6 +567,46 @@ class SQLiteStore:
         connection.executescript(
             """
             ALTER TABLE engine_runs ADD COLUMN scope TEXT;
+            """
+        )
+
+    @staticmethod
+    def _create_v9(connection: sqlite3.Connection) -> None:
+        """Record the risk a decision was made under, and explicit blank pages.
+
+        ``decisions.risk_score`` keeps the audit trail #75 asks for: two years later
+        the question "why was this line accepted without a person?" is answered from
+        the row itself, not from re-running heuristics that have since changed.
+
+        ``page_confirmations`` exists because zero alignment pairs is ambiguous
+        (#74): a blank leaf, an illustration, a crashed worker and a page the engines
+        both failed to read all look identical in the OCR tables. The only way to
+        tell them apart is to record that somebody (or a measurement) said so.
+        """
+
+        connection.executescript(
+            """
+            ALTER TABLE decisions ADD COLUMN risk_score REAL;
+            ALTER TABLE decisions ADD COLUMN risk_reasons_json TEXT NOT NULL DEFAULT '[]';
+
+            -- The two signals the acceptance gate reads. They are part of the risk
+            -- assessment, so they belong with it rather than being recomputed from
+            -- evidence a later heuristic change may interpret differently.
+            ALTER TABLE risks ADD COLUMN min_confidence REAL;
+            ALTER TABLE risks ADD COLUMN content_score REAL NOT NULL DEFAULT 0.0;
+
+            CREATE TABLE IF NOT EXISTS page_confirmations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE RESTRICT,
+                kind TEXT NOT NULL CHECK(kind IN ('blank', 'non_text')),
+                actor TEXT NOT NULL CHECK(actor IN ('human', 'evidence')),
+                reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+                ink_ratio REAL CHECK(ink_ratio IS NULL OR (ink_ratio >= 0 AND ink_ratio <= 1)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_page_confirmations_page
+                ON page_confirmations(page_id, id);
             """
         )
 
@@ -1488,11 +1567,17 @@ class SQLiteStore:
                     )
                 risk = risks[pair_index]
                 connection.execute(
-                    "INSERT INTO risks(alignment_id, score, reasons_json) VALUES (?, ?, ?)",
+                    """
+                    INSERT INTO risks(
+                        alignment_id, score, reasons_json, min_confidence, content_score
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
                     (
                         alignment_id,
                         risk.score,
                         json.dumps([reason.value for reason in risk.reasons]),
+                        risk.min_confidence,
+                        risk.content_score,
                     ),
                 )
 
@@ -1603,7 +1688,10 @@ class SQLiteStore:
                     )
                 )
                 risk_row = connection.execute(
-                    "SELECT score, reasons_json FROM risks WHERE alignment_id = ?",
+                    """
+                    SELECT score, reasons_json, min_confidence, content_score
+                    FROM risks WHERE alignment_id = ?
+                    """,
                     (alignment_id,),
                 ).fetchone()
                 if risk_row is None:
@@ -1616,6 +1704,12 @@ class SQLiteStore:
                             RiskReason(value)
                             for value in self._json_strings(risk_row["reasons_json"])
                         ),
+                        min_confidence=(
+                            None
+                            if risk_row["min_confidence"] is None
+                            else float(risk_row["min_confidence"])
+                        ),
+                        content_score=float(risk_row["content_score"]),
                     )
                 )
 
@@ -1800,6 +1894,96 @@ class SQLiteStore:
             ).fetchall()
             return frozenset(int(row["pair_index"]) for row in rows)
 
+    def record_page_confirmation(
+        self,
+        *,
+        project_id: int,
+        page_index: int,
+        kind: str,
+        actor: str,
+        reason: str,
+        ink_ratio: float | None = None,
+    ) -> int:
+        """Record that a page has no text, and on what authority.
+
+        Append-only: a second confirmation of the same page adds a row instead of
+        rewriting the first, so the history of "somebody said this was blank" stays
+        intact even if a later reader disagrees.
+        """
+
+        with self._connection() as connection:
+            page_id = self._page_id(connection, project_id, page_index)
+            cursor = connection.execute(
+                """
+                INSERT INTO page_confirmations(page_id, kind, actor, reason, ink_ratio)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (page_id, kind, actor, reason, ink_ratio),
+            )
+            return self._last_id(cursor)
+
+    def list_page_confirmations(
+        self, project_id: int, page_index: int
+    ) -> tuple[PageConfirmation, ...]:
+        with self._connection() as connection:
+            page_id = self._page_id(connection, project_id, page_index)
+            rows = connection.execute(
+                """
+                SELECT id, kind, actor, reason, ink_ratio, created_at
+                FROM page_confirmations
+                WHERE page_id = ?
+                ORDER BY id
+                """,
+                (page_id,),
+            ).fetchall()
+            return tuple(
+                PageConfirmation(
+                    id=int(row["id"]),
+                    page_index=page_index,
+                    kind=str(row["kind"]),
+                    actor=str(row["actor"]),
+                    reason=str(row["reason"]),
+                    ink_ratio=(
+                        None if row["ink_ratio"] is None else float(row["ink_ratio"])
+                    ),
+                    created_at=str(row["created_at"]),
+                )
+                for row in rows
+            )
+
+    def latest_page_confirmations(self, project_id: int) -> dict[int, PageConfirmation]:
+        """Newest confirmation per confirmed page of a project."""
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            rows = connection.execute(
+                """
+                SELECT pages.page_index, confirmations.id, confirmations.kind,
+                       confirmations.actor, confirmations.reason,
+                       confirmations.ink_ratio, confirmations.created_at
+                FROM page_confirmations AS confirmations
+                JOIN pages ON pages.id = confirmations.page_id
+                WHERE pages.project_id = ?
+                ORDER BY confirmations.id
+                """,
+                (project_id,),
+            ).fetchall()
+            latest: dict[int, PageConfirmation] = {}
+            for row in rows:
+                page_index = int(row["page_index"])
+                latest[page_index] = PageConfirmation(
+                    id=int(row["id"]),
+                    page_index=page_index,
+                    kind=str(row["kind"]),
+                    actor=str(row["actor"]),
+                    reason=str(row["reason"]),
+                    ink_ratio=(
+                        None if row["ink_ratio"] is None else float(row["ink_ratio"])
+                    ),
+                    created_at=str(row["created_at"]),
+                )
+            return latest
+
     def append_decision(
         self,
         *,
@@ -1809,14 +1993,26 @@ class SQLiteStore:
         selected_text: str,
         actor: str,
         evidence_refs: tuple[str, ...],
+        risk_score: float | None = None,
+        risk_reasons: tuple[str, ...] = (),
     ) -> int:
+        """Append an accepted decision, with the risk it was accepted under.
+
+        ``risk_score`` is stored on the row rather than recomputed at read time: an
+        audit must see what the decision was made on, not what today's heuristics
+        would say about the same evidence.
+        """
+
+        if risk_score is not None and not 0.0 <= risk_score <= 1.0:
+            raise ValueError("risk score must be between 0 and 1")
         with self._connection() as connection:
             page_id = self._page_id(connection, project_id, page_index)
             cursor = connection.execute(
                 """
                 INSERT INTO decisions(
-                    page_id, pair_index, selected_text, actor, evidence_refs_json
-                ) VALUES (?, ?, ?, ?, ?)
+                    page_id, pair_index, selected_text, actor, evidence_refs_json,
+                    risk_score, risk_reasons_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     page_id,
@@ -1824,6 +2020,8 @@ class SQLiteStore:
                     selected_text,
                     actor,
                     json.dumps(evidence_refs, ensure_ascii=False),
+                    risk_score,
+                    json.dumps(list(risk_reasons), ensure_ascii=False),
                 ),
             )
             return self._last_id(cursor)
@@ -1835,7 +2033,8 @@ class SQLiteStore:
             page_id = self._page_id(connection, project_id, page_index)
             rows = connection.execute(
                 """
-                SELECT id, selected_text, actor, evidence_refs_json, created_at
+                SELECT id, selected_text, actor, evidence_refs_json, created_at,
+                       risk_score, risk_reasons_json
                 FROM decisions
                 WHERE page_id = ? AND pair_index = ?
                 ORDER BY id
@@ -1852,6 +2051,10 @@ class SQLiteStore:
                     actor=str(row["actor"]),
                     evidence_refs=self._json_strings(row["evidence_refs_json"]),
                     created_at=str(row["created_at"]),
+                    risk_score=(
+                        None if row["risk_score"] is None else float(row["risk_score"])
+                    ),
+                    risk_reasons=self._json_strings(row["risk_reasons_json"]),
                 )
                 for row in rows
             )
@@ -1865,7 +2068,8 @@ class SQLiteStore:
             page_id = self._page_id(connection, project_id, page_index)
             row = connection.execute(
                 """
-                SELECT id, selected_text, actor, evidence_refs_json, created_at
+                SELECT id, selected_text, actor, evidence_refs_json, created_at,
+                       risk_score, risk_reasons_json
                 FROM decisions
                 WHERE page_id = ? AND pair_index = ?
                 ORDER BY id DESC
@@ -1884,4 +2088,8 @@ class SQLiteStore:
                 actor=str(row["actor"]),
                 evidence_refs=self._json_strings(row["evidence_refs_json"]),
                 created_at=str(row["created_at"]),
+                risk_score=(
+                    None if row["risk_score"] is None else float(row["risk_score"])
+                ),
+                risk_reasons=self._json_strings(row["risk_reasons_json"]),
             )

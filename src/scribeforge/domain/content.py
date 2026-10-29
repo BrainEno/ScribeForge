@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from scribeforge.domain.acceptance import AcceptanceSummary
 from scribeforge.domain.ocr import BoundingBox, PageDirection
 from scribeforge.domain.paragraphs import (
     LineRole,
@@ -103,3 +104,12 @@ class VerifiedBook:
     pages: tuple[VerifiedPage, ...]
     chapters: tuple[VerifiedChapter, ...] = ()
     dropped_furniture: tuple[DroppedFurniture, ...] = ()
+    #: Pages that carry no text and were confirmed to be textless (a blank leaf or
+    #: a plate). Nothing enters this list by inference: both engines returning
+    #: nothing is also what a crash looks like (issue #74).
+    confirmed_blank_pages: tuple[int, ...] = ()
+    #: Pairs where both engines returned an empty line. Recorded rather than
+    #: silently dropped, so a reviewer can see how much of a page was empty.
+    empty_pairs: tuple[tuple[int, int], ...] = ()
+    #: Who accepted the exported text and how risky the machine-accepted part was.
+    acceptance: AcceptanceSummary = field(default_factory=AcceptanceSummary)

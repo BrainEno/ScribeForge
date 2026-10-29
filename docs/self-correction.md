@@ -76,12 +76,17 @@
 
 ```
 accepted without a person: 812 automatic, 96 by vision model, 3 by a human
-still open: 11 pair(s), 4 of them high risk (auto-acceptance 99.0%)
+still open: 11 pair(s), 4 of them high risk, 2 a machine may not accept (auto-acceptance 99.0%)
 ```
 
 这行的用途就是用户描述的判断：**自动接受率足够高、未解决项集中在低风险** → 只需抽查；
 **未解决项多、或高风险项没降下来** → 再来一轮 `repair`，或在同一台机器上换读者
 （第三引擎、VLM）再跑。
+
+`a machine may not accept` 是[自动接受闸门](./acceptance-gate.md)的口径：这些配对不是
+"两个引擎读得不一样"（那需要人来裁决），而是"机器根本没有资格接受"（替换字符、
+控制字符、置信度过低）—— 对它们正确的动作是**换一次输入再读**，而不是在同一条
+读数上纠结。
 
 导出闸门没有放松：只要还有一个配对没有接受决策，`export` 仍然拒绝导出（exit 2）。
 "自动纠错"不等于"自动编造"。

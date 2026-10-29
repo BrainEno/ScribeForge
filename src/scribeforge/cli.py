@@ -399,6 +399,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--text", required=True, help="Literal text the reviewer accepted for the pair."
     )
 
+    confirm = subparsers.add_parser(
+        "confirm",
+        help="Record that a page carries no text (a blank leaf or a plate).",
+    )
+    confirm.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    confirm.add_argument("--page", type=int, required=True, help="Zero-based page index.")
+    confirm.add_argument(
+        "--kind",
+        choices=("blank", "non_text"),
+        default="blank",
+        help="blank = empty leaf; non_text = image/plate with no text to read.",
+    )
+    confirm.add_argument(
+        "--reason",
+        required=True,
+        help="Why this page has no text; recorded in the audit trail.",
+    )
+
     ui = subparsers.add_parser(
         "ui", help="Open the read-only desktop shell for a project store."
     )
@@ -423,6 +441,17 @@ def build_parser() -> argparse.ArgumentParser:
             "ISO 8601 export timestamp for reproducible builds "
             "(default: now; naive values are treated as UTC)."
         ),
+    )
+    export.add_argument(
+        "--strict-acceptance",
+        action="store_true",
+        help=(
+            "Refuse to export while any accepted pair still needs a spot check "
+            "(low confidence, unrepresentable characters, or risk above the ceiling)."
+        ),
+    )
+    export.add_argument(
+        "--json", action="store_true", help="Emit a JSON export report."
     )
 
     candidates = subparsers.add_parser(
@@ -528,6 +557,8 @@ def run(
         return _review(args, out)
     if args.command == "resolve":
         return _resolve(args, out)
+    if args.command == "confirm":
+        return _confirm(args, out)
     if args.command == "export":
         return _export(args, out)
     if args.command == "export-candidates":
@@ -721,7 +752,8 @@ def _print_progress(out: TextIO, report: ProgressReport) -> None:
     )
     print(
         f"still open: {report.open_pairs} pair(s), "
-        f"{report.open_high_risk} of them high risk "
+        f"{report.open_high_risk} of them high risk, "
+        f"{report.open_blocked} a machine may not accept "
         f"(auto-acceptance {report.auto_acceptance:.1%})",
         file=out,
     )
@@ -800,6 +832,7 @@ def _progress_json(report: ProgressReport) -> dict[str, object]:
         "accepted_human": report.accepted_human,
         "open_pairs": report.open_pairs,
         "open_high_risk": report.open_high_risk,
+        "open_blocked": report.open_blocked,
         "auto_acceptance": round(report.auto_acceptance, 6),
     }
 
@@ -1087,6 +1120,86 @@ def _resolve(args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK
 
 
+def _confirm(args: argparse.Namespace, out: TextIO) -> int:
+    """Record that a page has no text, so a textless page is not a guess.
+
+    Deliberately not automatic: the whole point is that a person (or a measured
+    ink ratio, in a later stage) states this on the record. ``--reason`` is
+    required for the same reason.
+    """
+
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+
+    projects = store.list_projects()
+    if not projects:
+        print("error: no projects in store", file=sys.stderr)
+        return EXIT_FATAL
+
+    project = projects[0]
+    reason = args.reason.strip()
+    if not reason:
+        print("error: --reason must not be empty", file=sys.stderr)
+        return EXIT_FATAL
+    page_indexes = {page.page_index for page in store.list_pages(project.id)}
+    if args.page not in page_indexes:
+        print(f"error: no page {args.page} in project {project.id}", file=sys.stderr)
+        return EXIT_FATAL
+
+    confirmation_id = store.record_page_confirmation(
+        project_id=project.id,
+        page_index=args.page,
+        kind=args.kind,
+        actor="human",
+        reason=reason,
+    )
+    print(
+        f"confirmed page {args.page} as {args.kind} "
+        f"(confirmation #{confirmation_id}): {reason}",
+        file=out,
+    )
+    return EXIT_OK
+
+
+def _report_blocked_export(exc: UnresolvedContentError, out: TextIO) -> None:
+    """Say exactly what is missing, and what command clears each kind."""
+
+    print("error: cannot export unresolved content:", file=out)
+    if exc.unresolved_pairs:
+        print(f"  {len(exc.unresolved_pairs)} unresolved pair(s):", file=out)
+        for item in exc.unresolved_pairs[:10]:
+            detail = f"    page {item.page_index} pair {item.pair_index}"
+            if item.blockers:
+                detail += f": {'+'.join(item.blockers)}"
+            if item.characters:
+                detail += f" ({', '.join(item.characters)})"
+            print(detail, file=out)
+        if len(exc.unresolved_pairs) > 10:
+            print(f"    ... and {len(exc.unresolved_pairs) - 10} more", file=out)
+        print("    inspect with 'scribeforge review'", file=out)
+        print("    decide with 'scribeforge resolve --page N --pair M --text ...'", file=out)
+    if exc.unverified_pages:
+        print(f"  {len(exc.unverified_pages)} unverified page(s):", file=out)
+        print("    " + ", ".join(str(index) for index in exc.unverified_pages[:20]), file=out)
+        print("    re-run the pipeline for these pages", file=out)
+    if exc.unconfirmed_pages:
+        # A textless page is exportable only once somebody says so on the record.
+        print(
+            f"  {len(exc.unconfirmed_pages)} page(s) with no text at all, "
+            "not yet confirmed as textless:",
+            file=out,
+        )
+        print("    " + ", ".join(str(index) for index in exc.unconfirmed_pages[:20]), file=out)
+        print(
+            "    if the page really has no text: "
+            "'scribeforge confirm --page N --kind blank --reason ...'",
+            file=out,
+        )
+        print("    otherwise those pages failed to read and must be re-run", file=out)
+
+
 def _export(args: argparse.Namespace, out: TextIO) -> int:
     store = _open_store(args.store)
     if store is None:
@@ -1116,17 +1229,21 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
     try:
         book = assemble_verified_content(store, project.id)
     except UnresolvedContentError as exc:
-        print(
-            "error: cannot export unresolved content: "
-            f"{len(exc.unresolved_pairs)} unresolved pair(s), "
-            f"{len(exc.unverified_pages)} unverified page(s); "
-            "resolve them with 'scribeforge review'",
-            file=sys.stderr,
-        )
+        _report_blocked_export(exc, sys.stderr)
         return EXIT_FATAL
 
     if not book.pages:
         print("error: no pages to export", file=sys.stderr)
+        return EXIT_FATAL
+    summary = book.acceptance
+    if args.strict_acceptance and summary.requires_human_review:
+        print(
+            "error: --strict-acceptance: "
+            f"{len(summary.spot_check)} accepted pair(s) still need a spot check "
+            f"(highest machine content risk {summary.max_machine_risk:.2f}); "
+            "'scribeforge export' without the flag will still write them",
+            file=sys.stderr,
+        )
         return EXIT_FATAL
     if args.title is not None:
         book = replace(book, title=args.title)
@@ -1156,7 +1273,53 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
+    if args.json:
+        report = {
+            "output": str(args.out),
+            "pages": len(book.pages),
+            "confirmed_blank_pages": list(book.confirmed_blank_pages),
+            "empty_pairs": len(book.empty_pairs),
+            "accepted_pairs": summary.pairs,
+            "machine_accepted": summary.machine_accepted,
+            "human_accepted": summary.human_accepted,
+            "machine_acceptance": round(summary.machine_acceptance, 4),
+            "max_machine_content_risk": round(summary.max_machine_risk, 4),
+            "requires_human_review": summary.requires_human_review,
+            "spot_check": [
+                {
+                    "page": item.page_index,
+                    "pair": item.pair_index,
+                    "actor": item.actor,
+                    "content_risk": round(item.score, 4),
+                    "reasons": [reason.value for reason in item.reasons],
+                    "note": item.note,
+                }
+                for item in summary.spot_check
+            ],
+            "dropped_furniture": len(book.dropped_furniture),
+        }
+        print(json.dumps(report, ensure_ascii=False, indent=2), file=out)
+        return EXIT_OK
+
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    print(
+        f"accepted pairs: {summary.pairs} "
+        f"(machine {summary.machine_accepted}, human {summary.human_accepted})",
+        file=out,
+    )
+    if book.confirmed_blank_pages:
+        print(
+            "confirmed textless page(s): "
+            + ", ".join(str(index) for index in book.confirmed_blank_pages),
+            file=out,
+        )
+    if summary.requires_human_review:
+        # Never let a machine-certified document look fully human-verified.
+        print(
+            f"warning: {len(summary.spot_check)} accepted pair(s) need a spot check "
+            f"(highest machine content risk {summary.max_machine_risk:.2f})",
+            file=out,
+        )
     if book.dropped_furniture:
         # Say what was removed, grouped by reason: an export must never silently
         # decide that some text was not worth printing.

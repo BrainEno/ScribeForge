@@ -53,12 +53,59 @@ until the complete book has been verified and accepted.
 Assembly refuses to produce a partial book. It raises `UnresolvedContentError`
 when:
 
-- a page has no verification run (`unverified_pages`), or
-- a pair has no accepted decision (`unresolved_pairs`).
+- a page has no verification run (`unverified_pages`),
+- a pair has no accepted decision (`unresolved_pairs`), or
+- a page produced **no aligned pairs at all** and was never confirmed as textless
+  (`unconfirmed_pages`).
 
-Export then exits with code `2` and points the operator at `scribeforge review`.
+Export then exits with code `2` and says exactly what is missing, with the blocker
+code for each unresolved pair:
+
+```
+error: cannot export unresolved content:
+  1 unresolved pair(s):
+    page 0 pair 0: unrepresentable_text (U+FFFD)
+    inspect with 'scribeforge review'
+    decide with 'scribeforge resolve --page N --pair M --text ...'
+```
+
 There is no "export anyway" switch: silently dropping or substituting unverified
 text would break the evidence-grade guarantee.
+
+A page with zero aligned pairs is not evidence of a blank leaf — a crashed worker, a
+mis-decoded raster and an empty leaf look identical in the OCR tables. Such a page
+becomes exportable only after an explicit confirmation:
+
+```
+scribeforge confirm --store <dir> --page 3 --kind blank --reason "empty leaf before the plate"
+```
+
+`--kind non_text` covers a plate or illustration. Confirmations are append-only
+(`page_confirmations`, schema v9) and recorded in the export report.
+
+## Who accepted the text
+
+"Verified" is not one thing. `VerifiedBook.acceptance` summarises how the exported
+text was accepted:
+
+| Field | Meaning |
+| --- | --- |
+| `pairs` / `pages` | accepted pairs and exported pages |
+| `machine_accepted` | accepted by the pipeline (`automatic` or `vlm` decisions) |
+| `human_accepted` | accepted by a person (`scribeforge resolve`) |
+| `machine_acceptance` | share of accepted pairs a machine certified |
+| `max_machine_risk` | highest `content_score` among machine-accepted pairs |
+| `spot_check` | machine-accepted pairs worth a look: low confidence, unrepresentable characters, or risk at/above `spot_check_risk` |
+| `requires_human_review` | `True` when `spot_check` is non-empty |
+
+Default export writes the book and prints a warning when a spot check is due.
+`--strict-acceptance` turns that warning into a refusal (exit code `2`), for
+deliverables that must be human-certified. `--json` prints the whole summary
+(`machine_accepted`, `human_accepted`, `max_machine_content_risk`,
+`requires_human_review`, `spot_check[]`) next to the output path.
+
+See [The acceptance gate](./acceptance-gate.md) for the rule that decides what a
+machine may accept at all.
 
 ## EPUB 3 mapping
 

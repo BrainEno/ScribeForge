@@ -1,7 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from scribeforge.domain.acceptance import (
+    DEFAULT_POLICY,
+    AcceptancePolicy,
+    AcceptanceSummary,
+    SuspectAcceptance,
+    has_unrepresentable_characters,
+    machine_blockers,
+    unrepresentable_characters,
+)
 from scribeforge.domain.alignment import LineAlignment
 from scribeforge.domain.content import (
     DroppedFurniture,
@@ -17,28 +26,51 @@ from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord
 
 @dataclass(frozen=True, slots=True)
 class UnresolvedPair:
+    """One aligned pair that still needs a person.
+
+    ``blockers`` says why the pipeline would not accept it, and the offending
+    ``characters`` when the reason is unreadable text. Both are excluded from
+    comparison: two pairs are the same pair whether or not the diagnosis is at hand.
+    """
+
     page_index: int
     pair_index: int
+    blockers: tuple[str, ...] = field(default=(), compare=False)
+    characters: tuple[str, ...] = field(default=(), compare=False)
 
 
 class UnresolvedContentError(Exception):
-    """Raised when export is requested while accepted text is still incomplete."""
+    """Raised when export is requested while accepted text is still incomplete.
+
+    ``unconfirmed_pages`` is the third way a book can be incomplete: a page where
+    the engines reported no lines at all. That is ambiguous — blank leaf,
+    illustration, crashed worker, or a page nobody managed to read — so it blocks
+    export until someone confirms it (issue #74).
+    """
 
     def __init__(
         self,
         *,
         unverified_pages: tuple[int, ...],
         unresolved_pairs: tuple[UnresolvedPair, ...],
+        unconfirmed_pages: tuple[int, ...] = (),
     ) -> None:
         self.unverified_pages = unverified_pages
         self.unresolved_pairs = unresolved_pairs
+        self.unconfirmed_pages = unconfirmed_pages
         super().__init__(
             f"{len(unverified_pages)} unverified page(s), "
-            f"{len(unresolved_pairs)} unresolved pair(s)"
+            f"{len(unresolved_pairs)} unresolved pair(s), "
+            f"{len(unconfirmed_pages)} unconfirmed textless page(s)"
         )
 
 
-def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBook:
+def assemble_verified_content(
+    store: SQLiteStore,
+    project_id: int,
+    *,
+    policy: AcceptancePolicy = DEFAULT_POLICY,
+) -> VerifiedBook:
     """Assemble the accepted text of a project from its newest decisions.
 
     Refuses to produce a partial book: a page without a verification run, or a
@@ -53,11 +85,19 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
     structure = store.load_book_structure(project_id)
     labels = structure.printed_labels_by_page()
     furniture = _detect_furniture(store, project_id)
+    confirmations = store.latest_page_confirmations(project_id)
 
     pages: list[VerifiedPage] = []
     dropped: list[DroppedFurniture] = []
     unverified_pages: list[int] = []
     unresolved_pairs: list[UnresolvedPair] = []
+    unconfirmed_pages: list[int] = []
+    confirmed_blank: list[int] = []
+    empty_pairs: list[tuple[int, int]] = []
+    machine_accepted = 0
+    human_accepted = 0
+    max_machine_content_risk = 0.0
+    spot_check: list[SuspectAcceptance] = []
     for page in store.list_pages(project_id):
         try:
             verification_id = store.latest_verification_id(project_id, page.page_index)
@@ -66,6 +106,23 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
             continue
 
         record = store.load_verification(verification_id)
+        if not record.alignment.pairs:
+            # Zero pairs is not evidence of a blank page: two crashed workers, a
+            # mis-decoded raster and an empty leaf all look like this. Only an
+            # explicit confirmation makes it exportable.
+            if page.page_index in confirmations:
+                confirmed_blank.append(page.page_index)
+                pages.append(
+                    VerifiedPage(
+                        page.page_index,
+                        (),
+                        printed_label=labels.get(page.page_index, ""),
+                        direction=record.alignment.direction,
+                    )
+                )
+            else:
+                unconfirmed_pages.append(page.page_index)
+            continue
         page_furniture = furniture.get(page.page_index, {})
         primary_result = store.load_ocr_run(record.primary_run_id)
         secondary_result = store.load_ocr_run(record.secondary_run_id)
@@ -87,11 +144,55 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
                 )
                 continue
             if decision is None:
-                unresolved_pairs.append(UnresolvedPair(page.page_index, pair_index))
+                if _pair_is_empty(primary_result, secondary_result, pair):
+                    # Both engines reported an empty line: there is no text to
+                    # accept and nothing for a person to decide.
+                    empty_pairs.append((page.page_index, pair_index))
+                    continue
+                risk = record.risks[pair_index] if pair_index < len(record.risks) else None
+                # Diagnose the refusal here, where both readings are in hand, so the
+                # export error can say *why* each pair is still open.
+                primary_text = _pair_text(primary_result, pair.primary_line_index)
+                secondary_text = _pair_text(secondary_result, pair.secondary_line_index)
+                unresolved_pairs.append(
+                    UnresolvedPair(
+                        page.page_index,
+                        pair_index,
+                        blockers=machine_blockers(
+                            text=primary_text or secondary_text or "",
+                            risk=risk,
+                            policy=policy,
+                        ),
+                        characters=unrepresentable_characters(
+                            (primary_text or "") + (secondary_text or "")
+                        ),
+                    )
+                )
                 continue
             lines.append(decision.selected_text)
             boxes.append(_pair_box(primary_result, secondary_result, pair))
             roles.append(_pair_role(primary_result, secondary_result, pair))
+            risk = record.risks[pair_index] if pair_index < len(record.risks) else None
+            content_risk = 0.0 if risk is None else risk.content_score
+            if decision.actor == "human":
+                human_accepted += 1
+            else:
+                machine_accepted += 1
+                max_machine_content_risk = max(max_machine_content_risk, content_risk)
+            note = ""
+            if has_unrepresentable_characters(decision.selected_text):
+                note = "accepted text contains a character no export can carry"
+            if note or content_risk >= policy.spot_check_risk:
+                spot_check.append(
+                    SuspectAcceptance(
+                        page_index=page.page_index,
+                        pair_index=pair_index,
+                        actor=decision.actor,
+                        score=content_risk,
+                        reasons=() if risk is None else risk.reasons,
+                        note=note,
+                    )
+                )
         pages.append(
             VerifiedPage(
                 page.page_index,
@@ -103,10 +204,11 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
             )
         )
 
-    if unverified_pages or unresolved_pairs:
+    if unverified_pages or unresolved_pairs or unconfirmed_pages:
         raise UnresolvedContentError(
             unverified_pages=tuple(unverified_pages),
             unresolved_pairs=tuple(unresolved_pairs),
+            unconfirmed_pages=tuple(unconfirmed_pages),
         )
     exportable = {page.page_index for page in pages}
     chapters = tuple(
@@ -126,7 +228,37 @@ def assemble_verified_content(store: SQLiteStore, project_id: int) -> VerifiedBo
         tuple(pages),
         chapters=chapters,
         dropped_furniture=tuple(dropped),
+        confirmed_blank_pages=tuple(confirmed_blank),
+        empty_pairs=tuple(empty_pairs),
+        acceptance=AcceptanceSummary(
+            pages=len(pages),
+            pairs=machine_accepted + human_accepted,
+            machine_accepted=machine_accepted,
+            human_accepted=human_accepted,
+            max_machine_risk=max_machine_content_risk,
+            spot_check=tuple(spot_check),
+        ),
     )
+
+
+def _pair_text(result: PageOCRResult, index: int | None) -> str | None:
+    return None if index is None else result.lines[index].text
+
+
+def _pair_is_empty(
+    primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment
+) -> bool:
+    """True when neither engine returned any text for this pair."""
+
+    texts = [
+        result.lines[index].text
+        for result, index in (
+            (primary, pair.primary_line_index),
+            (secondary, pair.secondary_line_index),
+        )
+        if index is not None
+    ]
+    return bool(texts) and all(not text.strip() for text in texts)
 
 
 def _pair_line(

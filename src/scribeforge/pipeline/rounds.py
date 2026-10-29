@@ -37,6 +37,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scribeforge.adapters.image_crops import materialize_review_crops
+from scribeforge.domain.acceptance import DEFAULT_POLICY, machine_blockers
+from scribeforge.domain.alignment import LineAlignment
 from scribeforge.domain.consensus import Consensus, Reading, consensus
 from scribeforge.domain.crops import plan_region_read
 from scribeforge.domain.decisions import DecisionActor
@@ -44,7 +46,7 @@ from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import project_furniture, review_detail
 from scribeforge.pipeline.vlm_review import ReviewEvidence
-from scribeforge.storage.sqlite import SQLiteStore
+from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
 
 #: Prefix of the scope an engine run gets when it read one line of a page.
@@ -138,6 +140,9 @@ class PairRef:
     page_index: int
     pair_index: int
     score: float = 0.0
+    #: True when the acceptance gate refused to let a machine accept this pair, so
+    #: re-reading it is the only way to settle it without a person.
+    blocked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +182,9 @@ class ProgressReport:
     accepted_human: int
     open_pairs: int
     open_high_risk: int
+    #: Open pairs the acceptance gate refused to a machine. These are the ones a
+    #: person (or another reading) must settle, whatever their numeric score says.
+    open_blocked: int = 0
 
     @property
     def accepted(self) -> int:
@@ -193,6 +201,34 @@ class ProgressReport:
         if not self.pairs:
             return 1.0
         return (self.accepted_automatic + self.accepted_vlm) / self.pairs
+
+
+def _gate_refused(
+    store: SQLiteStore, record: VerificationRecord, pair_index: int, pair: LineAlignment
+) -> bool:
+    """Whether the acceptance gate would refuse a machine acceptance here.
+
+    Asked from persisted evidence only, so the summary agrees with what
+    adjudication actually did rather than with a second, differently-tuned guess.
+    """
+
+    if pair_index >= len(record.risks):
+        return False
+    primary = store.load_ocr_run(record.primary_run_id)
+    secondary = store.load_ocr_run(record.secondary_run_id)
+    texts = [
+        run.lines[index].text
+        for run, index in (
+            (primary, pair.primary_line_index),
+            (secondary, pair.secondary_line_index),
+        )
+        if index is not None
+    ]
+    return bool(
+        machine_blockers(
+            text="".join(texts), risk=record.risks[pair_index], policy=DEFAULT_POLICY
+        )
+    )
 
 
 def open_pairs(store: SQLiteStore, project_id: int) -> tuple[PairRef, ...]:
@@ -215,7 +251,12 @@ def open_pairs(store: SQLiteStore, project_id: int) -> tuple[PairRef, ...]:
                 continue
             if store.latest_decision(project_id, page.page_index, pair_index) is None:
                 refs.append(
-                    PairRef(page.page_index, pair_index, record.risks[pair_index].score)
+                    PairRef(
+                        page.page_index,
+                        pair_index,
+                        record.risks[pair_index].score,
+                        blocked=_gate_refused(store, record, pair_index, pair),
+                    )
                 )
     refs.sort(key=lambda ref: (-ref.score, ref.page_index, ref.pair_index))
     return tuple(refs)
@@ -483,4 +524,5 @@ def progress(
         accepted_human=human,
         open_pairs=len(undecided),
         open_high_risk=sum(1 for ref in undecided if ref.score >= high_risk),
+        open_blocked=sum(1 for ref in undecided if ref.blocked),
     )

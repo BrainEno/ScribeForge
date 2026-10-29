@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from scribeforge.domain.acceptance import DEFAULT_POLICY, AcceptancePolicy
 from scribeforge.domain.alignment import AlignmentConflict
 from scribeforge.domain.crops import review_crop_file_name
 from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
@@ -18,6 +19,13 @@ class AdjudicationResult:
     resolved: tuple[int, ...]
     recorded: int
     unresolved: tuple[int, ...]
+    #: Pairs a rule was willing to accept but the acceptance gate refused: text a
+    #: machine must not certify (a replacement character, too low confidence, or a
+    #: risk score above the policy ceiling). They stay in the review queue.
+    blocked: tuple[int, ...] = ()
+    #: Pairs where both engines reported nothing but an empty line. They are not
+    #: content, so they neither become decisions nor block the page.
+    empty: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +149,8 @@ def adjudicate_verification(
     store: SQLiteStore,
     project_id: int,
     verification_id: int,
+    *,
+    policy: AcceptancePolicy = DEFAULT_POLICY,
 ) -> AdjudicationResult:
     """Resolve a verification run's pairs into the append-only decision layer.
 
@@ -159,6 +169,8 @@ def adjudicate_verification(
 
     resolved: list[int] = []
     unresolved: list[int] = []
+    blocked: list[int] = []
+    empty: list[int] = []
     recorded = 0
 
     for pair_index, pair in enumerate(record.alignment.pairs):
@@ -166,15 +178,29 @@ def adjudicate_verification(
             resolved.append(pair_index)
             continue
 
+        primary_text = _line_text(primary, pair.primary_line_index)
+        secondary_text = _line_text(secondary, pair.secondary_line_index)
+        if _blank_pair(primary_text, secondary_text):
+            # Two readers that both returned an empty line agree on nothing at all.
+            # Accepting "" would put an invented empty paragraph in the export and
+            # (worse) let a page that simply failed to OCR look like a blank leaf.
+            empty.append(pair_index)
+            continue
+
         reading = readings.get(pair_index)
+        risk = record.risks[pair_index] if pair_index < len(record.risks) else None
         adjudication = adjudicate_pair(
-            _line_text(primary, pair.primary_line_index),
-            _line_text(secondary, pair.secondary_line_index),
+            primary_text,
+            secondary_text,
             None if reading is None else reading.reading,
+            risk=risk,
+            policy=policy,
         )
         selected_text = adjudication.selected_text
         actor = adjudication.actor
         if selected_text is None or actor is None:
+            if adjudication.blocked:
+                blocked.append(pair_index)
             unresolved.append(pair_index)
             continue
 
@@ -185,20 +211,43 @@ def adjudicate_verification(
             selected_text=selected_text,
             actor=actor.value,
             evidence_refs=_evidence_refs(record, reading),
+            risk_score=None if risk is None else risk.score,
+            risk_reasons=tuple(reason.value for reason in risk.reasons)
+            if risk is not None
+            else (),
         )
         resolved.append(pair_index)
         recorded += 1
 
-    return AdjudicationResult(page_index, tuple(resolved), recorded, tuple(unresolved))
+    return AdjudicationResult(
+        page_index,
+        tuple(resolved),
+        recorded,
+        tuple(unresolved),
+        blocked=tuple(blocked),
+        empty=tuple(empty),
+    )
+
+
+def _blank_pair(primary_text: str | None, secondary_text: str | None) -> bool:
+    """True when neither reader produced any text for this pair."""
+
+    return all(text is not None and not text.strip() for text in (primary_text, secondary_text))
 
 
 def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
-    """List review candidates that still lack an accepted decision.
+    """List every pair that still lacks an accepted decision.
 
-    Running heads and folios are excluded: they are not content, they repeat on
-    every page, and queuing them buries the real disagreements under dozens of
-    identical "V." prompts. The detection is book-wide, so it cannot be applied
-    while a single page is being processed.
+    The queue is defined by *what is missing*, not by which pairs happened to clear
+    the review-candidate score threshold. That distinction matters: a pair the
+    acceptance gate refused for low confidence can score below the candidate
+    threshold, and a queue built from candidates would then report "0 queued" while
+    export stays blocked — a dead end with nothing to click (issue #75).
+
+    Running heads and folios are excluded (they are not content), and so are pairs
+    where both engines returned an empty line (there is nothing to transcribe;
+    confirmed-blank handling covers the page, see issue #74). Book-wide furniture
+    detection is why this cannot be computed one page at a time.
     """
 
     furniture = project_furniture(store, project_id)
@@ -209,23 +258,32 @@ def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
         except KeyError:
             continue
         record = store.load_verification(verification_id)
+        primary = store.load_ocr_run(record.primary_run_id)
+        secondary = store.load_ocr_run(record.secondary_run_id)
         page_furniture = furniture.get(page.page_index, {})
-        for candidate in record.candidates:
-            pair = record.alignment.pairs[candidate.pair_index]
+        for pair_index, pair in enumerate(record.alignment.pairs):
             if any(
                 index is not None and index in page_furniture
                 for index in (pair.primary_line_index, pair.secondary_line_index)
             ):
                 continue
-            if store.latest_decision(project_id, page.page_index, candidate.pair_index) is None:
-                items.append(
-                    ReviewItem(
-                        page_index=page.page_index,
-                        pair_index=candidate.pair_index,
-                        score=candidate.score,
-                        reasons=candidate.reasons,
-                    )
+            if store.latest_decision(project_id, page.page_index, pair_index) is not None:
+                continue
+            if _blank_pair(
+                _line_text(primary, pair.primary_line_index),
+                _line_text(secondary, pair.secondary_line_index),
+            ):
+                continue
+            risk = record.risks[pair_index]
+            items.append(
+                ReviewItem(
+                    page_index=page.page_index,
+                    pair_index=pair_index,
+                    score=risk.score,
+                    reasons=risk.reasons,
                 )
+            )
+    items.sort(key=lambda item: (-item.score, item.page_index, item.pair_index))
     return tuple(items)
 
 

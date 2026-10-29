@@ -3,7 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from scribeforge.domain.acceptance import (
+    DEFAULT_POLICY,
+    AcceptancePolicy,
+    describe_blockers,
+    machine_blockers,
+)
 from scribeforge.domain.normalize import is_variant_only_difference
+from scribeforge.domain.risk import PairRisk
 from scribeforge.domain.vlm import VLMReading
 
 
@@ -24,16 +31,32 @@ class PairAdjudication:
     selected_text: str | None
     actor: DecisionActor | None
     rationale: str
+    #: Why the acceptance gate refused this pair even though a rule produced text.
+    #: Empty when the pair was accepted or when no rule produced text at all.
+    blockers: tuple[str, ...] = ()
 
     @property
     def resolved(self) -> bool:
         return self.selected_text is not None
+
+    @property
+    def blocked(self) -> bool:
+        """True when a rule accepted the text but the gate refused it."""
+
+        return bool(self.blockers)
+
+    @property
+    def blocked_reason(self) -> str:
+        return describe_blockers(self.blockers)
 
 
 def adjudicate_pair(
     primary_text: str | None,
     secondary_text: str | None,
     vlm: VLMReading | None,
+    *,
+    risk: PairRisk | None = None,
+    policy: AcceptancePolicy = DEFAULT_POLICY,
 ) -> PairAdjudication:
     """Turn a verified pair into an accepted-text decision from cited evidence.
 
@@ -50,7 +73,9 @@ def adjudicate_pair(
         return PairAdjudication(None, None, "no_engine_text")
 
     if primary_text is not None and primary_text == secondary_text:
-        return PairAdjudication(primary_text, DecisionActor.AUTOMATIC, "engines_agree")
+        return _gated(
+            primary_text, DecisionActor.AUTOMATIC, "engines_agree", risk, policy
+        )
 
     if (
         primary_text is not None
@@ -60,8 +85,8 @@ def adjudicate_pair(
         # The engines agree on the text modulo orthography. Accept the primary
         # engine's literal characters — never a folded or "corrected" form — and
         # record why, so the choice is reviewable rather than silent.
-        return PairAdjudication(
-            primary_text, DecisionActor.AUTOMATIC, "variant_agreement"
+        return _gated(
+            primary_text, DecisionActor.AUTOMATIC, "variant_agreement", risk, policy
         )
 
     if vlm is None:
@@ -82,4 +107,26 @@ def adjudicate_pair(
         # engines and a model all disagree, so there is no independent agreement to
         # accept, only three claims. It goes to a person.
         return PairAdjudication(None, None, "vlm_uncorroborated")
-    return PairAdjudication(vlm.text, DecisionActor.VLM, "vlm_confident")
+    return _gated(vlm.text, DecisionActor.VLM, "vlm_confident", risk, policy)
+
+
+def _gated(
+    text: str,
+    actor: DecisionActor,
+    rationale: str,
+    risk: PairRisk | None,
+    policy: AcceptancePolicy,
+) -> PairAdjudication:
+    """Accept ``text`` unless the evidence gate says a person must decide.
+
+    Agreement and VLM corroboration answer "do independent readers agree?"; the
+    gate answers a second, independent question: "is this text fit to accept
+    without a person?". A pair that fails the second question stays unresolved
+    even when the first says yes — a replacement character both engines produced
+    is still not text (issue #75).
+    """
+
+    blockers = machine_blockers(text=text, risk=risk, policy=policy)
+    if blockers:
+        return PairAdjudication(None, None, rationale, blockers=blockers)
+    return PairAdjudication(text, actor, rationale)

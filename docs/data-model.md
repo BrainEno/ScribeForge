@@ -13,7 +13,8 @@ Core entities:
 - `risks`: reason codes and score for an aligned pair
 - `review_candidates`: risky evidence regions queued for VLM/human review
 - `vlm_reviews`: append-only literal VLM readings linked to one persisted review candidate, including model identity and crop SHA-256
-- `decisions`: accepted text, actor (automatic/VLM/human), timestamp, rationale/evidence refs
+- `decisions`: accepted text, actor (automatic/VLM/human), timestamp, rationale/evidence refs, and the risk score/reasons that were in force when it was accepted
+- `page_confirmations`: append-only statements that a page has no text (blank leaf or plate), with actor, reason, optional ink ratio
 - `jobs`: stage, page scope, state, attempts, error, timing
 - `exports`: format, verified revision, path/hash
 
@@ -43,6 +44,24 @@ round. Region runs are evidence in their own right (they can support an accepted
 decision) but are deliberately invisible to `latest_engine_run`, so a one-line
 re-read can never masquerade as the newest reading of a page.
 
+Schema version 9 adds what the [acceptance gate](./acceptance-gate.md) reads and
+what it must be able to explain later:
+
+- `risks.min_confidence` — the lower of the two readers' confidences (`NULL` when
+  neither reported one), and `risks.content_score` — the part of the risk score that
+  comes from evidence quality rather than structural disagreement. Persisting both is
+  not optional: a gate that recomputes from an in-memory structure reads
+  "no risk" after a reload and silently stops blocking.
+- `decisions.risk_score` / `decisions.risk_reasons_json` — the risk a decision was
+  accepted under. Policies change; a decision must keep the basis it was judged on.
+- `page_confirmations` — append-only confirmation that a page carries no text
+  (`kind` in `blank`/`non_text`, `actor` in `human`/`evidence`, free-text `reason`,
+  optional `ink_ratio`). Two engines returning nothing is also what a crash looks
+  like, so this fact needs a named source.
+
+Version 8 databases migrate forward to 9 without deleting any project, OCR,
+verification, or decision evidence.
+
 `exports` remains planned and will be added through a later versioned migration rather than a destructive database reset.
 
 ## Decision resolution
@@ -61,4 +80,12 @@ Re-running adjudication is idempotent because a pair that already has a decision
 
 A human resolves a pair by appending a `decisions` row with `actor = human` (`record_human_decision`, exposed as `scribeforge resolve`). It cites the same evidence and, being newest, becomes the pair's latest decision while earlier rows are preserved, so a human can correct an `automatic` or `vlm` acceptance without mutating any engine, verification, or VLM evidence row.
 
-Export reads only this decision layer: `assemble_verified_content` takes the newest decision per pair and blocks when any page or pair is unresolved, so the reader output is always derived from accepted, cited evidence rather than raw OCR.
+`adjudicate_pair` additionally passes every automatic path through the
+[acceptance gate](./acceptance-gate.md): agreement no longer suffices when the
+accepted text is unrepresentable (`U+FFFD`, control characters), when the worst
+reader admits low confidence, or when the pair's content risk exceeds the policy
+ceiling. Blocked pairs are recorded as unresolved and stay in `review_queue`, which
+lists **every undecided pair** rather than only score-thresholded candidates — a
+queue built from candidates could report "0 queued" while export stayed blocked.
+
+Export reads only this decision layer: `assemble_verified_content` takes the newest decision per pair and blocks when any page or pair is unresolved, so the reader output is always derived from accepted, cited evidence rather than raw OCR. It also blocks a page that produced zero aligned pairs until `page_confirmations` records why (`scribeforge confirm`), because "no pairs" is equally the signature of a failed read.
