@@ -1,5 +1,6 @@
 import 'dart:ui' show Size;
 
+import 'package:flutter/material.dart' show CheckboxListTile;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/main.dart';
 
@@ -141,13 +142,12 @@ void main() {
 
         await tester.tap(find.text('EPUB 3'));
         await tester.pumpAndSettle();
+        await tester.tap(find.text('DOCX'));
+        await tester.pumpAndSettle();
 
-        // Then: the dropdown shows DOCX after selection (simulated by tapping)
-        // Note: the actual dropdown selection requires opening the overlay;
-        // here we verify the dropdown widget itself renders both options.
-        expect(find.text('EPUB 3'), findsOneWidget);
+        // Then: DOCX is the selected export format
         expect(find.text('DOCX'), findsOneWidget);
-
+        expect(find.text('EPUB 3'), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );
@@ -168,12 +168,18 @@ void main() {
         await tester.tap(find.text('导出'));
         await tester.pumpAndSettle();
 
+        final checkboxFinder = find.ancestor(
+          of: find.text('严格接受校验'),
+          matching: find.byType(CheckboxListTile),
+        );
+        expect(checkboxFinder, findsOneWidget);
+        expect(tester.widget<CheckboxListTile>(checkboxFinder).value, isFalse);
+
         await tester.tap(find.text('严格接受校验'));
         await tester.pumpAndSettle();
 
-        // Then: the checkbox is toggled (no exception thrown)
-        expect(find.text('严格接受校验'), findsOneWidget);
-
+        // Then: the strict acceptance setting changes in the actual widget state
+        expect(tester.widget<CheckboxListTile>(checkboxFinder).value, isTrue);
         expect(tester.takeException(), isNull);
       },
     );

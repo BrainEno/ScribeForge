@@ -765,7 +765,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         DropdownButtonFormField<String>(
-          value: _exportFormatEpub ? 'epub' : 'docx',
+          initialValue: _exportFormatEpub ? 'epub' : 'docx',
           items: <DropdownMenuItem<String>>[
             DropdownMenuItem(value: 'epub', child: const Text('EPUB 3')),
             DropdownMenuItem(value: 'docx', child: const Text('DOCX')),
@@ -799,13 +799,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         ),
         const SizedBox(height: 12),
         CheckboxListTile(
-          initialValue: _exportLayoutChapter,
+          value: _exportLayoutChapter,
           title: const Text('按章节布局（EPUB）'),
           subtitle: const Text('关闭后每页一个文档（便于核对扫描）'),
           onChanged: (v) => setState(() => _exportLayoutChapter = v ?? true),
         ),
         CheckboxListTile(
-          initialValue: _exportStrictAcceptance,
+          value: _exportStrictAcceptance,
           title: const Text('严格接受校验'),
           subtitle: const Text('有待抽查的配对时拒绝导出（退出码 2）'),
           onChanged: (v) => setState(() => _exportStrictAcceptance = v ?? false),
