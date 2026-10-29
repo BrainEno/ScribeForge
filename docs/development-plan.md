@@ -65,5 +65,56 @@ EPUB 3 + DOCX generated from verified structured content, validation tests and m
 
 EPUB 3 export is now wired: `assemble_verified_content` composes a `VerifiedBook` from the newest accepted decision for every pair, refusing to assemble while any page is unverified or any pair is unresolved. `scribeforge.adapters.epub` renders that book as a deterministic EPUB 3 archive (stored `mimetype`, container, package, nav, one XHTML per page) with XML-escaped text, and `write_epub` replaces the destination atomically. `scribeforge.adapters.docx` writes the same book as a deterministic WordprocessingML package (`[Content_Types].xml`, package relationships, `word/document.xml`, `docProps/core.xml`), one paragraph per accepted line and an explicit page break between pages; both adapters share fixed zip timestamps, atomic replacement, and metadata validation through `scribeforge.adapters.export_common`. `scribeforge export --store <dir> --out <file> [--language <tag>]` selects the format from the extension and exits `2` rather than exporting a partial book. Export metadata is overridable: `--title`, `--author` (written as `dc:creator` in both formats), and `--modified` (ISO 8601, naive values treated as UTC) for byte-reproducible builds. Both exporters reject characters XML 1.0 cannot represent, naming the offending page and line, instead of writing an archive no reader can open. Each build is then re-read by `scribeforge.adapters.export_check`, which verifies archive structure, manifest/relationship targets, spine order, and that every page reproduces its accepted lines exactly. The Flutter desktop workspace now exposes this verified export path with a metadata dialog for EPUB 3/DOCX, language, title, author, and an optional fixed ISO 8601 modification timestamp. It calls the same CLI/export validators as command-line use, refuses a source-identity mismatch, and does not confuse unverified A/B candidate exports with the accepted final text. Remaining work includes pipeline-level benchmark variants C/D, a real corpus report, and richer faithful source EPUB layout rendering.
 
+## Phase 5 — ancient books and old-edition scans (current top priority)
+
+A 2026-10-28 review against `benchmark/V..pdf` (562 pages) plus a full source audit
+established that the pipeline handles clean modern print and book-scale
+processing but not complex-layout, non-standard, low-quality scans of ancient
+books and old editions. Old-book/ancient-book recognition with faithful EPUB and
+DOCX output is now the primary development goal.
+
+Four P0 gaps block that claim:
+
+1. **No image preprocessing layer.** PDF pages are rasterized and handed straight
+   to OCR engines: no deskew, deshadow, binarization, denoise or resolution
+   adaptation. Old-book scans are routinely skewed, shadowed and faded.
+2. **No vertical / right-to-left support.** Alignment matches on Y-axis centre
+   distance, which is semantically wrong for vertical columns — the mainstream
+   layout of ancient Chinese books.
+3. **Layout analysis is delegated entirely to MinerU's `basic` tier.** The worker
+   flattens each MinerU block into a single "line" with an empty token list, so
+   multi-column pages, mixed text/figure pages, marginalia, character-level
+   confidence and precise review crops are all unavailable.
+4. **No chapter or printed-page model.** `pages` has only a physical index;
+   EPUB navigates "Page 1…Page N"; documents whose sections restart page
+   numbering, and blank/cover/front-matter pages, cannot be represented.
+
+Two defects found by the same review were fixed with regression tests:
+
+- `normalize_polygon` and `mineru_worker._box` produced out-of-range geometry for
+  block polygons that cross the page edge or carry negative coordinates after
+  deskew, which made `BoundingBox` reject the whole page. Both now clamp.
+- `align_pages` computed text similarity for every line pair before applying the
+  cheap vertical-distance filter. Moving the geometric rejection first made
+  dense-page alignment up to 27× faster (80 lines: 1018 ms → 37 ms) with
+  identical matching results.
+
+Status as of 2026-10-29: the preprocessing layer (#85), worker contract v2
+(#86), chapter/printed-page/role model (#87), glyph-variant comparison layer
+(#88) and page-furniture removal (#89) are implemented and covered by tests; the
+engine route (#90) is documented in [Technology route](./technology-route.md),
+with PaddleOCR-VL and Surya adoption still to be executed (stages R1–R2).
+
+What remains genuinely open is vertical text: `align_pages` still pairs lines on
+Y-axis centre distance, which is semantically wrong for vertical columns, and no
+vertical/ traditional-character benchmark corpus exists yet. Until a real vertical
+scan is measured, the README gate stands: ancient-book support must not be claimed.
+
+Staged plan and gates: see [Ancient book support](./ancient-book-support.md) §8.
+The P0 gate — preprocessing, worker contract v2, vertical text, and
+chapter/page model, then a measurable run on a real traditional-character
+vertical ancient-book scan — must pass before user-facing material claims
+ancient-book support.
+
 ## Later
 Speech-to-text and text-to-speech may join the same text library only after book digitization is reliable.

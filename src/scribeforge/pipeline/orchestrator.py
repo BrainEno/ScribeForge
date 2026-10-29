@@ -10,9 +10,11 @@ from scribeforge.domain.alignment import align_pages
 from scribeforge.domain.crops import plan_review_crops
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import OCREngine
+from scribeforge.domain.preprocess import PreprocessSettings
 from scribeforge.domain.risk import assess_page, review_candidates
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import adjudicate_verification
+from scribeforge.pipeline.preprocessing import preprocess_page
 from scribeforge.pipeline.vlm_review import review_pending_candidates
 from scribeforge.storage.sqlite import PageRecord, SQLiteStore
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
@@ -73,11 +75,29 @@ def process_page(
     secondary_engine: OCREngine,
     reviewer: VLMReviewer | None = None,
     crops_dir: Path,
+    preprocess: PreprocessSettings | None = None,
 ) -> PageOutcome:
     """Run every remaining pipeline stage for one page, resumably and page-granular."""
 
     page_index = page.page_index
     image_path = page.source_image
+    image_width = page.width
+    image_height = page.height
+
+    if preprocess is not None:
+        prepared = preprocess_page(
+            store,
+            project_id,
+            page,
+            preprocess,
+            assets_dir=crops_dir.parent / "preprocessed",
+        )
+        # Both the engines and the review crops must read the same frame, or the
+        # normalized boxes the engines report will not line up with the pixels a
+        # reviewer is shown.
+        image_path = str(prepared.image_path)
+        image_width = prepared.width
+        image_height = prepared.height
 
     def compute_primary() -> None:
         store.record_ocr(
@@ -136,7 +156,7 @@ def process_page(
             record = store.load_verification(verification_id)
             if not record.candidates:
                 return
-            plans = plan_review_crops(record.candidates, page.width, page.height)
+            plans = plan_review_crops(record.candidates, image_width, image_height)
             crop_paths = materialize_review_crops(Path(image_path), plans, crops_dir)
             state = SQLiteVLMReviewState(store, verification_id)
             review_pending_candidates(record.candidates, crop_paths, reviewer, state)
@@ -171,6 +191,7 @@ def process_book(
     secondary_engine: OCREngine,
     reviewer: VLMReviewer | None = None,
     crops_dir: Path,
+    preprocess: PreprocessSettings | None = None,
 ) -> BookOutcome:
     """Process every imported page; a failed page never stops the rest of the book."""
 
@@ -187,6 +208,7 @@ def process_book(
                     secondary_engine=secondary_engine,
                     reviewer=reviewer,
                     crops_dir=crops_dir,
+                    preprocess=preprocess,
                 )
             )
         except Exception as exc:  # noqa: BLE001 - one bad page must not stop the book

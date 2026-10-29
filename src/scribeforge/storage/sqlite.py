@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,8 +15,24 @@ from scribeforge.domain.alignment import (
     PageAlignment,
 )
 from scribeforge.domain.jobs import JobRecord, JobStage, JobState
-from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
+from scribeforge.domain.ocr import (
+    BlockType,
+    BoundingBox,
+    OCRBlock,
+    OCRLine,
+    OCRToken,
+    PageDirection,
+    PageOCRResult,
+)
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
+from scribeforge.domain.structure import (
+    BookStructure,
+    Chapter,
+    NumberingScheme,
+    PageLabel,
+    PageRole,
+    PageStructure,
+)
 from scribeforge.domain.vlm import VLMReading
 
 
@@ -52,6 +68,22 @@ class PageRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class PreprocessRecord:
+    """Stored preprocessing evidence for one page."""
+
+    page_index: int
+    settings: dict[str, Any]
+    applied: tuple[str, ...]
+    measured_skew_degrees: float
+    output_image: str
+    output_sha256: str
+    output_width: int
+    output_height: int
+    notes: dict[str, Any]
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class VerificationRecord:
     id: int
     primary_run_id: int
@@ -73,7 +105,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 6
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -110,6 +142,12 @@ class SQLiteStore:
             if version < 4:
                 self._create_v4(connection)
                 connection.execute("PRAGMA user_version = 4")
+            if version < 5:
+                self._create_v5(connection)
+                connection.execute("PRAGMA user_version = 5")
+            if version < 6:
+                self._create_v6(connection)
+                connection.execute("PRAGMA user_version = 6")
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -301,6 +339,154 @@ class SQLiteStore:
                 ON jobs(project_id, stage, COALESCE(page_id, -1));
             CREATE INDEX IF NOT EXISTS idx_jobs_resumable
                 ON jobs(project_id, state, id);
+            """
+        )
+
+    @staticmethod
+    def _create_v5(connection: sqlite3.Connection) -> None:
+        """Add the preprocessing stage and its per-page evidence.
+
+        SQLite cannot alter a CHECK constraint, and the v4 ``jobs.stage`` check
+        lists every allowed stage literally. Adding ``preprocess`` therefore
+        requires rebuilding the table: create the new shape, copy the rows,
+        drop the old table, rename, and recreate the indexes.
+        """
+
+        connection.executescript(
+            """
+            CREATE TABLE jobs_v5 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+                page_id INTEGER REFERENCES pages(id) ON DELETE RESTRICT,
+                stage TEXT NOT NULL CHECK(
+                    stage IN (
+                        'import', 'preprocess', 'primary_ocr',
+                        'secondary_ocr', 'verify', 'vlm_review'
+                    )
+                ),
+                state TEXT NOT NULL DEFAULT 'pending' CHECK(
+                    state IN ('pending', 'running', 'succeeded', 'failed')
+                ),
+                attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+                last_error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                started_at TEXT,
+                finished_at TEXT,
+                CHECK(
+                    (stage = 'import' AND page_id IS NULL)
+                    OR
+                    (stage != 'import' AND page_id IS NOT NULL)
+                )
+            );
+
+            INSERT INTO jobs_v5 (
+                id, project_id, page_id, stage, state, attempts, last_error,
+                created_at, started_at, finished_at
+            )
+            SELECT
+                id, project_id, page_id, stage, state, attempts, last_error,
+                created_at, started_at, finished_at
+            FROM jobs;
+
+            DROP TABLE jobs;
+            ALTER TABLE jobs_v5 RENAME TO jobs;
+
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_scope_stage
+                ON jobs(project_id, stage, COALESCE(page_id, -1));
+            CREATE INDEX IF NOT EXISTS idx_jobs_resumable
+                ON jobs(project_id, state, id);
+
+            CREATE TABLE IF NOT EXISTS page_preprocess (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                page_id INTEGER NOT NULL UNIQUE
+                    REFERENCES pages(id) ON DELETE RESTRICT,
+                settings_json TEXT NOT NULL,
+                applied_json TEXT NOT NULL,
+                measured_skew_degrees REAL NOT NULL,
+                output_image TEXT NOT NULL,
+                output_sha256 TEXT NOT NULL,
+                output_width INTEGER NOT NULL CHECK(output_width > 0),
+                output_height INTEGER NOT NULL CHECK(output_height > 0),
+                notes_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+
+    @staticmethod
+    def _create_v6(connection: sqlite3.Connection) -> None:
+        """Add page roles, printed page labels and the chapter tree.
+
+        Printed page numbers are stored beside the physical ``page_index`` rather
+        than replacing it: the physical index is what every OCR, risk and decision
+        row references, while the printed label is what a reader or a citation
+        uses. This book restarts its numbering per section, so a label needs the
+        numbering run it belongs to in order to stay unambiguous.
+        """
+
+        connection.executescript(
+            """
+            ALTER TABLE engine_runs ADD COLUMN direction TEXT;
+            ALTER TABLE ocr_lines ADD COLUMN confidence REAL;
+
+            CREATE TABLE IF NOT EXISTS ocr_blocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL REFERENCES engine_runs(id) ON DELETE RESTRICT,
+                block_index INTEGER NOT NULL CHECK(block_index >= 0),
+                block_type TEXT NOT NULL,
+                x REAL NOT NULL,
+                y REAL NOT NULL,
+                width REAL NOT NULL,
+                height REAL NOT NULL,
+                line_start INTEGER NOT NULL CHECK(line_start >= 0),
+                line_end INTEGER NOT NULL CHECK(line_end > line_start),
+                UNIQUE(run_id, block_index)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ocr_blocks_run
+                ON ocr_blocks(run_id, block_index);
+
+            CREATE TABLE IF NOT EXISTS page_structure (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                page_id INTEGER NOT NULL UNIQUE
+                    REFERENCES pages(id) ON DELETE RESTRICT,
+                role TEXT NOT NULL CHECK(
+                    role IN (
+                        'cover', 'front_matter', 'copyright', 'table_of_contents',
+                        'body', 'plate', 'blank', 'back_matter', 'unknown'
+                    )
+                ),
+                printed_label TEXT NOT NULL DEFAULT '',
+                numbering_scheme TEXT NOT NULL DEFAULT 'none' CHECK(
+                    numbering_scheme IN (
+                        'none', 'arabic', 'roman_lower', 'roman_upper', 'cjk', 'unknown'
+                    )
+                ),
+                sequence_number INTEGER CHECK(
+                    sequence_number IS NULL OR sequence_number > 0
+                ),
+                sequence_ordinal INTEGER,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CHECK(
+                    (numbering_scheme = 'none' AND printed_label = '')
+                    OR (numbering_scheme != 'none' AND printed_label != '')
+                )
+            );
+
+            CREATE TABLE IF NOT EXISTS chapters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+                ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+                level INTEGER NOT NULL CHECK(level >= 1),
+                title TEXT NOT NULL CHECK(length(trim(title)) > 0),
+                start_page_index INTEGER NOT NULL CHECK(start_page_index >= 0),
+                printed_page TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(project_id, ordinal)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_chapters_project_start
+                ON chapters(project_id, start_page_index, ordinal);
             """
         )
 
@@ -576,6 +762,32 @@ class SQLiteStore:
             )
             return self._job_record(self._job_row(connection, job_id))
 
+    def reopen_job(self, job_id: int, reason: str) -> JobRecord:
+        """Return a succeeded job to pending so its stage can run again.
+
+        Needed when the job's own record says a stage succeeded but the evidence
+        it should have produced is missing or was overwritten — a restored
+        backup, a deleted asset directory, or settings the operator deliberately
+        changed. The reason is preserved so the re-run is explainable.
+        """
+
+        reason = reason.strip()
+        if not reason:
+            raise ValueError("reopen reason must not be blank")
+        with self._connection() as connection:
+            current = self._job_record(self._job_row(connection, job_id))
+            if current.state is not JobState.SUCCEEDED:
+                raise ValueError("only a succeeded job can be reopened")
+            connection.execute(
+                """
+                UPDATE jobs
+                SET state = 'pending', last_error = ?, finished_at = NULL
+                WHERE id = ?
+                """,
+                (reason, job_id),
+            )
+            return self._job_record(self._job_row(connection, job_id))
+
     def fail_job(self, job_id: int, error: str) -> JobRecord:
         error = error.strip()
         if not error:
@@ -631,23 +843,256 @@ class SQLiteStore:
             ).fetchall()
             return tuple(self._job_record(row) for row in rows)
 
+    def record_preprocess(
+        self,
+        project_id: int,
+        page_index: int,
+        *,
+        settings: Mapping[str, object],
+        applied: tuple[str, ...],
+        measured_skew_degrees: float,
+        output_image: str,
+        output_sha256: str,
+        output_width: int,
+        output_height: int,
+        notes: Mapping[str, object],
+    ) -> int:
+        """Persist the preprocessing evidence for one page, replacing any prior run.
+
+        Re-running with different settings must overwrite rather than accumulate:
+        only the raster the OCR engines actually consumed is meaningful, and two
+        conflicting rows would leave no way to tell which one that was.
+        """
+
+        if output_width <= 0 or output_height <= 0:
+            raise ValueError("preprocessed page dimensions must be positive")
+        with self._connection() as connection:
+            page_id = self._page_id(connection, project_id, page_index)
+            connection.execute(
+                """
+                INSERT INTO page_preprocess(
+                    page_id, settings_json, applied_json, measured_skew_degrees,
+                    output_image, output_sha256, output_width, output_height,
+                    notes_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(page_id) DO UPDATE SET
+                    settings_json = excluded.settings_json,
+                    applied_json = excluded.applied_json,
+                    measured_skew_degrees = excluded.measured_skew_degrees,
+                    output_image = excluded.output_image,
+                    output_sha256 = excluded.output_sha256,
+                    output_width = excluded.output_width,
+                    output_height = excluded.output_height,
+                    notes_json = excluded.notes_json,
+                    created_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    page_id,
+                    json.dumps(dict(settings), sort_keys=True),
+                    json.dumps(list(applied)),
+                    float(measured_skew_degrees),
+                    output_image,
+                    output_sha256,
+                    int(output_width),
+                    int(output_height),
+                    json.dumps(dict(notes), sort_keys=True),
+                ),
+            )
+            return page_id
+
+    def load_preprocess(
+        self, project_id: int, page_index: int
+    ) -> PreprocessRecord | None:
+        """Return the stored preprocessing evidence, or ``None`` if absent."""
+
+        with self._connection() as connection:
+            page_id = self._page_id(connection, project_id, page_index)
+            row = connection.execute(
+                """
+                SELECT settings_json, applied_json, measured_skew_degrees,
+                       output_image, output_sha256, output_width, output_height,
+                       notes_json, created_at
+                FROM page_preprocess
+                WHERE page_id = ?
+                """,
+                (page_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return PreprocessRecord(
+                page_index=page_index,
+                settings=json.loads(str(row["settings_json"])),
+                applied=tuple(json.loads(str(row["applied_json"]))),
+                measured_skew_degrees=float(row["measured_skew_degrees"]),
+                output_image=str(row["output_image"]),
+                output_sha256=str(row["output_sha256"]),
+                output_width=int(row["output_width"]),
+                output_height=int(row["output_height"]),
+                notes=json.loads(str(row["notes_json"])),
+                created_at=str(row["created_at"]),
+            )
+
+    def record_page_structure(
+        self,
+        project_id: int,
+        structures: tuple[PageStructure, ...],
+    ) -> None:
+        """Replace the stored page roles and printed labels for a project.
+
+        A structure pass is a whole-book decision (numbering sequences only make
+        sense across pages), so it replaces rather than accumulates: partial rows
+        from an earlier heuristic would contradict the new ones with no way to
+        tell which is authoritative.
+        """
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            page_ids = {
+                int(row["page_index"]): int(row["id"])
+                for row in connection.execute(
+                    "SELECT id, page_index FROM pages WHERE project_id = ?",
+                    (project_id,),
+                )
+            }
+            for structure in structures:
+                page_id = page_ids.get(structure.page_index)
+                if page_id is None:
+                    raise KeyError(f"unknown page index: {structure.page_index}")
+                connection.execute(
+                    """
+                    INSERT INTO page_structure(
+                        page_id, role, printed_label, numbering_scheme,
+                        sequence_number, sequence_ordinal
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(page_id) DO UPDATE SET
+                        role = excluded.role,
+                        printed_label = excluded.printed_label,
+                        numbering_scheme = excluded.numbering_scheme,
+                        sequence_number = excluded.sequence_number,
+                        sequence_ordinal = excluded.sequence_ordinal,
+                        created_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        page_id,
+                        structure.role.value,
+                        structure.label.printed_label,
+                        structure.label.scheme.value,
+                        structure.label.sequence,
+                        structure.label.sequence_ordinal,
+                    ),
+                )
+
+    def record_chapters(self, project_id: int, chapters: tuple[Chapter, ...]) -> None:
+        """Replace the chapter tree for a project."""
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            connection.execute("DELETE FROM chapters WHERE project_id = ?", (project_id,))
+            for chapter in chapters:
+                connection.execute(
+                    """
+                    INSERT INTO chapters(
+                        project_id, ordinal, level, title, start_page_index, printed_page
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        project_id,
+                        chapter.ordinal,
+                        chapter.level,
+                        chapter.title,
+                        chapter.start_page_index,
+                        chapter.printed_page,
+                    ),
+                )
+
+    def load_book_structure(self, project_id: int) -> BookStructure:
+        """Return the stored structure, with defaults for pages never classified."""
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            page_rows = connection.execute(
+                """
+                SELECT pages.page_index AS page_index,
+                       page_structure.role AS role,
+                       page_structure.printed_label AS printed_label,
+                       page_structure.numbering_scheme AS numbering_scheme,
+                       page_structure.sequence_number AS sequence_number,
+                       page_structure.sequence_ordinal AS sequence_ordinal
+                FROM pages
+                LEFT JOIN page_structure ON page_structure.page_id = pages.id
+                WHERE pages.project_id = ?
+                ORDER BY pages.page_index
+                """,
+                (project_id,),
+            ).fetchall()
+            chapter_rows = connection.execute(
+                """
+                SELECT ordinal, level, title, start_page_index, printed_page
+                FROM chapters
+                WHERE project_id = ?
+                ORDER BY start_page_index, ordinal
+                """,
+                (project_id,),
+            ).fetchall()
+
+        pages: list[PageStructure] = []
+        for row in page_rows:
+            scheme = (
+                NumberingScheme.NONE
+                if row["numbering_scheme"] is None
+                else NumberingScheme(str(row["numbering_scheme"]))
+            )
+            label = PageLabel(
+                printed_label=str(row["printed_label"] or ""),
+                scheme=scheme,
+                sequence=(
+                    None if row["sequence_number"] is None else int(row["sequence_number"])
+                ),
+                sequence_ordinal=(
+                    None if row["sequence_ordinal"] is None else int(row["sequence_ordinal"])
+                ),
+            )
+            pages.append(
+                PageStructure(
+                    page_index=int(row["page_index"]),
+                    role=(
+                        PageRole.UNKNOWN
+                        if row["role"] is None
+                        else PageRole(str(row["role"]))
+                    ),
+                    label=label,
+                )
+            )
+
+        chapters = tuple(
+            Chapter(
+                ordinal=int(row["ordinal"]),
+                level=int(row["level"]),
+                title=str(row["title"]),
+                start_page_index=int(row["start_page_index"]),
+                printed_page=str(row["printed_page"]),
+            )
+            for row in chapter_rows
+        )
+        return BookStructure(tuple(pages), chapters)
+
     def record_ocr(self, project_id: int, result: PageOCRResult) -> int:
         with self._connection() as connection:
             page_id = self._page_id(connection, project_id, result.page_index)
             cursor = connection.execute(
                 """
-                INSERT INTO engine_runs(page_id, engine, engine_version)
-                VALUES (?, ?, ?)
+                INSERT INTO engine_runs(page_id, engine, engine_version, direction)
+                VALUES (?, ?, ?, ?)
                 """,
-                (page_id, result.engine, result.engine_version),
+                (page_id, result.engine, result.engine_version, result.direction.value),
             )
             run_id = self._last_id(cursor)
             for line_index, line in enumerate(result.lines):
                 line_cursor = connection.execute(
                     """
                     INSERT INTO ocr_lines(
-                        run_id, line_index, text, x, y, width, height
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        run_id, line_index, text, x, y, width, height, confidence
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -657,6 +1102,7 @@ class SQLiteStore:
                         line.box.y,
                         line.box.width,
                         line.box.height,
+                        line.confidence,
                     ),
                 )
                 line_id = self._last_id(line_cursor)
@@ -678,13 +1124,34 @@ class SQLiteStore:
                             token.box.height,
                         ),
                     )
+            for block_index, block in enumerate(result.blocks):
+                connection.execute(
+                    """
+                    INSERT INTO ocr_blocks(
+                        run_id, block_index, block_type, x, y, width, height,
+                        line_start, line_end
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        run_id,
+                        block_index,
+                        block.block_type.value,
+                        block.box.x,
+                        block.box.y,
+                        block.box.width,
+                        block.box.height,
+                        block.line_start,
+                        block.line_end,
+                    ),
+                )
             return run_id
 
     def load_ocr_run(self, run_id: int) -> PageOCRResult:
         with self._connection() as connection:
             run = connection.execute(
                 """
-                SELECT engine_runs.engine, engine_runs.engine_version, pages.page_index
+                SELECT engine_runs.engine, engine_runs.engine_version,
+                       engine_runs.direction, pages.page_index
                 FROM engine_runs
                 JOIN pages ON pages.id = engine_runs.page_id
                 WHERE engine_runs.id = ?
@@ -696,7 +1163,7 @@ class SQLiteStore:
 
             line_rows = connection.execute(
                 """
-                SELECT id, line_index, text, x, y, width, height
+                SELECT id, line_index, text, x, y, width, height, confidence
                 FROM ocr_lines
                 WHERE run_id = ?
                 ORDER BY line_index
@@ -741,14 +1208,50 @@ class SQLiteStore:
                             float(line_row["height"]),
                         ),
                         tokens=tokens,
+                        confidence=(
+                            None
+                            if line_row["confidence"] is None
+                            else float(line_row["confidence"])
+                        ),
                     )
                 )
 
+            block_rows = connection.execute(
+                """
+                SELECT block_type, x, y, width, height, line_start, line_end
+                FROM ocr_blocks
+                WHERE run_id = ?
+                ORDER BY block_index
+                """,
+                (run_id,),
+            ).fetchall()
+            blocks = tuple(
+                OCRBlock(
+                    block_type=BlockType(str(block_row["block_type"])),
+                    box=BoundingBox(
+                        float(block_row["x"]),
+                        float(block_row["y"]),
+                        float(block_row["width"]),
+                        float(block_row["height"]),
+                    ),
+                    line_start=int(block_row["line_start"]),
+                    line_end=int(block_row["line_end"]),
+                )
+                for block_row in block_rows
+            )
+
+            direction = run["direction"]
             return PageOCRResult(
                 page_index=int(run["page_index"]),
                 engine=str(run["engine"]),
                 engine_version=str(run["engine_version"]),
                 lines=tuple(lines),
+                blocks=blocks,
+                direction=(
+                    PageDirection.HORIZONTAL_LR
+                    if direction is None
+                    else PageDirection(str(direction))
+                ),
             )
 
     @staticmethod

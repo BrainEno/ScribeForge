@@ -50,11 +50,38 @@ First-class development target:
 - PDF, JPG and PNG inputs
 - EPUB 3 and DOCX outputs
 
+### Current top priority: ancient books and old-edition scans
+
+A 2026-10-28 review of the pipeline against a 562-page real scan found that
+ScribeForge handles **clean modern horizontal print** and book-scale processing
+(500–800 pages, resumable, page-granular), but does **not** yet handle
+**complex-layout, non-standard, low-quality scans of ancient books and old
+editions**. Four P0 gaps were identified: no image preprocessing, no
+vertical/right-to-left text support, layout analysis delegated entirely to
+MinerU's basic tier, and no chapter/printed-page model.
+
+Handling old books and ancient books — and exporting them faithfully to EPUB and
+DOCX — is therefore the **primary development goal** until the P0 gate is met.
+
+Since that review, five of the six follow-up issues have shipped: the
+preprocessing stage (deskew, deshadow, contrast, page-adaptive restoration), the
+OCR worker contract v2 (block types, line-level geometry, confidence, direction),
+the chapter/printed-page/page-role model with chapter-based EPUB navigation,
+glyph-variant folding for comparison, and page-furniture removal. What is still
+missing is vertical text: alignment pairs lines on Y-axis centre distance, which is
+semantically wrong for vertical columns, and there is no vertical benchmark
+corpus yet. The engine route is in [Technology route](./docs/technology-route.md).
+The full assessment, prioritised gap list, verified free/open-source technology
+recommendations and the staged plan live in
+[Ancient book support](./docs/ancient-book-support.md). Do not claim
+ancient-book support in user-facing material before that gate is passed.
+
 ## Planned processing pipeline
 
 ```text
 Import
-  -> page decoding / preprocessing
+  -> page decoding
+  -> preprocessing (deskew / deshadow / restoration, page-adaptive)
   -> MinerU analysis
   -> PaddleOCR independent analysis
   -> spatial/text alignment
@@ -79,6 +106,13 @@ clients/flutter_desktop/ Flutter desktop PDF + EPUB comparison workspace
 ## Development status
 
 The repository is in **Phase 3 — desktop UI**, with Phases 1, 2, and 4 complete. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager plus a first-run setup wizard), the low-level verification path, the resumable CLI slices (PDF/image import, page-granular orchestration, runtime-backed workers, `scribeforge process`/`status`), the decision layer (deterministic adjudication plus the human review queue), and EPUB/DOCX export with integrity self-checks are implemented and covered by tests.
+
+**Phase 5 — ancient books and old-edition scans — is now the top development priority**
+(see the section above and [Ancient book support](./docs/ancient-book-support.md)).
+Its accuracy report is still pending: the review environment has no GPU and no access
+to model hosting, so no real A/B/C/D accuracy run has been possible. What does
+exist are reproducible pixel-level measurements (preprocessing separability and
+residual skew on real corpus pages) — those are not a substitute for CER.
 
 ## CLI
 
@@ -128,6 +162,7 @@ When two engines agree a decision is recorded as `automatic`; a confident VLM re
 See:
 
 - [AGENTS.md](./AGENTS.md)
+- [Ancient book support (current top priority)](./docs/ancient-book-support.md)
 - [Architecture](./docs/architecture.md)
 - [Development plan](./docs/development-plan.md)
 - [TDD policy](./docs/tdd.md)

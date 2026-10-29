@@ -1,0 +1,26 @@
+{
+  "pdf": "benchmark/V..pdf",
+  "generated": "2026-10-28T16:13:19+00:00",
+  "import_40_pages_300dpi": {
+    "page_count": 40,
+    "elapsed_seconds": 11.78,
+    "seconds_per_page": 0.295,
+    "pages_per_minute": 203.7,
+    "assets_mb": 41.9,
+    "kb_per_page": 1072.0,
+    "peak_rss_mb": 117.2
+  },
+  "pipeline_synthetic": {
+    "page_count": 562,
+    "process_seconds": 51.57,
+    "process_seconds_per_page": 0.092,
+    "assemble_seconds": 3.49,
+    "epub_seconds": 0.07,
+    "docx_seconds": 0.09,
+    "epub_kb": 198.0,
+    "docx_kb": 39.0,
+    "db_mb": 66.8,
+    "decisions": 14050,
+    "peak_rss_mb": 129.6
+  }
+}

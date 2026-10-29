@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import Enum
 
+from scribeforge.domain.normalize import similarity_for_comparison
 from scribeforge.domain.ocr import OCRLine, PageOCRResult
 
 
@@ -75,10 +76,16 @@ def _diff_text(primary: str, secondary: str) -> tuple[AlignmentConflict, ...]:
     return tuple(conflicts)
 
 
-def _match_score(primary: OCRLine, secondary: OCRLine) -> tuple[float, float]:
-    distance = abs(_center_y(primary) - _center_y(secondary))
-    similarity = SequenceMatcher(a=primary.text, b=secondary.text, autojunk=False).ratio()
-    return similarity, distance
+def _text_similarity(primary: OCRLine, secondary: OCRLine) -> float:
+    """Line similarity after glyph-variant folding.
+
+    Without folding, an engine pair that disagrees only on 繁/简 or on a variant
+    form scores as a poor match, and lines get paired by vertical distance alone.
+    The similarity is used for *pairing* only; the compared text itself is never
+    rewritten.
+    """
+
+    return similarity_for_comparison(primary.text, secondary.text)
 
 
 def _match_primary_lines(
@@ -99,11 +106,18 @@ def _match_primary_lines(
     simple and deterministic.
     """
     candidates: list[tuple[float, float, int, int]] = []
+    secondary_centers = [_center_y(line) for line in secondary.lines]
     for primary_index, primary_line in enumerate(primary.lines):
+        primary_center = _center_y(primary_line)
         for secondary_index, secondary_line in enumerate(secondary.lines):
-            similarity, distance = _match_score(primary_line, secondary_line)
-            if distance <= max_vertical_distance:
-                candidates.append((similarity, -distance, primary_index, secondary_index))
+            # Reject by geometry before paying for a full text comparison: a
+            # pair further apart than the threshold is never a candidate, so
+            # the quadratic similarity work is limited to plausible neighbours.
+            distance = abs(primary_center - secondary_centers[secondary_index])
+            if distance > max_vertical_distance:
+                continue
+            similarity = _text_similarity(primary_line, secondary_line)
+            candidates.append((similarity, -distance, primary_index, secondary_index))
 
     candidates.sort(reverse=True)
 

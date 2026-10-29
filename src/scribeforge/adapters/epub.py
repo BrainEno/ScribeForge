@@ -16,7 +16,7 @@ from scribeforge.adapters.export_common import (
     write_atomic,
     write_zip_entry,
 )
-from scribeforge.domain.content import VerifiedBook, VerifiedPage
+from scribeforge.domain.content import VerifiedBook, VerifiedChapter, VerifiedPage
 
 _MIMETYPE = "application/epub+zip"
 _OPF_NS = "http://www.idpf.org/2007/opf"
@@ -81,19 +81,65 @@ def _package_xml(
     )
 
 
+def _nav_entries(book: VerifiedBook) -> str:
+    """Nested table of contents.
+
+    Without a detected chapter tree a 562-page book exports as 562 flat entries
+    called "Page 1".."Page 562", which is not a table of contents at all. When
+    chapters exist the nav mirrors their levels; the per-page list is kept only as
+    the fallback for a book whose structure has not been derived yet.
+    """
+
+    if not book.chapters:
+        return "".join(
+            f'<li><a href="{_page_file_name(page.page_index)}">'
+            f"Page {page.page_index + 1}</a></li>"
+            for page in book.pages
+        )
+
+    def link(chapter: VerifiedChapter) -> str:
+        return (
+            f'<li><a href="{_page_file_name(chapter.page_index)}">'
+            f"{escape(chapter.title)}</a>"
+        )
+
+    # Emit nested lists with an explicit stack of open levels. Building the
+    # closing tags by string arithmetic on levels is easy to get wrong, and the
+    # first attempt produced a mismatched-tag XHTML that the export integrity
+    # check caught — which is exactly why that check exists.
+    parts: list[str] = []
+    stack: list[int] = []
+    for chapter in book.chapters:
+        level = max(1, chapter.level)
+        while stack and level < stack[-1]:
+            parts.append("</li></ol>")
+            stack.pop()
+        if not stack:
+            parts.append("<ol>")
+            stack.append(level)
+            parts.append(link(chapter))
+        elif level == stack[-1]:
+            parts.append("</li>")
+            parts.append(link(chapter))
+        else:
+            parts.append("<ol>")
+            stack.append(level)
+            parts.append(link(chapter))
+    while stack:
+        parts.append("</li></ol>")
+        stack.pop()
+    return "".join(parts)
+
+
 def _nav_xhtml(book: VerifiedBook, language: str) -> str:
     lang = quoteattr(language)
-    entries = "".join(
-        f'<li><a href="{_page_file_name(page.page_index)}">'
-        f"Page {page.page_index + 1}</a></li>"
-        for page in book.pages
-    )
+    entries = _nav_entries(book)
     return (
         XML_DECL
         + "\n<!DOCTYPE html>\n"
         + f'<html xmlns="{_XHTML_NS}" xmlns:epub="{_EPUB_NS}" lang={lang} xml:lang={lang}>'
         + "<head><title>Contents</title></head>"
-        + f'<body><nav epub:type="toc" id="toc"><h1>Contents</h1><ol>{entries}</ol></nav></body>'
+        + f'<body><nav epub:type="toc" id="toc"><h1>Contents</h1>{entries}</nav></body>'
         + "</html>\n"
     )
 
@@ -101,12 +147,16 @@ def _nav_xhtml(book: VerifiedBook, language: str) -> str:
 def _page_xhtml(page: VerifiedPage, language: str) -> str:
     lang = quoteattr(language)
     paragraphs = "".join(f"<p>{escape(text)}</p>" for text in page.lines)
-    index = page.page_index + 1
+    # Prefer the number printed in the book. Readers cite that number, and in a
+    # book whose numbering restarts per section the physical index is meaningless
+    # to them.
+    index = page.printed_label or str(page.page_index + 1)
+    title = f"Page {index}"
     return (
         XML_DECL
         + "\n<!DOCTYPE html>\n"
         + f'<html xmlns="{_XHTML_NS}" lang={lang} xml:lang={lang}>'
-        + f"<head><title>Page {index}</title></head>"
+        + f"<head><title>{escape(title)}</title></head>"
         + f"<body><section>{paragraphs}</section></body>"
         + "</html>\n"
     )

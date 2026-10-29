@@ -5,11 +5,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 from scribeforge.domain.alignment import ConflictKind, LineAlignment, PageAlignment
+from scribeforge.domain.normalize import is_variant_only_difference
 from scribeforge.domain.ocr import BoundingBox, OCRLine, PageOCRResult
 
 
 class RiskReason(str, Enum):
     TEXT_DISAGREEMENT = "text_disagreement"
+    VARIANT_DISAGREEMENT = "variant_disagreement"
     PUNCTUATION_DISAGREEMENT = "punctuation_disagreement"
     MISSING_OR_EXTRA_LINE = "missing_or_extra_line"
     LOW_CONFIDENCE = "low_confidence"
@@ -38,10 +40,15 @@ def _line(result: PageOCRResult, index: int | None) -> OCRLine | None:
 
 
 def _confidence(line: OCRLine | None) -> float | None:
-    if line is None:
-        return None
-    values = [token.confidence for token in line.tokens if token.confidence is not None]
-    return min(values) if values else None
+    """Lowest known confidence for a line, or ``None`` when the engine gave none.
+
+    Line-level confidence (worker contract v2) is considered alongside token
+    confidence so a backend that scores whole lines can still raise the
+    low-confidence risk. ``None`` stays "unknown" and never contributes a score:
+    missing confidence must not be read as agreement.
+    """
+
+    return None if line is None else line.lowest_confidence
 
 
 def _has_unicode_anomaly(text: str) -> bool:
@@ -73,9 +80,26 @@ def assess_page(
         reasons: list[RiskReason] = []
         kinds = {conflict.kind for conflict in pair.conflicts}
 
-        if ConflictKind.SUBSTITUTION in kinds:
-            score += 0.45
-            reasons.append(RiskReason.TEXT_DISAGREEMENT)
+        substitutions = [
+            conflict
+            for conflict in pair.conflicts
+            if conflict.kind is ConflictKind.SUBSTITUTION
+        ]
+        if substitutions:
+            # A difference that disappears under glyph-variant folding is an
+            # orthographic choice (繁/简, 异体字), not a reading disagreement.
+            # Scoring it like a real substitution sends every mixed-script book
+            # into human review while teaching reviewers to rubber-stamp.
+            variant_only = all(
+                is_variant_only_difference(conflict.primary_text, conflict.secondary_text)
+                for conflict in substitutions
+            )
+            if variant_only:
+                score += 0.10
+                reasons.append(RiskReason.VARIANT_DISAGREEMENT)
+            else:
+                score += 0.45
+                reasons.append(RiskReason.TEXT_DISAGREEMENT)
         if ConflictKind.PUNCTUATION in kinds:
             score += 0.20
             reasons.append(RiskReason.PUNCTUATION_DISAGREEMENT)

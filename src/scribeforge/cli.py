@@ -26,11 +26,17 @@ from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
 from scribeforge.domain.ocr import OCREngine
+from scribeforge.domain.preprocess import (
+    PreprocessOperation,
+    PreprocessSettings,
+    default_settings,
+)
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
 from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.orchestrator import process_book
+from scribeforge.pipeline.structure import build_book_structure, persist_book_structure
 from scribeforge.project_audit import audit_project_store
 from scribeforge.project_backup import (
     ProjectBackupError,
@@ -195,6 +201,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Managed runtime root (default: the per-user ScribeForge runtime folder).",
     )
+    process.add_argument(
+        "--no-preprocess",
+        action="store_true",
+        help=(
+            "Skip the preprocessing stage and send the raw scans to the OCR engines. "
+            "Use this for clean born-digital renders where deskewing only adds work."
+        ),
+    )
+    process.add_argument(
+        "--preprocess-binarize",
+        action="store_true",
+        help=(
+            "Threshold pages to black and white after denoising. Off by default: "
+            "binarization discards the greyscale evidence reviewers rely on."
+        ),
+    )
+    process.add_argument(
+        "--preprocess-max-skew",
+        type=float,
+        default=None,
+        help="Maximum deskew correction in degrees (default: 8).",
+    )
     _add_vlm_arguments(process)
 
     setup = subparsers.add_parser(
@@ -239,6 +267,20 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--store", type=Path, required=True, help="Project store directory.")
     status.add_argument(
         "--json", action="store_true", help="Emit a stable JSON summary for desktop clients."
+    )
+
+    structure = subparsers.add_parser(
+        "structure",
+        help="Derive page roles, printed page numbers and chapters from stored OCR evidence.",
+    )
+    structure.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    structure.add_argument(
+        "--engine",
+        default="primary",
+        help="Engine whose stored run supplies the evidence (default: primary).",
+    )
+    structure.add_argument(
+        "--json", action="store_true", help="Emit a machine-readable structure report."
     )
 
     relink = subparsers.add_parser(
@@ -403,6 +445,8 @@ def run(
         return _vlm_check(args, out)
     if args.command == "status":
         return _status(args, out)
+    if args.command == "structure":
+        return _structure(args, out)
     if args.command == "relink-source":
         return _relink_source(args, out)
     if args.command == "audit":
@@ -447,6 +491,27 @@ def run(
     return _process(args, out, factory)
 
 
+def _preprocess_settings(args: argparse.Namespace) -> PreprocessSettings | None:
+    """Translate the CLI preprocessing flags into a plan.
+
+    Returns ``None`` when the operator disabled the stage, which keeps the raw
+    scan path byte-for-byte identical to earlier versions.
+    """
+
+    if getattr(args, "no_preprocess", False):
+        return None
+    operations = list(default_settings().operations)
+    if getattr(args, "preprocess_binarize", False):
+        operations.append(PreprocessOperation.BINARIZE)
+    max_skew = getattr(args, "preprocess_max_skew", None)
+    return PreprocessSettings(
+        operations=tuple(operations),
+        max_skew_degrees=(
+            default_settings().max_skew_degrees if max_skew is None else max_skew
+        ),
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     return run(sys.argv[1:] if argv is None else argv)
 
@@ -475,6 +540,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
             secondary_engine=engines.secondary,
             reviewer=engines.reviewer,
             crops_dir=layout.crops_dir,
+            preprocess=_preprocess_settings(args),
         )
     except Exception as exc:  # noqa: BLE001 - report any setup/stage failure as a fatal exit
         message = str(exc)
@@ -494,12 +560,68 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
         f"processed {len(outcome.pages)} page(s), {len(outcome.failed_pages)} failed",
         file=out,
     )
+    # Structure is derived after OCR, from the runs that were just stored. It is
+    # advisory: a failure here must not turn a successful book into a failed run,
+    # because the export falls back to physical page numbering.
+    try:
+        derived = build_book_structure(store, project_id, engine=engines.primary.name)
+        report = persist_book_structure(store, project_id, derived)
+        print(
+            f"structure: {report.chapters} chapter(s), "
+            f"{len(report.labelled_pages)} numbered page(s)",
+            file=out,
+        )
+    except Exception as exc:  # noqa: BLE001 - structure is advisory, never fatal
+        print(f"structure: skipped ({exc})", file=out)
     decisions = sum(page.decision_count for page in outcome.pages)
     queued = sum(len(page.unresolved_pairs) for page in outcome.pages)
     print(f"recorded {decisions} decision(s), {queued} pair(s) need review", file=out)
     for page_index, error in outcome.failed_pages:
         print(f"  page {page_index}: {error}", file=out)
     return EXIT_PARTIAL if outcome.failed_pages else EXIT_OK
+
+
+def _structure(args: argparse.Namespace, out: TextIO) -> int:
+    """Derive and persist book structure from the stored OCR evidence."""
+
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+    projects = store.list_projects()
+    if not projects:
+        print("error: store contains no projects", file=sys.stderr)
+        return EXIT_FATAL
+    project_id = projects[-1].id
+    try:
+        derived = build_book_structure(store, project_id, engine=args.engine)
+    except KeyError:
+        print(
+            f"error: no stored OCR run for engine {args.engine!r}; "
+            "run `scribeforge process` first or pass --engine",
+            file=sys.stderr,
+        )
+        return EXIT_FATAL
+    report = persist_book_structure(store, project_id, derived)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "pages": len(report.pages),
+                    "labelled_pages": list(report.labelled_pages),
+                    "chapters": report.chapters,
+                    "roles": report.roles,
+                },
+                ensure_ascii=False,
+            ),
+            file=out,
+        )
+        return EXIT_OK
+    print(f"pages {len(report.pages)}, labelled {len(report.labelled_pages)}", file=out)
+    print(f"chapters {report.chapters}", file=out)
+    for role, count in sorted(report.roles.items()):
+        print(f"  {role}: {count}", file=out)
+    return EXIT_OK
 
 
 def _status(args: argparse.Namespace, out: TextIO) -> int:
@@ -855,6 +977,17 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    if book.dropped_furniture:
+        # Say what was removed, grouped by reason: an export must never silently
+        # decide that some text was not worth printing.
+        reasons: dict[str, int] = {}
+        for dropped in book.dropped_furniture:
+            reasons[dropped.reason] = reasons.get(dropped.reason, 0) + 1
+        detail = ", ".join(f"{reason} {count}" for reason, count in sorted(reasons.items()))
+        print(
+            f"excluded {len(book.dropped_furniture)} page-furniture line(s) ({detail})",
+            file=out,
+        )
     return EXIT_OK
 
 

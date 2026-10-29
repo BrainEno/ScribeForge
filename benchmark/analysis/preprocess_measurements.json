@@ -1,0 +1,885 @@
+{
+  "schema_version": 1,
+  "corpus": "benchmark/corpus/v",
+  "variants": [
+    "clean",
+    "skew-3deg",
+    "skew-6deg",
+    "spine-shadow",
+    "faded",
+    "speckled",
+    "speckled+denoise",
+    "skew-and-shadow"
+  ],
+  "summary": {
+    "clean": {
+      "pages": 6,
+      "operations_seen": [],
+      "mean_separability_degraded": 227.9,
+      "mean_separability_corrected": 227.9,
+      "max_abs_residual_skew": 0.0
+    },
+    "skew-3deg": {
+      "pages": 6,
+      "operations_seen": [
+        "deskew"
+      ],
+      "mean_separability_degraded": 226.6,
+      "mean_separability_corrected": 226.1,
+      "max_abs_residual_skew": 0.0
+    },
+    "skew-6deg": {
+      "pages": 6,
+      "operations_seen": [
+        "deskew"
+      ],
+      "mean_separability_degraded": 226.6,
+      "mean_separability_corrected": 226.1,
+      "max_abs_residual_skew": 0.0
+    },
+    "spine-shadow": {
+      "pages": 6,
+      "operations_seen": [
+        "deshadow"
+      ],
+      "mean_separability_degraded": 191.5,
+      "mean_separability_corrected": 228.8,
+      "max_abs_residual_skew": 0.0
+    },
+    "faded": {
+      "pages": 6,
+      "operations_seen": [
+        "contrast"
+      ],
+      "mean_separability_degraded": 0.0,
+      "mean_separability_corrected": 228.6,
+      "max_abs_residual_skew": 0.0
+    },
+    "speckled": {
+      "pages": 6,
+      "operations_seen": [],
+      "mean_separability_degraded": 221.8,
+      "mean_separability_corrected": 221.8,
+      "max_abs_residual_skew": 0.0
+    },
+    "speckled+denoise": {
+      "pages": 6,
+      "operations_seen": [
+        "denoise"
+      ],
+      "mean_separability_degraded": 221.8,
+      "mean_separability_corrected": 224.7,
+      "max_abs_residual_skew": 0.0
+    },
+    "skew-and-shadow": {
+      "pages": 6,
+      "operations_seen": [
+        "deshadow",
+        "deskew"
+      ],
+      "mean_separability_degraded": 192.0,
+      "mean_separability_corrected": 222.8,
+      "max_abs_residual_skew": 0.5
+    }
+  },
+  "rows": [
+    {
+      "page": "page_010",
+      "variant": "clean",
+      "description": "unmodified corpus page",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 225.8,
+      "separability_degraded": 225.8,
+      "separability_corrected": 225.8,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_010",
+      "variant": "skew-3deg",
+      "description": "rotated 3 degrees as a crooked scan would be",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -3.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 225.8,
+      "separability_degraded": 224.4,
+      "separability_corrected": 224.0,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_010",
+      "variant": "skew-6deg",
+      "description": "rotated 6 degrees",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -6.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 225.8,
+      "separability_degraded": 224.5,
+      "separability_corrected": 224.0,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_010",
+      "variant": "spine-shadow",
+      "description": "45% illumination falloff from the left, as a book gutter",
+      "applied": [
+        "deshadow"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 225.8,
+      "separability_degraded": 189.4,
+      "separability_corrected": 226.7,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 106.0
+    },
+    {
+      "page": "page_010",
+      "variant": "faded",
+      "description": "tonal range compressed to a light impression",
+      "applied": [
+        "contrast"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 225.8,
+      "separability_degraded": 0.0,
+      "separability_corrected": 224.7,
+      "needs_deshadow": false,
+      "needs_contrast": true,
+      "dark_point": 160.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_010",
+      "variant": "speckled",
+      "description": "2% salt-and-pepper noise, as dirty or damaged paper",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 225.8,
+      "separability_degraded": 221.1,
+      "separability_corrected": 221.1,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_010",
+      "variant": "speckled+denoise",
+      "description": "same speckle, with the opt-in median filter enabled",
+      "applied": [
+        "denoise"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 225.8,
+      "separability_degraded": 221.1,
+      "separability_corrected": 222.1,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_010",
+      "variant": "skew-and-shadow",
+      "description": "both geometry and illumination damage",
+      "applied": [
+        "deskew",
+        "deshadow"
+      ],
+      "measured_skew_degrees": -3.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 225.8,
+      "separability_degraded": 189.9,
+      "separability_corrected": 222.4,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 93.0
+    },
+    {
+      "page": "page_014",
+      "variant": "clean",
+      "description": "unmodified corpus page",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 227.4,
+      "separability_corrected": 227.4,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_014",
+      "variant": "skew-3deg",
+      "description": "rotated 3 degrees as a crooked scan would be",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -3.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 226.0,
+      "separability_corrected": 225.6,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_014",
+      "variant": "skew-6deg",
+      "description": "rotated 6 degrees",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -6.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 226.0,
+      "separability_corrected": 225.7,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_014",
+      "variant": "spine-shadow",
+      "description": "45% illumination falloff from the left, as a book gutter",
+      "applied": [
+        "deshadow"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 190.8,
+      "separability_corrected": 228.4,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 106.0
+    },
+    {
+      "page": "page_014",
+      "variant": "faded",
+      "description": "tonal range compressed to a light impression",
+      "applied": [
+        "contrast"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 0.0,
+      "separability_corrected": 226.2,
+      "needs_deshadow": false,
+      "needs_contrast": true,
+      "dark_point": 160.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_014",
+      "variant": "speckled",
+      "description": "2% salt-and-pepper noise, as dirty or damaged paper",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 222.3,
+      "separability_corrected": 222.3,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_014",
+      "variant": "speckled+denoise",
+      "description": "same speckle, with the opt-in median filter enabled",
+      "applied": [
+        "denoise"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 222.3,
+      "separability_corrected": 224.3,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_014",
+      "variant": "skew-and-shadow",
+      "description": "both geometry and illumination damage",
+      "applied": [
+        "deskew",
+        "deshadow"
+      ],
+      "measured_skew_degrees": -2.5,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 191.3,
+      "separability_corrected": 221.5,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 93.0
+    },
+    {
+      "page": "page_018",
+      "variant": "clean",
+      "description": "unmodified corpus page",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.1,
+      "separability_degraded": 229.1,
+      "separability_corrected": 229.1,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_018",
+      "variant": "skew-3deg",
+      "description": "rotated 3 degrees as a crooked scan would be",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -3.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.1,
+      "separability_degraded": 228.1,
+      "separability_corrected": 227.4,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_018",
+      "variant": "skew-6deg",
+      "description": "rotated 6 degrees",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -6.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.1,
+      "separability_degraded": 228.0,
+      "separability_corrected": 227.4,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_018",
+      "variant": "spine-shadow",
+      "description": "45% illumination falloff from the left, as a book gutter",
+      "applied": [
+        "deshadow"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.1,
+      "separability_degraded": 192.8,
+      "separability_corrected": 229.5,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 106.0
+    },
+    {
+      "page": "page_018",
+      "variant": "faded",
+      "description": "tonal range compressed to a light impression",
+      "applied": [
+        "contrast"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.1,
+      "separability_degraded": 0.0,
+      "separability_corrected": 239.0,
+      "needs_deshadow": false,
+      "needs_contrast": true,
+      "dark_point": 160.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_018",
+      "variant": "speckled",
+      "description": "2% salt-and-pepper noise, as dirty or damaged paper",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.1,
+      "separability_degraded": 217.3,
+      "separability_corrected": 217.3,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_018",
+      "variant": "speckled+denoise",
+      "description": "same speckle, with the opt-in median filter enabled",
+      "applied": [
+        "denoise"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.1,
+      "separability_degraded": 217.3,
+      "separability_corrected": 226.0,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_018",
+      "variant": "skew-and-shadow",
+      "description": "both geometry and illumination damage",
+      "applied": [
+        "deskew",
+        "deshadow"
+      ],
+      "measured_skew_degrees": -1.5,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.1,
+      "separability_degraded": 193.3,
+      "separability_corrected": 222.6,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 93.0
+    },
+    {
+      "page": "page_020",
+      "variant": "clean",
+      "description": "unmodified corpus page",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.2,
+      "separability_degraded": 229.2,
+      "separability_corrected": 229.2,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_020",
+      "variant": "skew-3deg",
+      "description": "rotated 3 degrees as a crooked scan would be",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -3.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.2,
+      "separability_degraded": 227.7,
+      "separability_corrected": 227.4,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_020",
+      "variant": "skew-6deg",
+      "description": "rotated 6 degrees",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -6.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.2,
+      "separability_degraded": 227.7,
+      "separability_corrected": 227.4,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_020",
+      "variant": "spine-shadow",
+      "description": "45% illumination falloff from the left, as a book gutter",
+      "applied": [
+        "deshadow"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.2,
+      "separability_degraded": 192.6,
+      "separability_corrected": 230.5,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 106.0
+    },
+    {
+      "page": "page_020",
+      "variant": "faded",
+      "description": "tonal range compressed to a light impression",
+      "applied": [
+        "contrast"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.2,
+      "separability_degraded": 0.0,
+      "separability_corrected": 228.1,
+      "needs_deshadow": false,
+      "needs_contrast": true,
+      "dark_point": 160.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_020",
+      "variant": "speckled",
+      "description": "2% salt-and-pepper noise, as dirty or damaged paper",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.2,
+      "separability_degraded": 224.3,
+      "separability_corrected": 224.3,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_020",
+      "variant": "speckled+denoise",
+      "description": "same speckle, with the opt-in median filter enabled",
+      "applied": [
+        "denoise"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.2,
+      "separability_degraded": 224.3,
+      "separability_corrected": 226.3,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_020",
+      "variant": "skew-and-shadow",
+      "description": "both geometry and illumination damage",
+      "applied": [
+        "deskew",
+        "deshadow"
+      ],
+      "measured_skew_degrees": -3.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 229.2,
+      "separability_degraded": 193.2,
+      "separability_corrected": 226.1,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 93.0
+    },
+    {
+      "page": "page_030",
+      "variant": "clean",
+      "description": "unmodified corpus page",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 228.3,
+      "separability_degraded": 228.3,
+      "separability_corrected": 228.3,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_030",
+      "variant": "skew-3deg",
+      "description": "rotated 3 degrees as a crooked scan would be",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -3.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 228.3,
+      "separability_degraded": 227.0,
+      "separability_corrected": 226.4,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_030",
+      "variant": "skew-6deg",
+      "description": "rotated 6 degrees",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -6.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 228.3,
+      "separability_degraded": 227.0,
+      "separability_corrected": 226.4,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_030",
+      "variant": "spine-shadow",
+      "description": "45% illumination falloff from the left, as a book gutter",
+      "applied": [
+        "deshadow"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 228.3,
+      "separability_degraded": 191.9,
+      "separability_corrected": 229.3,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 106.0
+    },
+    {
+      "page": "page_030",
+      "variant": "faded",
+      "description": "tonal range compressed to a light impression",
+      "applied": [
+        "contrast"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 228.3,
+      "separability_degraded": 0.0,
+      "separability_corrected": 227.1,
+      "needs_deshadow": false,
+      "needs_contrast": true,
+      "dark_point": 160.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_030",
+      "variant": "speckled",
+      "description": "2% salt-and-pepper noise, as dirty or damaged paper",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 228.3,
+      "separability_degraded": 223.1,
+      "separability_corrected": 223.1,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_030",
+      "variant": "speckled+denoise",
+      "description": "same speckle, with the opt-in median filter enabled",
+      "applied": [
+        "denoise"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 228.3,
+      "separability_degraded": 223.1,
+      "separability_corrected": 225.2,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_030",
+      "variant": "skew-and-shadow",
+      "description": "both geometry and illumination damage",
+      "applied": [
+        "deskew",
+        "deshadow"
+      ],
+      "measured_skew_degrees": -2.5,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 228.3,
+      "separability_degraded": 192.4,
+      "separability_corrected": 222.3,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 93.0
+    },
+    {
+      "page": "page_040",
+      "variant": "clean",
+      "description": "unmodified corpus page",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 227.4,
+      "separability_corrected": 227.4,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_040",
+      "variant": "skew-3deg",
+      "description": "rotated 3 degrees as a crooked scan would be",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -3.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 226.2,
+      "separability_corrected": 225.6,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_040",
+      "variant": "skew-6deg",
+      "description": "rotated 6 degrees",
+      "applied": [
+        "deskew"
+      ],
+      "measured_skew_degrees": -6.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 226.2,
+      "separability_corrected": 225.7,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_040",
+      "variant": "spine-shadow",
+      "description": "45% illumination falloff from the left, as a book gutter",
+      "applied": [
+        "deshadow"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 191.2,
+      "separability_corrected": 228.6,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 106.0
+    },
+    {
+      "page": "page_040",
+      "variant": "faded",
+      "description": "tonal range compressed to a light impression",
+      "applied": [
+        "contrast"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 0.0,
+      "separability_corrected": 226.3,
+      "needs_deshadow": false,
+      "needs_contrast": true,
+      "dark_point": 160.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_040",
+      "variant": "speckled",
+      "description": "2% salt-and-pepper noise, as dirty or damaged paper",
+      "applied": [],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 222.8,
+      "separability_corrected": 222.8,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_040",
+      "variant": "speckled+denoise",
+      "description": "same speckle, with the opt-in median filter enabled",
+      "applied": [
+        "denoise"
+      ],
+      "measured_skew_degrees": 0.0,
+      "residual_skew_degrees": 0.0,
+      "separability_clean": 227.4,
+      "separability_degraded": 222.8,
+      "separability_corrected": 224.1,
+      "needs_deshadow": false,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 0.0
+    },
+    {
+      "page": "page_040",
+      "variant": "skew-and-shadow",
+      "description": "both geometry and illumination damage",
+      "applied": [
+        "deskew",
+        "deshadow"
+      ],
+      "measured_skew_degrees": -2.5,
+      "residual_skew_degrees": -0.5,
+      "separability_clean": 227.4,
+      "separability_degraded": 191.6,
+      "separability_corrected": 221.7,
+      "needs_deshadow": true,
+      "needs_contrast": false,
+      "dark_point": 0.0,
+      "background_spread": 93.0
+    }
+  ]
+}
