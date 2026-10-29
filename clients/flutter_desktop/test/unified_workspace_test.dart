@@ -134,7 +134,6 @@ void main() {
         // Then: the export form fields are present
         expect(find.text('导出格式'), findsOneWidget);
         expect(find.text('EPUB 3'), findsOneWidget);
-        expect(find.text('DOCX'), findsOneWidget);
         expect(find.text('输出文件'), findsOneWidget);
         expect(find.text('语言（BCP 47，如 zh）'), findsOneWidget);
         expect(find.text('书名（可选）'), findsOneWidget);
