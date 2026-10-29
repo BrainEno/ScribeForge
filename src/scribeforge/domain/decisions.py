@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from scribeforge.domain.normalize import is_variant_only_difference
 from scribeforge.domain.vlm import VLMReading
 
 
@@ -36,9 +37,11 @@ def adjudicate_pair(
 ) -> PairAdjudication:
     """Turn a verified pair into an accepted-text decision from cited evidence.
 
-    Independent agreement is accepted automatically. Otherwise a confident,
-    non-blank VLM reading may be accepted. Everything else stays unresolved for
-    human review. Source OCR text is never rewritten by this rule.
+    Independent agreement is accepted automatically, including agreement that
+    differs only by glyph variant (the primary engine's characters are kept
+    verbatim). Otherwise a confident, non-blank VLM reading may be accepted.
+    Everything else stays unresolved for human review. Source OCR text is never
+    rewritten by this rule.
     """
 
     if primary_text is None and secondary_text is None:
@@ -46,6 +49,18 @@ def adjudicate_pair(
 
     if primary_text is not None and primary_text == secondary_text:
         return PairAdjudication(primary_text, DecisionActor.AUTOMATIC, "engines_agree")
+
+    if (
+        primary_text is not None
+        and secondary_text is not None
+        and is_variant_only_difference(primary_text, secondary_text)
+    ):
+        # The engines agree on the text modulo orthography. Accept the primary
+        # engine's literal characters — never a folded or "corrected" form — and
+        # record why, so the choice is reviewable rather than silent.
+        return PairAdjudication(
+            primary_text, DecisionActor.AUTOMATIC, "variant_agreement"
+        )
 
     if vlm is None:
         if primary_text is None or secondary_text is None:

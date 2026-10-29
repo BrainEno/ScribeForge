@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import Enum
 
+from scribeforge.domain.normalize import similarity_for_comparison
 from scribeforge.domain.ocr import OCRLine, PageOCRResult
 
 
@@ -76,7 +77,15 @@ def _diff_text(primary: str, secondary: str) -> tuple[AlignmentConflict, ...]:
 
 
 def _text_similarity(primary: OCRLine, secondary: OCRLine) -> float:
-    return SequenceMatcher(a=primary.text, b=secondary.text, autojunk=False).ratio()
+    """Line similarity after glyph-variant folding.
+
+    Without folding, an engine pair that disagrees only on 繁/简 or on a variant
+    form scores as a poor match, and lines get paired by vertical distance alone.
+    The similarity is used for *pairing* only; the compared text itself is never
+    rewritten.
+    """
+
+    return similarity_for_comparison(primary.text, secondary.text)
 
 
 def _match_primary_lines(
