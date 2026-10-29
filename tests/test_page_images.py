@@ -541,3 +541,32 @@ def test_the_real_cover_of_the_benchmark_scan_becomes_the_epub_cover(
     assert 'properties="cover-image"' in package
     assert embedded == rendered.image_bytes
     assert '<img src="images/page-000001.png" alt="封面"/>' in front
+
+
+# ------------------------------------------------------------- reader acceptance
+
+#: Structural acceptance of what a reading system (Readium / epub.js / a library
+#: grid) needs: a navigable table of contents, manifest properties for cover and
+#: nav, and every spine document reachable from the navigation.
+def test_epub_is_reader_acceptable() -> None:
+    cover = _image(0, _PNG, PageImageRole.COVER)
+    plate = _image(2, _PNG, PageImageRole.FIGURE)
+    book = _book_with((cover, plate), pages=4)
+
+    data = _epub(book)
+
+    # build_epub runs check_epub internally; invoke it explicitly as the gate.
+    check_epub(data, book)
+
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        nav = archive.read("OEBPS/nav.xhtml").decode("utf-8")
+        package = archive.read("OEBPS/content.opf").decode("utf-8")
+        front = archive.read("OEBPS/doc-000001.xhtml").decode("utf-8")
+        chapter = archive.read("OEBPS/doc-000002.xhtml").decode("utf-8")
+
+    assert 'epub:type="toc"' in nav
+    assert 'properties="nav"' in package
+    assert 'properties="cover-image"' in package
+    assert '<meta name="cover" content="image-page-0"/>' in package
+    assert '<img src="images/page-000001.png" alt="封面"/>' in front
+    assert '<img src="images/page-000003.png" alt="第 3 页的插图"/>' in chapter
