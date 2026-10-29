@@ -68,6 +68,10 @@ class VerifiedImage:
     sha256: str
     data: bytes = field(repr=False)
     alt: str = ""
+    #: Optional caption read from the plate itself (one line of OCR text under
+    #: the image). Rendered as ``<figcaption>`` in the EPUB; covers never have a
+    #: caption.
+    caption: str = ""
 
     def __post_init__(self) -> None:
         if self.media_type not in set(IMAGE_MEDIA_TYPES.values()):
@@ -195,9 +199,25 @@ class VerifiedBook:
             seen.add(image.page_index)
         for page in self.pages:
             if page.lines and page.page_index in seen:
-                raise ValueError(
-                    f"page {page.page_index} has both accepted text and an image"
+                matched: VerifiedImage | None = next(
+                    (
+                        img
+                        for img in self.images
+                        if img.page_index == page.page_index
+                    ),
+                    None,
                 )
+                # A plate may carry one line of OCR text as its caption; any
+                # other page must stay text-only if it ships as an image.
+                if (
+                    matched is None
+                    or matched.role is not PageImageRole.FIGURE
+                    or len(page.lines) != 1
+                    or page.lines[0] != matched.caption
+                ):
+                    raise ValueError(
+                        f"page {page.page_index} has both accepted text and an image"
+                    )
 
     @property
     def cover_image(self) -> VerifiedImage | None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from enum import Enum
@@ -123,6 +124,47 @@ def _text_similarity(primary: OCRLine, secondary: OCRLine) -> float:
     return similarity_for_comparison(primary.text, secondary.text)
 
 
+def _main_axis_center(line: OCRLine, direction: PageDirection) -> float:
+    """Centre of a line along the axis that separates columns.
+
+    Horizontal pages are split into columns by their horizontal (X) position;
+    vertical pages by their vertical (Y) position. Two lines in different
+    columns must never be paired even if they sit at the same cross-axis
+    position.
+    """
+
+    return _center_x(line) if not direction.is_vertical else _center_y(line)
+
+
+def _group_line_indexes_into_columns(
+    lines: Sequence[OCRLine], direction: PageDirection, column_gap: float = 0.05
+) -> list[list[int]]:
+    """Group line indexes into columns by their main-axis position.
+
+    Lines are sorted by main-axis centre; adjacent lines closer than
+    ``column_gap`` (a fraction of page width/height) belong to the same
+    column. Lines in different columns are matched independently so a
+    two-column page never pairs a left-column line with a right-column line.
+    """
+
+    if not lines:
+        return []
+
+    order = sorted(range(len(lines)), key=lambda i: _main_axis_center(lines[i], direction))
+    columns: list[list[int]] = [[order[0]]]
+    for index in order[1:]:
+        previous = columns[-1][-1]
+        gap = abs(
+            _main_axis_center(lines[index], direction)
+            - _main_axis_center(lines[previous], direction)
+        )
+        if gap <= column_gap:
+            columns[-1].append(index)
+        else:
+            columns.append([index])
+    return columns
+
+
 def _match_primary_lines(
     primary: PageOCRResult,
     secondary: PageOCRResult,
@@ -140,34 +182,58 @@ def _match_primary_lines(
     similarity (distance as tie-breaker) and assigning greedily from the top
     approximates the globally optimal one-to-one assignment while remaining
     simple and deterministic.
+
+    Matching is performed per column: lines are first grouped by their
+    main-axis position (X for horizontal pages, Y for vertical pages), and
+    each column is matched independently. This keeps a two-column page from
+    pairing a left-column line with a right-column line that merely happens to
+    sit at the same cross-axis position.
     """
-    candidates: list[tuple[float, float, int, int]] = []
-    secondary_centers = [
-        _cross_axis_center(line, direction) for line in secondary.lines
-    ]
-    for primary_index, primary_line in enumerate(primary.lines):
-        primary_center = _cross_axis_center(primary_line, direction)
-        for secondary_index, secondary_line in enumerate(secondary.lines):
-            # Reject by geometry before paying for a full text comparison: a
-            # pair further apart than the threshold is never a candidate, so
-            # the quadratic similarity work is limited to plausible neighbours.
-            distance = abs(primary_center - secondary_centers[secondary_index])
-            if distance > max_cross_axis_distance:
-                continue
-            similarity = _text_similarity(primary_line, secondary_line)
-            candidates.append((similarity, -distance, primary_index, secondary_index))
 
-    candidates.sort(reverse=True)
-
-    assigned_primary: set[int] = set()
-    assigned_secondary: set[int] = set()
     matches: dict[int, tuple[int, float, float]] = {}
-    for similarity, negative_distance, primary_index, secondary_index in candidates:
-        if primary_index in assigned_primary or secondary_index in assigned_secondary:
-            continue
-        assigned_primary.add(primary_index)
-        assigned_secondary.add(secondary_index)
-        matches[primary_index] = (secondary_index, similarity, -negative_distance)
+    primary_columns = _group_line_indexes_into_columns(primary.lines, direction)
+    secondary_columns = _group_line_indexes_into_columns(secondary.lines, direction)
+
+    # Pair columns by their main-axis position: the leftmost primary column
+    # with the leftmost secondary column, and so on. A page whose column count
+    # differs between engines still matches every column that exists on both
+    # sides; unmatched columns fall through to unpaired lines below.
+    paired_columns = list(zip(primary_columns, secondary_columns))
+
+    for p_col, s_col in paired_columns:
+        secondary_centers = [
+            _cross_axis_center(secondary.lines[i], direction) for i in s_col
+        ]
+        candidates: list[tuple[float, float, int, int]] = []
+        for primary_index in p_col:
+            primary_line = primary.lines[primary_index]
+            primary_center = _cross_axis_center(primary_line, direction)
+            for offset, secondary_index in enumerate(s_col):
+                distance = abs(primary_center - secondary_centers[offset])
+                if distance > max_cross_axis_distance:
+                    continue
+                similarity = _text_similarity(
+                    primary_line, secondary.lines[secondary_index]
+                )
+                candidates.append(
+                    (similarity, -distance, primary_index, secondary_index)
+                )
+
+        candidates.sort(reverse=True)
+
+        assigned_primary: set[int] = set()
+        assigned_secondary: set[int] = set()
+        for similarity, negative_distance, primary_index, secondary_index in candidates:
+            if primary_index in assigned_primary or secondary_index in assigned_secondary:
+                continue
+            assigned_primary.add(primary_index)
+            assigned_secondary.add(secondary_index)
+            matches[primary_index] = (
+                secondary_index,
+                similarity,
+                -negative_distance,
+            )
+
     return matches
 
 

@@ -272,6 +272,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum deskew correction in degrees (default: 8).",
     )
+    process.add_argument(
+        "--reencode-format",
+        type=str,
+        default=None,
+        choices=["jpeg", "png"],
+        help=(
+            "Re-encode every page raster before storing it (lossy for JPEG). "
+            "Stores the re-encode parameters with the page asset so the audit "
+            "always compares against what is on disk. Off by default: page "
+            "rasters are kept byte-for-byte from the source render."
+        ),
+    )
+    process.add_argument(
+        "--reencode-quality",
+        type=int,
+        default=None,
+        help="JPEG quality 1-100 when --reencode-format is jpeg (default: encoder default).",
+    )
     _add_repair_arguments(process)
     _add_vlm_arguments(process)
 
@@ -660,7 +678,20 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
         store = SQLiteStore(layout.db_path)
         store.initialize()
         project_id = _ensure_project(store, book)
-        imported = import_source(store, project_id, open_page_source(book), layout.assets_dir)
+        reencode = None
+        fmt = getattr(args, "reencode_format", None)
+        if fmt is not None:
+            reencode = {"format": fmt}
+            quality = getattr(args, "reencode_quality", None)
+            if quality is not None:
+                reencode["quality"] = quality
+        imported = import_source(
+            store,
+            project_id,
+            open_page_source(book),
+            layout.assets_dir,
+            reencode=reencode,
+        )
         engines = factory(runtime_root)
         outcome = process_book(
             store,

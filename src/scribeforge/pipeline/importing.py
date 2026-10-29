@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from scribeforge.domain.jobs import JobStage, JobState
-from scribeforge.domain.page_asset import PageAssetEvidence
+from scribeforge.domain.page_asset import PageAssetEvidence, reencode_image
 from scribeforge.domain.source import PageSource, page_asset_name
 from scribeforge.storage.sqlite import SQLiteStore
 
@@ -31,12 +32,21 @@ def import_source(
     project_id: int,
     source: PageSource,
     assets_dir: Path,
+    *,
+    reencode: dict[str, object] | None = None,
 ) -> ImportResult:
     """Materialize every page of a source into project-owned assets, resumably.
 
     Pages already persisted for the project are skipped so an interrupted import
     can be resumed without rewriting existing source evidence. The project-scoped
     import job records failure details and can be retried.
+
+    When ``reencode`` is given (for example ``{"format": "jpeg", "quality": 85}``)
+    every rendered page is re-encoded before it is written to disk. The re-encode
+    parameters are stored with the page's asset evidence so the audit can tell a
+    re-encoded raster from the original render, and the page's digest is computed
+    from the re-encoded bytes — the audit always compares against what is actually
+    on disk.
     """
 
     page_count = source.page_count
@@ -58,11 +68,27 @@ def import_source(
             rendered = source.render_page(page_index)
             if rendered.page_index != page_index:
                 raise ValueError("rendered page identity does not match requested page")
-            destination = assets_dir / page_asset_name(page_index, rendered.extension)
-            _write_asset(destination, rendered.image_bytes)
+
+            data = rendered.image_bytes
+            extension = rendered.extension
+            render_parameters = dict(rendered.render_parameters)
+            if reencode is not None:
+                fmt = str(reencode.get("format", "jpeg"))
+                quality_raw = reencode.get("quality")
+                quality = None if quality_raw is None else cast(int, quality_raw)
+                data, extension = reencode_image(
+                    data, format=fmt, quality=quality
+                )
+                render_parameters["reencoded"] = {
+                    "format": fmt,
+                    "quality": quality,
+                }
+
+            destination = assets_dir / page_asset_name(page_index, extension)
+            _write_asset(destination, data)
             page_asset = PageAssetEvidence.from_bytes(
-                rendered.image_bytes,
-                render_parameters=rendered.render_parameters,
+                data,
+                render_parameters=render_parameters,
             )
             store.add_page(
                 project_id,

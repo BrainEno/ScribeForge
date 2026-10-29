@@ -186,12 +186,17 @@ def _figure_xhtml(image: VerifiedImage) -> str:
     this page has no OCR text by definition.
     """
 
-    # ``quoteattr`` rather than ``escape``: the caption sits inside an attribute,
-    # where a stray quotation mark would end the value and break the document.
-    return (
-        f'<figure class="page-image"><img src="{_image_href(image)}" '
-        f"alt={quoteattr(image.alt)}/></figure>"
+    img = (
+        f'<img src="{_image_href(image)}" '
+        f"alt={quoteattr(image.alt)}/>"
     )
+    if image.caption:
+        return (
+            f'<figure class="page-image">{img}'
+            f"<figcaption>{escape(image.caption)}</figcaption>"
+            f"</figure>"
+        )
+    return f'<figure class="page-image">{img}</figure>'
 
 
 def _block_xhtml(block: FlowParagraph) -> str:

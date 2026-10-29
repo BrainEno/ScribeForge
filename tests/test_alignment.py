@@ -92,6 +92,65 @@ def test_alignment_prefers_globally_optimal_assignment_over_greedy_order() -> No
     assert by_primary[1].secondary_line_index == 0
 
 
+def test_alignment_keeps_columns_separate_on_a_two_column_page() -> None:
+    """A two-column page must not pair a left-column line with a right-column line
+
+    merely because they happen to sit at the same cross-axis (vertical) position.
+    Lines are grouped by their main-axis (horizontal) position before matching,
+    so each column is aligned independently.
+    """
+
+    primary = PageOCRResult(
+        page_index=0,
+        engine="mineru",
+        engine_version="1",
+        lines=tuple(
+            OCRLine(
+                text,
+                BoundingBox(x, y, 0.4, 0.05),
+                (),
+            )
+            for text, x, y in [
+                ("左栏第一行", 0.10, 0.20),
+                ("右栏第一行", 0.60, 0.20),
+                ("左栏第二行", 0.10, 0.35),
+                ("右栏第二行", 0.60, 0.35),
+            ]
+        ),
+    )
+    secondary = PageOCRResult(
+        page_index=0,
+        engine="paddleocr",
+        engine_version="1",
+        lines=tuple(
+            OCRLine(
+                text,
+                BoundingBox(x, y, 0.4, 0.05),
+                (),
+            )
+            for text, x, y in [
+                ("左栏第一行", 0.10, 0.21),
+                ("右栏第一行", 0.60, 0.21),
+                ("左栏第二行", 0.10, 0.36),
+                ("右栏第二行", 0.60, 0.36),
+            ]
+        ),
+    )
+
+    result = align_pages(primary, secondary)
+
+    assert len(result.pairs) == 4
+    by_primary = {pair.primary_line_index: pair for pair in result.pairs}
+    # Left column lines pair with left column lines, right with right.
+    assert by_primary[0].secondary_line_index == 0
+    assert by_primary[1].secondary_line_index == 1
+    assert by_primary[2].secondary_line_index == 2
+    assert by_primary[3].secondary_line_index == 3
+    for pair in result.pairs:
+        assert pair.conflicts == ()
+        assert pair.text_similarity > 0.9
+
+
 def test_alignment_rejects_different_pages() -> None:
     primary = _page("mineru", [("x", 0.1)])
     secondary = PageOCRResult(1, "paddleocr", "1", ())
