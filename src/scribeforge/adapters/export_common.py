@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import zipfile
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from scribeforge.domain.content import VerifiedBook, VerifiedImage
@@ -29,11 +29,11 @@ def epub_image_name(image: VerifiedImage) -> str:
 
 
 def format_modified(modified: datetime) -> str:
-    """Render a timezone-aware timestamp as a W3CDTF UTC string."""
+    """Render a timezone-aware timestamp as a W3CDTF timezone.utc string."""
 
     if modified.tzinfo is None:
         raise ValueError("modified time must be timezone-aware")
-    return modified.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return modified.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def validate_language(language: str) -> str:
