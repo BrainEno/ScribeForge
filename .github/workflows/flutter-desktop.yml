@@ -28,6 +28,33 @@ jobs:
       - name: Format Dart source
         run: dart format lib test
       - name: Analyze Flutter client
-        run: flutter analyze
+        run: flutter analyze 2>&1 | tee analyze_output.txt; exit ${PIPESTATUS[0]}
+      - name: Show analyze errors as annotations
+        if: always()
+        run: |
+          if [ -f analyze_output.txt ]; then
+            grep -E '^(error|warning|info) •' analyze_output.txt | while IFS= read -r line; do
+              type=$(echo "$line" | cut -d' ' -f1)
+              rest=$(echo "$line" | cut -d' ' -f3-)
+              message=$(echo "$rest" | sed 's/ • .*//')
+              location=$(echo "$rest" | sed 's/.* • //' | sed 's/ •.*//')
+              file=$(echo "$location" | cut -d: -f1)
+              line_num=$(echo "$location" | cut -d: -f2)
+              col=$(echo "$location" | cut -d: -f3)
+              if [ "$type" = "error" ]; then
+                echo "::error file=$file,line=$line_num,col=$col::$message"
+              elif [ "$type" = "warning" ]; then
+                echo "::warning file=$file,line=$line_num,col=$col::$message"
+              else
+                echo "::notice file=$file,line=$line_num,col=$col::$message"
+              fi
+            done
+          fi
+      - name: Upload analyze output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-analyze-output
+          path: clients/flutter_desktop/analyze_output.txt
       - name: Run Flutter tests
         run: flutter test
