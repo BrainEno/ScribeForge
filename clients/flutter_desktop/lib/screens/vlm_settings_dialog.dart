@@ -80,13 +80,13 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
       return;
     }
 
-    final file = await FilePicker.pickFile(
+    final result = await FilePicker.platform.pickFiles(
       dialogTitle: 'Choose an image or review crop for VLM preflight',
       type: FileType.custom,
       allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp'],
     );
-    if (file == null || !mounted) return;
-    final imagePath = file.path;
+    if (result == null || !mounted) return;
+    final imagePath = result.files.single.path;
     if (imagePath == null || imagePath.trim().isEmpty) {
       setState(() => _testOutput = 'The file picker did not return a local image path.');
       return;

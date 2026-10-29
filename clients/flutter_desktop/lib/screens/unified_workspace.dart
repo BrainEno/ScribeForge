@@ -242,7 +242,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   // ---------------------------------------------------------------- actions
 
   Future<void> _pickPdf() async {
-    final result = await FilePicker.platform.pickFile(
+    final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: <String>['pdf', 'png', 'jpg', 'jpeg'],
     );
@@ -429,15 +429,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   Future<void> _pickExportOutput() async {
-    final result = await FilePicker.platform.saveFile(
+    final result = await FilePicker.platform.saveFiles(
       dialogTitle: '保存导出文件',
       fileName: '${_exportTitleController.text.isNotEmpty ? _exportTitleController.text : 'book'}.${_exportFormatEpub ? 'epub' : 'docx'}',
       type: FileType.custom,
       allowedExtensions: <String>[_exportFormatEpub ? 'epub' : 'docx'],
     );
     if (!mounted) return;
-    if (result != null && result.path != null) {
-      _exportOutputController.text = result.path!;
+    if (result != null && result.files.single.path != null) {
+      _exportOutputController.text = result.files.single.path!;
     }
   }
 
