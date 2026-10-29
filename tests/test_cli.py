@@ -56,10 +56,17 @@ class ExplodingEngine:
 
 
 class FakeReviewer:
+    """A reviewer that corroborates the primary engine's reading.
+
+    A vision model's answer is only accepted when it agrees with one of the
+    engines (issue #76), so a fake that invented a third text would leave every
+    pair unresolved and test the wrong path.
+    """
+
     def transcribe_crop(
         self, image_path: str, page_index: int, pair_index: int
     ) -> VLMReading:
-        return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "verified", False)
+        return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "鸦", False)
 
 
 class UncertainReviewer:
@@ -617,8 +624,10 @@ def test_export_candidates_keeps_raw_engine_outputs_separate_from_verified_expor
     assert run(["export", "--store", str(store_dir), "--out", str(verified_path)]) == 0
     with zipfile.ZipFile(verified_path) as archive:
         verified_page = archive.read("OEBPS/page-000001.xhtml").decode("utf-8")
-    assert "<p>verified</p>" in verified_page
-    assert "<p>鸦</p>" not in verified_page
+    # The verified export carries the accepted decision (the primary engine's
+    # reading, corroborated by the vision model), not both raw candidates.
+    assert "<p>鸦</p>" in verified_page
+    assert "<p>雅</p>" not in verified_page
 
 
 def test_export_candidates_fails_without_all_requested_engine_pages(
@@ -1596,7 +1605,7 @@ def test_process_uses_explicitly_configured_vlm_reviewer(
     decision = store.latest_decision(project.id, 0, 0)
     assert decision is not None
     assert decision.actor == "vlm"
-    assert decision.selected_text == "verified"
+    assert decision.selected_text == "鸦"
 
 
 def test_benchmark_include_vlm_adds_variant_d(
@@ -1873,3 +1882,149 @@ def test_benchmark_rejects_manifest_paths_that_escape_corpus_root_before_startin
     assert "image path escapes corpus root" in captured.err
     assert "ground truth path escapes corpus root" in captured.err
     assert not out_path.exists()
+
+
+class CropAwareEngine(FakeEngine):
+    """A worker that reads an isolated line better than it read the whole page."""
+
+    def __init__(self, name: str, page_text: str, crop_text: str) -> None:
+        super().__init__(name, page_text)
+        self._crop_text = crop_text
+        self.crop_calls = 0
+
+    def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        # A region re-read is recognisable by the attempt number in its file name;
+        # matching on a directory name would also match pytest's tmp_path.
+        if "-read-" in Path(image_path).name:
+            self.crop_calls += 1
+            box = BoundingBox(0.1, 0.1, 0.8, 0.02)
+            return PageOCRResult(
+                page_index, self._name, "1.0", (OCRLine(self._crop_text, box),)
+            )
+        return super().analyze_page(image_path, page_index)
+
+
+def _crop_aware_factory(
+    crop_text: str, secondary_crop_text: str | None = None
+) -> tuple[object, list[CropAwareEngine]]:
+    engines: list[CropAwareEngine] = []
+
+    def factory(runtime_root: Path) -> Engines:
+        primary = CropAwareEngine("primary", "鸦", crop_text)
+        secondary = CropAwareEngine(
+            "secondary", "雅", crop_text if secondary_crop_text is None else secondary_crop_text
+        )
+        engines.extend((primary, secondary))
+        return Engines(primary=primary, secondary=secondary, reviewer=None)
+
+    return factory, engines
+
+
+def test_process_with_repair_rounds_settles_a_dispute_without_a_person(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    factory, engines = _crop_aware_factory("鸦")
+
+    code = run(
+        [
+            "process",
+            str(book),
+            "--store",
+            str(store_dir),
+            "--repair-rounds",
+            "2",
+        ],
+        engine_factory=factory,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "repair round 1" in captured.out
+    assert "resolved 1" in captured.out
+    assert "0 pair(s) need review" in captured.out
+    assert "accepted without a person: 1 automatic" in captured.out
+    assert all(engine.crop_calls == 1 for engine in engines)
+
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = store.list_projects()[0].id
+    decision = store.latest_decision(project_id, 0, 0)
+    assert decision is not None and decision.selected_text == "鸦"
+
+
+def test_repair_command_reports_remaining_pairs_as_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    )
+    capsys.readouterr()
+    # The two re-reads disagree with each other and with both engines: no
+    # two readers support the same text, so the pair must stay open.
+    factory, _ = _crop_aware_factory("鸡", "蛙")
+
+    code = run(
+        ["repair", "--store", str(store_dir), "--repair-rounds", "1", "--json"],
+        engine_factory=factory,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    report = json.loads(captured.out)
+    assert report["rounds"][0]["examined"] == 1
+    assert report["rounds"][0]["resolved"] == 0
+    assert report["progress"]["open_pairs"] == 1
+    assert report["progress"]["auto_acceptance"] == 0.0
+
+
+def test_repair_command_settles_and_can_then_export(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    )
+    capsys.readouterr()
+    factory, _ = _crop_aware_factory("鸦")
+
+    code = run(
+        ["repair", "--store", str(store_dir), "--repair-rounds", "1"],
+        engine_factory=factory,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "accepted without a person: 1 automatic" in captured.out
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(tmp_path / "book.epub"),
+            "--title",
+            "Book",
+        ]
+    )
+
+    assert code == 0
+    with zipfile.ZipFile(tmp_path / "book.epub") as archive:
+        page = archive.read("OEBPS/page-000001.xhtml").decode()
+    assert "鸦" in page
+
+
+def test_repair_command_rejects_a_missing_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = run(["repair", "--store", str(tmp_path / "nope")])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "no store found" in captured.err

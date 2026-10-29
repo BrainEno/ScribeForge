@@ -90,6 +90,20 @@ line and every export is re-read and compared block by block. Cross-page
 continuation is still open because it needs the chapter flow from issue #87. See
 [Paragraphs and structural fidelity](./docs/paragraphs.md).
 
+A disagreement no longer ends in the human queue by default. `scribeforge repair`
+re-reads each disputed line from a wider, enlarged crop, stores every re-read as
+region-scoped evidence, and accepts a text only when **two independent readers**
+agree — the two whole-page engines, the fresh re-reads, and (when configured) a
+vision model re-reading the same crop. Rounds stop on budget, when attempts run
+out, or when nothing is left to try, and `src/scribeforge/pipeline/rounds.py`'s
+`progress()` reports how much of the book was accepted without a person, so the
+operator can decide between spot-checking and another round. A vision model's
+self-reported confidence is no longer enough on its own: it must corroborate an
+engine (issue #76). What this cannot do is see a line that *both* engines missed,
+or a glyph both misread the same way — that needs an independent full-page reader
+and is listed as the next step. See
+[Self-comparison and self-correction](./docs/self-correction.md).
+
 ## Planned processing pipeline
 
 ```text
@@ -183,6 +197,7 @@ See:
 - [Data model](./docs/data-model.md)
 - [Export](./docs/export.md)
 - [Paragraphs and structural fidelity](./docs/paragraphs.md)
+- [Self-comparison and self-correction](./docs/self-correction.md)
 - [Desktop shell](./docs/ui.md)
 - [Flutter Desktop comparison client](./clients/flutter_desktop/README.md)
 

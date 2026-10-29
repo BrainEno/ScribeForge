@@ -21,6 +21,16 @@ Export reads paragraphs, not lines: `VerifiedPage.blocks()` groups the accepted
 lines with geometry and block labels, so a printed line break is not a paragraph
 break. See [Paragraphs and structural fidelity](./paragraphs.md).
 
+## Repair before export
+
+A pair that no rule could settle is not a dead end. `scribeforge repair` re-reads
+it from a wider, enlarged crop and accepts a text only when at least two
+independent readers agree; see
+[Self-comparison and self-correction](./self-correction.md). Run it between
+`process` and `export` on a book whose review queue is dominated by low-level
+disagreements — `scribeforge export` itself still refuses to write a partial book,
+and `repair` does not relax that gate.
+
 ## Raw OCR candidate EPUBs
 
 `scribeforge export-candidates --store <dir> --out-dir <dir>` creates separate

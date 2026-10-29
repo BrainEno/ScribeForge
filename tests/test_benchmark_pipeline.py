@@ -27,11 +27,17 @@ class FakeEngine:
 
 
 class FakeReviewer:
+    """A reviewer that corroborates the primary engine's reading.
+
+    Since issue #76 a vision-model answer is accepted only when one engine reads the
+    same text, so the fake has to agree with ``mineru`` to exercise variant D.
+    """
+
     def transcribe_crop(
         self, image_path: str, page_index: int, pair_index: int
     ) -> VLMReading:
         assert Path(image_path).is_file()
-        return VLMReading(page_index, pair_index, "fake-vlm", "1", "checked", False)
+        return VLMReading(page_index, pair_index, "fake-vlm", "1", "left", False)
 
 
 def _corpus(tmp_path: Path, ground_truth: str) -> tuple[Path, BenchmarkManifest]:
@@ -99,7 +105,7 @@ def test_pipeline_benchmark_accepts_independent_engine_agreement(tmp_path: Path)
 
 
 def test_pipeline_benchmark_can_score_vlm_adjudicated_conflicts(tmp_path: Path) -> None:
-    root, manifest = _corpus(tmp_path, "checked")
+    root, manifest = _corpus(tmp_path, "left")
     report = run_pipeline_benchmark(
         manifest,
         root,

@@ -105,7 +105,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -151,6 +151,9 @@ class SQLiteStore:
             if version < 7:
                 self._create_v7(connection)
                 connection.execute("PRAGMA user_version = 7")
+            if version < 8:
+                self._create_v8(connection)
+                connection.execute("PRAGMA user_version = 8")
 
     @staticmethod
     def _create_v1(connection: sqlite3.Connection) -> None:
@@ -511,6 +514,24 @@ class SQLiteStore:
         )
 
     @staticmethod
+    def _create_v8(connection: sqlite3.Connection) -> None:
+        """Record what an OCR run actually read: a page, or one region of it.
+
+        A repair round re-reads a single disputed line from an enlarged crop. That
+        reading is evidence in its own right and must be storable without
+        pretending it came from a whole page: a NULL scope means "the whole page",
+        ``pair:<n>`` means the line of that aligned pair. Without it, re-reads are
+        either thrown away (so consensus cannot cite them) or appended as fake
+        page runs (so "the newest run for engine X" silently becomes a crop).
+        """
+
+        connection.executescript(
+            """
+            ALTER TABLE engine_runs ADD COLUMN scope TEXT;
+            """
+        )
+
+    @staticmethod
     def _last_id(cursor: sqlite3.Cursor) -> int:
         value = cursor.lastrowid
         if value is None:
@@ -621,7 +642,14 @@ class SQLiteStore:
             )
 
     def latest_engine_run(self, project_id: int, page_index: int, engine: str) -> int:
-        """Resolve the newest persisted OCR run for one engine on one page."""
+        """Resolve the newest whole-page OCR run for one engine on one page.
+
+        Region re-reads (repair rounds) are deliberately excluded. They are stored
+        as runs of the same page, but their boxes are crop-local and their text is
+        one line: if one of them could win here, "the newest reading of this page"
+        would silently become a single line of a single crop, and every consumer —
+        alignment, furniture detection, assembly — would read a fragment as a page.
+        """
 
         with self._connection() as connection:
             self._require_project(connection, project_id)
@@ -633,6 +661,7 @@ class SQLiteStore:
                 WHERE pages.project_id = ?
                   AND pages.page_index = ?
                   AND engine_runs.engine = ?
+                  AND engine_runs.scope IS NULL
                 ORDER BY engine_runs.id DESC
                 LIMIT 1
                 """,
@@ -641,6 +670,66 @@ class SQLiteStore:
             if row is None:
                 raise KeyError(f"unknown OCR run for engine {engine} on page {page_index}")
             return int(row["id"])
+
+    def list_scoped_run_ids(
+        self, project_id: int, page_index: int, scope: str
+    ) -> tuple[int, ...]:
+        """Return the runs of one region of a page, oldest first.
+
+        Region scopes are how a repair round's re-reads stay distinguishable from
+        whole-page runs: the length of this list is also how many times the pair
+        has already been re-read, which is what escalates the next attempt.
+        """
+
+        if not scope.strip():
+            raise ValueError("a run scope must be non-empty")
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            rows = connection.execute(
+                """
+                SELECT engine_runs.id
+                FROM engine_runs
+                JOIN pages ON pages.id = engine_runs.page_id
+                WHERE pages.project_id = ?
+                  AND pages.page_index = ?
+                  AND engine_runs.scope = ?
+                ORDER BY engine_runs.id
+                """,
+                (project_id, page_index, scope),
+            ).fetchall()
+            return tuple(int(row["id"]) for row in rows)
+
+    def latest_decision_actors(
+        self, project_id: int
+    ) -> dict[tuple[int, int], str]:
+        """Return the newest decision actor for every decided page pair.
+
+        Used to report how much of a book was accepted without a human: the
+        operator needs that number to decide whether to run another repair round
+        or merely spot-check the result.
+        """
+
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            rows = connection.execute(
+                """
+                SELECT pages.page_index, decisions.pair_index, decisions.actor
+                FROM decisions
+                JOIN pages ON pages.id = decisions.page_id
+                WHERE pages.project_id = ?
+                  AND decisions.id = (
+                      SELECT MAX(newer.id)
+                      FROM decisions AS newer
+                      WHERE newer.page_id = decisions.page_id
+                        AND newer.pair_index = decisions.pair_index
+                  )
+                """,
+                (project_id,),
+            ).fetchall()
+            return {
+                (int(row["page_index"]), int(row["pair_index"])): str(row["actor"])
+                for row in rows
+            }
 
     def latest_verification_id(self, project_id: int, page_index: int) -> int:
         """Resolve the newest persisted verification run for one page."""
@@ -1096,19 +1185,24 @@ class SQLiteStore:
         )
         return BookStructure(tuple(pages), chapters)
 
-    def record_ocr(self, project_id: int, result: PageOCRResult) -> int:
+    def record_ocr(
+        self, project_id: int, result: PageOCRResult, *, scope: str | None = None
+    ) -> int:
+        if scope is not None and not scope.strip():
+            raise ValueError("an OCR run scope must be non-empty when given")
         with self._connection() as connection:
             page_id = self._page_id(connection, project_id, result.page_index)
             cursor = connection.execute(
                 """
-                INSERT INTO engine_runs(page_id, engine, engine_version, direction)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO engine_runs(page_id, engine, engine_version, direction, scope)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     page_id,
                     result.engine,
                     result.engine_version,
                     result.direction.value if result.direction_declared else None,
+                    scope,
                 ),
             )
             run_id = self._last_id(cursor)

@@ -73,7 +73,7 @@ def test_latest_schema_contains_append_only_vlm_evidence_table(tmp_path: Path) -
             )
         }
 
-    assert version == 7
+    assert version == 8
     assert "vlm_reviews" in tables
 
 
@@ -142,7 +142,7 @@ def test_v2_database_migrates_forward_without_losing_project_data(tmp_path: Path
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='vlm_reviews'"

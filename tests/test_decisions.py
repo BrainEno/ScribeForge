@@ -74,3 +74,22 @@ def test_pair_without_any_engine_text_stays_unresolved() -> None:
 
     assert not result.resolved
     assert result.rationale == "no_engine_text"
+
+
+def test_a_confident_vlm_that_matches_no_engine_is_not_accepted() -> None:
+    """Issue #76: a model's own confidence is not independent agreement."""
+
+    result = adjudicate_pair("鸦", "雅", _reading("鸡"))
+
+    assert not result.resolved
+    assert result.actor is None
+    assert result.rationale == "vlm_uncorroborated"
+
+
+def test_a_vlm_reading_of_a_glyph_variant_still_corroborates() -> None:
+    """Corroboration is measured on the folded form, as engine agreement is."""
+
+    result = adjudicate_pair("为", "乌", _reading("爲"))
+
+    assert result.actor is DecisionActor.VLM
+    assert result.selected_text == "爲"

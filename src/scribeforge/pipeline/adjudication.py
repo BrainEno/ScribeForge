@@ -201,7 +201,7 @@ def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
     while a single page is being processed.
     """
 
-    furniture = _project_furniture(store, project_id)
+    furniture = project_furniture(store, project_id)
     items: list[ReviewItem] = []
     for page in store.list_pages(project_id):
         try:
@@ -229,10 +229,15 @@ def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
     return tuple(items)
 
 
-def _project_furniture(
+def project_furniture(
     store: SQLiteStore, project_id: int
 ) -> Mapping[int, Mapping[int, str]]:
-    """Book-wide furniture detection from stored OCR runs."""
+    """Book-wide furniture detection from stored OCR runs.
+
+    Public because every stage that walks pairs must agree on which ones are page
+    furniture: a repair round that re-read a running head would spend a reader on
+    text the export is going to drop.
+    """
 
     from scribeforge.domain.furniture import detect_page_furniture
 

@@ -45,7 +45,7 @@ def test_latest_schema_contains_verification_tables(tmp_path: Path) -> None:
             )
         }
 
-    assert version == 7
+    assert version == 8
     assert {
         "verification_runs",
         "alignments",
@@ -131,7 +131,7 @@ def test_v1_database_migrates_without_losing_existing_project(tmp_path: Path) ->
     SQLiteStore(path).initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
 
 

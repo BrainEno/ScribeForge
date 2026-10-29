@@ -47,10 +47,17 @@ class ExplodingEngine:
 
 
 class FakeReviewer:
+    """A reviewer that corroborates the primary engine's reading.
+
+    A vision model's answer is only accepted when it agrees with one of the
+    engines (issue #76), so a fake that invented a third text would leave every
+    pair unresolved and test the wrong thing.
+    """
+
     def transcribe_crop(
         self, image_path: str, page_index: int, pair_index: int
     ) -> VLMReading:
-        return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "verified", False)
+        return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "鸦", False)
 
 
 class UncertainReviewer:
@@ -230,7 +237,7 @@ def test_process_page_records_vlm_decision_from_confident_review(tmp_path: Path)
     assert [
         (decision.selected_text, decision.actor)
         for decision in store.list_decisions(project_id, 0, 0)
-    ] == [("verified", "vlm")]
+    ] == [("鸦", "vlm")]
 
 
 def test_process_page_queues_uncertain_review_for_humans(tmp_path: Path) -> None:
