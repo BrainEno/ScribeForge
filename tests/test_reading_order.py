@@ -83,12 +83,18 @@ def test_vertical_order_breaks_column_ties_top_to_bottom() -> None:
     assert order_indexes(lines, PageDirection.VERTICAL_RL) == (1, 0)
 
 
-def test_horizontal_splicing_leaves_lines_untouched() -> None:
-    """Horizontal lines are visual lines; joining them needs evidence we lack."""
+def test_horizontal_splicing_joins_lines_until_a_sentence_ends() -> None:
+    """A horizontal line is a visual line, not a paragraph.
+
+    Exporting one paragraph per printed line was the defect this replaced: a page
+    of prose arrived as eight fragments, most ending mid-sentence. Without
+    geometry the only evidence is punctuation, and it is enough to stop a
+    paragraph break from landing inside a sentence.
+    """
 
     lines = ("甲乙", "丙丁。", "戊己")
 
-    assert splice_paragraphs(lines, PageDirection.HORIZONTAL_LR) == lines
+    assert splice_paragraphs(lines, PageDirection.HORIZONTAL_LR) == ("甲乙丙丁。", "戊己")
 
 
 def test_vertical_columns_join_without_a_separator() -> None:
@@ -123,17 +129,16 @@ def test_vertical_trailing_closing_quote_closes_a_paragraph() -> None:
     lines = ("他说：「好。", "」", "下一段。")
 
     assert splice_paragraphs(lines, PageDirection.VERTICAL_RL) == (
-        "他说：「好。",
-        "」",
+        "他说：「好。」",
         "下一段。",
     )
 
 
 def test_verified_page_uses_its_direction_for_paragraphs() -> None:
-    horizontal = VerifiedPage(0, ("甲", "乙"))
+    horizontal = VerifiedPage(0, ("甲", "乙。"))
     vertical = VerifiedPage(0, ("甲", "乙"), direction=PageDirection.VERTICAL_RL)
 
-    assert horizontal.paragraphs() == ("甲", "乙")
+    assert horizontal.paragraphs() == ("甲乙。",)
     assert vertical.paragraphs() == ("甲乙",)
 
 

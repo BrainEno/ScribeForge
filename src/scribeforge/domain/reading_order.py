@@ -23,10 +23,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from scribeforge.domain.ocr import OCRLine, PageDirection
-
-#: Sentence-final punctuation. A column that ends with one of these closes a
-#: paragraph; anything else continues into the next column.
-_TERMINAL_PUNCTUATION = frozenset("。！？；：…」』）】》〉”’!?;:")
+from scribeforge.domain.paragraphs import TextLine, assemble_paragraphs
 
 
 def reading_order_key(line: OCRLine, direction: PageDirection) -> tuple[float, float]:
@@ -59,42 +56,21 @@ def order_indexes(lines: Sequence[OCRLine], direction: PageDirection) -> tuple[i
     )
 
 
-def _is_vertical(direction: PageDirection) -> bool:
-    return direction.is_vertical
-
-
 def splice_paragraphs(
     lines: Sequence[str], direction: PageDirection
 ) -> tuple[str, ...]:
     """Turn reading-order lines into the paragraphs an export should render.
 
-    *Horizontal pages are returned unchanged.* A horizontal OCR line is a visual
-    line, and joining visual lines into paragraphs needs hyphenation and
-    justification evidence that this pipeline does not have yet; guessing would
-    silently rewrite the book. Export keeps the accepted line as the unit.
-    *Vertical pages are joined.* A vertical OCR line is a column, and a column is
-    a fragment of a paragraph; keeping one paragraph per column would insert a
-    paragraph break mid-sentence on every page. Columns are joined with no
-    separator until one ends with sentence-final punctuation.
+    Text-only convenience wrapper around
+    :func:`scribeforge.domain.paragraphs.assemble_paragraphs`. Export should call
+    that function directly with geometry and block roles; this one exists for
+    callers that hold nothing but strings (and for the vertical case, where the
+    printed column break carries no paragraph information anyway).
     """
 
-    texts = [line.strip() for line in lines]
-    if not _is_vertical(direction):
-        return tuple(lines)
-
-    paragraphs: list[str] = []
-    current: list[str] = []
-    for text in texts:
-        if not text:
-            # A blank line is an explicit break even on a vertical page.
-            if current:
-                paragraphs.append("".join(current))
-                current = []
-            continue
-        current.append(text)
-        if text[-1] in _TERMINAL_PUNCTUATION:
-            paragraphs.append("".join(current))
-            current = []
-    if current:
-        paragraphs.append("".join(current))
-    return tuple(paragraphs)
+    return tuple(
+        paragraph.text
+        for paragraph in assemble_paragraphs(
+            [TextLine(text) for text in lines], direction
+        )
+    )

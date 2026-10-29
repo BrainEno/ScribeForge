@@ -13,8 +13,13 @@ newest decision wins, so a human correction automatically supersedes an earlier
 
 The assembled model is deliberately minimal:
 
-- `VerifiedPage(page_index, lines)` — accepted lines in reading order.
+- `VerifiedPage(page_index, lines)` — accepted lines in reading order, plus the
+  layout evidence (`line_boxes`, `line_roles`) that turns them into paragraphs.
 - `VerifiedBook(title, pages)` — pages in page order.
+
+Export reads paragraphs, not lines: `VerifiedPage.blocks()` groups the accepted
+lines with geometry and block labels, so a printed line break is not a paragraph
+break. See [Paragraphs and structural fidelity](./paragraphs.md).
 
 ## Raw OCR candidate EPUBs
 
@@ -56,7 +61,7 @@ standard zip layout:
 | `META-INF/container.xml` | points at `OEBPS/content.opf` |
 | `OEBPS/content.opf` | EPUB 3 package: identifier, title, author, language, `dcterms:modified`, manifest, spine |
 | `OEBPS/nav.xhtml` | EPUB 3 navigation document listing every page |
-| `OEBPS/page-000001.xhtml` … | one XHTML document per verified page, `<p>` per accepted line |
+| `OEBPS/page-000001.xhtml` … | one XHTML document per verified page; one element per reconstructed paragraph (`<p>`, `<h2>`, `<aside epub:type="footnote">`) |
 
 Metadata:
 
@@ -83,11 +88,12 @@ the minimal OPC parts:
 | --- | --- |
 | `[Content_Types].xml` | first part; declares the main-document and core-properties content types |
 | `_rels/.rels` | package relationships to `word/document.xml` and `docProps/core.xml` |
-| `word/document.xml` | one `<w:p>` per accepted line, page breaks between pages, trailing `<w:sectPr/>` |
+| `word/document.xml` | one `<w:p>` per reconstructed paragraph (headings use `Heading2`, footnotes are superscript), page breaks between pages, trailing `<w:sectPr/>` |
 | `docProps/core.xml` | title, author (`dc:creator`), identifier, language, `dcterms:modified` |
 
-An accepted empty line becomes `<w:p/>`; text keeps `xml:space="preserve"` so
-leading and trailing spaces survive. Pages are separated by an explicit
+An accepted blank line separates paragraphs and is not emitted as an empty
+paragraph; every paragraph keeps `xml:space="preserve"` so leading and trailing
+spaces survive. Pages are separated by an explicit
 `<w:br w:type="page"/>` paragraph, so even a blank page occupies its own page.
 Values XML cannot represent are rejected for the same reason as in EPUB.
 
@@ -112,11 +118,16 @@ returned, and both builders run it automatically:
 - the archive opens, every entry passes its CRC check, and every XML part parses;
 - EPUB: `mimetype` is first and stored, the container points at an existing
   package, every manifest target exists, the spine matches the verified page
-  order, and each XHTML page reproduces its accepted lines exactly;
+  order, and each XHTML page reproduces its accepted blocks exactly — in order,
+  element for element, with unknown elements treated as a failure;
 - DOCX: `[Content_Types].xml` is first, every part has a content type, every
   relationship target exists, page breaks match the page count, and each page
-  reproduces its accepted lines exactly;
+  reproduces its accepted blocks exactly;
 - the package title equals the book title.
+
+Whitespace is compared after squashing, because joining two lines can insert one
+space between Latin characters; every other character difference is an error, so
+a lost character can never pass the check.
 
 A mismatch raises `ExportIntegrityError` (a `ValueError`), so `export` exits `2`
 instead of writing a file whose text drifted from the accepted decisions.

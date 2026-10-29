@@ -17,6 +17,7 @@ from scribeforge.adapters.export_common import (
     write_zip_entry,
 )
 from scribeforge.domain.content import VerifiedBook
+from scribeforge.domain.paragraphs import LineRole, Paragraph
 
 _CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -99,12 +100,33 @@ def _paragraph_xml(text: str) -> str:
     return f'<w:p><w:r><w:t xml:space="preserve">{escape(text)}</w:t></w:r></w:p>'
 
 
+def _block_xml(block: Paragraph) -> str:
+    """Render a paragraph with the structure its role implies.
+
+    Word's built-in ``Heading2`` style is what turns a chapter title into a
+    navigation entry in Word and in anything that reads the document outline;
+    plain text hides it among the body copy. A footnote keeps its text but is set
+    apart, so it is not mistaken for the sentence it annotates.
+    """
+
+    text = escape(block.text)
+    if block.role is LineRole.HEADING:
+        return (
+            '<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr>'
+            f'<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+        )
+    if block.role is LineRole.FOOTNOTE:
+        return f'<w:p><w:r><w:rPr><w:vertAlign w:val="subscript"/></w:rPr>' \
+               f'<w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+    return f'<w:p><w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+
+
 def _document_xml(book: VerifiedBook) -> str:
     paragraphs: list[str] = []
     for index, page in enumerate(book.pages):
         if index > 0:
             paragraphs.append('<w:p><w:r><w:br w:type="page"/></w:r></w:p>')
-        paragraphs.extend(_paragraph_xml(line) for line in page.paragraphs())
+        paragraphs.extend(_block_xml(block) for block in page.blocks())
     return (
         XML_DECL
         + "\n"

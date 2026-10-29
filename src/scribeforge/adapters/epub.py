@@ -17,6 +17,7 @@ from scribeforge.adapters.export_common import (
     write_zip_entry,
 )
 from scribeforge.domain.content import VerifiedBook, VerifiedChapter, VerifiedPage
+from scribeforge.domain.paragraphs import LineRole, Paragraph
 
 _MIMETYPE = "application/epub+zip"
 _OPF_NS = "http://www.idpf.org/2007/opf"
@@ -144,9 +145,27 @@ def _nav_xhtml(book: VerifiedBook, language: str) -> str:
     )
 
 
+def _block_xhtml(block: Paragraph) -> str:
+    """Render one paragraph according to what it is.
+
+    A scanned book's chapter title and its footnotes were previously just more
+    body paragraphs, so a reader saw "Page 12" style prose with the chapter
+    heading indistinguishable from text and every note dropped into the middle of
+    the page. Headings and notes now carry their own markup, which is what makes
+    a reading system able to style them and navigate them.
+    """
+
+    text = escape(block.text)
+    if block.role is LineRole.HEADING:
+        return f"<h2>{text}</h2>"
+    if block.role is LineRole.FOOTNOTE:
+        return f'<aside epub:type="footnote"><p>{text}</p></aside>'
+    return f"<p>{text}</p>"
+
+
 def _page_xhtml(page: VerifiedPage, language: str) -> str:
     lang = quoteattr(language)
-    paragraphs = "".join(f"<p>{escape(text)}</p>" for text in page.paragraphs())
+    paragraphs = "".join(_block_xhtml(block) for block in page.blocks())
     # Prefer the number printed in the book. Readers cite that number, and in a
     # book whose numbering restarts per section the physical index is meaningless
     # to them.

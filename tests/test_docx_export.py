@@ -117,7 +117,7 @@ def test_document_preserves_text_in_reading_order() -> None:
 
     document = _parse(archive, "word/document.xml")
 
-    assert _paragraphs(document) == ["鸦", 'x < y & "z"', "", "<break>", "二"]
+    assert _paragraphs(document) == ['鸦x < y & "z"', "<break>", "二"]
 
 
 def test_document_breaks_between_pages() -> None:
@@ -233,7 +233,7 @@ def test_build_accepts_xml_whitespace_characters() -> None:
     )
 
     document = _parse(archive, "word/document.xml")
-    assert _paragraphs(document) == ["a\tb", "c\nd"]
+    assert _paragraphs(document) == ["a\tb c\nd"]
 
 
 def test_build_docx_rechecks_the_rendered_archive(monkeypatch: pytest.MonkeyPatch) -> None:
