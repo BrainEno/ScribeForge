@@ -27,6 +27,10 @@ jobs:
           cache: true
       - name: Generate native desktop runners
         run: flutter create --platforms=windows,macos,linux --project-name scribeforge_desktop .
+      # flutter create 会生成默认的 test/widget_test.dart，引用不存在的 MyApp，
+        # 与项目的 UnifiedWorkspace 不兼容，需删除后使用项目自己的测试。
+      - name: Remove default generated test
+        run: rm -f test/widget_test.dart
       - name: Resolve dependencies
         run: flutter pub get
       - name: Format Dart source
