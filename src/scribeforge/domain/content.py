@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import PurePosixPath
 
 from scribeforge.domain.acceptance import AcceptanceSummary
 from scribeforge.domain.ocr import BoundingBox, PageDirection
@@ -24,6 +27,65 @@ class DroppedFurniture:
     page_index: int
     text: str
     reason: str
+
+
+class PageImageRole(str, Enum):
+    """Why a scanned page is carried as a picture instead of reflowed text."""
+
+    #: The book's cover: a reader expects it, and a store without one is what
+    #: makes an EPUB look unfinished in a library grid.
+    COVER = "cover"
+    #: A plate, illustration or any other page whose content is an image.
+    FIGURE = "figure"
+
+
+#: Image formats an EPUB 3 reader is required to support and that the page
+#: renderer actually produces. Anything else refuses to export rather than
+#: embedding a file no reader can show.
+IMAGE_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedImage:
+    """A page whose content is a picture: the part of a book text cannot carry.
+
+    Only a page with **no accepted text** becomes an image, and only when the book
+    says it is a picture: the structure pass measured a cover or a plate, or a
+    person confirmed the content is not text (issue #74). A page of prose is
+    re-flowed, never mirrored: embedding its raster would ship an unsearchable
+    picture where the project promised verified text.
+
+    ``data`` is the raster captured while assembling the book, and ``sha256`` is
+    its digest. The digest is re-derived on construction, so a model instance
+    cannot claim bytes it does not carry; the export check re-derives it again
+    from the archive entry that was actually written.
+    """
+
+    page_index: int
+    file_name: str
+    media_type: str
+    role: PageImageRole
+    sha256: str
+    data: bytes = field(repr=False)
+    alt: str = ""
+
+    def __post_init__(self) -> None:
+        if self.media_type not in set(IMAGE_MEDIA_TYPES.values()):
+            raise ValueError(f"unsupported image media type: {self.media_type!r}")
+        if PurePosixPath(self.file_name).parent != PurePosixPath("."):
+            raise ValueError("an embedded image file name must be a bare name")
+        if not self.data:
+            raise ValueError("an embedded image must carry bytes")
+        actual = hashlib.sha256(self.data).hexdigest()
+        if actual != self.sha256:
+            raise ValueError(
+                f"image digest {self.sha256[:12]}… does not match the bytes "
+                f"captured for page {self.page_index}"
+            )
+
+    @property
+    def is_cover(self) -> bool:
+        return self.role is PageImageRole.COVER
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,3 +179,28 @@ class VerifiedBook:
     empty_pairs: tuple[tuple[int, int], ...] = ()
     #: Who accepted the exported text and how risky the machine-accepted part was.
     acceptance: AcceptanceSummary = field(default_factory=AcceptanceSummary)
+    #: Pages that are pictures: the cover and any confirmed plate. Ordered by page.
+    images: tuple[VerifiedImage, ...] = ()
+
+    def __post_init__(self) -> None:
+        pages = {page.page_index for page in self.pages}
+        seen: set[int] = set()
+        for image in self.images:
+            if image.page_index not in pages:
+                raise ValueError(
+                    f"image for page {image.page_index} is not part of the book"
+                )
+            if image.page_index in seen:
+                raise ValueError(f"page {image.page_index} carries two images")
+            seen.add(image.page_index)
+        for page in self.pages:
+            if page.lines and page.page_index in seen:
+                raise ValueError(
+                    f"page {page.page_index} has both accepted text and an image"
+                )
+
+    @property
+    def cover_image(self) -> VerifiedImage | None:
+        """The image an EPUB should declare as the book cover, if there is one."""
+
+        return self.images[0] if self.images and self.images[0].is_cover else None

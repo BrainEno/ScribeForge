@@ -5,9 +5,12 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from scribeforge.domain.content import VerifiedBook
+from scribeforge.domain.content import VerifiedBook, VerifiedImage
 
 XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>'
+#: Directory inside an EPUB package that holds the page rasters. Both the writer
+#: and the integrity check read the convention from here, so they cannot drift.
+IMAGES_DIR = "images"
 # Fixed DOS epoch so two exports with the same inputs produce identical bytes.
 ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 _LANGUAGE_TAG = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
@@ -17,6 +20,12 @@ _LANGUAGE_TAG = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
 _XML_INVALID = re.compile(
     r"[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]"
 )
+
+
+def epub_image_name(image: VerifiedImage) -> str:
+    """Archive path of one page raster, relative to the package root."""
+
+    return f"OEBPS/{IMAGES_DIR}/{image.file_name}"
 
 
 def format_modified(modified: datetime) -> str:
@@ -57,6 +66,8 @@ def validate_book_text(book: VerifiedBook, *, author: str | None) -> None:
     """Check every string the export will encode, naming the offending source line."""
 
     require_xml_text(book.title, context="book title")
+    for image in book.images:
+        require_xml_text(image.alt, context=f"page {image.page_index} image caption")
     if author is not None:
         require_xml_text(author, context="author")
     for page in book.pages:
@@ -69,10 +80,22 @@ def write_zip_entry(
 ) -> None:
     """Write one UTF-8 entry with a fixed timestamp for reproducible archives."""
 
+    write_zip_bytes(archive, name, text.encode("utf-8"), compression)
+
+
+def write_zip_bytes(
+    archive: zipfile.ZipFile, name: str, data: bytes, compression: int
+) -> None:
+    """Write one binary entry with the same fixed timestamp as text entries.
+
+    Page rasters go through here: an image must be byte-identical to the evidence
+    it came from, so nothing about it may be re-encoded on the way in.
+    """
+
     info = zipfile.ZipInfo(name, date_time=ZIP_DATE)
     info.compress_type = compression
     info.external_attr = 0o644 << 16
-    archive.writestr(info, text.encode("utf-8"))
+    archive.writestr(info, data)
 
 
 def write_atomic(path: Path, data: bytes) -> Path:

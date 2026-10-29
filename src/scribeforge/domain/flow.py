@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scribeforge.domain.content import VerifiedBook, VerifiedPage
+from scribeforge.domain.content import VerifiedBook, VerifiedImage, VerifiedPage
 from scribeforge.domain.paragraphs import (
     LineRole,
     Paragraph,
@@ -81,6 +81,9 @@ class FlowDocument:
     #: Every page carries a ``pagebreak`` marker, so a page with no text still
     #: leaves its number behind for a citation.
     page_labels: tuple[tuple[int, str], ...] = ()
+    #: Pictures that belong to this document, in page order. A cover lands at the
+    #: front of the front-matter document; a plate lands where the page turn was.
+    images: tuple[VerifiedImage, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +274,10 @@ def build_flow(book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> BookFlow:
         else [("", 1, (page.page_index,)) for page in book.pages]
     )
 
+    images_by_page: dict[int, list[VerifiedImage]] = {}
+    for image in book.images:
+        images_by_page.setdefault(image.page_index, []).append(image)
+
     documents: list[FlowDocument] = []
     for index, (title, level, page_indexes) in enumerate(groups):
         if chapter_layout:
@@ -294,6 +301,11 @@ def build_flow(book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> BookFlow:
                 page_labels=tuple(
                     (page_index, spans[page_index].printed_label)
                     for page_index in page_indexes
+                ),
+                images=tuple(
+                    image
+                    for page_index in page_indexes
+                    for image in images_by_page.get(page_index, ())
                 ),
             )
         )

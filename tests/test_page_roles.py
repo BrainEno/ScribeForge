@@ -144,6 +144,36 @@ def test_blank_and_plate_are_classified_together_from_ink() -> None:
     assert roles[2] is PageRole.PLATE
 
 
+def test_a_picture_on_the_first_page_of_the_scan_is_the_cover() -> None:
+    """A scanned cover carries no OCR text, so ink alone cannot tell it from a plate.
+
+    Position is the second signal: the first page of a bound book is the cover.
+    """
+
+    roles = classify_page_roles(
+        [
+            _evidence(0, (), ink=0.94),
+            _evidence(1, ("书名",), ink=0.05),
+            _evidence(2, ("正文第一行",), label=_numbered(1, 1)),
+        ]
+    )
+
+    assert roles[0] is PageRole.COVER
+
+
+def test_a_picture_further_in_is_a_plate() -> None:
+    roles = classify_page_roles(
+        [
+            _evidence(0, ("书名",), ink=0.05),
+            _evidence(1, ("正文第一行",), label=_numbered(1, 1)),
+            _evidence(2, (), ink=0.5),
+        ]
+    )
+
+    assert roles[0] is PageRole.COVER
+    assert roles[2] is PageRole.PLATE
+
+
 def test_a_short_first_page_is_the_cover() -> None:
     roles = classify_page_roles(
         [

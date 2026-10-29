@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from scribeforge.domain.acceptance import (
     DEFAULT_POLICY,
@@ -14,15 +16,19 @@ from scribeforge.domain.acceptance import (
 )
 from scribeforge.domain.alignment import LineAlignment
 from scribeforge.domain.content import (
+    IMAGE_MEDIA_TYPES,
     DroppedFurniture,
+    PageImageRole,
     VerifiedBook,
     VerifiedChapter,
+    VerifiedImage,
     VerifiedPage,
 )
 from scribeforge.domain.furniture import detect_page_furniture
 from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
 from scribeforge.domain.paragraphs import LineRole
-from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord
+from scribeforge.domain.structure import BookStructure, PageRole
+from scribeforge.storage.sqlite import PageConfirmation, SQLiteStore, VerificationRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +230,7 @@ def assemble_verified_content(
             measured_ink=measured_ink,
         )
     exportable = {page.page_index for page in pages}
+    images = _page_images(store, project_id, pages, structure, confirmations)
     chapters = tuple(
         VerifiedChapter(
             title=chapter.title,
@@ -243,6 +250,7 @@ def assemble_verified_content(
         dropped_furniture=tuple(dropped),
         confirmed_blank_pages=tuple(confirmed_blank),
         empty_pairs=tuple(empty_pairs),
+        images=images,
         acceptance=AcceptanceSummary(
             pages=len(pages),
             pairs=machine_accepted + human_accepted,
@@ -251,6 +259,103 @@ def assemble_verified_content(
             max_machine_risk=max_machine_content_risk,
             spot_check=tuple(spot_check),
         ),
+    )
+
+
+#: Confirmation kind recorded when a page is a picture rather than a leaf.
+_NON_TEXT_KIND = "non_text"
+
+
+class PageImageError(ValueError):
+    """Raised when a page that must be carried as an image cannot be.
+
+    Silently omitting it is the failure this class exists to prevent: a book
+    exported without its cover, or without a plate someone confirmed, looks
+    complete and is not.
+    """
+
+
+def _page_images(
+    store: SQLiteStore,
+    project_id: int,
+    pages: list[VerifiedPage],
+    structure: BookStructure,
+    confirmations: Mapping[int, PageConfirmation],
+) -> tuple[VerifiedImage, ...]:
+    """The pages that must ship as pictures, with their bytes and digests.
+
+    Two facts have to line up before a raster is embedded, and both come from
+    recorded evidence rather than inference:
+
+    1. the page has **no accepted text** — a page of prose is re-flowed, never
+       mirrored, because a raster of text is exactly what this project promises
+       not to ship;
+    2. the page *is* a picture: the structure pass measured it as a cover or a
+       plate (`page_structure`, issue #87), or a person confirmed its content is
+       not text (`scribeforge confirm --kind non_text`, issue #74).
+
+    A confirmed *blank* leaf satisfies (1) but not (2): there is nothing to look
+    at, and a white rectangle in the reading flow is noise. A page nobody has
+    spoken for — no role and no confirmation — is not embedded either; that page
+    blocks export anyway unless both engines read it as empty.
+    """
+
+    roles = {entry.page_index: entry.role for entry in structure.pages}
+    assets = {page.page_index: page.source_image for page in store.list_pages(project_id)}
+    images: list[VerifiedImage] = []
+    for page in pages:
+        if page.lines:
+            continue
+        confirmation = confirmations.get(page.page_index)
+        role = roles.get(page.page_index, PageRole.UNKNOWN)
+        if role is PageRole.COVER:
+            image_role = PageImageRole.COVER
+        elif role is PageRole.PLATE or (
+            confirmation is not None and confirmation.kind == _NON_TEXT_KIND
+        ):
+            image_role = PageImageRole.FIGURE
+        else:
+            continue
+        images.append(
+            _load_image(page, assets[page.page_index], image_role)
+        )
+    return tuple(images)
+
+
+def _load_image(page: VerifiedPage, source: str, role: PageImageRole) -> VerifiedImage:
+    """Read one page raster and record its digest, or refuse with the reason."""
+
+    path = Path(source)
+    suffix = path.suffix.lower()
+    media_type = IMAGE_MEDIA_TYPES.get(suffix)
+    if media_type is None:
+        raise PageImageError(
+            f"page {page.page_index} must be embedded as an image, but its raster "
+            f"{path.name!r} is not a format an EPUB reader can show "
+            f"({', '.join(sorted(IMAGE_MEDIA_TYPES))})"
+        )
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise PageImageError(
+            f"page {page.page_index} must be embedded as an image, but its raster "
+            f"{path} is unreadable: {exc.strerror or exc}"
+        ) from exc
+    if not data:
+        raise PageImageError(
+            f"page {page.page_index} must be embedded as an image, but its raster "
+            f"{path} is empty"
+        )
+    label = page.printed_label or str(page.page_index + 1)
+    alt = "封面" if role is PageImageRole.COVER else f"第 {label} 页的插图"
+    return VerifiedImage(
+        page_index=page.page_index,
+        file_name=f"page-{page.page_index + 1:06d}{suffix}",
+        media_type=media_type,
+        role=role,
+        sha256=hashlib.sha256(data).hexdigest(),
+        data=data,
+        alt=alt,
     )
 
 

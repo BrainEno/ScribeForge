@@ -7,13 +7,16 @@ exist, and the text must still be exactly the verified book, page by page.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import posixpath
 import xml.etree.ElementTree as ET
 import zipfile
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from scribeforge.adapters.export_common import epub_image_name
 from scribeforge.domain.content import VerifiedBook
 from scribeforge.domain.flow import AUTO_LAYOUT, BookFlow, build_flow
 
@@ -139,10 +142,12 @@ def check_epub(
             "package title differs from the book",
         )
 
+        references: Counter[str] = Counter()
+        _check_images(archive, package, manifest, book)
+
         for expected in flow.documents:
-            rendered = _xhtml_blocks(
-                _parse(archive, _resolve(package_name, manifest[expected.item_id]))
-            )
+            document_name = _resolve(package_name, manifest[expected.item_id])
+            rendered = _xhtml_blocks(_parse(archive, document_name))
             _require(
                 rendered.paragraphs
                 == [paragraph.text for paragraph in expected.paragraphs],
@@ -152,6 +157,13 @@ def check_epub(
                 rendered.pages == [page_index for page_index, _ in expected.page_labels],
                 f"document {expected.file_name} does not carry a marker per scanned page",
             )
+            _require(
+                sorted(_resolve(document_name, source) for source in rendered.images)
+                == sorted(epub_image_name(image) for image in expected.images),
+                f"document {expected.file_name} does not show exactly its own images",
+            )
+            for source in rendered.images:
+                references[_resolve(document_name, source)] += 1
             covered = set(expected.pages)
             accepted = "".join(
                 line for page in book.pages if page.page_index in covered for line in page.lines
@@ -162,6 +174,92 @@ def check_epub(
             )
         _require_no_text_lost(book)
         _require_flow_preserves_pages(book, flow)
+        _require_images_referenced_once(book, references)
+
+
+def _check_images(
+    archive: zipfile.ZipFile,
+    package: ET.Element,
+    manifest: dict[str, str],
+    book: VerifiedBook,
+) -> None:
+    """Verify every image the book carries, and how the package declares it.
+
+    Two independent claims have to hold. The bytes written must be the bytes the
+    book recorded (same SHA-256), which is what stops a re-rendered or swapped
+    page raster from entering an export unnoticed; and the archive must declare
+    exactly the images the book has — one manifest item each, one cover, and no
+    orphan file that no document shows. How many documents *show* each image is
+    counted by the caller, which knows the spine.
+    """
+
+    names = set(archive.namelist())
+    expected = {epub_image_name(image): image for image in book.images}
+    for name, image in expected.items():
+        _require(name in names, f"page {image.page_index} image is missing from the archive")
+        actual = hashlib.sha256(archive.read(name)).hexdigest()
+        _require(
+            actual == image.sha256,
+            f"page {image.page_index} image bytes differ from the verified page raster",
+        )
+
+    strays = sorted(
+        name for name in names if name.startswith("OEBPS/images/") and name not in expected
+    )
+    _require(not strays, f"archive carries images the book does not claim: {strays[:3]}")
+
+    declared: dict[str, tuple[str, str]] = {}
+    for item in package.findall("o:manifest/o:item", _OPF_NS):
+        if not (item.get("media-type") or "").startswith("image/"):
+            continue
+        declared[item.get("href") or ""] = (
+            item.get("id") or "",
+            item.get("properties") or "",
+        )
+    _require(
+        set(declared) == {posixpath.relpath(name, "OEBPS") for name in expected},
+        "manifest image items do not match the book's images",
+    )
+    for name in expected:
+        href = posixpath.relpath(name, "OEBPS")
+        item_id, _ = declared[href]
+        _require(
+            manifest.get(item_id) == href,
+            f"manifest item {item_id!r} does not point at {href!r}",
+        )
+
+    cover = book.cover_image
+    cover_items = sorted(
+        href for href, (_, properties) in declared.items() if "cover-image" in properties.split()
+    )
+    if cover is None:
+        _require(not cover_items, "package declares a cover image the book does not have")
+        _require(
+            package.find("o:metadata/o:meta[@name='cover']", _OPF_NS) is None,
+            "package declares a cover the book does not have",
+        )
+    else:
+        cover_href = posixpath.relpath(epub_image_name(cover), "OEBPS")
+        _require(
+            cover_items == [cover_href],
+            "package does not declare exactly the book's cover image",
+        )
+        meta = package.find("o:metadata/o:meta[@name='cover']", _OPF_NS)
+        _require(
+            meta is not None and meta.get("content") == declared[cover_href][0],
+            "package does not point EPUB 2 readers at the cover image",
+        )
+
+
+def _require_images_referenced_once(book: VerifiedBook, seen: Counter[str]) -> None:
+    """Each image must be shown exactly once, by the document that owns its page."""
+
+    for image in book.images:
+        name = epub_image_name(image)
+        _require(
+            seen[name] == 1,
+            f"page {image.page_index} image is shown {seen[name]} time(s) instead of once",
+        )
 
 
 def _squash(text: str) -> str:
@@ -178,10 +276,16 @@ def _squash(text: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _Rendered:
-    """What one rendered document contains: its text blocks and its page markers."""
+    """What one rendered document contains.
+
+    Text blocks, page markers and image references: the three things the writer
+    decides about a document, and therefore the three things the check has to be
+    able to read back.
+    """
 
     paragraphs: list[str]
     pages: list[int]
+    images: list[str]
 
 
 def _xhtml_blocks(document: ET.Element) -> _Rendered:
@@ -196,11 +300,12 @@ def _xhtml_blocks(document: ET.Element) -> _Rendered:
 
     section = document.find(".//x:section", _XHTML_NS)
     if section is None:
-        return _Rendered([], [])
+        return _Rendered([], [], [])
     xhtml = _XHTML_NS["x"]
     text_block_tags = {f"{{{xhtml}}}h1", f"{{{xhtml}}}h2", f"{{{xhtml}}}p"}
     text: list[str] = []
     pages: list[int] = []
+    images: list[str] = []
     for child in section:
         if child.tag in text_block_tags:
             text.append(child.text or "")
@@ -211,9 +316,27 @@ def _xhtml_blocks(document: ET.Element) -> _Rendered:
             if not identifier.startswith("page-"):
                 raise ExportIntegrityError(f"unexpected span in a document: {identifier!r}")
             pages.append(int(identifier.removeprefix("page-")))
+        elif child.tag == f"{{{xhtml}}}figure":
+            images.extend(_figure_sources(child))
         else:
             raise ExportIntegrityError(f"unexpected page element: {child.tag}")
-    return _Rendered(text, pages)
+    return _Rendered(text, pages, images)
+
+
+def _figure_sources(figure: ET.Element) -> list[str]:
+    """Every ``img`` source in a figure, refusing an image with no alternative text."""
+
+    sources: list[str] = []
+    for element in figure.findall("x:img", _XHTML_NS):
+        source = element.get("src") or ""
+        if not source:
+            raise ExportIntegrityError("figure contains an img without a source")
+        if not (element.get("alt") or "").strip():
+            raise ExportIntegrityError(f"image {source!r} has no alternative text")
+        sources.append(source)
+    if not sources:
+        raise ExportIntegrityError("figure contains no image")
+    return sources
 
 
 def _require_flow_preserves_pages(book: VerifiedBook, flow: BookFlow) -> None:

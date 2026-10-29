@@ -81,7 +81,9 @@ BookStructure(pages, chapters, toc_entries, unplaced_toc_titles)
 只看引擎报告的行、页码序列和**像素墨迹度量**，不看文件名或版式先验。规则按顺序：
 
 1. 没有任何文字：墨迹 `< PLATE_INK_RATIO` → `blank`，否则 → `plate`
-   （插页/图版；也可能是一整页文字没被识别出来）；
+   （插页/图版；也可能是一整页文字没被识别出来）。**扫描的第一页**若是这种图版
+   → `cover`：引擎从封面图画上读不出文字，墨迹无法把它和插图页区分开，位置是
+   第二个信号——装订成册的书，第一页就是封面；
 2. 出现 ≥2 个版权页特征（`ISBN`、`图书在版编目`、`版权`、`责任编辑`、`开本`…）且无页码 → `copyright`；
 3. 页面像目录（首三行有 `目录`/`Contents` 标题，或 ≥3 行且过半行都解析成"标题…页码"）→ `table_of_contents`；
 4. 第一张有文字的页，无页码、无标题行，且（文字 ≤40 字 或 墨迹 ≥50%）→ `cover`；
@@ -143,7 +145,12 @@ BookStructure(pages, chapters, toc_entries, unplaced_toc_titles)
 - 章节来源（`toc` / `heading`）写入 `chapters.source`，导出报告与 `structure --json` 都会给出；
 - 没有文字但有墨迹的页（`plate`）在确认前挡住导出，拒绝信息里会带上**实测墨迹**：
   `page 7: measured ink 6.93% — there is content here that was not read`，
-  让操作者一眼区分"漏识别"和"真的空白"。
+  让操作者一眼区分"漏识别"和"真的空白"；
+- 确认之后，这些页**作为图片写进 EPUB**：`cover` → 封面（`properties="cover-image"`
+  且 `meta name="cover"`），`plate`/人工 `--kind non_text` → 正文里的 `<figure>`，
+  落在它自己的 pagebreak 之后。整页文字永远不镜像（正文走重排文本），
+  确认过的空白页也不写图。图片字节按 SHA-256 校验，导出后仍与页图证据逐字节相同；
+  细节见 [Export](./export.md)。
 
 ## 5. 命令
 
@@ -176,6 +183,10 @@ structure: pages 562, labelled 498, chapters 12 from toc (contents lists 14, 12 
 - 目录条目里页码是中文数字（`二一`）时会被解析成数值，这类写法本书没有出现，未经真实语料验证。
 - 章节来源以目录优先，但目录本身如果漏列章节（合订本常见），漏掉的章节不会从标题检测补回来。
 - 角色不参与复核队列的取舍：`body`/`front_matter` 都照常进入队列，`plate` 页在确认前会
-  挡住导出（不会静默丢弃插图页）。本轮**没有**实现"把插图页作为图片写进 EPUB"。
+  挡住导出（不会静默丢弃插图页）。
+- "扫描第一页的图版就是封面"是一个**位置先验**：若这本扫描没有拍到封面（首图其实是
+  卷首插图）或第一页正面就是一张插图，它会被当成封面。这一点无法从单页证据排除，
+  所以写在这里而不是藏进代码。
+- DOCX 导出**不含**页图（只有 EPUB 会写图片），命令行会为此打印一条 warning。
 - 墨迹度量依赖页图可读：`restore` 之后若页图路径失效，`unmeasured_pages` 会如实列出，
   这类页既不会被自动确认为空白，也不会被误判成 plate。

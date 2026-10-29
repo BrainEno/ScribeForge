@@ -637,11 +637,22 @@ def classify_page_roles(pages: Sequence[RoleEvidence]) -> Mapping[int, PageRole]
     span = _body_run(ordered)
     roles: dict[int, PageRole] = {}
 
+    first_on_scan = ordered[0].page_index if ordered else None
     for page in ordered:
         if not page.is_textual:
-            roles[page.page_index] = detect_page_roles(
+            role = detect_page_roles(
                 page.page_index, text=page.text, ink_ratio=page.ink_ratio
             )
+            if role is PageRole.PLATE and page.page_index == first_on_scan:
+                # A scanned cover is a picture: the engines read no text from the
+                # artwork, so ink alone cannot tell it from a plate. The one fact
+                # that distinguishes them is position — a picture on the first page
+                # of the scan is the cover, because a cover *is* the first page of a
+                # bound book. A book scanned without its cover loses that guess, and
+                # an interior frontispiece would be taken for it; both are stated in
+                # docs/book-structure.md rather than papered over.
+                role = PageRole.COVER
+            roles[page.page_index] = role
             continue
         lowered = page.text.lower()
         hints = sum(1 for hint in _COPYRIGHT_HINTS if hint in lowered)
