@@ -64,7 +64,22 @@
 2. **参照文本单次转写**，未经二次校订；作为回归基线可用，作为金标准不够。
 3. **图像已入库但源 PDF 受版权保护**。新增语料必须改用公有领域材料。
 
-## 5. 加语料时的自检命令
+## 5. 从真实扫描件切出语料
+
+```bash
+python benchmark/analysis/build_corpus.py \
+  --pdf /path/to/public-domain-scan.pdf \
+  --out benchmark/corpus/ancient --name gj \
+  --pages 3,7,11 --direction vertical-rl \
+  --language zh-Hant --dpi 200 \
+  --source "《四部叢刊》影印本，公有领域"
+```
+
+脚本只做机械部分：按物理页号渲染灰度 PNG、写 manifest、生成**空**转写文件。
+它不会生成任何文字——空转写会被 `validate_corpus()` 拒绝，所以语料在人工填好
+之前无法参与评分（否则一页空真值会拿满分）。
+
+## 6. 加语料时的自检命令
 
 ```bash
 python - <<'PY'
