@@ -4,8 +4,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Push and pull_request both fire for a PR branch. Share one slot so duplicate
-# Flutter SDK downloads do not contend and older commits stop consuming runners.
 concurrency:
   group: flutter-desktop-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
@@ -25,55 +23,11 @@ jobs:
           flutter-version: "3.47.7"
           channel: stable
           cache: true
-      - name: Generate native desktop runners
-        run: flutter create --platforms=windows,macos,linux --project-name scribeforge_desktop .
-      # flutter create 会生成默认的 test/widget_test.dart，引用不存在的 MyApp，
-        # 与项目的 UnifiedWorkspace 不兼容，需删除后使用项目自己的测试。
-      - name: Remove default generated test
-        run: rm -f test/widget_test.dart
-      # flutter create 可能会重置 analysis_options.yaml，恢复项目自定义的宽松配置
-      - name: Restore analysis_options.yaml
-        run: cat > analysis_options.yaml << 'EOF'
-analyzer:
-  errors:
-    unnecessary_null_comparison: ignore
-    deprecated_member_use: ignore
-
-linter:
-  rules:
-    avoid_print: true
-EOF
       - name: Resolve dependencies
         run: flutter pub get
       - name: Format Dart source
         run: dart format lib test
       - name: Analyze Flutter client
-        run: flutter analyze 2>&1 | tee analyze_output.txt; if grep -q '^error •' analyze_output.txt; then exit 1; else exit 0; fi
-      - name: Show full analyze output as annotation
-        if: always()
-        run: |
-          if [ -f analyze_output.txt ]; then
-            OUTPUT=$(cat analyze_output.txt)
-            # Output each line as a notice so it appears in the Checks tab
-            echo "$OUTPUT" | while IFS= read -r line; do
-              if [ -n "$line" ]; then
-                echo "::notice::$line"
-              fi
-            done
-          fi
-      - name: Upload analyze output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flutter-analyze-output
-          path: clients/flutter_desktop/analyze_output.txt
-      - name: Post analyze errors to PR comment
-        if: failure()
-        run: |
-          if [ -f analyze_output.txt ]; then
-            ERRORS=$(cat analyze_output.txt)
-            PAYLOAD=$(printf '{"body":"## Flutter Analyze Errors\n\n\`\`\n%s\n\`\`\n"}' "$ERRORS")
-            gh api -X POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" --input - <<< "$PAYLOAD" 2>/dev/null || true
-          fi
+        run: flutter analyze
       - name: Run Flutter tests
         run: flutter test
