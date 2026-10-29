@@ -130,7 +130,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted || version != _statusRequestVersion) return;
       if (exitCode == 0) {
         setState(() {
-          _projectStatus = ProjectStatusSnapshot.fromJsonText(buffer.toString());
+          _projectStatus = ProjectStatusSnapshot.fromJsonText(
+                buffer.toString(),
+                sourcePath: _pdfPath!,
+              );
           _error = null;
         });
       } else {
