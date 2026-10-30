@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
@@ -10,6 +11,7 @@ import 'package:scribeforge_desktop/screens/unified_workspace.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
 import 'package:scribeforge_desktop/services/desktop_file_picker.dart';
 import 'package:scribeforge_desktop/services/settings_store.dart';
+import 'package:scribeforge_desktop/services/workspace_file_system.dart';
 
 void main() {
   Future<void> pumpUntil(
@@ -40,11 +42,15 @@ void main() {
     });
     final source = File('${root.path}${Platform.pathSeparator}Sample.pdf');
     final exportDirectory = Directory('${root.path}${Platform.pathSeparator}exports');
-    late String sourceHash;
+    final sourceBytes = <int>[37, 80, 68, 70, 45, 49, 46, 55];
     debugPrint('workflow harness: write source fixture');
-    source.writeAsBytesSync(<int>[37, 80, 68, 70, 45, 49, 46, 55]);
+    source.writeAsBytesSync(sourceBytes);
     exportDirectory.createSync();
-    sourceHash = sha256.convert(source.readAsBytesSync()).toString();
+    final sourceHash = sha256.convert(sourceBytes).toString();
+    final fileSystem = _FakeWorkspaceFileSystem(
+      sourcePath: source.path,
+      sourceBytes: sourceBytes,
+    );
     final picker = _FakeDesktopFilePicker(
       files: <String?>[source.path],
       directories: <String?>[exportDirectory.path],
@@ -52,6 +58,7 @@ void main() {
     final cli = _FakeCliExecutor(
       sourcePath: source.path,
       sourceHash: sourceHash,
+      fileSystem: fileSystem,
       processResults: processResults,
       exportResults: exportResults,
       reviewItems: reviewItems ?? <Map<String, Object?>>[_reviewItem(0, '鸦', '雅')],
@@ -68,6 +75,7 @@ void main() {
           cliExecutor: cli,
           filePicker: picker,
           settingsStore: _MemorySettingsStore(),
+          fileSystem: fileSystem,
         ),
       ),
     );
@@ -386,6 +394,42 @@ class _MemorySettingsStore extends DesktopSettingsStore {
   }
 }
 
+class _FakeWorkspaceFileSystem implements WorkspaceFileSystem {
+  _FakeWorkspaceFileSystem({
+    required this.sourcePath,
+    required List<int> sourceBytes,
+  })  : sourceBytes = List<int>.unmodifiable(sourceBytes),
+        _existingFiles = <String>{sourcePath};
+
+  final String sourcePath;
+  final List<int> sourceBytes;
+  final Set<String> _existingFiles;
+
+  void addProjectStore(String storePath) {
+    _existingFiles.add('$storePath${Platform.pathSeparator}project.sqlite3');
+  }
+
+  @override
+  Future<bool> fileExists(String path) async => _existingFiles.contains(path);
+
+  @override
+  Future<WorkspaceFileMetadata?> stat(String path) async {
+    if (path != sourcePath) return null;
+    return WorkspaceFileMetadata(
+      size: sourceBytes.length,
+      modifiedMilliseconds: 1,
+    );
+  }
+
+  @override
+  Stream<List<int>> openRead(String path) {
+    if (path != sourcePath) {
+      return Stream<List<int>>.error(FileSystemException('Unknown fake file', path));
+    }
+    return Stream<List<int>>.value(sourceBytes);
+  }
+}
+
 class _FakeDesktopFilePicker implements DesktopFilePicker {
   _FakeDesktopFilePicker({
     required List<String?> files,
@@ -412,6 +456,7 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
   _FakeCliExecutor({
     required this.sourcePath,
     required this.sourceHash,
+    required this.fileSystem,
     required List<int> processResults,
     required List<int> exportResults,
     required this.reviewItems,
@@ -420,6 +465,7 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
 
   final String sourcePath;
   final String sourceHash;
+  final _FakeWorkspaceFileSystem fileSystem;
   final Queue<int> _processResults;
   final Queue<int> _exportResults;
   final List<Map<String, Object?>> reviewItems;
@@ -459,9 +505,7 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
           return result;
         }
         final storePath = args[args.indexOf('--store') + 1];
-        Directory(storePath).createSync(recursive: true);
-        File('$storePath${Platform.pathSeparator}project.sqlite3')
-            .writeAsStringSync('fake project store');
+        fileSystem.addProjectStore(storePath);
         projectCreated = true;
         _partialFailure = result == 1;
         onOutput('processed');

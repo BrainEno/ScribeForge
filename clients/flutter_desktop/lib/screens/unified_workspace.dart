@@ -14,6 +14,7 @@ import '../services/cli_executor.dart';
 import '../services/cli_runner.dart';
 import '../services/desktop_file_picker.dart';
 import '../services/settings_store.dart';
+import '../services/workspace_file_system.dart';
 import '../widgets/review_keyboard_shortcuts.dart';
 import 'runtime_setup_dialog.dart';
 import 'vlm_settings_dialog.dart';
@@ -37,11 +38,13 @@ class UnifiedWorkspace extends StatefulWidget {
     this.cliExecutor,
     this.filePicker,
     this.settingsStore,
+    this.fileSystem,
   });
 
   final ScribeForgeCliExecutor? cliExecutor;
   final DesktopFilePicker? filePicker;
   final DesktopSettingsStore? settingsStore;
+  final WorkspaceFileSystem? fileSystem;
 
   @override
   State<UnifiedWorkspace> createState() => _UnifiedWorkspaceState();
@@ -69,6 +72,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   late final DesktopSettingsStore _settingsStore;
   late final ScribeForgeCliExecutor _cliExecutor;
   late final DesktopFilePicker _filePicker;
+  late final WorkspaceFileSystem _fileSystem;
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   bool _busy = false;
@@ -140,6 +144,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _settingsStore = widget.settingsStore ?? DesktopSettingsStore();
     _cliExecutor = widget.cliExecutor ?? const ProcessScribeForgeCliExecutor();
     _filePicker = widget.filePicker ?? const PluginDesktopFilePicker();
+    _fileSystem = widget.fileSystem ?? const IoWorkspaceFileSystem();
     _loadSettings();
   }
 
@@ -189,8 +194,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final version = ++_statusRequestVersion;
     setState(() => _statusLoading = true);
     try {
-      final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
-      if (!await database.exists()) {
+      final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
+      if (!await _fileSystem.fileExists(databasePath)) {
         if (!mounted || version != _statusRequestVersion) return;
         setState(() {
           _projectStatus = null;
@@ -229,10 +234,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       var mismatchMessage = '此存储目录没有与所选源文件匹配的唯一项目。';
       if (selected != null && sourcePath != null) {
         final pathMatches = selected.sourcePathMatches(sourcePath);
-        final sourceFile = File(sourcePath);
-        final sourceExists = await sourceFile.exists();
+        final sourceExists = await _fileSystem.fileExists(sourcePath);
         final sourceHash = pathMatches && sourceExists
-            ? await _sourceSha256(sourceFile)
+            ? await _sourceSha256(sourcePath)
             : null;
         final hashMatches = sourceHash != null &&
             selected.sourceHashMatches(sourceHash);
@@ -277,17 +281,17 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _sourceHashCacheValue = null;
   }
 
-  Future<String?> _sourceSha256(File sourceFile) async {
-    final stat = await sourceFile.stat();
-    if (stat.type != FileSystemEntityType.file) return null;
-    final modifiedMillis = stat.modified.millisecondsSinceEpoch;
-    if (_sourceHashCachePath == sourceFile.path &&
+  Future<String?> _sourceSha256(String sourcePath) async {
+    final stat = await _fileSystem.stat(sourcePath);
+    if (stat == null) return null;
+    final modifiedMillis = stat.modifiedMilliseconds;
+    if (_sourceHashCachePath == sourcePath &&
         _sourceHashCacheSize == stat.size &&
         _sourceHashCacheModifiedMillis == modifiedMillis) {
       return _sourceHashCacheValue;
     }
-    final digest = (await sha256.bind(sourceFile.openRead()).first).toString();
-    _sourceHashCachePath = sourceFile.path;
+    final digest = (await sha256.bind(_fileSystem.openRead(sourcePath)).first).toString();
+    _sourceHashCachePath = sourcePath;
     _sourceHashCacheSize = stat.size;
     _sourceHashCacheModifiedMillis = modifiedMillis;
     _sourceHashCacheValue = digest;
@@ -329,8 +333,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _refreshReviewQueue() async {
     final storePath = _projectStorePath;
     if (storePath == null) return;
-    final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
-    final databaseExists = await database.exists();
+    final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
+    final databaseExists = await _fileSystem.fileExists(databasePath);
     if (!mounted) return;
     if (!databaseExists) {
       setState(() {
@@ -421,8 +425,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       dialogTitle: '选择 ScribeForge 项目文件夹',
     );
     if (!mounted || storePath == null) return;
-    final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
-    if (!await database.exists()) {
+    final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
+    if (!await _fileSystem.fileExists(databasePath)) {
       setState(() => _error = '所选文件夹中没有 ScribeForge 项目数据库。');
       return;
     }
