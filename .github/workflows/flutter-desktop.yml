@@ -32,24 +32,19 @@ jobs:
       - name: Format Dart source
         run: dart format lib test
       - name: Analyze Flutter client
-        run: flutter analyze
-      - name: Surface analyzer diagnostics
-        if: failure()
+        id: analyze
         shell: bash
         run: |
-          set +e
-          flutter analyze --machine > "$RUNNER_TEMP/flutter-analyze.txt" 2>&1
-          cat "$RUNNER_TEMP/flutter-analyze.txt"
-          while IFS='|' read -r severity type code path line column length message; do
-            case "$severity" in
-              ERROR|WARNING)
-                level=warning
-                if [ "$severity" = ERROR ]; then level=error; fi
-                printf '::%s file=%s,line=%s,col=%s,title=%s::%s\n' \\
-                  "$level" "$path" "$line" "$column" "$code" "$message"
-                ;;
-            esac
+          set -o pipefail
+          flutter analyze --machine 2>&1 | tee "$RUNNER_TEMP/flutter-analyze.txt"
+      - name: Surface analyzer diagnostics
+        if: steps.analyze.outcome == 'failure'
+        shell: bash
+        run: |
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              printf '::notice title=Flutter analyzer output::%s\n' "$line"
+            fi
           done < "$RUNNER_TEMP/flutter-analyze.txt"
-          exit 0
       - name: Run Flutter tests
         run: flutter test
