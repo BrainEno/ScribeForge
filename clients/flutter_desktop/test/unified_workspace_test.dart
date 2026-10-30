@@ -1,5 +1,7 @@
 import 'dart:ui' show Size;
 
+import 'package:flutter/material.dart'
+    show CheckboxListTile, ElevatedButton, NavigationRail;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/main.dart';
 
@@ -28,12 +30,29 @@ void main() {
         await tester.pumpWidget(const ScribeForgeDesktopApp());
         await tester.pumpAndSettle();
 
-        // Then: the five navigation tabs are present
-        expect(find.text('书籍'), findsOneWidget);
-        expect(find.text('处理'), findsOneWidget);
-        expect(find.text('复核'), findsOneWidget);
-        expect(find.text('导出'), findsOneWidget);
-        expect(find.text('设置'), findsOneWidget);
+        // Then: the five navigation tabs are present (not the app-bar title)
+        final navigationRail = find.byType(NavigationRail);
+        expect(navigationRail, findsOneWidget);
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('书籍')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('处理')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('复核')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('导出')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: navigationRail, matching: find.text('设置')),
+          findsOneWidget,
+        );
 
         // And: the library page shows no project yet
         expect(find.text('暂无项目。'), findsOneWidget);
@@ -58,11 +77,16 @@ void main() {
         await tester.tap(find.text('处理'));
         await tester.pumpAndSettle();
 
-        // Then: the process page shows the file picker button and start button
-        expect(find.text('选择文件'), findsOneWidget);
+        // Then: the process page shows a source-path input and start button
+        expect(find.text('源文件 PDF 路径'), findsOneWidget);
         expect(find.text('开始处理'), findsOneWidget);
-        expect(find.text('源文件'), findsOneWidget);
 
+        final startButtonFinder = find.ancestor(
+          of: find.text('开始处理'),
+          matching: find.byType(ElevatedButton),
+        );
+        expect(startButtonFinder, findsOneWidget);
+        expect(tester.getSize(startButtonFinder).width.isFinite, isTrue);
         expect(tester.takeException(), isNull);
       },
     );
@@ -110,7 +134,6 @@ void main() {
         // Then: the export form fields are present
         expect(find.text('导出格式'), findsOneWidget);
         expect(find.text('EPUB 3'), findsOneWidget);
-        expect(find.text('DOCX'), findsOneWidget);
         expect(find.text('输出文件'), findsOneWidget);
         expect(find.text('语言（BCP 47，如 zh）'), findsOneWidget);
         expect(find.text('书名（可选）'), findsOneWidget);
@@ -141,13 +164,12 @@ void main() {
 
         await tester.tap(find.text('EPUB 3'));
         await tester.pumpAndSettle();
+        await tester.tap(find.text('DOCX'));
+        await tester.pumpAndSettle();
 
-        // Then: the dropdown shows DOCX after selection (simulated by tapping)
-        // Note: the actual dropdown selection requires opening the overlay;
-        // here we verify the dropdown widget itself renders both options.
-        expect(find.text('EPUB 3'), findsOneWidget);
+        // Then: DOCX is the selected export format
         expect(find.text('DOCX'), findsOneWidget);
-
+        expect(find.text('EPUB 3'), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );
@@ -168,12 +190,18 @@ void main() {
         await tester.tap(find.text('导出'));
         await tester.pumpAndSettle();
 
+        final checkboxFinder = find.ancestor(
+          of: find.text('严格接受校验'),
+          matching: find.byType(CheckboxListTile),
+        );
+        expect(checkboxFinder, findsOneWidget);
+        expect(tester.widget<CheckboxListTile>(checkboxFinder).value, isFalse);
+
         await tester.tap(find.text('严格接受校验'));
         await tester.pumpAndSettle();
 
-        // Then: the checkbox is toggled (no exception thrown)
-        expect(find.text('严格接受校验'), findsOneWidget);
-
+        // Then: the strict acceptance setting changes in the actual widget state
+        expect(tester.widget<CheckboxListTile>(checkboxFinder).value, isTrue);
         expect(tester.takeException(), isNull);
       },
     );

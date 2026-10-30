@@ -57,4 +57,10 @@ jobs:
           name: flutter-analyze-output
           path: clients/flutter_desktop/analyze_output.txt
       - name: Run Flutter tests
-        run: flutter test
+        run: flutter test --reporter expanded --no-color 2>&1 | tee flutter_test_output.txt; exit ${PIPESTATUS[0]}
+      - name: Show Flutter test failures as annotations
+        if: failure()
+        run: |
+          if [ -f flutter_test_output.txt ]; then
+            python -c 'from pathlib import Path; lines = Path("flutter_test_output.txt").read_text(errors="replace").splitlines(); markers = ("══╡", "Expected:", "Actual:", "Which:", "The following", "Failed assertion:", "NoSuchMethodError", "Timed out", "Some tests failed"); selected = list(dict.fromkeys(line.strip() for line in lines if "[E]" in line or any(marker in line for marker in markers))); message = "%0A".join(line.replace("%", "%25") for line in selected[:100]); print(f"::error title=Flutter test failures::{message}")'
+          fi

@@ -619,17 +619,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             onChanged: (value) => setState(() => _pdfPath = value.trim()),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: <Widget>[
-              ElevatedButton.icon(
-                icon: Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
-                label: Text(_busy ? '处理中…' : '开始处理'),
-                onPressed: _busy || _pdfPath == null ? null : () { _runProcess(); },
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
-                ),
-              ),
-            ],
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              icon: Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
+              label: Text(_busy ? '处理中…' : '开始处理'),
+              onPressed: _busy || _pdfPath == null ? null : () { _runProcess(); },
+            ),
           ),
           const SizedBox(height: 16),
           if (_pdfPath != null) ...[
@@ -765,7 +762,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         DropdownButtonFormField<String>(
-          value: _exportFormatEpub ? 'epub' : 'docx',
+          initialValue: _exportFormatEpub ? 'epub' : 'docx',
           items: <DropdownMenuItem<String>>[
             DropdownMenuItem(value: 'epub', child: const Text('EPUB 3')),
             DropdownMenuItem(value: 'docx', child: const Text('DOCX')),
@@ -799,13 +796,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         ),
         const SizedBox(height: 12),
         CheckboxListTile(
-          initialValue: _exportLayoutChapter,
+          value: _exportLayoutChapter,
           title: const Text('按章节布局（EPUB）'),
           subtitle: const Text('关闭后每页一个文档（便于核对扫描）'),
           onChanged: (v) => setState(() => _exportLayoutChapter = v ?? true),
         ),
         CheckboxListTile(
-          initialValue: _exportStrictAcceptance,
+          value: _exportStrictAcceptance,
           title: const Text('严格接受校验'),
           subtitle: const Text('有待抽查的配对时拒绝导出（退出码 2）'),
           onChanged: (v) => setState(() => _exportStrictAcceptance = v ?? false),
