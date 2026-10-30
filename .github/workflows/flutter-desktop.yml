@@ -38,7 +38,7 @@ jobs:
           set -o pipefail
           flutter analyze --machine 2>&1 | tee "$RUNNER_TEMP/flutter-analyze.txt"
       - name: Surface analyzer diagnostics
-        if: steps.analyze.outcome == 'failure'
+        if: failure() && steps.analyze.outcome == 'failure'
         shell: bash
         run: |
           while IFS= read -r line; do
