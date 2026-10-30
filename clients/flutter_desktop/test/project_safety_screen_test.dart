@@ -334,7 +334,7 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
     final command = arguments.first;
     final queue = _responses[command];
     final result = queue == null || queue.isEmpty
-        ? const _FakeResult(2, '', 'unexpected fake CLI command: $command')
+        ? _FakeResult(2, '', 'unexpected fake CLI command: $command')
         : queue.removeFirst();
     var output = result.output;
     if (output == '@backup-report') {
