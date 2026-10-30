@@ -12,6 +12,18 @@ import 'package:scribeforge_desktop/services/desktop_file_picker.dart';
 import 'package:scribeforge_desktop/services/settings_store.dart';
 
 void main() {
+  Future<void> pumpUntil(
+    WidgetTester tester,
+    bool Function() condition, {
+    required String description,
+  }) async {
+    for (var attempt = 0; attempt < 200; attempt++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (condition()) return;
+    }
+    fail('Timed out waiting for $description.');
+  }
+
   Future<_Harness> createHarness(
     WidgetTester tester, {
     List<int> processResults = const <int>[0],
@@ -53,20 +65,25 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
     return _Harness(source: source, picker: picker, cli: cli);
   }
 
   Future<void> openTab(WidgetTester tester, String title) async {
     final rail = find.byType(NavigationRail);
     await tester.tap(find.descendant(of: rail, matching: find.text(title)));
-    await tester.pumpAndSettle();
+    await tester.pump();
   }
 
   Future<void> importBook(WidgetTester tester) async {
     await openTab(tester, '书籍');
     await tester.tap(find.text('导入书籍'));
-    await tester.pumpAndSettle();
+    await pumpUntil(
+      tester,
+      () => find.text('Sample.pdf').evaluate().isNotEmpty,
+      description: 'the selected source file after import',
+    );
   }
 
   Future<void> waitForWorkflowIdle(WidgetTester tester) async {
@@ -136,7 +153,8 @@ void main() {
 
     await openTab(tester, '书籍');
     await tester.tap(find.text('导入书籍'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
 
     expect(harness.cli.calls.where((args) => args.first == 'process'), isEmpty);
     expect(harness.cli.projectCreated, isFalse);
@@ -260,7 +278,11 @@ void main() {
     await openTab(tester, '设置');
     expect(find.textContaining('默认关闭'), findsOneWidget);
     await tester.tap(find.text('配置 VLM 复核'));
-    await tester.pumpAndSettle();
+    await pumpUntil(
+      tester,
+      () => find.text('Enable VLM review during OCR').evaluate().isNotEmpty,
+      description: 'the VLM settings dialog',
+    );
 
     final enabledSwitch = find.ancestor(
       of: find.text('Enable VLM review during OCR'),
@@ -277,7 +299,11 @@ void main() {
       'fixture-vision',
     );
     await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
+    await pumpUntil(
+      tester,
+      () => find.text('Save').evaluate().isEmpty,
+      description: 'the VLM settings dialog to close',
+    );
 
     await importBook(tester);
     await tester.tap(find.text('开始处理'));
