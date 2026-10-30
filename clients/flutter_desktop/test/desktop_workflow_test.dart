@@ -31,18 +31,20 @@ void main() {
     List<Map<String, Object?>>? reviewItems,
   }) async {
     debugPrint('workflow harness: create temp directory');
-    final root = await Directory.systemTemp.createTemp('scribeforge-workflow-');
-    addTearDown(() async {
-      if (await root.exists()) await root.delete(recursive: true);
+    late Directory root;
+    await tester.runAsync(() async {
+      root = await Directory.systemTemp.createTemp('scribeforge-workflow-');
+    });
+    addTearDown(() {
+      if (root.existsSync()) root.deleteSync(recursive: true);
     });
     final source = File('${root.path}${Platform.pathSeparator}Sample.pdf');
-    debugPrint('workflow harness: write source fixture');
-    await source.writeAsBytes(<int>[37, 80, 68, 70, 45, 49, 46, 55]);
     final exportDirectory = Directory('${root.path}${Platform.pathSeparator}exports');
-    await exportDirectory.create();
-    final settingsDirectory = Directory('${root.path}${Platform.pathSeparator}settings');
-    debugPrint('workflow harness: hash source fixture');
-    final sourceHash = sha256.convert(await source.readAsBytes()).toString();
+    late String sourceHash;
+    debugPrint('workflow harness: write source fixture');
+    source.writeAsBytesSync(<int>[37, 80, 68, 70, 45, 49, 46, 55]);
+    exportDirectory.createSync();
+    sourceHash = sha256.convert(source.readAsBytesSync()).toString();
     final picker = _FakeDesktopFilePicker(
       files: <String?>[source.path],
       directories: <String?>[exportDirectory.path],
@@ -65,7 +67,7 @@ void main() {
         home: UnifiedWorkspace(
           cliExecutor: cli,
           filePicker: picker,
-          settingsStore: DesktopSettingsStore(directory: settingsDirectory),
+          settingsStore: _MemorySettingsStore(),
         ),
       ),
     );
@@ -160,7 +162,7 @@ void main() {
       hasLength(1),
     );
     expect(harness.cli.lastExportPath, contains('Sample.epub'));
-    expect(await File(harness.cli.lastExportPath!).exists(), isTrue);
+    expect(File(harness.cli.lastExportPath!).existsSync(), isTrue);
   });
 
   testWidgets('a cancelled import does not invoke processing or create a project',
@@ -361,6 +363,29 @@ class _Harness {
   final _FakeCliExecutor cli;
 }
 
+class _MemorySettingsStore extends DesktopSettingsStore {
+  _MemorySettingsStore() : super();
+
+  String _cliExecutable = DesktopSettingsStore.defaultCliExecutable;
+  DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
+
+  @override
+  Future<String> loadCliExecutable() async => _cliExecutable;
+
+  @override
+  Future<void> saveCliExecutable(String executable) async {
+    _cliExecutable = executable;
+  }
+
+  @override
+  Future<DesktopVlmSettings> loadVlmSettings() async => _vlmSettings;
+
+  @override
+  Future<void> saveVlmSettings(DesktopVlmSettings settings) async {
+    _vlmSettings = settings;
+  }
+}
+
 class _FakeDesktopFilePicker implements DesktopFilePicker {
   _FakeDesktopFilePicker({
     required List<String?> files,
@@ -434,9 +459,9 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
           return result;
         }
         final storePath = args[args.indexOf('--store') + 1];
-        await Directory(storePath).create(recursive: true);
-        await File('$storePath${Platform.pathSeparator}project.sqlite3')
-            .writeAsString('fake project store');
+        Directory(storePath).createSync(recursive: true);
+        File('$storePath${Platform.pathSeparator}project.sqlite3')
+            .writeAsStringSync('fake project store');
         projectCreated = true;
         _partialFailure = result == 1;
         onOutput('processed');
@@ -462,8 +487,8 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
           onError('simulated export failure');
           return result;
         }
-        await File(outputPath).parent.create(recursive: true);
-        await File(outputPath).writeAsString('fake exported book');
+        File(outputPath).parent.createSync(recursive: true);
+        File(outputPath).writeAsStringSync('fake exported book');
         onOutput('exported');
         return 0;
       default:
