@@ -117,7 +117,7 @@ void main() {
     await tester.tap(find.byWidgetPredicate(
       (widget) => widget is TextField && widget.readOnly,
     ));
-    await tester.pumpAndSettle();
+    await tester.pump();
     await tester.tap(find.text('开始导出'));
     await waitForWorkflowIdle(tester);
 
@@ -175,7 +175,7 @@ void main() {
     await tester.tap(find.byWidgetPredicate(
       (widget) => widget is TextField && widget.readOnly,
     ));
-    await tester.pumpAndSettle();
+    await tester.pump();
 
     await tester.tap(find.text('开始导出'));
     await waitForWorkflowIdle(tester);
@@ -209,16 +209,16 @@ void main() {
 
     expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
     await tester.tap(find.byTooltip('下一项'));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(find.text('第 5 页 · 第 1 组'), findsOneWidget);
     await tester.tap(find.byTooltip('上一项'));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
 
     final pageJump = find.byKey(const ValueKey('review-page-jump'));
     await tester.enterText(pageJump, '5');
     await tester.tap(find.text('跳转'));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(find.text('第 5 页 · 第 1 组'), findsOneWidget);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
@@ -247,7 +247,7 @@ void main() {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
     expect(
       harness.cli.calls.where((args) => args.first == 'resolve'),
