@@ -69,6 +69,17 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> waitForWorkflowIdle(WidgetTester tester) async {
+    for (var attempt = 0; attempt < 200; attempt++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+        await tester.pump();
+        return;
+      }
+    }
+    fail('The fake-CLI workflow did not become idle within ten seconds.');
+  }
+
   testWidgets('imports, processes, reviews and exports through a replaceable CLI',
       (tester) async {
     final harness = await createHarness(tester);
@@ -76,7 +87,7 @@ void main() {
     await importBook(tester);
     expect(find.text('Sample.pdf'), findsWidgets);
     await tester.tap(find.text('开始处理'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
 
     final processCall = harness.cli.calls.singleWhere(
       (arguments) => arguments.first == 'process',
@@ -94,7 +105,7 @@ void main() {
       reason: 'Choosing a candidate fills the editor but is not a decision.',
     );
     await tester.tap(find.text('记录人工决策'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     expect(
       harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
       hasLength(1),
@@ -108,7 +119,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await tester.tap(find.text('开始导出'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
 
     expect(
       harness.cli.calls.where((arguments) => arguments.first == 'export'),
@@ -137,12 +148,12 @@ void main() {
     await importBook(tester);
 
     await tester.tap(find.text('开始处理'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     expect(find.text('重试失败页面'), findsOneWidget);
     expect(find.textContaining('simulated worker failure'), findsOneWidget);
 
     await tester.tap(find.text('重试失败页面'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     expect(find.text('开始处理'), findsOneWidget);
     expect(
       harness.cli.calls.where((args) => args.first == 'process'),
@@ -155,11 +166,11 @@ void main() {
     final harness = await createHarness(tester, exportResults: <int>[2, 0]);
     await importBook(tester);
     await tester.tap(find.text('开始处理'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     await openTab(tester, '复核');
     await tester.tap(find.text('填入 OCR 1'));
     await tester.tap(find.text('记录人工决策'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     await openTab(tester, '导出');
     await tester.tap(find.byWidgetPredicate(
       (widget) => widget is TextField && widget.readOnly,
@@ -167,11 +178,11 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('开始导出'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     expect(find.textContaining('simulated export failure'), findsOneWidget);
 
     await tester.tap(find.text('开始导出'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     expect(
       harness.cli.calls.where((args) => args.first == 'process'),
       hasLength(1),
@@ -193,7 +204,7 @@ void main() {
     );
     await importBook(tester);
     await tester.tap(find.text('开始处理'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     await openTab(tester, '复核');
 
     expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
@@ -270,7 +281,7 @@ void main() {
 
     await importBook(tester);
     await tester.tap(find.text('开始处理'));
-    await tester.pumpAndSettle();
+    await waitForWorkflowIdle(tester);
     final processCall = harness.cli.calls.singleWhere(
       (arguments) => arguments.first == 'process',
     );
