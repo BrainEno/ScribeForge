@@ -435,7 +435,7 @@ def _remap_page_assets(database: Path, destination_root: Path, archive_names: It
     if not internal_assets:
         return
     try:
-        with sqlite3.connect(database) as connection:
+        with closing(sqlite3.connect(database)) as connection, connection:
             table_exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pages'"
             ).fetchone()

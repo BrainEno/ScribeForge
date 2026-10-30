@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import zipfile
 from pathlib import Path
 
 import pytest
 
+from scribeforge import project_backup
 from scribeforge.cli import run
 from scribeforge.domain.jobs import JobStage
 from scribeforge.project_backup import (
@@ -46,6 +48,37 @@ def _prepared_store(tmp_path: Path) -> tuple[Path, Path]:
     crops.mkdir()
     (crops / "review-crop.png").write_bytes(b"review crop bytes")
     return store_dir, source
+
+
+def test_page_asset_relocation_closes_its_sqlite_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "project.sqlite3"
+    original_connect = sqlite3.connect
+    connection = original_connect(database)
+    try:
+        connection.execute("CREATE TABLE pages (id INTEGER PRIMARY KEY, source_image TEXT)")
+        connection.execute(
+            "INSERT INTO pages (id, source_image) VALUES (1, ?)",
+            (str(tmp_path / "old" / "assets" / "page.png"),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    opened: list[sqlite3.Connection] = []
+
+    def tracked_connect(*args, **kwargs) -> sqlite3.Connection:
+        connection = original_connect(*args, **kwargs)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr(project_backup.sqlite3, "connect", tracked_connect)
+    project_backup._remap_page_assets(database, tmp_path, {"assets/page.png"})
+
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        opened[0].execute("SELECT 1")
 
 
 def test_backup_verification_and_restore_preserve_evidence_and_relocate_page_paths(
