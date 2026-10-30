@@ -67,4 +67,10 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: python -m pip check
       - run: scribeforge --help
-      - run: python -m pytest -m "not benchmark and not gpu" --no-cov
+      - name: Run Python 3.14 compatibility tests
+        run: >-
+          python -m pytest -m "not benchmark and not gpu" --no-cov --maxfail=1
+          --junitxml=python-314-tests.xml
+      - name: Annotate Python 3.14 test failure
+        if: failure()
+        run: python .github/scripts/report_pytest_failure.py python-314-tests.xml
