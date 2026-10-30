@@ -75,6 +75,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   // 导出表单控制器（需在 dispose 中释放）
   final _exportOutputController = TextEditingController();
+  String? _exportOutputDirectory;
   final _exportLanguageController = TextEditingController(text: 'zh');
   final _exportTitleController = TextEditingController();
   final _exportAuthorController = TextEditingController();
@@ -101,7 +102,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   static const List<IconData> _navIcons = <IconData>[
     Icons.library_books,
     Icons.auto_awesome,
-    Icons.review,
+    Icons.fact_check_outlined,
     Icons.output,
     Icons.settings,
   ];
@@ -226,8 +227,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted || version != _statusRequestVersion) return;
       setState(() => _error = '读取项目状态失败：$exc');
     } finally {
-      if (!mounted || version != _statusRequestVersion) return;
-      setState(() => _statusLoading = false);
+      if (mounted && version == _statusRequestVersion) {
+        setState(() => _statusLoading = false);
+      }
     }
   }
 
@@ -281,8 +283,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '读取运行时状态失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _runtimeLoading = false);
+      if (mounted) setState(() => _runtimeLoading = false);
     }
   }
 
@@ -324,20 +325,19 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '读取复核队列失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _reviewLoading = false);
+      if (mounted) setState(() => _reviewLoading = false);
     }
   }
 
   // ---------------------------------------------------------------- actions
 
   Future<void> _pickPdf() async {
-    final result = await FilePicker.platform.pickFile(
+    final result = await FilePicker.pickFile(
       type: FileType.custom,
       allowedExtensions: <String>['pdf', 'png', 'jpg', 'jpeg'],
     );
-    if (!mounted || result == null || result.files.single.path == null) return;
-    final sourcePath = result.files.single.path!;
+    if (!mounted || result?.path == null) return;
+    final sourcePath = result!.path!;
     final storePath = ScribeForgeCli.defaultStorePath(sourcePath);
     final filename = File(sourcePath).uri.pathSegments.last;
     final extension = filename.lastIndexOf('.');
@@ -348,6 +348,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _statusLoading = false;
       _pdfPath = sourcePath;
       _exportTitleController.text = title;
+      _exportOutputDirectory = null;
       _exportOutputController.clear();
       _projectStorePath = storePath;
       _projectSourceMatches = true;
@@ -363,7 +364,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   Future<void> _openProject() async {
-    final storePath = await FilePicker.platform.getDirectoryPath(
+    final storePath = await FilePicker.getDirectoryPath(
       dialogTitle: '选择 ScribeForge 项目文件夹',
     );
     if (!mounted || storePath == null) return;
@@ -378,6 +379,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _statusLoading = false;
       _projectStorePath = storePath;
       _pdfPath = null;
+      _exportOutputDirectory = null;
+      _exportOutputController.clear();
       _projectStatus = null;
       _projectSourceMatches = false;
       _projectCanExport = false;
@@ -420,7 +423,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   Future<void> _chooseProjectStoreDirectory() async {
-    final storePath = await FilePicker.platform.getDirectoryPath(
+    final storePath = await FilePicker.getDirectoryPath(
       dialogTitle: '选择项目存储目录',
     );
     if (!mounted || storePath == null) return;
@@ -429,6 +432,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _statusLoading = false;
       _projectStorePath = storePath;
       _projectStatus = null;
+      _exportOutputDirectory = null;
+      _exportOutputController.clear();
       _projectSourceMatches = true;
       _projectCanExport = true;
       _projectSourceMismatchMessage = null;
@@ -441,13 +446,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _relinkSource() async {
     final storePath = _projectStorePath;
     if (storePath == null) return;
-    final result = await FilePicker.platform.pickFile(
+    final result = await FilePicker.pickFile(
       dialogTitle: '重新关联原始 PDF 或页面图像',
       type: FileType.custom,
       allowedExtensions: <String>['pdf', 'png', 'jpg', 'jpeg'],
     );
-    if (!mounted || result == null || result.files.single.path == null) return;
-    final sourcePath = result.files.single.path!;
+    if (!mounted || result?.path == null) return;
+    final sourcePath = result!.path!;
     setState(() => _busy = true);
     try {
       final buffer = StringBuffer();
@@ -479,8 +484,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '重新关联源文件失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -530,8 +534,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     } finally {
       _processStatusTimer?.cancel();
       _processStatusTimer = null;
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -575,8 +578,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '记录决策失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -628,20 +630,29 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '导出失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
+  void _updateExportOutputPath() {
+    final directory = _exportOutputDirectory;
+    if (directory == null) return;
+    var stem = _exportTitleController.text.trim();
+    if (stem.isEmpty) stem = 'book';
+    stem = stem.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+    if (stem.isEmpty) stem = 'book';
+    final extension = _exportFormatEpub ? 'epub' : 'docx';
+    _exportOutputController.text =
+        ScribeForgeCli.joinPath(directory, '$stem.$extension');
+  }
+
   Future<void> _pickExportOutput() async {
-    final outputPath = await FilePicker.platform.saveFile(
-      dialogTitle: '保存导出文件',
-      fileName: '${_exportTitleController.text.isNotEmpty ? _exportTitleController.text : 'book'}.${_exportFormatEpub ? 'epub' : 'docx'}',
-      type: FileType.custom,
-      allowedExtensions: <String>[_exportFormatEpub ? 'epub' : 'docx'],
+    final directory = await FilePicker.getDirectoryPath(
+      dialogTitle: '选择导出文件夹',
     );
-    if (!mounted || outputPath == null) return;
-    _exportOutputController.text = outputPath;
+    if (!mounted || directory == null) return;
+    _exportOutputDirectory = directory;
+    _updateExportOutputPath();
   }
 
   Future<void> _runSetup({String? runtimeRoot}) async {
@@ -669,8 +680,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '运行时配置失败：$exc');
     } finally {
-      if (!mounted) return;
-      setState(() => _busy = false);
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -1247,7 +1257,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             DropdownMenuItem(value: 'epub', child: Text('EPUB 3')),
             DropdownMenuItem(value: 'docx', child: Text('DOCX')),
           ],
-          onChanged: (value) => setState(() => _exportFormatEpub = value == 'epub'),
+          onChanged: (value) => setState(() {
+            _exportFormatEpub = value == 'epub';
+            _updateExportOutputPath();
+          }),
           decoration: const InputDecoration(labelText: '导出格式'),
         ),
         const SizedBox(height: 12),
@@ -1255,11 +1268,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           controller: _exportOutputController,
           decoration: const InputDecoration(
             labelText: '输出文件',
-            hintText: '选择保存路径',
-            suffixIcon: Icon(Icons.save_outlined),
+            hintText: '选择导出文件夹，文件名按书名和格式生成',
+            suffixIcon: Icon(Icons.folder_open_outlined),
           ),
           readOnly: true,
-          onTap: () { _pickExportOutput(); },
+          onTap: _pickExportOutput,
         ),
         const SizedBox(height: 12),
         TextField(
@@ -1270,6 +1283,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         TextField(
           controller: _exportTitleController,
           decoration: const InputDecoration(labelText: '书名（可选）'),
+          onChanged: (_) => _updateExportOutputPath(),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -1294,7 +1308,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           width: double.infinity,
           height: 48,
           child: ElevatedButton.icon(
-            icon: const Icon(_busy ? Icons.hourglass_empty : Icons.output),
+            icon: Icon(_busy ? Icons.hourglass_empty : Icons.output),
             label: Text(_busy ? '导出中…' : '开始导出'),
             onPressed: _busy ||
                     _projectStorePath == null ||
