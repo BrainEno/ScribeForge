@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          timeout --signal=TERM --kill-after=30s 4m flutter test --reporter expanded --no-color --timeout 3m test/desktop_workflow_test.dart 2>&1 | tee flutter_test_output.txt
+          timeout --signal=TERM --kill-after=30s 90s flutter test --reporter expanded --no-color --timeout 3m test/desktop_workflow_test.dart 2>&1 | tee flutter_test_output.txt
       - name: Run Flutter tests
         shell: bash
         run: |
