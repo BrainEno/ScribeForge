@@ -50,7 +50,10 @@ jobs:
           name: flutter-analyze-output
           path: clients/flutter_desktop/analyze_output.txt
       - name: Run Flutter tests
-        run: flutter test --reporter expanded --no-color --timeout 3m 2>&1 | tee flutter_test_output.txt; exit ${PIPESTATUS[0]}
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=30s 4m flutter test --reporter expanded --no-color --timeout 3m 2>&1 | tee flutter_test_output.txt
       - name: Show Flutter test failures as annotations
         if: failure()
         run: |
