@@ -32,7 +32,6 @@ void main() {
     List<int> exportResults = const <int>[0],
     List<Map<String, Object?>>? reviewItems,
   }) async {
-    debugPrint('workflow harness: create temp directory');
     late Directory root;
     await tester.runAsync(() async {
       root = await Directory.systemTemp.createTemp('scribeforge-workflow-');
@@ -43,7 +42,6 @@ void main() {
     final source = File('${root.path}${Platform.pathSeparator}Sample.pdf');
     final exportDirectory = Directory('${root.path}${Platform.pathSeparator}exports');
     final sourceBytes = <int>[37, 80, 68, 70, 45, 49, 46, 55];
-    debugPrint('workflow harness: write source fixture');
     source.writeAsBytesSync(sourceBytes);
     exportDirectory.createSync();
     final sourceHash = sha256.convert(sourceBytes).toString();
@@ -68,7 +66,6 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    debugPrint('workflow harness: pump workspace');
     await tester.pumpWidget(
       MaterialApp(
         home: UnifiedWorkspace(
@@ -81,7 +78,6 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    debugPrint('workflow harness: ready');
     return _Harness(source: source, picker: picker, cli: cli);
   }
 
@@ -92,16 +88,13 @@ void main() {
   }
 
   Future<void> importBook(WidgetTester tester) async {
-    debugPrint('workflow: open books tab');
     await openTab(tester, '书籍');
-    debugPrint('workflow: tap import');
     await tester.tap(find.text('导入书籍'));
     await pumpUntil(
       tester,
       () => find.textContaining('Sample.pdf').evaluate().isNotEmpty,
       description: 'the selected source file after import',
     );
-    debugPrint('workflow: import complete');
   }
 
   Future<void> waitForWorkflowIdle(WidgetTester tester) async {
@@ -109,7 +102,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
       if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
         await tester.pump();
-        debugPrint('workflow: progress indicator cleared');
         return;
       }
     }
@@ -118,15 +110,12 @@ void main() {
 
   testWidgets('imports, processes, reviews and exports through a replaceable CLI',
       (tester) async {
-    debugPrint('workflow: start full fake-CLI flow');
     final harness = await createHarness(tester);
 
     await importBook(tester);
     expect(find.textContaining('Sample.pdf'), findsWidgets);
-    debugPrint('workflow: tap process');
     await tester.tap(find.text('开始处理'));
     await waitForWorkflowIdle(tester);
-    debugPrint('workflow: process complete');
 
     final processCall = harness.cli.calls.singleWhere(
       (arguments) => arguments.first == 'process',
@@ -134,12 +123,10 @@ void main() {
     expect(processCall, contains(harness.source.path));
     expect(processCall, isNot(contains('--vlm-endpoint')));
 
-    debugPrint('workflow: open review tab');
     await openTab(tester, '复核');
     expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
     await tester.tap(find.text('填入 OCR 1'));
     await tester.pump();
-    debugPrint('workflow: candidate filled without a decision');
     expect(
       harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
       isEmpty,
@@ -147,7 +134,6 @@ void main() {
     );
     await tester.tap(find.text('记录人工决策'));
     await waitForWorkflowIdle(tester);
-    debugPrint('workflow: manual decision recorded');
     expect(
       harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
       hasLength(1),
@@ -155,7 +141,6 @@ void main() {
     expect(harness.cli.lastHumanDecisionText, '鸦');
     expect(find.text('暂无待处理配对。'), findsOneWidget);
 
-    debugPrint('workflow: open export tab');
     await openTab(tester, '导出');
     await tester.tap(find.byWidgetPredicate(
       (widget) => widget is TextField && widget.readOnly,
@@ -163,7 +148,6 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('开始导出'));
     await waitForWorkflowIdle(tester);
-    debugPrint('workflow: export complete');
 
     expect(
       harness.cli.calls.where((arguments) => arguments.first == 'export'),
@@ -485,7 +469,6 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
   }) async {
     final args = List<String>.unmodifiable(arguments);
     calls.add(args);
-    debugPrint('fake CLI: ${args.first}');
     switch (args.first) {
       case 'runtime-status':
         onOutput(jsonEncode(<String, Object?>{
