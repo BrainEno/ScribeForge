@@ -4,8 +4,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Push and pull_request both fire for a PR branch. Share one slot so duplicate
-# Flutter SDK downloads do not contend and older commits stop consuming runners.
 concurrency:
   group: flutter-desktop-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
@@ -25,26 +23,44 @@ jobs:
           flutter-version: "3.47.7"
           channel: stable
           cache: true
-      - name: Generate native desktop runners
-        run: flutter create --platforms=windows,macos,linux --project-name scribeforge_desktop .
       - name: Resolve dependencies
         run: flutter pub get
       - name: Format Dart source
         run: dart format lib test
       - name: Analyze Flutter client
-        id: analyze
-        shell: bash
+        run: flutter analyze 2>&1 | tee analyze_output.txt; exit ${PIPESTATUS[0]}
+      - name: Show analyze errors as annotations
+        if: always()
         run: |
-          set -o pipefail
-          flutter analyze --machine 2>&1 | tee "$RUNNER_TEMP/flutter-analyze.txt"
-      - name: Surface analyzer diagnostics
-        if: failure() && steps.analyze.outcome == 'failure'
-        shell: bash
-        run: |
-          while IFS= read -r line; do
-            if [ -n "$line" ]; then
-              printf '::notice title=Flutter analyzer output::%s\n' "$line"
-            fi
-          done < "$RUNNER_TEMP/flutter-analyze.txt"
+          if [ -f analyze_output.txt ]; then
+            grep -E '^(error|warning|info) •' analyze_output.txt | while IFS= read -r line; do
+              type=$(echo "$line" | cut -d' ' -f1)
+              rest=$(echo "$line" | cut -d' ' -f3-)
+              message=$(echo "$rest" | sed 's/ • .*//')
+              location=$(echo "$rest" | sed 's/.* • //' | sed 's/ •.*//')
+              file=$(echo "$location" | cut -d: -f1)
+              line_num=$(echo "$location" | cut -d: -f2)
+              col=$(echo "$location" | cut -d: -f3)
+              if [ "$type" = "error" ]; then
+                echo "::error file=$file,line=$line_num,col=$col::$message"
+              elif [ "$type" = "warning" ]; then
+                echo "::warning file=$file,line=$line_num,col=$col::$message"
+              else
+                echo "::notice file=$file,line=$line_num,col=$col::$message"
+              fi
+            done
+          fi
+      - name: Upload analyze output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-analyze-output
+          path: clients/flutter_desktop/analyze_output.txt
       - name: Run Flutter tests
-        run: flutter test
+        run: flutter test --reporter expanded --no-color 2>&1 | tee flutter_test_output.txt; exit ${PIPESTATUS[0]}
+      - name: Show Flutter test failures as annotations
+        if: failure()
+        run: |
+          if [ -f flutter_test_output.txt ]; then
+            python -c 'from pathlib import Path; lines = Path("flutter_test_output.txt").read_text(errors="replace").splitlines(); markers = ("══╡", "Expected:", "Actual:", "Which:", "The following", "Failed assertion:", "NoSuchMethodError", "Timed out", "Some tests failed"); selected = list(dict.fromkeys(line.strip() for line in lines if "[E]" in line or any(marker in line for marker in markers))); message = "%0A".join(line.replace("%", "%25") for line in selected[:100]); print(f"::error title=Flutter test failures::{message}")'
+          fi
