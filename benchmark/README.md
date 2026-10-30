@@ -62,9 +62,9 @@ The command:
 3. builds only the requested backends from managed runtimes; an unavailable backend fails loudly instead of degrading evidence;
 4. scores each requested engine for CER, WER, punctuation accuracy, missing/extra lines, per-case duration, and pages/minute;
 5. with `--include-pipeline`, also processes every case through the production alignment, risk assessment, verification, and conservative decision stages in an isolated temporary SQLite project;
-6. scores only text represented by accepted decisions. Unresolved disagreements are never guessed or silently copied from either engine; accepted/unresolved pair counts appear in both the aggregate and per-case tables. The report includes the corpus path, manifest SHA-256, aggregate rows, and per-case metrics so an average cannot hide a regression on a difficult page class.
+6. scores only text represented by accepted decisions. Unresolved disagreements are never guessed or silently copied from either engine; accepted/unresolved pair counts appear in both the aggregate and per-case tables. The report includes the corpus path, manifest SHA-256, a corpus-content SHA-256 covering the manifest plus every referenced image and ground-truth file, aggregate rows, and per-case metrics. The runner recomputes the fingerprint after scoring and refuses to write a report if the corpus changed during the run.
 
-Exit codes: `0` report written; `2` missing or invalid manifest, corpus problems, unknown or unavailable backend, engine failure, or an unwritable destination.
+Exit codes: `0` report written; `2` missing or invalid manifest, corpus problems, corpus mutation during scoring, unknown or unavailable backend, engine failure, or an unwritable destination.
 
 The report is Markdown because corpus pages and transcriptions stay outside the repository; only redistributable fixtures may be committed.
 

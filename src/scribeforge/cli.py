@@ -20,7 +20,11 @@ from scribeforge.adapters.epub import write_epub
 from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReviewer
 from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
-from scribeforge.benchmark.corpus import validate_corpus
+from scribeforge.benchmark.corpus import (
+    CorpusFingerprint,
+    fingerprint_corpus,
+    validate_corpus,
+)
 from scribeforge.benchmark.manifest import BenchmarkManifest, load_manifest
 from scribeforge.benchmark.oracle import OracleEngine
 from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
@@ -1768,6 +1772,29 @@ def _parse_modified(value: str) -> datetime:
     return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
 
 
+def _verify_corpus_fingerprint(
+    manifest_path: Path,
+    manifest: BenchmarkManifest,
+    root: Path,
+    expected: CorpusFingerprint,
+) -> bool:
+    """Refuse a result if evidence changed after it was measured."""
+
+    try:
+        current = fingerprint_corpus(manifest_path, manifest, root)
+    except (OSError, ValueError) as exc:
+        print(f"error: cannot recheck benchmark corpus: {exc}", file=sys.stderr)
+        return False
+    if current != expected:
+        print(
+            "error: benchmark corpus changed while the benchmark was running; "
+            "refusing to write a report",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def _benchmark(
     args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFactory
 ) -> int:
@@ -1793,9 +1820,16 @@ def _benchmark(
         for problem in problems:
             print(f"error: case {problem.case_id}: {problem.problem}", file=sys.stderr)
         return EXIT_FATAL
+    try:
+        corpus_fingerprint = fingerprint_corpus(manifest_path, manifest, root)
+    except (OSError, ValueError) as exc:
+        print(f"error: cannot fingerprint benchmark corpus: {exc}", file=sys.stderr)
+        return EXIT_FATAL
 
     if args.oracle_ceiling:
-        return _oracle_ceiling(args, out, manifest, root, manifest_path)
+        return _oracle_ceiling(
+            args, out, manifest, root, manifest_path, corpus_fingerprint
+        )
 
     backends: list[str] = list(args.engine) if args.engine else ["mineru", "paddleocr"]
     if args.include_pipeline and (
@@ -1855,11 +1889,15 @@ def _benchmark(
         print(f"error: benchmark run failed: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
+    if not _verify_corpus_fingerprint(manifest_path, manifest, root, corpus_fingerprint):
+        return EXIT_FATAL
+
     report_text = render_report(
         reports,
         corpus=str(manifest_path),
-        manifest_sha256=_file_sha256(manifest_path),
+        manifest_sha256=corpus_fingerprint.manifest_sha256,
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        corpus_sha256=corpus_fingerprint.corpus_sha256,
         ground_truth_review_status=manifest.ground_truth_review_status,
         ground_truth_note=manifest.ground_truth_note,
     )
@@ -1882,6 +1920,7 @@ def _oracle_ceiling(
     manifest: BenchmarkManifest,
     root: Path,
     manifest_path: Path,
+    corpus_fingerprint: CorpusFingerprint,
 ) -> int:
     """Score the pipeline with recognition error forced to zero.
 
@@ -1922,11 +1961,15 @@ def _oracle_ceiling(
         print(f"error: oracle ceiling failed: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
+    if not _verify_corpus_fingerprint(manifest_path, manifest, root, corpus_fingerprint):
+        return EXIT_FATAL
+
     report_text = render_report(
         reports,
         corpus=str(manifest_path),
-        manifest_sha256=_file_sha256(manifest_path),
+        manifest_sha256=corpus_fingerprint.manifest_sha256,
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        corpus_sha256=corpus_fingerprint.corpus_sha256,
         ground_truth_review_status=manifest.ground_truth_review_status,
         ground_truth_note=manifest.ground_truth_note,
     )

@@ -64,6 +64,7 @@ def render_report(
     corpus: str,
     manifest_sha256: str,
     generated_at: str,
+    corpus_sha256: str | None = None,
     ground_truth_review_status: str | None = None,
     ground_truth_note: str | None = None,
 ) -> str:
@@ -75,6 +76,10 @@ def render_report(
         "",
         f"- corpus: `{corpus}`",
         f"- manifest sha256: `{manifest_sha256}`",
+    ]
+    if corpus_sha256 is not None:
+        lines.append(f"- corpus content sha256: `{corpus_sha256}`")
+    lines += [
         f"- generated: {generated_at}",
         f"- ground-truth review: `{review_status}`",
         f"- variants: {len(reports)}",

@@ -112,6 +112,7 @@ def test_cli_oracle_ceiling_writes_both_variants(tmp_path: Path) -> None:
     assert "| oracle | 6" not in text  # this corpus has one case, not six
     assert "| oracle |" in text
     assert "| oracle-ceiling |" in text
+    assert "- corpus content sha256: `" in text
 
 
 def test_cli_oracle_ceiling_refuses_engine_selection(
