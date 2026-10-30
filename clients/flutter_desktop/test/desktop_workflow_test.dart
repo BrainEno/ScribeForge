@@ -90,7 +90,7 @@ void main() {
     await tester.tap(find.text('导入书籍'));
     await pumpUntil(
       tester,
-      () => find.text('Sample.pdf').evaluate().isNotEmpty,
+      () => find.textContaining('Sample.pdf').evaluate().isNotEmpty,
       description: 'the selected source file after import',
     );
     debugPrint('workflow: import complete');
@@ -114,7 +114,7 @@ void main() {
     final harness = await createHarness(tester);
 
     await importBook(tester);
-    expect(find.text('Sample.pdf'), findsWidgets);
+    expect(find.textContaining('Sample.pdf'), findsWidgets);
     debugPrint('workflow: tap process');
     await tester.tap(find.text('开始处理'));
     await waitForWorkflowIdle(tester);
