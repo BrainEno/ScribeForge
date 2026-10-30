@@ -20,6 +20,27 @@ void main() {
       );
     });
 
+    test('requests streamed JSON progress and optional single-backend repair', () {
+      expect(
+        ScribeForgeCli.setupArguments(),
+        <String>['setup', '--json'],
+      );
+      expect(
+        ScribeForgeCli.setupArguments(
+          runtimeRoot: '/tmp/ScribeForge runtime',
+          backend: 'paddleocr',
+        ),
+        <String>[
+          'setup',
+          '--runtime-root',
+          '/tmp/ScribeForge runtime',
+          '--backend',
+          'paddleocr',
+          '--json',
+        ],
+      );
+    });
+
     test('requests structured JSON for project status', () {
       expect(
         ScribeForgeCli.statusArguments(storePath: '/tmp/My Book.scribeforge'),

@@ -913,6 +913,122 @@ def test_setup_command_opens_the_runtime_wizard_with_requested_root(
     assert seen == [runtime_root]
 
 
+def test_setup_json_streams_progress_and_final_backend_states(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import types
+
+    from scribeforge.runtime.manager import RuntimeEvent, RuntimeStatus
+    from scribeforge.runtime.models import HardwareProfile
+
+    runtime_root = tmp_path / "private-runtime"
+    profile = HardwareProfile("windows", "AMD64", None, None, None, 16 * 1024)
+
+    class FakeSetupWorkflow:
+        def __init__(self, root: Path) -> None:
+            assert root == runtime_root
+
+        def install(self, *, on_event) -> None:
+            on_event(RuntimeEvent("mineru", "models", "step_started", "download", 2, 5))
+            on_event(RuntimeEvent("mineru", "models", "step_completed", "download", 3, 5))
+            on_event(RuntimeEvent("mineru", "complete", "ready", None, 5, 5))
+
+        def inspect(self):
+            return types.SimpleNamespace(
+                hardware=profile,
+                uv_available=True,
+                mineru=RuntimeStatus("ready"),
+                paddleocr=RuntimeStatus("ready"),
+            )
+
+    module = types.ModuleType("scribeforge.runtime.workflow")
+    module.RuntimeSetupWorkflow = FakeSetupWorkflow
+    monkeypatch.setitem(sys.modules, "scribeforge.runtime.workflow", module)
+    output = io.StringIO()
+
+    code = run(
+        ["setup", "--runtime-root", str(runtime_root), "--json"],
+        stdout=output,
+    )
+
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert code == 0
+    assert [record["type"] for record in records] == ["progress", "progress", "progress", "result"]
+    assert records[0] == {
+        "schema_version": 1,
+        "type": "progress",
+        "backend": "mineru",
+        "phase": "models",
+        "state": "step_started",
+        "step": "download",
+        "completed_steps": 2,
+        "total_steps": 5,
+    }
+    assert records[-1]["action"] == "install"
+    assert records[-1]["success"] is True
+    assert records[-1]["backends"]["mineru"]["state"] == "ready"
+    assert records[-1]["backends"]["paddleocr"]["state"] == "ready"
+
+
+def test_setup_json_repairs_only_requested_backend_and_reports_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import types
+
+    from scribeforge.runtime.manager import RuntimeEvent, RuntimeInstallError, RuntimeStatus
+    from scribeforge.runtime.models import HardwareProfile
+
+    runtime_root = tmp_path / "private-runtime"
+    profile = HardwareProfile("windows", "AMD64", None, None, None, 16 * 1024)
+    calls: list[str] = []
+
+    class FakeSetupWorkflow:
+        def __init__(self, root: Path) -> None:
+            assert root == runtime_root
+
+        def repair(self, backend: str, *, on_event) -> None:
+            calls.append(backend)
+            on_event(RuntimeEvent("paddleocr", "models", "step_started", "download", 1, 4))
+            on_event(RuntimeEvent("paddleocr", "models", "failed", "download", 1, 4))
+            raise RuntimeInstallError("paddleocr:models:download: network unavailable")
+
+        def inspect(self):
+            return types.SimpleNamespace(
+                hardware=profile,
+                uv_available=True,
+                mineru=RuntimeStatus("ready"),
+                paddleocr=RuntimeStatus("failed", "models:download"),
+            )
+
+    module = types.ModuleType("scribeforge.runtime.workflow")
+    module.RuntimeSetupWorkflow = FakeSetupWorkflow
+    monkeypatch.setitem(sys.modules, "scribeforge.runtime.workflow", module)
+    output = io.StringIO()
+
+    code = run(
+        [
+            "setup",
+            "--runtime-root",
+            str(runtime_root),
+            "--backend",
+            "paddleocr",
+            "--json",
+        ],
+        stdout=output,
+    )
+
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert code == 1
+    assert calls == ["paddleocr"]
+    assert records[-1]["action"] == "repair"
+    assert records[-1]["success"] is False
+    assert records[-1]["message"] == "paddleocr:models:download: network unavailable"
+    assert records[-1]["backends"]["mineru"]["state"] == "ready"
+    assert records[-1]["backends"]["paddleocr"]["failed_step"] == "models:download"
+
+
 def test_ui_command_requires_an_existing_store(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -8,9 +8,11 @@ import 'package:flutter/services.dart';
 
 import '../models/project_status.dart';
 import '../models/review_queue.dart';
+import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
 import '../services/cli_runner.dart';
 import '../services/settings_store.dart';
+import 'runtime_setup_dialog.dart';
 
 /// 一体化书籍数字化工作台。
 ///
@@ -655,32 +657,57 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _updateExportOutputPath();
   }
 
-  Future<void> _runSetup({String? runtimeRoot}) async {
-    setState(() => _busy = true);
+  Future<void> _openRuntimeSetup() async {
+    final attempted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => RuntimeSetupDialog(
+        runtimeStatus: _runtimeStatus,
+        runSetup: _executeSetup,
+      ),
+    );
+    if (!mounted || attempted != true) return;
+    await _refreshRuntimeStatus();
+  }
+
+  Future<int> _executeSetup({
+    required String? backend,
+    required void Function(RuntimeSetupMessage message) onMessage,
+    required void Function(String diagnostic) onDiagnostic,
+  }) async {
+    var pending = '';
+
+    void parseLine(String line) {
+      if (line.trim().isEmpty) return;
+      try {
+        onMessage(RuntimeSetupMessage.fromJsonLine(line));
+      } on FormatException catch (error) {
+        onDiagnostic('无法解析运行时进度：$error');
+      }
+    }
+
+    void receiveChunk(String chunk) {
+      pending += chunk;
+      var lineEnd = pending.indexOf('\n');
+      while (lineEnd >= 0) {
+        parseLine(pending.substring(0, lineEnd).replaceAll('\r', ''));
+        pending = pending.substring(lineEnd + 1);
+        lineEnd = pending.indexOf('\n');
+      }
+    }
+
     try {
-      final arguments = ScribeForgeCli.setupArguments(runtimeRoot: runtimeRoot);
-      final buffer = StringBuffer();
       final exitCode = await ScribeForgeCli.run(
         executable: _cliExecutable,
-        arguments: arguments,
-        onOutput: buffer.write,
-        onError: (chunk) => buffer.write(chunk),
+        arguments: ScribeForgeCli.setupArguments(backend: backend),
+        onOutput: receiveChunk,
+        onError: onDiagnostic,
       );
-      if (!mounted) return;
-      if (exitCode == 0) {
-        setState(() {
-          _notice = '运行时配置完成';
-          _error = null;
-        });
-        await _refreshRuntimeStatus();
-      } else {
-        setState(() => _error = buffer.toString().trim());
-      }
-    } catch (exc) {
-      if (!mounted) return;
-      setState(() => _error = '运行时配置失败：$exc');
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      if (pending.trim().isNotEmpty) parseLine(pending.trim());
+      return exitCode;
+    } on Object catch (error) {
+      onDiagnostic('无法启动 ScribeForge 命令行工具：$error');
+      rethrow;
     }
   }
 
@@ -1363,11 +1390,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           const Divider(),
           ListTile(
             title: const Text('运行时配置 (setup)'),
-            subtitle: const Text('检测硬件、安装 OCR 运行环境与模型'),
+            subtitle: const Text('查看后端、阶段与步骤进度，或修复单个后端'),
             trailing: _runtimeLoading
                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.play_arrow),
-            onTap: _runtimeLoading ? null : () { _runSetup(); },
+            onTap: _runtimeLoading ? null : _openRuntimeSetup,
           ),
           if (_runtimeStatus != null) ...[
             const Divider(),

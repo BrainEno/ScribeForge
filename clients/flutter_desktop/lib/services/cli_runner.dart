@@ -31,13 +31,19 @@ class ScribeForgeCli {
         '--json',
       ];
 
-  static List<String> setupArguments({String? runtimeRoot}) => <String>[
-    'setup',
-    if (runtimeRoot != null && runtimeRoot.trim().isNotEmpty) ...[
-      '--runtime-root',
-      runtimeRoot.trim(),
-    ],
-  ];
+  static List<String> setupArguments({String? runtimeRoot, String? backend}) =>
+      <String>[
+        'setup',
+        if (runtimeRoot != null && runtimeRoot.trim().isNotEmpty) ...[
+          '--runtime-root',
+          runtimeRoot.trim(),
+        ],
+        if (backend != null && backend.trim().isNotEmpty) ...[
+          '--backend',
+          backend.trim(),
+        ],
+        '--json',
+      ];
 
   static List<String> reviewArguments({required String storePath}) => <String>[
     'review',

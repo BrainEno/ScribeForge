@@ -59,5 +59,12 @@ def test_install_continues_with_paddle_when_mineru_fails(tmp_path: Path) -> None
     assert overview.mineru.failed_step == "environment"
     assert overview.paddleocr.state == "ready"
     assert any(event.backend == "mineru" and event.state == "failed" for event in events)
+    assert any(
+        event.backend == "mineru"
+        and event.phase == "install"
+        and event.state == "step_started"
+        and event.step == "environment"
+        for event in events
+    )
     assert any(event.backend == "paddleocr" and event.state == "ready" for event in events)
     assert any("envs/paddleocr" in " ".join(argv).replace("\\", "/") for argv in calls)
