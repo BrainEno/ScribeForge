@@ -54,7 +54,9 @@ void main() {
     expect(find.text('刷新队列'), findsOneWidget);
     expect(find.text('请先导入书籍或打开一个项目。'), findsOneWidget);
     expect(
-      find.text('快捷键：Alt+1/2/3 填入候选；Ctrl+Enter 记录人工决策。'),
+      find.text(
+        '快捷键：Alt+←/→ 上一项/下一项；Ctrl+J 聚焦决策输入；Ctrl+G 聚焦跳页；Alt+1/2/3 填入候选；Ctrl+Enter 明确记录。',
+      ),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -82,6 +84,9 @@ void main() {
     await openTab(tester, '设置');
 
     expect(find.text('命令行工具'), findsOneWidget);
+    expect(find.text('视觉模型复核'), findsOneWidget);
+    expect(find.textContaining('默认关闭；未明确启用时不会发送复核裁切图。'), findsOneWidget);
+    expect(find.text('配置 VLM 复核'), findsOneWidget);
     expect(find.text('运行时配置 (setup)'), findsOneWidget);
     expect(find.text('查看后端、阶段与步骤进度，或修复单个后端'), findsOneWidget);
     expect(find.text('刷新运行时状态'), findsOneWidget);

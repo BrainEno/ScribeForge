@@ -7,12 +7,16 @@ class ReviewKeyboardShortcuts extends StatelessWidget {
     required this.onNextPage,
     required this.onNextDifference,
     required this.child,
+    this.onFocusDecisionInput,
+    this.onFocusPageJump,
     super.key,
   });
 
   final VoidCallback onPreviousPage;
   final VoidCallback onNextPage;
   final VoidCallback onNextDifference;
+  final VoidCallback? onFocusDecisionInput;
+  final VoidCallback? onFocusPageJump;
   final Widget child;
 
   @override
@@ -24,6 +28,10 @@ class ReviewKeyboardShortcuts extends StatelessWidget {
               _NextPageIntent(),
           SingleActivator(LogicalKeyboardKey.keyD, alt: true):
               _NextDifferenceIntent(),
+          SingleActivator(LogicalKeyboardKey.keyJ, control: true):
+              _FocusDecisionInputIntent(),
+          SingleActivator(LogicalKeyboardKey.keyG, control: true):
+              _FocusPageJumpIntent(),
         },
         child: Actions(
           actions: <Type, Action<Intent>>{
@@ -45,6 +53,19 @@ class ReviewKeyboardShortcuts extends StatelessWidget {
                 return null;
               },
             ),
+            _FocusDecisionInputIntent:
+                CallbackAction<_FocusDecisionInputIntent>(
+              onInvoke: (_) {
+                onFocusDecisionInput?.call();
+                return null;
+              },
+            ),
+            _FocusPageJumpIntent: CallbackAction<_FocusPageJumpIntent>(
+              onInvoke: (_) {
+                onFocusPageJump?.call();
+                return null;
+              },
+            ),
           },
           child: child,
         ),
@@ -61,4 +82,12 @@ class _NextPageIntent extends Intent {
 
 class _NextDifferenceIntent extends Intent {
   const _NextDifferenceIntent();
+}
+
+class _FocusDecisionInputIntent extends Intent {
+  const _FocusDecisionInputIntent();
+}
+
+class _FocusPageJumpIntent extends Intent {
+  const _FocusPageJumpIntent();
 }

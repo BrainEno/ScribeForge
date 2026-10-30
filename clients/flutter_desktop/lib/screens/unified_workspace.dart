@@ -2,17 +2,22 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/project_status.dart';
 import '../models/review_queue.dart';
+import '../models/review_queue_navigation.dart';
 import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
+import '../services/cli_executor.dart';
 import '../services/cli_runner.dart';
+import '../services/desktop_file_picker.dart';
 import '../services/settings_store.dart';
+import '../services/workspace_file_system.dart';
+import '../widgets/review_keyboard_shortcuts.dart';
 import 'runtime_setup_dialog.dart';
+import 'vlm_settings_dialog.dart';
 
 /// 一体化书籍数字化工作台。
 ///
@@ -28,7 +33,18 @@ import 'runtime_setup_dialog.dart';
 /// - `export`：写出 EPUB 3 或 DOCX
 /// - `runtime-status` / `setup`：运行时与首次配置
 class UnifiedWorkspace extends StatefulWidget {
-  const UnifiedWorkspace({super.key});
+  const UnifiedWorkspace({
+    super.key,
+    this.cliExecutor,
+    this.filePicker,
+    this.settingsStore,
+    this.fileSystem,
+  });
+
+  final ScribeForgeCliExecutor? cliExecutor;
+  final DesktopFilePicker? filePicker;
+  final DesktopSettingsStore? settingsStore;
+  final WorkspaceFileSystem? fileSystem;
 
   @override
   State<UnifiedWorkspace> createState() => _UnifiedWorkspaceState();
@@ -53,8 +69,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   bool _projectCanExport = true;
   String? _projectSourceMismatchMessage;
 
-  final _settingsStore = DesktopSettingsStore();
+  late final DesktopSettingsStore _settingsStore;
+  late final ScribeForgeCliExecutor _cliExecutor;
+  late final DesktopFilePicker _filePicker;
+  late final WorkspaceFileSystem _fileSystem;
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
+  DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   bool _busy = false;
   String? _notice;
   String? _error;
@@ -74,6 +94,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   // 复核队列（来自 `scribeforge review --json` 的稳定契约）
   final List<ReviewQueueItem> _reviewQueue = [];
   bool _reviewLoading = false;
+  int _selectedReviewIndex = 0;
+  final _reviewPageJumpController = TextEditingController();
+  final _reviewPageJumpFocusNode = FocusNode(debugLabel: 'review-page-jump');
+  final _reviewDecisionFocusNode = FocusNode(debugLabel: 'review-decision-input');
 
   // 导出表单控制器（需在 dispose 中释放）
   final _exportOutputController = TextEditingController();
@@ -92,6 +116,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final key = '${item.projectId}-${item.pageIndex}-${item.pairIndex}';
     return _reviewControllers.putIfAbsent(key, () => TextEditingController());
   }
+
+  ReviewQueueItem? get _selectedReviewItem =>
+      _selectedReviewIndex < 0 || _selectedReviewIndex >= _reviewQueue.length
+          ? null
+          : _reviewQueue[_selectedReviewIndex];
 
   static const List<String> _navTitles = <String>[
     '书籍',
@@ -112,6 +141,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   @override
   void initState() {
     super.initState();
+    _settingsStore = widget.settingsStore ?? DesktopSettingsStore();
+    _cliExecutor = widget.cliExecutor ?? const ProcessScribeForgeCliExecutor();
+    _filePicker = widget.filePicker ?? const PluginDesktopFilePicker();
+    _fileSystem = widget.fileSystem ?? const IoWorkspaceFileSystem();
     _loadSettings();
   }
 
@@ -122,6 +155,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _exportLanguageController.dispose();
     _exportTitleController.dispose();
     _exportAuthorController.dispose();
+    _reviewPageJumpController.dispose();
+    _reviewPageJumpFocusNode.dispose();
+    _reviewDecisionFocusNode.dispose();
     for (final controller in _reviewControllers.values) {
       controller.dispose();
     }
@@ -130,8 +166,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   Future<void> _loadSettings() async {
     final executable = await _settingsStore.loadCliExecutable();
+    final vlmSettings = await _settingsStore.loadVlmSettings();
     if (!mounted) return;
-    setState(() => _cliExecutable = executable);
+    setState(() {
+      _cliExecutable = executable;
+      _vlmSettings = vlmSettings;
+    });
     await _refreshRuntimeStatus();
     await _refreshStatus();
     await _refreshReviewQueue();
@@ -154,8 +194,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final version = ++_statusRequestVersion;
     setState(() => _statusLoading = true);
     try {
-      final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
-      if (!await database.exists()) {
+      final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
+      if (!await _fileSystem.fileExists(databasePath)) {
         if (!mounted || version != _statusRequestVersion) return;
         setState(() {
           _projectStatus = null;
@@ -168,7 +208,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       }
       final arguments = ScribeForgeCli.statusArguments(storePath: storePath);
       final buffer = StringBuffer();
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: arguments,
         onOutput: buffer.write,
@@ -194,10 +234,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       var mismatchMessage = '此存储目录没有与所选源文件匹配的唯一项目。';
       if (selected != null && sourcePath != null) {
         final pathMatches = selected.sourcePathMatches(sourcePath);
-        final sourceFile = File(sourcePath);
-        final sourceExists = await sourceFile.exists();
+        final sourceExists = await _fileSystem.fileExists(sourcePath);
         final sourceHash = pathMatches && sourceExists
-            ? await _sourceSha256(sourceFile)
+            ? await _sourceSha256(sourcePath)
             : null;
         final hashMatches = sourceHash != null &&
             selected.sourceHashMatches(sourceHash);
@@ -242,17 +281,17 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _sourceHashCacheValue = null;
   }
 
-  Future<String?> _sourceSha256(File sourceFile) async {
-    final stat = await sourceFile.stat();
-    if (stat.type != FileSystemEntityType.file) return null;
-    final modifiedMillis = stat.modified.millisecondsSinceEpoch;
-    if (_sourceHashCachePath == sourceFile.path &&
+  Future<String?> _sourceSha256(String sourcePath) async {
+    final stat = await _fileSystem.stat(sourcePath);
+    if (stat == null) return null;
+    final modifiedMillis = stat.modifiedMilliseconds;
+    if (_sourceHashCachePath == sourcePath &&
         _sourceHashCacheSize == stat.size &&
         _sourceHashCacheModifiedMillis == modifiedMillis) {
       return _sourceHashCacheValue;
     }
-    final digest = (await sha256.bind(sourceFile.openRead()).first).toString();
-    _sourceHashCachePath = sourceFile.path;
+    final digest = (await sha256.bind(_fileSystem.openRead(sourcePath)).first).toString();
+    _sourceHashCachePath = sourcePath;
     _sourceHashCacheSize = stat.size;
     _sourceHashCacheModifiedMillis = modifiedMillis;
     _sourceHashCacheValue = digest;
@@ -266,7 +305,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     try {
       final arguments = ScribeForgeCli.runtimeStatusArguments();
       final buffer = StringBuffer();
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: arguments,
         onOutput: buffer.write,
@@ -294,18 +333,21 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _refreshReviewQueue() async {
     final storePath = _projectStorePath;
     if (storePath == null) return;
-    final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
-    final databaseExists = await database.exists();
+    final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
+    final databaseExists = await _fileSystem.fileExists(databasePath);
     if (!mounted) return;
     if (!databaseExists) {
-      setState(() => _reviewQueue.clear());
+      setState(() {
+        _reviewQueue.clear();
+        _selectedReviewIndex = -1;
+      });
       return;
     }
     setState(() => _reviewLoading = true);
     try {
       final arguments = ScribeForgeCli.reviewArguments(storePath: storePath);
       final buffer = StringBuffer();
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: arguments,
         onOutput: buffer.write,
@@ -314,10 +356,24 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       if (exitCode == 0) {
         final snapshot = ReviewQueueSnapshot.fromJsonText(buffer.toString());
+        final selectedItem = _selectedReviewItem;
         setState(() {
           _reviewQueue
             ..clear()
             ..addAll(snapshot.items);
+          final retainedIndex = selectedItem == null
+              ? -1
+              : _reviewQueue.indexWhere((item) =>
+                  item.projectId == selectedItem.projectId &&
+                  item.pageIndex == selectedItem.pageIndex &&
+                  item.pairIndex == selectedItem.pairIndex);
+          _selectedReviewIndex = retainedIndex >= 0
+              ? retainedIndex
+              : ReviewQueueNavigation.move(
+                  _selectedReviewIndex,
+                  itemCount: _reviewQueue.length,
+                  delta: 0,
+                );
           _error = null;
         });
       } else {
@@ -334,12 +390,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   // ---------------------------------------------------------------- actions
 
   Future<void> _pickPdf() async {
-    final result = await FilePicker.pickFile(
-      type: FileType.custom,
+    final sourcePath = await _filePicker.pickFile(
       allowedExtensions: <String>['pdf', 'png', 'jpg', 'jpeg'],
     );
-    if (!mounted || result?.path == null) return;
-    final sourcePath = result!.path!;
+    if (!mounted || sourcePath == null) return;
     final storePath = ScribeForgeCli.defaultStorePath(sourcePath);
     final filename = File(sourcePath).uri.pathSegments.last;
     final extension = filename.lastIndexOf('.');
@@ -358,6 +412,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _projectSourceMismatchMessage = null;
       _projectStatus = null;
       _reviewQueue.clear();
+      _selectedReviewIndex = -1;
       _error = null;
       _notice = null;
     });
@@ -366,12 +421,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   Future<void> _openProject() async {
-    final storePath = await FilePicker.getDirectoryPath(
+    final storePath = await _filePicker.getDirectoryPath(
       dialogTitle: '选择 ScribeForge 项目文件夹',
     );
     if (!mounted || storePath == null) return;
-    final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
-    if (!await database.exists()) {
+    final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
+    if (!await _fileSystem.fileExists(databasePath)) {
       setState(() => _error = '所选文件夹中没有 ScribeForge 项目数据库。');
       return;
     }
@@ -388,11 +443,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _projectCanExport = false;
       _projectSourceMismatchMessage = null;
       _reviewQueue.clear();
+      _selectedReviewIndex = -1;
       _error = null;
     });
     try {
       final buffer = StringBuffer();
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: ScribeForgeCli.statusArguments(storePath: storePath),
         onOutput: buffer.write,
@@ -425,7 +481,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   Future<void> _chooseProjectStoreDirectory() async {
-    final storePath = await FilePicker.getDirectoryPath(
+    final storePath = await _filePicker.getDirectoryPath(
       dialogTitle: '选择项目存储目录',
     );
     if (!mounted || storePath == null) return;
@@ -440,6 +496,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _projectCanExport = true;
       _projectSourceMismatchMessage = null;
       _reviewQueue.clear();
+      _selectedReviewIndex = -1;
     });
     await _refreshStatus();
     await _refreshReviewQueue();
@@ -448,17 +505,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _relinkSource() async {
     final storePath = _projectStorePath;
     if (storePath == null) return;
-    final result = await FilePicker.pickFile(
+    final sourcePath = await _filePicker.pickFile(
       dialogTitle: '重新关联原始 PDF 或页面图像',
-      type: FileType.custom,
       allowedExtensions: <String>['pdf', 'png', 'jpg', 'jpeg'],
     );
-    if (!mounted || result?.path == null) return;
-    final sourcePath = result!.path!;
+    if (!mounted || sourcePath == null) return;
     setState(() => _busy = true);
     try {
       final buffer = StringBuffer();
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: ScribeForgeCli.relinkSourceArguments(
           storePath: storePath,
@@ -510,9 +565,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       final arguments = ScribeForgeCli.processArguments(
         pdfPath: sourcePath,
         storePath: storePath,
+        vlmSettings: _vlmSettings,
       );
       final buffer = StringBuffer();
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: arguments,
         onOutput: buffer.write,
@@ -552,7 +608,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         text: acceptedText,
       );
       final buffer = StringBuffer();
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: arguments,
         onOutput: buffer.write,
@@ -565,6 +621,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               r.projectId == item.projectId &&
               r.pageIndex == item.pageIndex &&
               r.pairIndex == item.pairIndex);
+          _selectedReviewIndex = ReviewQueueNavigation.move(
+            _selectedReviewIndex,
+            itemCount: _reviewQueue.length,
+            delta: 0,
+          );
           _reviewControllers
               .remove('${item.projectId}-${item.pageIndex}-${item.pairIndex}')
               ?.dispose();
@@ -573,6 +634,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           _error = null;
         });
         await _refreshStatus(waitForInFlight: true);
+        _focusReviewDecisionInputAfterFrame();
       } else {
         setState(() => _error = buffer.toString().trim());
       }
@@ -614,7 +676,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (strictAcceptance) allArgs.add('--strict-acceptance');
 
       final buffer = StringBuffer();
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: allArgs,
         onOutput: buffer.write,
@@ -649,12 +711,40 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   Future<void> _pickExportOutput() async {
-    final directory = await FilePicker.getDirectoryPath(
+    final directory = await _filePicker.getDirectoryPath(
       dialogTitle: '选择导出文件夹',
     );
     if (!mounted || directory == null) return;
-    _exportOutputDirectory = directory;
-    _updateExportOutputPath();
+    setState(() {
+      _exportOutputDirectory = directory;
+      _updateExportOutputPath();
+    });
+  }
+
+  Future<void> _openVlmSettings() async {
+    final settings = await showDialog<DesktopVlmSettings>(
+      context: context,
+      builder: (context) => VlmSettingsDialog(
+        executable: _cliExecutable,
+        initial: _vlmSettings,
+        cliExecutor: _cliExecutor,
+      ),
+    );
+    if (!mounted || settings == null) return;
+    try {
+      await _settingsStore.saveVlmSettings(settings);
+      if (!mounted) return;
+      setState(() {
+        _vlmSettings = settings;
+        _notice = settings.enabled
+            ? 'VLM 已启用；处理时会按此配置发送复核裁切图。'
+            : 'VLM 已关闭；处理不会发送复核裁切图。';
+        _error = null;
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() => _error = '保存 VLM 设置失败：$error');
+    }
   }
 
   Future<void> _openRuntimeSetup() async {
@@ -697,7 +787,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     }
 
     try {
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
         arguments: ScribeForgeCli.setupArguments(backend: backend),
         onOutput: receiveChunk,
@@ -1027,8 +1117,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
           const SizedBox(height: 4),
-          Text('快捷键：Alt+1/2/3 填入候选；Ctrl+Enter 记录人工决策。',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+          Text(
+            '快捷键：Alt+←/→ 上一项/下一项；Ctrl+J 聚焦决策输入；Ctrl+G 聚焦跳页；Alt+1/2/3 填入候选；Ctrl+Enter 明确记录。',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+          ),
           const SizedBox(height: 16),
           Row(
             children: <Widget>[
@@ -1054,15 +1146,113 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             const Expanded(child: Center(child: Text('暂无待处理配对。')))
           else
             Expanded(
-              child: ListView.builder(
-                itemCount: _reviewQueue.length,
-                itemBuilder: (context, index) =>
-                    _buildReviewQueueItem(_reviewQueue[index]),
+              child: ReviewKeyboardShortcuts(
+                onPreviousPage: () => _moveReviewSelection(-1),
+                onNextPage: () => _moveReviewSelection(1),
+                onNextDifference: () => _moveReviewSelection(1),
+                onFocusDecisionInput: _focusReviewDecisionInput,
+                onFocusPageJump: () => _reviewPageJumpFocusNode.requestFocus(),
+                child: Column(
+                  children: <Widget>[
+                    _buildReviewNavigationControls(),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: _buildReviewQueueItem(
+                          _reviewQueue[_selectedReviewIndex],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],
       ),
     );
+  }
+
+  Widget _buildReviewNavigationControls() {
+    final hasPrevious = _selectedReviewIndex > 0;
+    final hasNext = _selectedReviewIndex >= 0 &&
+        _selectedReviewIndex < _reviewQueue.length - 1;
+    return Row(
+      children: <Widget>[
+        IconButton(
+          tooltip: '上一项',
+          onPressed: hasPrevious ? () => _moveReviewSelection(-1) : null,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        Text('${_selectedReviewIndex + 1} / ${_reviewQueue.length}'),
+        IconButton(
+          tooltip: '下一项',
+          onPressed: hasNext ? () => _moveReviewSelection(1) : null,
+          icon: const Icon(Icons.chevron_right),
+        ),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 128,
+          child: TextField(
+            key: const ValueKey('review-page-jump'),
+            controller: _reviewPageJumpController,
+            focusNode: _reviewPageJumpFocusNode,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.go,
+            onSubmitted: _jumpToPage,
+            decoration: const InputDecoration(
+              labelText: '跳转页码',
+              hintText: '例如 12',
+              isDense: true,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        OutlinedButton(
+          onPressed: () => _jumpToPage(_reviewPageJumpController.text),
+          child: const Text('跳转'),
+        ),
+      ],
+    );
+  }
+
+  void _moveReviewSelection(int delta) {
+    final nextIndex = ReviewQueueNavigation.move(
+      _selectedReviewIndex,
+      itemCount: _reviewQueue.length,
+      delta: delta,
+    );
+    if (nextIndex < 0 || nextIndex == _selectedReviewIndex) return;
+    setState(() => _selectedReviewIndex = nextIndex);
+    _focusReviewDecisionInputAfterFrame();
+  }
+
+  void _jumpToPage(String rawPageNumber) {
+    final pageNumber = int.tryParse(rawPageNumber.trim());
+    final nextIndex = pageNumber == null
+        ? null
+        : ReviewQueueNavigation.indexForPage(
+            _reviewQueue.map((item) => item.pageIndex + 1).toList(),
+            pageNumber: pageNumber,
+          );
+    if (nextIndex == null) {
+      setState(() => _error = '找不到第 ${rawPageNumber.trim()} 页的待复核配对。');
+      return;
+    }
+    setState(() {
+      _selectedReviewIndex = nextIndex;
+      _error = null;
+    });
+    _focusReviewDecisionInputAfterFrame();
+  }
+
+  void _focusReviewDecisionInput() => _reviewDecisionFocusNode.requestFocus();
+
+  void _focusReviewDecisionInputAfterFrame() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _selectedReviewItem != null) {
+        _reviewDecisionFocusNode.requestFocus();
+      }
+    });
   }
 
   String _reasonLabel(String reason) => switch (reason) {
@@ -1209,7 +1399,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             _buildReviewImage('原始页面图像', item.sourceImagePath),
             const SizedBox(height: 12),
             TextField(
+              key: const ValueKey('review-decision-input'),
               controller: controller,
+              focusNode: _reviewDecisionFocusNode,
               minLines: 1,
               maxLines: 3,
               decoration: const InputDecoration(
@@ -1310,7 +1502,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         TextField(
           controller: _exportTitleController,
           decoration: const InputDecoration(labelText: '书名（可选）'),
-          onChanged: (_) => _updateExportOutputPath(),
+          onChanged: (_) => setState(_updateExportOutputPath),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -1385,6 +1577,18 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   await _refreshReviewQueue();
                 }
               },
+            ),
+          ),
+          ListTile(
+            title: const Text('视觉模型复核'),
+            subtitle: Text(
+              _vlmSettings.enabled
+                  ? '已启用：处理时会按配置发送复核裁切图。'
+                  : '默认关闭；未明确启用时不会发送复核裁切图。',
+            ),
+            trailing: TextButton(
+              onPressed: _busy ? null : _openVlmSettings,
+              child: const Text('配置 VLM 复核'),
             ),
           ),
           const Divider(),

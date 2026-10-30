@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import platform
 import sys
@@ -493,7 +494,17 @@ def test_review_json_returns_machine_readable_evidence_and_page_assets(
     assert item["vlm_text"] == "maybe"
     assert item["vlm_uncertain"] is True
     assert Path(item["source_image_path"]).is_file()
-    assert Path(item["crop_path"]).is_file()
+    crop = Path(item["crop_path"])
+    assert crop.is_file()
+
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    verification_id = store.latest_verification_id(project["id"], 0)
+    reviews = store.list_vlm_reviews(verification_id)
+    assert len(reviews) == 1
+    assert reviews[0].reading.text == "maybe"
+    assert reviews[0].reading.uncertain is True
+    assert reviews[0].crop_path == str(crop)
+    assert reviews[0].crop_sha256 == hashlib.sha256(crop.read_bytes()).hexdigest()
 
 
 def test_review_json_emits_empty_items_for_a_project_without_reviews(
@@ -1921,6 +1932,19 @@ def test_process_uses_explicitly_configured_vlm_reviewer(
     assert decision is not None
     assert decision.actor == "vlm"
     assert decision.selected_text == "鸦"
+
+    verification_id = store.latest_verification_id(project.id, 0)
+    reviews = store.list_vlm_reviews(verification_id)
+    assert len(reviews) == 1
+    review = reviews[0]
+    assert review.reading.text == "鸦"
+    assert review.reading.uncertain is False
+    assert review.crop_path is not None
+    crop = Path(review.crop_path)
+    assert crop.is_file()
+    assert review.crop_sha256 == hashlib.sha256(crop.read_bytes()).hexdigest()
+    assert f"vlm_review:{review.id}" in decision.evidence_refs
+    assert f"verification_run:{verification_id}" in decision.evidence_refs
 
 
 def test_benchmark_include_vlm_adds_variant_d(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/cli_executor.dart';
 import '../services/cli_runner.dart';
 import '../services/settings_store.dart';
 
@@ -8,10 +9,12 @@ class VlmSettingsDialog extends StatefulWidget {
     super.key,
     required this.executable,
     required this.initial,
+    this.cliExecutor = const ProcessScribeForgeCliExecutor(),
   });
 
   final String executable;
   final DesktopVlmSettings initial;
+  final ScribeForgeCliExecutor cliExecutor;
 
   @override
   State<VlmSettingsDialog> createState() => _VlmSettingsDialogState();
@@ -99,7 +102,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
     }
 
     try {
-      final exitCode = await ScribeForgeCli.run(
+      final exitCode = await widget.cliExecutor.run(
         executable: widget.executable,
         arguments: ScribeForgeCli.vlmCheckArguments(
           imagePath: imagePath,
