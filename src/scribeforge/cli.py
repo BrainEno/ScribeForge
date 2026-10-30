@@ -28,7 +28,7 @@ from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
 from scribeforge.domain.flow import build_flow
-from scribeforge.domain.ocr import OCREngine, PageDirection
+from scribeforge.domain.ocr import BoundingBox, OCREngine, PageDirection
 from scribeforge.domain.preprocess import (
     PreprocessOperation,
     PreprocessSettings,
@@ -421,11 +421,17 @@ def build_parser() -> argparse.ArgumentParser:
         "review", help="List the page pairs that still need a human decision."
     )
     review.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    review.add_argument(
+        "--json", action="store_true", help="Emit schema-versioned review evidence as JSON."
+    )
 
     resolve = subparsers.add_parser(
         "resolve", help="Record a human decision for one page pair."
     )
     resolve.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    resolve.add_argument(
+        "--project-id", type=int, default=None, help="Project ID (defaults to the first project)."
+    )
     resolve.add_argument("--page", type=int, required=True, help="Zero-based page index.")
     resolve.add_argument("--pair", type=int, required=True, help="Zero-based aligned-pair index.")
     resolve.add_argument(
@@ -969,6 +975,15 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                     "pages_with_both_ocr_success": len(dual_ocr_pages),
                     "review_queued": len(review_queue(store, project.id)),
                     "job_counts": state_counts,
+                    "active_jobs": [
+                        {
+                            "stage": job.stage.value,
+                            "page_index": job.page_index,
+                            "attempts": job.attempts,
+                        }
+                        for job in jobs
+                        if job.state.value == "running"
+                    ],
                     "failed_jobs": failed_jobs,
                 }
             )
@@ -1173,11 +1188,72 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     projects = store.list_projects()
+    layout = StoreLayout(args.store)
+    if args.json:
+        project_reports: list[dict[str, object]] = []
+        for project in projects:
+            pages = {page.page_index: page for page in store.list_pages(project.id)}
+            item_reports: list[dict[str, object]] = []
+            for queued in review_queue(store, project.id):
+                detail = review_detail(
+                    store,
+                    project.id,
+                    queued.page_index,
+                    queued.pair_index,
+                    crops_dir=layout.crops_dir,
+                )
+                page = pages[detail.page_index]
+                item_reports.append(
+                    {
+                        "page_index": detail.page_index,
+                        "pair_index": detail.pair_index,
+                        "score": detail.score,
+                        "reasons": [reason.value for reason in detail.reasons],
+                        "primary_text": detail.primary_text,
+                        "secondary_text": detail.secondary_text,
+                        "vlm_text": detail.vlm_text,
+                        "vlm_uncertain": detail.vlm_uncertain,
+                        "crop_path": detail.crop_path,
+                        "source_image_path": page.source_image,
+                        "source_box": _bounding_box_json(detail.source_box),
+                        "primary_box": _bounding_box_json(detail.primary_box),
+                        "secondary_box": _bounding_box_json(detail.secondary_box),
+                        "conflicts": [
+                            {
+                                "kind": conflict.kind.value,
+                                "primary_text": conflict.primary_text,
+                                "secondary_text": conflict.secondary_text,
+                                "primary_start": conflict.primary_start,
+                                "primary_end": conflict.primary_end,
+                                "secondary_start": conflict.secondary_start,
+                                "secondary_end": conflict.secondary_end,
+                            }
+                            for conflict in detail.conflicts
+                        ],
+                    }
+                )
+            project_reports.append(
+                {
+                    "id": project.id,
+                    "title": project.title,
+                    "source_uri": project.source_uri,
+                    "items": item_reports,
+                }
+            )
+        print(
+            json.dumps(
+                {"schema_version": 1, "store": str(args.store), "projects": project_reports},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+            file=out,
+        )
+        return EXIT_OK
+
     if not projects:
         print("no projects", file=out)
         return EXIT_OK
 
-    layout = StoreLayout(args.store)
     for project in projects:
         items = review_queue(store, project.id)
         print(f"project {project.id}: {project.title}", file=out)
@@ -1207,6 +1283,12 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK
 
 
+def _bounding_box_json(box: BoundingBox | None) -> dict[str, float] | None:
+    if box is None:
+        return None
+    return {"x": box.x, "y": box.y, "width": box.width, "height": box.height}
+
+
 def _resolve(args: argparse.Namespace, out: TextIO) -> int:
     store = _open_store(args.store)
     if store is None:
@@ -1218,9 +1300,18 @@ def _resolve(args: argparse.Namespace, out: TextIO) -> int:
         print("error: no projects in store", file=sys.stderr)
         return EXIT_FATAL
 
+    project = (
+        projects[0]
+        if args.project_id is None
+        else next((candidate for candidate in projects if candidate.id == args.project_id), None)
+    )
+    if project is None:
+        print(f"error: no project {args.project_id} in store", file=sys.stderr)
+        return EXIT_FATAL
+
     try:
         decision_id = record_human_decision(
-            store, projects[0].id, args.page, args.pair, args.text
+            store, project.id, args.page, args.pair, args.text
         )
     except KeyError as exc:
         message = exc.args[0] if exc.args else exc
@@ -1228,7 +1319,8 @@ def _resolve(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     print(
-        f"recorded human decision #{decision_id} for page {args.page} pair {args.pair}",
+        f"recorded human decision #{decision_id} for project {project.id} "
+        f"page {args.page} pair {args.pair}",
         file=out,
     )
     return EXIT_OK

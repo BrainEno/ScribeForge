@@ -4,9 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/main.dart';
 
 void main() {
-  testWidgets('desktop workspace starts with source, candidate and OCR actions', (tester) async {
-    // This is a desktop-first layout, so assert its baseline at a desktop viewport
-    // rather than Flutter's default 800x600 test canvas.
+  testWidgets('unified workspace navigates through import, process, review, export and setup',
+      (tester) async {
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -15,30 +14,32 @@ void main() {
     await tester.pumpWidget(const ScribeForgeDesktopApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('ScribeForge'), findsOneWidget);
-    expect(find.text('Open source PDF'), findsOneWidget);
-    expect(find.text('Open project'), findsOneWidget);
-    expect(find.text('Verify backup'), findsOneWidget);
-    expect(find.text('Restore project'), findsOneWidget);
-    expect(find.text('Open Candidate A EPUB'), findsOneWidget);
-    expect(find.text('Open Candidate B EPUB'), findsOneWidget);
-    expect(find.text('Set up OCR'), findsOneWidget);
-    expect(find.text('Run OCR'), findsOneWidget);
-    expect(find.text('Build A/B EPUBs'), findsOneWidget);
-    expect(find.text('Export verified book'), findsOneWidget);
-    expect(find.text('Human evaluation'), findsOneWidget);
+    expect(find.text('已导入的书籍'), findsOneWidget);
+    expect(find.text('导入书籍'), findsOneWidget);
+    expect(find.text('打开项目文件夹'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.tap(find.text('处理').last);
     await tester.pumpAndSettle();
-    expect(find.text('CLI executable'), findsOneWidget);
-    expect(find.text('Runtime & Models'), findsOneWidget);
-    expect(find.text('VLM review'), findsOneWidget);
-    await tester.tap(find.text('VLM review'));
+    expect(find.text('导入并处理书籍'), findsOneWidget);
+    expect(find.text('选择文件'), findsOneWidget);
+    expect(find.text('开始处理'), findsOneWidget);
+
+    await tester.tap(find.text('复核').last);
     await tester.pumpAndSettle();
-    expect(find.text('VLM review settings'), findsOneWidget);
-    expect(find.text('OpenAI-compatible endpoint'), findsOneWidget);
-    expect(find.text('Vision model'), findsOneWidget);
-    expect(find.text('Test with image…'), findsOneWidget);
+    expect(find.text('复核队列'), findsOneWidget);
+    expect(find.text('刷新队列'), findsOneWidget);
+    expect(find.text('快捷键：Alt+1/2/3 填入候选；Ctrl+Enter 记录人工决策。'), findsOneWidget);
+
+    await tester.tap(find.text('导出').last);
+    await tester.pumpAndSettle();
+    expect(find.text('导出成品'), findsOneWidget);
+    expect(find.text('开始导出'), findsOneWidget);
+
+    await tester.tap(find.text('设置').last);
+    await tester.pumpAndSettle();
+    expect(find.text('命令行工具'), findsOneWidget);
+    expect(find.text('运行时配置 (setup)'), findsOneWidget);
+    expect(find.text('刷新运行时状态'), findsOneWidget);
 
     expect(tester.takeException(), isNull);
   });

@@ -1,10 +1,13 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/project_status.dart';
+import '../models/review_queue.dart';
 import '../models/runtime_status.dart';
 import '../services/cli_runner.dart';
 import '../services/settings_store.dart';
@@ -29,12 +32,23 @@ class UnifiedWorkspace extends StatefulWidget {
   State<UnifiedWorkspace> createState() => _UnifiedWorkspaceState();
 }
 
+class _UseReviewCandidateIntent extends Intent {
+  const _UseReviewCandidateIntent(this.candidateNumber);
+
+  final int candidateNumber;
+}
+
+class _RecordReviewDecisionIntent extends Intent {
+  const _RecordReviewDecisionIntent();
+}
+
 class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   int _selectedIndex = 0;
 
   String? _pdfPath;
   String? _projectStorePath;
   bool _projectSourceMatches = true;
+  bool _projectCanExport = true;
   String? _projectSourceMismatchMessage;
 
   final _settingsStore = DesktopSettingsStore();
@@ -46,11 +60,16 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   ProjectStatusSnapshot? _projectStatus;
   bool _statusLoading = false;
   int _statusRequestVersion = 0;
+  Timer? _processStatusTimer;
+  String? _sourceHashCachePath;
+  int? _sourceHashCacheSize;
+  int? _sourceHashCacheModifiedMillis;
+  String? _sourceHashCacheValue;
 
   RuntimeStatusSnapshot? _runtimeStatus;
   bool _runtimeLoading = false;
 
-  // 复核队列（从 `scribeforge review` 解析）
+  // 复核队列（来自 `scribeforge review --json` 的稳定契约）
   final List<ReviewQueueItem> _reviewQueue = [];
   bool _reviewLoading = false;
 
@@ -63,11 +82,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   var _exportLayoutChapter = true;
   var _exportStrictAcceptance = false;
 
-  // 复核队列每条项的输入控制器（键：pageIndex-pairIndex）
+  // 复核队列每条项的输入控制器（键：projectId-pageIndex-pairIndex）
   final Map<String, TextEditingController> _reviewControllers = {};
 
   TextEditingController _reviewControllerFor(ReviewQueueItem item) {
-    final key = '${item.pageIndex}-${item.pairIndex}';
+    final key = '${item.projectId}-${item.pageIndex}-${item.pairIndex}';
     return _reviewControllers.putIfAbsent(key, () => TextEditingController());
   }
 
@@ -91,12 +110,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   void initState() {
     super.initState();
     _loadSettings();
-    _refreshStatus();
-    _refreshRuntimeStatus();
   }
 
   @override
   void dispose() {
+    _processStatusTimer?.cancel();
     _exportOutputController.dispose();
     _exportLanguageController.dispose();
     _exportTitleController.dispose();
@@ -111,34 +129,99 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final executable = await _settingsStore.loadCliExecutable();
     if (!mounted) return;
     setState(() => _cliExecutable = executable);
+    await _refreshRuntimeStatus();
+    await _refreshStatus();
+    await _refreshReviewQueue();
   }
 
   // ----------------------------------------------------------------- status
 
-  Future<void> _refreshStatus() async {
+  Future<void> _refreshStatus({bool waitForInFlight = false}) async {
     if (_projectStorePath == null) return;
+    if (_statusLoading) {
+      if (!waitForInFlight) return;
+      while (mounted && _statusLoading) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      if (!mounted) return;
+    }
+    final storePath = _projectStorePath;
+    final sourcePath = _pdfPath;
+    if (storePath == null) return;
     final version = ++_statusRequestVersion;
     setState(() => _statusLoading = true);
     try {
-      final arguments = ScribeForgeCli.statusArguments(
-        storePath: _projectStorePath!,
-      );
+      final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
+      if (!await database.exists()) {
+        if (!mounted || version != _statusRequestVersion) return;
+        setState(() {
+          _projectStatus = null;
+          _projectSourceMatches = true;
+          _projectCanExport = true;
+          _projectSourceMismatchMessage = null;
+          _error = null;
+        });
+        return;
+      }
+      final arguments = ScribeForgeCli.statusArguments(storePath: storePath);
       final buffer = StringBuffer();
       final exitCode = await ScribeForgeCli.run(
         executable: _cliExecutable,
         arguments: arguments,
         onOutput: buffer.write,
-        onError: (chunk) => buffer.write(chunk),
+        onError: buffer.write,
       );
       if (!mounted || version != _statusRequestVersion) return;
-      if (exitCode == 0) {
-        setState(() {
-          _projectStatus = ProjectStatusSnapshot.fromJsonText(buffer.toString());
-          _error = null;
-        });
-      } else {
+      if (exitCode != 0) {
         setState(() => _error = buffer.toString().trim());
+        return;
       }
+
+      final projects = ProjectStatusSnapshot.listFromJsonText(buffer.toString());
+      var selected = sourcePath == null
+          ? null
+          : ProjectStatusSnapshot.fromJsonText(
+              buffer.toString(),
+              sourcePath: sourcePath,
+            );
+      if (selected == null && projects.length == 1) selected = projects.single;
+
+      var sourceMatches = false;
+      var exportAllowed = false;
+      var mismatchMessage = '此存储目录没有与所选源文件匹配的唯一项目。';
+      if (selected != null && sourcePath != null) {
+        final pathMatches = selected.sourcePathMatches(sourcePath);
+        final sourceFile = File(sourcePath);
+        final sourceExists = await sourceFile.exists();
+        final sourceHash = pathMatches && sourceExists
+            ? await _sourceSha256(sourceFile)
+            : null;
+        final hashMatches = sourceHash != null &&
+            selected.sourceHashMatches(sourceHash);
+        sourceMatches = projects.length == 1 && pathMatches && hashMatches;
+        exportAllowed =
+            projects.length == 1 && pathMatches && (!sourceExists || hashMatches);
+        if (projects.length > 1) {
+          mismatchMessage = '项目存储包含多个项目；请打开每本书各自的项目文件夹。';
+        } else if (!pathMatches) {
+          mismatchMessage = '所选源文件路径与项目记录不一致；请重新选择原文件或新建项目。';
+        } else if (!sourceExists) {
+          mismatchMessage = '找不到项目记录的源文件；请重新关联原文件。';
+        } else if (!hashMatches) {
+          mismatchMessage = '源文件内容与项目记录的 SHA-256 不一致，已阻止继续处理。';
+        }
+      }
+      setState(() {
+        _projectStatus = selected;
+        _projectSourceMatches = projects.isEmpty || (selected != null && sourceMatches);
+        _projectCanExport = projects.isEmpty || (selected != null && exportAllowed);
+        _projectSourceMismatchMessage =
+            projects.isEmpty || (selected != null && sourceMatches) ? null : mismatchMessage;
+        if (selected != null && _exportTitleController.text.trim().isEmpty) {
+          _exportTitleController.text = selected.title;
+        }
+        _error = null;
+      });
     } catch (exc) {
       if (!mounted || version != _statusRequestVersion) return;
       setState(() => _error = '读取项目状态失败：$exc');
@@ -146,6 +229,30 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted || version != _statusRequestVersion) return;
       setState(() => _statusLoading = false);
     }
+  }
+
+  void _clearSourceHashCache() {
+    _sourceHashCachePath = null;
+    _sourceHashCacheSize = null;
+    _sourceHashCacheModifiedMillis = null;
+    _sourceHashCacheValue = null;
+  }
+
+  Future<String?> _sourceSha256(File sourceFile) async {
+    final stat = await sourceFile.stat();
+    if (stat.type != FileSystemEntityType.file) return null;
+    final modifiedMillis = stat.modified.millisecondsSinceEpoch;
+    if (_sourceHashCachePath == sourceFile.path &&
+        _sourceHashCacheSize == stat.size &&
+        _sourceHashCacheModifiedMillis == modifiedMillis) {
+      return _sourceHashCacheValue;
+    }
+    final digest = (await sha256.bind(sourceFile.openRead()).first).toString();
+    _sourceHashCachePath = sourceFile.path;
+    _sourceHashCacheSize = stat.size;
+    _sourceHashCacheModifiedMillis = modifiedMillis;
+    _sourceHashCacheValue = digest;
+    return digest;
   }
 
   // ---------------------------------------------------------------- runtime
@@ -182,25 +289,37 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   // ------------------------------------------------------------- review queue
 
   Future<void> _refreshReviewQueue() async {
-    if (_projectStorePath == null) return;
+    final storePath = _projectStorePath;
+    if (storePath == null) return;
+    final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
+    final databaseExists = await database.exists();
+    if (!mounted) return;
+    if (!databaseExists) {
+      setState(() => _reviewQueue.clear());
+      return;
+    }
     setState(() => _reviewLoading = true);
-    _reviewQueue.clear();
     try {
-      final arguments = ScribeForgeCli.reviewArguments(storePath: _projectStorePath!);
+      final arguments = ScribeForgeCli.reviewArguments(storePath: storePath);
       final buffer = StringBuffer();
       final exitCode = await ScribeForgeCli.run(
         executable: _cliExecutable,
         arguments: arguments,
         onOutput: buffer.write,
-        onError: (chunk) => buffer.write(chunk),
+        onError: buffer.write,
       );
       if (!mounted) return;
-      setState(() {
-        _reviewQueue.addAll(_parseReviewText(buffer.toString()));
-        if (exitCode != 0) {
-          _error = buffer.toString().trim();
-        }
-      });
+      if (exitCode == 0) {
+        final snapshot = ReviewQueueSnapshot.fromJsonText(buffer.toString());
+        setState(() {
+          _reviewQueue
+            ..clear()
+            ..addAll(snapshot.items);
+          _error = null;
+        });
+      } else {
+        setState(() => _error = buffer.toString().trim());
+      }
     } catch (exc) {
       if (!mounted) return;
       setState(() => _error = '读取复核队列失败：$exc');
@@ -208,35 +327,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _reviewLoading = false);
     }
-  }
-
-  /// 把 `scribeforge review` 的文本输出解析成队列项。
-  ///
-  /// 实际输出格式由 CLI 决定；这里做宽松的逐行解析，把类似
-  /// `page 3 pair 1` 的行当作一条待处理项。
-  List<ReviewQueueItem> _parseReviewText(String text) {
-    final items = <ReviewQueueItem>[];
-    final lines = LineSplitter.split(text);
-    for (final line in lines) {
-      final trimmed = line.trim();
-      if (trimmed.isEmpty) continue;
-      final pageMatch = RegExp(r'page\s+(\d+)', caseSensitive: false).firstMatch(trimmed);
-      final pairMatch = RegExp(r'pair\s+(\d+)', caseSensitive: false).firstMatch(trimmed);
-      if (pageMatch != null && pairMatch != null) {
-        items.add(ReviewQueueItem(
-          pageIndex: int.parse(pageMatch.group(1)!),
-          pairIndex: int.parse(pairMatch.group(1)!),
-          description: trimmed,
-        ));
-      } else if (trimmed.startsWith('-') || trimmed.startsWith('•')) {
-        items.add(ReviewQueueItem(
-          pageIndex: null,
-          pairIndex: null,
-          description: trimmed,
-        ));
-      }
-    }
-    return items;
   }
 
   // ---------------------------------------------------------------- actions
@@ -247,53 +337,189 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       allowedExtensions: <String>['pdf', 'png', 'jpg', 'jpeg'],
     );
     if (!mounted || result == null || result.files.single.path == null) return;
+    final sourcePath = result.files.single.path!;
+    final storePath = ScribeForgeCli.defaultStorePath(sourcePath);
+    final filename = File(sourcePath).uri.pathSegments.last;
+    final extension = filename.lastIndexOf('.');
+    final title = extension > 0 ? filename.substring(0, extension) : filename;
+    _clearSourceHashCache();
     setState(() {
-      _pdfPath = result.files.single.path;
-      _projectStorePath = null;
+      _statusRequestVersion++;
+      _statusLoading = false;
+      _pdfPath = sourcePath;
+      _exportTitleController.text = title;
+      _exportOutputController.clear();
+      _projectStorePath = storePath;
       _projectSourceMatches = true;
+      _projectCanExport = true;
       _projectSourceMismatchMessage = null;
       _projectStatus = null;
+      _reviewQueue.clear();
       _error = null;
       _notice = null;
     });
+    await _refreshStatus();
+    await _refreshReviewQueue();
+  }
+
+  Future<void> _openProject() async {
+    final storePath = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择 ScribeForge 项目文件夹',
+    );
+    if (!mounted || storePath == null) return;
+    final database = File(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
+    if (!await database.exists()) {
+      setState(() => _error = '所选文件夹中没有 ScribeForge 项目数据库。');
+      return;
+    }
+    _clearSourceHashCache();
+    setState(() {
+      _statusRequestVersion++;
+      _statusLoading = false;
+      _projectStorePath = storePath;
+      _pdfPath = null;
+      _projectStatus = null;
+      _projectSourceMatches = false;
+      _projectCanExport = false;
+      _projectSourceMismatchMessage = null;
+      _reviewQueue.clear();
+      _error = null;
+    });
+    try {
+      final buffer = StringBuffer();
+      final exitCode = await ScribeForgeCli.run(
+        executable: _cliExecutable,
+        arguments: ScribeForgeCli.statusArguments(storePath: storePath),
+        onOutput: buffer.write,
+        onError: buffer.write,
+      );
+      if (!mounted) return;
+      if (exitCode != 0) {
+        setState(() => _error = buffer.toString().trim());
+        return;
+      }
+      final projects = ProjectStatusSnapshot.listFromJsonText(buffer.toString());
+      if (projects.length != 1) {
+        setState(() => _error = projects.isEmpty
+            ? '所选项目文件夹还没有导入书籍。'
+            : '该文件夹包含多个项目；请打开每本书各自的项目文件夹。');
+        return;
+      }
+      setState(() {
+        _pdfPath = projects.single.sourceUri;
+        _projectStatus = projects.single;
+        _exportTitleController.text = projects.single.title;
+        _selectedIndex = 0;
+      });
+      await _refreshStatus();
+      await _refreshReviewQueue();
+    } catch (exc) {
+      if (!mounted) return;
+      setState(() => _error = '打开项目失败：$exc');
+    }
+  }
+
+  Future<void> _chooseProjectStoreDirectory() async {
+    final storePath = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择项目存储目录',
+    );
+    if (!mounted || storePath == null) return;
+    setState(() {
+      _statusRequestVersion++;
+      _statusLoading = false;
+      _projectStorePath = storePath;
+      _projectStatus = null;
+      _projectSourceMatches = true;
+      _projectCanExport = true;
+      _projectSourceMismatchMessage = null;
+      _reviewQueue.clear();
+    });
+    await _refreshStatus();
+    await _refreshReviewQueue();
+  }
+
+  Future<void> _relinkSource() async {
+    final storePath = _projectStorePath;
+    if (storePath == null) return;
+    final result = await FilePicker.platform.pickFile(
+      dialogTitle: '重新关联原始 PDF 或页面图像',
+      type: FileType.custom,
+      allowedExtensions: <String>['pdf', 'png', 'jpg', 'jpeg'],
+    );
+    if (!mounted || result == null || result.files.single.path == null) return;
+    final sourcePath = result.files.single.path!;
+    setState(() => _busy = true);
+    try {
+      final buffer = StringBuffer();
+      final exitCode = await ScribeForgeCli.run(
+        executable: _cliExecutable,
+        arguments: ScribeForgeCli.relinkSourceArguments(
+          storePath: storePath,
+          sourcePath: sourcePath,
+        ),
+        onOutput: buffer.write,
+        onError: buffer.write,
+      );
+      if (!mounted) return;
+      if (exitCode == 0) {
+        _clearSourceHashCache();
+        setState(() {
+          _pdfPath = sourcePath;
+          _projectSourceMatches = true;
+          _projectCanExport = true;
+          _projectSourceMismatchMessage = null;
+          _notice = '原始文件已重新关联；SHA-256 匹配，现有处理证据未更改。';
+          _error = null;
+        });
+        await _refreshStatus();
+      } else {
+        setState(() => _error = buffer.toString().trim());
+      }
+    } catch (exc) {
+      if (!mounted) return;
+      setState(() => _error = '重新关联源文件失败：$exc');
+    } finally {
+      if (!mounted) return;
+      setState(() => _busy = false);
+    }
   }
 
   Future<void> _runProcess() async {
-    if (_pdfPath == null) return;
+    final sourcePath = _pdfPath;
+    if (sourcePath == null || _statusLoading || !_projectSourceMatches) return;
     final storePath = _projectStorePath ??
-        ScribeForgeCli.defaultStorePath(_pdfPath!);
+        ScribeForgeCli.defaultStorePath(sourcePath);
     setState(() {
       _busy = true;
       _projectStorePath = storePath;
       _error = null;
-      _notice = null;
+      _notice = '处理中；正在读取页级任务状态…';
     });
+    _processStatusTimer?.cancel();
+    _processStatusTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _busy && !_statusLoading) unawaited(_refreshStatus());
+    });
+    unawaited(_refreshStatus());
     try {
       final arguments = ScribeForgeCli.processArguments(
-        pdfPath: _pdfPath!,
+        pdfPath: sourcePath,
         storePath: storePath,
       );
       final buffer = StringBuffer();
       final exitCode = await ScribeForgeCli.run(
         executable: _cliExecutable,
         arguments: arguments,
-          onOutput: (chunk) {
-            if (!mounted) return;
-            final lines = chunk.trim().split('\n');
-            if (lines.isNotEmpty) setState(() => _notice = lines.last);
-          },
-        onError: (chunk) => buffer.write(chunk),
+        onOutput: buffer.write,
+        onError: buffer.write,
       );
       if (!mounted) return;
       if (exitCode == 0 || exitCode == 1) {
-        // 退出码 1 表示部分页面失败，但书籍仍可继续；把状态刷新出来。
-        await _detectSourceMatch(storePath);
-        await _refreshStatus();
+        await _refreshStatus(waitForInFlight: true);
         await _refreshReviewQueue();
         setState(() {
           _notice = exitCode == 0
               ? '处理完成'
-              : '处理完成（部分页面失败，见下方通知）';
+              : '处理完成（部分页面失败；请查看页级状态后重试）';
         });
       } else {
         setState(() => _error = buffer.toString().trim());
@@ -302,47 +528,22 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       setState(() => _error = '处理失败：$exc');
     } finally {
+      _processStatusTimer?.cancel();
+      _processStatusTimer = null;
       if (!mounted) return;
       setState(() => _busy = false);
     }
   }
 
-  /// 导入后判断已选 PDF 与项目里记录的源路径/摘要是否一致。
-  Future<void> _detectSourceMatch(String storePath) async {
-    try {
-      final arguments = ScribeForgeCli.statusArguments(storePath: storePath);
-      final buffer = StringBuffer();
-      await ScribeForgeCli.run(
-        executable: _cliExecutable,
-        arguments: arguments,
-        onOutput: buffer.write,
-        onError: (_) {},
-      );
-      final text = buffer.toString();
-      if (_projectStatus != null) {
-        setState(() {
-          _projectSourceMatches = _projectStatus!.sourcePathMatches(_pdfPath ?? '');
-          if (!_projectSourceMatches) {
-            _projectSourceMismatchMessage =
-                '已选 PDF 与项目记录的源文件不一致，请确认使用同一本书。';
-          }
-        });
-      }
-    } catch (_) {
-      // 状态检查失败不阻塞主流程。
-    }
-  }
-
   Future<void> _resolveReviewPair(ReviewQueueItem item, String acceptedText) async {
-    if (item.pageIndex == null || item.pairIndex == null || _projectStorePath == null) {
-      return;
-    }
+    if (_projectStorePath == null) return;
     setState(() => _busy = true);
     try {
       final arguments = ScribeForgeCli.resolveArguments(
         storePath: _projectStorePath!,
-        page: item.pageIndex!,
-        pair: item.pairIndex!,
+        projectId: item.projectId,
+        page: item.pageIndex,
+        pair: item.pairIndex,
         text: acceptedText,
       );
       final buffer = StringBuffer();
@@ -356,11 +557,17 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (exitCode == 0) {
         setState(() {
           _reviewQueue.removeWhere((r) =>
-              r.pageIndex == item.pageIndex && r.pairIndex == item.pairIndex);
-          _notice = '已记录第 ${item.pageIndex! + 1} 页第 ${item.pairIndex!} 对的人工决策';
+              r.projectId == item.projectId &&
+              r.pageIndex == item.pageIndex &&
+              r.pairIndex == item.pairIndex);
+          _reviewControllers
+              .remove('${item.projectId}-${item.pageIndex}-${item.pairIndex}')
+              ?.dispose();
+          _notice =
+              '已记录第 ${item.pageIndex + 1} 页第 ${item.pairIndex + 1} 组的人工决策';
           _error = null;
         });
-        await _refreshStatus();
+        await _refreshStatus(waitForInFlight: true);
       } else {
         setState(() => _error = buffer.toString().trim());
       }
@@ -382,7 +589,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     bool layoutChapter = true,
     bool strictAcceptance = false,
   }) async {
-    if (_projectStorePath == null) return;
+    if (_projectStorePath == null || _projectStatus == null || !_projectCanExport) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -427,16 +634,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   Future<void> _pickExportOutput() async {
-    final result = await FilePicker.platform.saveFile(
+    final outputPath = await FilePicker.platform.saveFile(
       dialogTitle: '保存导出文件',
       fileName: '${_exportTitleController.text.isNotEmpty ? _exportTitleController.text : 'book'}.${_exportFormatEpub ? 'epub' : 'docx'}',
       type: FileType.custom,
       allowedExtensions: <String>[_exportFormatEpub ? 'epub' : 'docx'],
     );
-    if (!mounted) return;
-    if (result != null && result.path != null) {
-      _exportOutputController.text = result.path!;
-    }
+    if (!mounted || outputPath == null) return;
+    _exportOutputController.text = outputPath;
   }
 
   Future<void> _runSetup({String? runtimeRoot}) async {
@@ -567,17 +772,53 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         children: <Widget>[
           const Text('已导入的书籍', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('选择一本书查看处理状态与进度。尚未导入任何书籍，请前往“处理”页面添加 PDF。',
+          Text('导入新书，或打开已有项目继续处理、复核和导出。',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: <Widget>[
+              ElevatedButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('导入书籍'),
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        await _pickPdf();
+                        if (mounted && _pdfPath != null) {
+                          setState(() => _selectedIndex = 1);
+                        }
+                      },
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.folder_open),
+                label: const Text('打开项目文件夹'),
+                onPressed: _busy ? null : _openProject,
+              ),
+            ],
+          ),
           const SizedBox(height: 20),
-          if (_projectStatus == null)
-            const Text('暂无项目。', style: TextStyle(color: Colors.grey))
+          if (_statusLoading && _projectStatus == null)
+            const LinearProgressIndicator()
+          else if (_projectStatus == null)
+            const Text('尚未选择书籍或打开项目。', style: TextStyle(color: Colors.grey))
           else
             _buildProjectStatusCard(),
         ],
       ),
     );
   }
+
+  String _stageLabel(String stage) => switch (stage) {
+        'import' => '导入页面',
+        'preprocess' => '图像预处理',
+        'primary_ocr' => 'OCR 引擎一',
+        'secondary_ocr' => 'OCR 引擎二',
+        'verify' => '比对与风险评估',
+        'vlm_review' => '视觉模型复核',
+        _ => stage,
+      };
 
   Widget _buildProjectStatusCard() {
     final status = _projectStatus!;
@@ -599,11 +840,38 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             const SizedBox(height: 12),
             LinearProgressIndicator(value: status.ocrProgress),
             const SizedBox(height: 6),
-            Text(status.progressLabel, style: const TextStyle(fontSize: 12)),
+            Text(
+              '${status.pagesWithBothOcrSuccess} / ${status.pagesTotal} 页已完成双引擎 OCR',
+              style: const TextStyle(fontSize: 12),
+            ),
             const SizedBox(height: 8),
-            Text(status.jobsLabel, style: const TextStyle(fontSize: 12)),
+            Text(
+              '任务：${status.succeededJobs} 已完成 · ${status.pendingJobs} 等待 · '
+              '${status.runningJobs} 运行中 · ${status.failedJobs} 失败',
+              style: const TextStyle(fontSize: 12),
+            ),
+            if (status.currentJob != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                '当前页面任务：${_stageLabel(status.currentJob!.stage)}'
+                '${status.currentJob!.pageIndex == null ? '' : ' · 第 ${status.currentJob!.pageIndex! + 1} 页'}',
+                style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12),
+              ),
+            ],
             const SizedBox(height: 8),
             Text('复核队列：${status.reviewQueued} 项待处理', style: const TextStyle(fontSize: 12)),
+            if (!_projectSourceMatches && _projectSourceMismatchMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _projectSourceMismatchMessage!,
+                style: TextStyle(color: Colors.amber.shade800, fontSize: 12),
+              ),
+              TextButton.icon(
+                onPressed: _busy ? null : _relinkSource,
+                icon: const Icon(Icons.link, size: 16),
+                label: const Text('重新关联源文件（需 SHA-256 相同）'),
+              ),
+            ],
             if (status.failedJobDetails.isNotEmpty) ...[
               const SizedBox(height: 8),
               const Text('失败任务：', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
@@ -621,25 +889,29 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   // ========================================================= 处理页面
 
   Widget _buildProcessPage() {
-    return Padding(
+    final hasFailedJobs = (_projectStatus?.failedJobs ?? 0) > 0;
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           const Text('导入并处理书籍', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('选择扫描书籍的 PDF 或页面图片，运行 OCR 与双引擎对齐管线。',
+          Text('选择扫描书籍的 PDF 或页面图片，运行可恢复的双引擎 OCR 与校对管线。',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
           const SizedBox(height: 20),
           Row(
             children: <Widget>[
               Expanded(
-                child: TextField(
-                  readOnly: true,
-                  controller: TextEditingController(text: _pdfPath ?? ''),
+                child: InputDecorator(
                   decoration: const InputDecoration(
                     labelText: '源文件',
                     prefixIcon: Icon(Icons.description),
+                  ),
+                  child: Text(
+                    _pdfPath ?? '尚未选择源文件',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
@@ -647,33 +919,56 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               ElevatedButton.icon(
                 icon: const Icon(Icons.folder_open),
                 label: const Text('选择文件'),
-                onPressed: _busy ? null : () { _pickPdf(); },
+                onPressed: _busy ? null : _pickPdf,
               ),
             ],
           ),
           const SizedBox(height: 16),
-          Row(
-            children: <Widget>[
-              ElevatedButton.icon(
-                icon: const Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
-                label: Text(_busy ? '处理中…' : '开始处理'),
-                onPressed: _busy || _pdfPath == null ? null : () { _runProcess(); },
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
-                ),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
+              label: Text(
+                _busy ? '处理中…' : (hasFailedJobs ? '重试失败页面' : '开始处理'),
               ),
-            ],
+              onPressed: _busy || _statusLoading || _pdfPath == null || !_projectSourceMatches
+                  ? null
+                  : _runProcess,
+              style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+            ),
           ),
-          const SizedBox(height: 16),
+          if (_busy) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(),
+            const SizedBox(height: 6),
+            Text(
+              _projectStatus?.currentJob == null
+                  ? '正在导入页面或准备 OCR 运行时…'
+                  : '当前任务：${_stageLabel(_projectStatus!.currentJob!.stage)}'
+                    '${_projectStatus!.currentJob!.pageIndex == null ? '' : ' · 第 ${_projectStatus!.currentJob!.pageIndex! + 1} 页'}',
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+            ),
+          ],
           if (_pdfPath != null) ...[
+            const SizedBox(height: 16),
             const Text('项目存储目录：', style: TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 4),
-            Text(_projectStorePath ?? ScribeForgeCli.defaultStorePath(_pdfPath!),
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-            const SizedBox(height: 12),
-            if (!_projectSourceMatches && _projectSourceMismatchMessage != null)
-              Text(_projectSourceMismatchMessage!,
-                  style: TextStyle(color: Colors.amber.shade700, fontSize: 12)),
+            SelectableText(
+              _projectStorePath ?? ScribeForgeCli.defaultStorePath(_pdfPath!),
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _busy ? null : _chooseProjectStoreDirectory,
+                icon: const Icon(Icons.drive_file_move_outline, size: 16),
+                label: const Text('更改项目存储目录'),
+              ),
+            ),
+          ],
+          if (_projectStatus != null) ...[
+            const SizedBox(height: 16),
+            _buildProjectStatusCard(),
           ],
         ],
       ),
@@ -690,15 +985,22 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         children: <Widget>[
           const Text('复核队列', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('两个 OCR 引擎意见不一致的配对需要人工确认。选择一条，输入接受的文字，记录决策。',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          Text(
+            '比较 OCR 与视觉模型留下的原始候选和图像证据。只有你明确记录后，人工决策才会写入追加式证据链。',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          Text('快捷键：Alt+1/2/3 填入候选；Ctrl+Enter 记录人工决策。',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
           const SizedBox(height: 16),
           Row(
             children: <Widget>[
               ElevatedButton.icon(
-                icon: const Icon(_reviewLoading ? Icons.hourglass_empty : Icons.refresh),
+                icon: Icon(_reviewLoading ? Icons.hourglass_empty : Icons.refresh),
                 label: Text(_reviewLoading ? '刷新中…' : '刷新队列'),
-                onPressed: _reviewLoading ? null : () { _refreshReviewQueue(); },
+                onPressed: _reviewLoading || _projectStorePath == null || _projectStatus == null
+                    ? null
+                    : _refreshReviewQueue,
               ),
               const SizedBox(width: 12),
               if (_projectStatus != null)
@@ -708,17 +1010,17 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           ),
           const SizedBox(height: 12),
           if (_reviewLoading)
-            const Center(child: CircularProgressIndicator())
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else if (_projectStorePath == null)
+            const Expanded(child: Center(child: Text('请先导入书籍或打开一个项目。')))
           else if (_reviewQueue.isEmpty)
-            const Text('暂无待处理配对。', style: TextStyle(color: Colors.grey))
+            const Expanded(child: Center(child: Text('暂无待处理配对。')))
           else
             Expanded(
               child: ListView.builder(
                 itemCount: _reviewQueue.length,
-                itemBuilder: (context, index) {
-                  final item = _reviewQueue[index];
-                  return _buildReviewQueueItem(item);
-                },
+                itemBuilder: (context, index) =>
+                    _buildReviewQueueItem(_reviewQueue[index]),
               ),
             ),
         ],
@@ -726,49 +1028,191 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     );
   }
 
+  String _reasonLabel(String reason) => switch (reason) {
+        'text_disagreement' => '文字不一致',
+        'variant_disagreement' => '异体字差异',
+        'punctuation_disagreement' => '标点差异',
+        'missing_or_extra_line' => '缺行或多行',
+        'low_confidence' => '置信度偏低',
+        'unicode_anomaly' => '字符异常',
+        'spatial_mismatch' => '位置不一致',
+        _ => reason,
+      };
+
+  Widget _buildReviewEvidence(String label, String? text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+          const SizedBox(height: 2),
+          SelectableText(text == null || text.isEmpty ? '（无文本）' : text),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewImage(String label, String imagePath) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.file(
+              File(imagePath),
+              width: double.infinity,
+              height: 150,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => Container(
+                height: 90,
+                alignment: Alignment.center,
+                color: Colors.black12,
+                child: const Text('无法载入图像；文字证据仍可复核。'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildReviewQueueItem(ReviewQueueItem item) {
     final controller = _reviewControllerFor(item);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    return Shortcuts(
+      shortcuts: <ShortcutActivator, Intent>{
+        const SingleActivator(LogicalKeyboardKey.digit1, alt: true):
+            const _UseReviewCandidateIntent(1),
+        const SingleActivator(LogicalKeyboardKey.digit2, alt: true):
+            const _UseReviewCandidateIntent(2),
+        const SingleActivator(LogicalKeyboardKey.digit3, alt: true):
+            const _UseReviewCandidateIntent(3),
+        const SingleActivator(LogicalKeyboardKey.enter, control: true):
+            const _RecordReviewDecisionIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _UseReviewCandidateIntent: CallbackAction<_UseReviewCandidateIntent>(
+            onInvoke: (intent) {
+              final candidate = switch (intent.candidateNumber) {
+                1 => item.primaryText,
+                2 => item.secondaryText,
+                3 => item.vlmText,
+                _ => null,
+              };
+              if (candidate != null) {
+                controller.text = candidate;
+                controller.selection =
+                    TextSelection.collapsed(offset: candidate.length);
+              }
+              return null;
+            },
+          ),
+          _RecordReviewDecisionIntent:
+              CallbackAction<_RecordReviewDecisionIntent>(
+            onInvoke: (_) {
+              if (!_busy) {
+                unawaited(_resolveReviewPair(item, controller.text));
+              }
+              return null;
+            },
+          ),
+        },
+        child: Card(
+      margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Row(
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 4,
               children: <Widget>[
                 Text(
-                  item.pageIndex == null || item.pairIndex == null
-                      ? '未知页'
-                      : '第 ${item.pageIndex! + 1} 页 · 第 ${item.pairIndex!} 对',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  '第 ${item.pageIndex + 1} 页 · 第 ${item.pairIndex + 1} 组',
+                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                 ),
-                const Spacer(),
-                if (_busy) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                Chip(
+                  label: Text('风险 ${(item.score * 100).round()}%'),
+                  visualDensity: VisualDensity.compact,
+                ),
+                ...item.reasons.map((reason) => Chip(
+                      label: Text(_reasonLabel(reason)),
+                      visualDensity: VisualDensity.compact,
+                    )),
               ],
             ),
+            if (_projectStatus == null || _projectStatus!.projectId != item.projectId)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text('${item.projectTitle} · 项目 ${item.projectId}',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+              ),
+            const Divider(height: 12),
+            _buildReviewEvidence('OCR 引擎一候选', item.primaryText),
+            _buildReviewEvidence('OCR 引擎二候选', item.secondaryText),
+            if (item.vlmText != null) ...[
+              _buildReviewEvidence('VLM 候选（仅供参考）', item.vlmText),
+              if (item.vlmUncertain)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text('视觉模型标记为不确定；请勿将其视为自动结论。',
+                      style: TextStyle(color: Colors.orange.shade800, fontSize: 12)),
+                ),
+            ],
             const SizedBox(height: 4),
-            Text(item.description, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-            const SizedBox(height: 8),
+            if (item.cropPath != null)
+              _buildReviewImage('候选区域裁切', item.cropPath!),
+            _buildReviewImage('原始页面图像', item.sourceImagePath),
+            const SizedBox(height: 12),
             TextField(
               controller: controller,
+              minLines: 1,
+              maxLines: 3,
               decoration: const InputDecoration(
-                labelText: '接受的文字',
-                hintText: '输入这行应该显示的文字',
+                labelText: '人工确认的文字',
+                hintText: '比较上述证据后，输入你确认的文字',
               ),
             ),
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
               children: <Widget>[
-                ElevatedButton(
-                  onPressed: item.pageIndex == null || item.pairIndex == null || _busy
-                      ? null
-                      : () { _resolveReviewPair(item, controller.text); },
-                  child: const Text('记录决策'),
+                if (item.primaryText != null)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.content_copy, size: 16),
+                    label: const Text('填入 OCR 1'),
+                    onPressed: _busy ? null : () => controller.text = item.primaryText!,
+                  ),
+                if (item.secondaryText != null)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.content_copy, size: 16),
+                    label: const Text('填入 OCR 2'),
+                    onPressed: _busy ? null : () => controller.text = item.secondaryText!,
+                  ),
+                if (item.vlmText != null)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.content_copy, size: 16),
+                    label: const Text('填入 VLM 候选'),
+                    onPressed: _busy ? null : () => controller.text = item.vlmText!,
+                  ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.fact_check_outlined),
+                  label: const Text('记录人工决策'),
+                  onPressed: _busy ? null : () => _resolveReviewPair(item, controller.text),
                 ),
               ],
             ),
           ],
+        ),
+          ),
         ),
       ),
     );
@@ -854,6 +1298,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             label: Text(_busy ? '导出中…' : '开始导出'),
             onPressed: _busy ||
                     _projectStorePath == null ||
+                    _projectStatus == null ||
+                    !_projectCanExport ||
                     _exportOutputController.text.isEmpty
                 ? null
                 : () => _runExport(
@@ -893,6 +1339,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                 if (value != null && value.trim().isNotEmpty) {
                   await _settingsStore.saveCliExecutable(value.trim());
                   setState(() => _cliExecutable = value.trim());
+                  await _refreshRuntimeStatus();
+                  await _refreshStatus();
+                  await _refreshReviewQueue();
                 }
               },
             ),
@@ -947,17 +1396,4 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       ),
     );
   }
-}
-
-/// 复核队列中的一条待处理项。
-class ReviewQueueItem {
-  const ReviewQueueItem({
-    required this.description,
-    this.pageIndex,
-    this.pairIndex,
-  });
-
-  final String description;
-  final int? pageIndex;
-  final int? pairIndex;
 }

@@ -51,6 +51,24 @@ void main() {
     expect(result.failedJobDetails.single.description, contains('worker timed out'));
   });
 
+  test('parses active page and stage details for live processing progress', () {
+    final withActiveJob = payload.replaceFirst(
+      '"failed_jobs": [',
+      '"active_jobs": [{"stage":"secondary_ocr","page_index":8,"attempts":2}],\n' +
+          '"failed_jobs": [',
+    );
+
+    final result = ProjectStatusSnapshot.fromJsonText(
+      withActiveJob,
+      sourcePath: '/books/Novel.pdf',
+    );
+
+    expect(result?.activeJobs.single.stage, 'secondary_ocr');
+    expect(result?.activeJobs.single.pageIndex, 8);
+    expect(result?.activeJobs.single.attempts, 2);
+    expect(result?.activeJobs.single.location, 'secondary_ocr · page 9');
+  });
+
   test('selects matching source when a project store includes several projects', () {
     const projects = '''
     {

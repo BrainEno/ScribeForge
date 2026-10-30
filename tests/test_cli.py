@@ -20,6 +20,7 @@ from scribeforge.cli import (
 from scribeforge.domain.jobs import JobStage
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.vlm import VLMReading
+from scribeforge.pipeline.orchestrator import process_book
 from scribeforge.runtime import probe as runtime_probe
 from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.storage.sqlite import SQLiteStore
@@ -361,6 +362,32 @@ def test_status_json_emits_empty_project_collection(
     assert json.loads(captured.out)["projects"] == []
 
 
+def test_status_json_exposes_the_running_page_and_stage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    assert run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(),
+    ) == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    store.add_page(project.id, 1, str(book.resolve()), 80, 120)
+    job_id = store.ensure_job(project.id, JobStage.PRIMARY_OCR, page_index=1)
+    store.start_job(job_id)
+    capsys.readouterr()
+
+    code = run(["status", "--store", str(store_dir), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    project_json = json.loads(captured.out)["projects"][0]
+    assert project_json["active_jobs"] == [
+        {"stage": "primary_ocr", "page_index": 1, "attempts": 1}
+    ]
+
+
 def test_status_handles_store_without_projects(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     store_dir = tmp_path / "store"
     SQLiteStore(store_dir / "project.sqlite3").initialize()
@@ -435,6 +462,57 @@ def test_review_lists_queued_pairs_with_evidence(
     assert "page-000001-pair-0000.png" in captured.out
 
 
+def test_review_json_returns_machine_readable_evidence_and_page_assets(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    assert run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    ) == 0
+    capsys.readouterr()
+
+    code = run(["review", "--store", str(store_dir), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    payload = json.loads(captured.out)
+    assert payload["schema_version"] == 1
+    project = payload["projects"][0]
+    assert project["id"] == 1
+    assert project["title"] == "book"
+    assert project["source_uri"] == str(book.resolve())
+    item = project["items"][0]
+    assert item["page_index"] == 0
+    assert item["pair_index"] == 0
+    assert item["score"] > 0
+    assert item["reasons"]
+    assert item["primary_text"] == "鸦"
+    assert item["secondary_text"] == "雅"
+    assert item["vlm_text"] == "maybe"
+    assert item["vlm_uncertain"] is True
+    assert Path(item["source_image_path"]).is_file()
+    assert Path(item["crop_path"]).is_file()
+
+
+def test_review_json_emits_empty_items_for_a_project_without_reviews(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    assert run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    capsys.readouterr()
+
+    code = run(["review", "--store", str(store_dir), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    payload = json.loads(captured.out)
+    assert payload["schema_version"] == 1
+    assert payload["projects"][0]["items"] == []
+
+
 def test_review_shows_missing_vlm_and_crop_without_a_reviewer(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -480,6 +558,22 @@ def test_review_handles_a_store_without_projects(
     assert "no projects" in captured.out.lower()
 
 
+def test_review_json_emits_empty_projects_for_a_store_without_projects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_dir = tmp_path / "store"
+    SQLiteStore(store_dir / "project.sqlite3").initialize()
+
+    code = run(["review", "--store", str(store_dir), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    payload = json.loads(captured.out)
+    assert payload["schema_version"] == 1
+    assert payload["store"] == str(store_dir)
+    assert payload["projects"] == []
+
+
 def test_review_rejects_missing_store(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code = run(["review", "--store", str(tmp_path / "missing")])
 
@@ -516,6 +610,59 @@ def test_resolve_records_and_clears_a_human_decision(
 
     assert run(["review", "--store", str(store_dir)]) == 0
     assert "review queued: 0" in capsys.readouterr().out
+
+
+def test_resolve_targets_the_selected_project_in_a_multi_project_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first_book = _book(tmp_path)
+    second_book = tmp_path / "second.png"
+    Image.new("RGB", (80, 120), "white").save(second_book)
+    store_dir = tmp_path / "store"
+    assert run(
+        ["process", str(first_book), "--store", str(store_dir)],
+        engine_factory=_factory(reviewer=UncertainReviewer()),
+    ) == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    first_project_id = store.list_projects()[0].id
+    second_project_id = store.create_project(
+        "second", str(second_book.resolve()), "f" * 64
+    )
+    store.add_page(second_project_id, 0, str(second_book.resolve()), 80, 120)
+    outcome = process_book(
+        store,
+        second_project_id,
+        primary_engine=FakeEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "雅"),
+        reviewer=UncertainReviewer(),
+        crops_dir=store_dir / "crops",
+    )
+    assert not outcome.failed_pages
+    capsys.readouterr()
+
+    code = run(
+        [
+            "resolve",
+            "--store",
+            str(store_dir),
+            "--project-id",
+            str(second_project_id),
+            "--page",
+            "0",
+            "--pair",
+            "0",
+            "--text",
+            "选择第二项目",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert f"project {second_project_id}" in captured.out
+    second_decision = store.latest_decision(second_project_id, 0, 0)
+    assert second_decision is not None
+    assert second_decision.selected_text == "选择第二项目"
+    assert store.latest_decision(first_project_id, 0, 0) is None
 
 
 def test_resolve_rejects_unknown_pair(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

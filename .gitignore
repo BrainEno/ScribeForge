@@ -20,6 +20,8 @@ clients/flutter_desktop/linux/
 
 # Local models, caches and book projects
 models/
+!clients/flutter_desktop/lib/models/
+!clients/flutter_desktop/lib/models/*.dart
 cache/
 projects/
 *.pdf

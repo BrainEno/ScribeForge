@@ -27,6 +27,35 @@ void main() {
       );
     });
 
+    test('requests structured review evidence and resolves the selected project', () {
+      expect(
+        ScribeForgeCli.reviewArguments(storePath: '/tmp/My Book.scribeforge'),
+        <String>['review', '--store', '/tmp/My Book.scribeforge', '--json'],
+      );
+      expect(
+        ScribeForgeCli.resolveArguments(
+          storePath: '/tmp/My Book.scribeforge',
+          projectId: 42,
+          page: 3,
+          pair: 1,
+          text: 'accepted literal text',
+        ),
+        <String>[
+          'resolve',
+          '--store',
+          '/tmp/My Book.scribeforge',
+          '--project-id',
+          '42',
+          '--page',
+          '3',
+          '--pair',
+          '1',
+          '--text',
+          'accepted literal text',
+        ],
+      );
+    });
+
     test('requests a JSON project audit for the selected store', () {
       expect(
         ScribeForgeCli.auditArguments(storePath: '/tmp/My Book.scribeforge'),
