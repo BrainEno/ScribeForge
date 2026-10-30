@@ -196,7 +196,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
     'health' => '健康检查',
     'complete' => '完成',
     null => '准备中',
-    _ => phase ?? '未知阶段',
+    _ => phase,
   };
 
   String _stepLabel(String? step) => switch (step) {
@@ -212,7 +212,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
     'runtime-and-models' => '校验 PaddleOCR 运行环境与模型',
     'verify' => '验证运行环境',
     null => '等待步骤开始',
-    _ => step ?? '未知步骤',
+    _ => step,
   };
 
   String _formatProgress(RuntimeSetupMessage message) {
