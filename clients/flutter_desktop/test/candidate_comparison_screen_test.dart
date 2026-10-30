@@ -26,14 +26,16 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       MaterialApp(
-        home: CandidateComparisonScreen(
-          sourcePdfPath: sourcePath,
-          storePath: storePath,
-          cliExecutable: cliExecutable,
-          canGenerateCandidates: true,
-          cliExecutor: cli,
-          filePicker: filePicker,
-          comparisonStore: comparisonStore,
+        home: Scaffold(
+          body: CandidateComparisonScreen(
+            sourcePdfPath: sourcePath,
+            storePath: storePath,
+            cliExecutable: cliExecutable,
+            canGenerateCandidates: true,
+            cliExecutor: cli,
+            filePicker: filePicker,
+            comparisonStore: comparisonStore,
+          ),
         ),
       ),
     );
