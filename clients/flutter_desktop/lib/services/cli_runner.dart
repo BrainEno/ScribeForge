@@ -43,10 +43,12 @@ class ScribeForgeCli {
     'review',
     '--store',
     storePath,
+    '--json',
   ];
 
   static List<String> resolveArguments({
     required String storePath,
+    int? projectId,
     required int page,
     required int pair,
     required String text,
@@ -54,6 +56,7 @@ class ScribeForgeCli {
     'resolve',
     '--store',
     storePath,
+    if (projectId != null) ...['--project-id', projectId.toString()],
     '--page',
     page.toString(),
     '--pair',

@@ -1,15 +1,20 @@
 # ScribeForge Flutter Desktop
 
-This is the Flutter-first comparison workspace for the original scan and separate OCR/EPUB candidate outputs. The Python/Tkinter shell remains available for evidence-level proofreading, while this app focuses on whole-book comparison and human evaluation.
+The Flutter desktop client is the guided, single-book workflow for ScribeForge: import/open a project, run its resumable OCR pipeline, inspect the evidence-backed review queue, and export an accepted EPUB 3 or DOCX. Python owns OCR, persistence, and export; Flutter invokes the local `scribeforge` executable with argument lists and reads its versioned JSON contracts.
 
 ## Requirements
 
-- Flutter 3.47.7 stable toolchain (Dart 3.13+).
-- Windows 11, macOS, or Linux desktop development support.
-- A local PDF source and one or two EPUB candidate files.
-- To run OCR from the UI, install the Python CLI from the repository root with `python -m pip install -e ".[dev]"` and complete `scribeforge setup`.
+- Flutter 3.47.7 stable (Dart 3.13+).
+- Windows, macOS, or Linux desktop development support.
+- The Python CLI installed from the repository root:
 
-## First-time setup
+  ```bash
+  python -m pip install -e ".[dev]"
+  ```
+
+- OCR backends installed in ScribeForge's private runtime. The app can inspect the runtime and launch the existing setup wizard; it does not bundle Python, OCR packages, model weights, or a VLM server.
+
+## First-time setup and launch
 
 From this directory:
 
@@ -18,9 +23,9 @@ flutter create --platforms=windows,macos,linux --project-name scribeforge_deskto
 flutter pub get
 ```
 
-Windows PowerShell users can run `./tool/bootstrap_desktop.ps1`; macOS/Linux users can run `sh tool/bootstrap_desktop.sh`. The generated `windows/`, `macos/`, and `linux/` folders are local platform runners. CI scaffolds them from Flutter templates before analyzing and testing, so generated native runner boilerplate does not obscure review of the product UI.
+Windows PowerShell users can run `./tool/bootstrap_desktop.ps1`; macOS/Linux users can run `sh tool/bootstrap_desktop.sh`. The generated `windows/`, `macos/`, and `linux/` folders are local platform runners. CI scaffolds them from Flutter templates before analyzing and testing.
 
-Run the app:
+Run the desktop app:
 
 ```bash
 flutter run -d windows
@@ -28,42 +33,37 @@ flutter run -d windows
 # or: flutter run -d linux
 ```
 
-## Run the OCR workflow from the UI
+If the CLI is not on `PATH`, open **Settings → 命令行工具** and enter the full path to the executable in the Python environment where ScribeForge is installed.
 
-The top toolbar exposes three workflow actions:
+## Guided workflow
 
-1. **Set up OCR** starts the Python runtime/model setup wizard.
-2. Open a source PDF, then choose **Run OCR** to invoke `scribeforge process`. The default project store is a sibling directory named `<pdf-stem>.scribeforge`.
-3. Choose **Build A/B EPUBs** to call `scribeforge export-candidates`. The output folder is a sibling named `<pdf-stem>-comparison-candidates`; on success, MinerU and PaddleOCR EPUBs are loaded into candidate A and B automatically.
+1. **书籍** — Choose **导入书籍** for a PDF or page image. The default store is a sibling directory named `<source-stem>.scribeforge`. Choose **打开项目文件夹** to resume an existing single-book store.
+2. **处理** — Run `scribeforge process`. The UI polls `status --json` while the command is active, showing pages with both OCR results, the active page/stage, job counts, and failed-page details. Processing is resumable; rerunning reuses successful page evidence and retries incomplete/failed work.
+3. **复核** — Read both OCR candidates, any VLM reading and its uncertainty flag, risk reasons, and the crop (or original page image). Candidate buttons only copy text into the editor. Keyboard shortcuts **Alt+1/2/3** fill OCR 1/OCR 2/VLM candidates and **Ctrl+Enter** records the current text; recording is always an explicit human action that calls `resolve`, appends a decision, and never overwrites source OCR.
+4. **导出** — Select EPUB 3 or DOCX, choose an output folder (the filename follows the book title and format), and set language plus optional author. Strict acceptance blocks export when unresolved content remains. Candidate OCR output is not an accepted final export.
+5. **设置** — Inspect runtime and hardware status, launch the first-run setup wizard, refresh status, or configure the CLI executable.
 
-Command output and exit status appear in a log dialog. Exit code `1` means one or more pages failed and can generally be retried by running OCR again; exit code `2` indicates a fatal input or setup error. Candidate export fails when an engine has missing page output rather than silently exporting an incomplete book.
+Each project store is expected to contain one book. Before processing, the client checks the selected source path and SHA-256 against the project record. If a source has moved, **重新关联源文件** calls `relink-source`; it updates only the path after the source bytes match. A modified source is not silently applied to old jobs or OCR evidence.
 
-Use **Open project** to select an existing `.scribeforge` folder. The desktop app reads its saved project metadata and opens the recorded source PDF when that path is available. It verifies both the normalized source path and SHA-256 before enabling OCR, retries, or candidate export. If the source file has moved, changed contents, or the chosen folder contains multiple projects, processing is blocked and the mismatch is shown rather than silently reusing the old job history. When a source was only moved, choose the moved PDF and click **Relink source PDF**. The CLI updates only the saved path and only after the PDF's SHA-256 matches the stored value; a changed file is rejected and all OCR/review evidence remains untouched.
+The setup action launches the existing ScribeForge runtime setup wizard. Status inspection is read-only. This desktop workflow does not automatically invoke a VLM; it displays previously recorded VLM evidence, if present, and never treats it as a human decision.
 
-When a project is selected or its status is loaded, **Audit project** runs `scribeforge audit --store <folder> --json` and shows a read-only integrity report in the command log. It checks SQLite integrity and foreign-key consistency, the original source hash, and the presence of every imported page image. A missing source is reported as a warning because it may simply have moved; a missing page image is an error because the stored source-page evidence is unavailable. The audit does not attempt to fix or rewrite anything.
+## Python CLI contract used by Flutter
 
-**Backup project** lets you choose a directory and creates a timestamped ZIP outside the active project folder. **Verify backup** checks the manifest, every file hash, and the SQLite snapshot. **Restore project** verifies the selected ZIP first, asks for a destination parent, and restores into a new `.scribeforge` folder; an existing destination is never overwritten. The archive includes the original source file only if its SHA-256 matches the project record. Close OCR activity before backing up; active jobs and incomplete page evidence block backup creation.
+The client communicates through local child processes, not a network service. It never parses human-readable `review` output for queue entries.
 
-After opening a source PDF, the project-status strip reads the active store through `scribeforge status --json`. It shows imported pages, pages with successful results from both OCR engines, pending/running/succeeded/failed job counts, and the human-review queue. Use **Refresh project status** to reload it. When page jobs have failed and source identity matches, **Retry failed pages** runs the resumable `scribeforge process` command again; it does not delete previous evidence.
+- `scribeforge status --store <store> --json` emits `schema_version: 1`. Each project includes total pages, pages with successful primary and secondary OCR, review count, job counts, running `active_jobs` (`stage`, zero-based `page_index`, `attempts`), and failed-job details. The process command is synchronous; polling this persisted job state provides live page/stage progress.
+- `scribeforge review --store <store> --json` emits `schema_version: 1` with project IDs and queued items. Each item includes zero-based page/pair indexes, risk score/reasons, primary/secondary/VLM text, VLM uncertainty, crop and source-image paths, geometry boxes, and alignment conflicts.
+- `scribeforge resolve --store <store> --project-id <id> --page <n> --pair <n> --text <literal>` explicitly targets the project and appends a human decision. `--project-id` remains optional for older single-project CLI usage.
 
-Use the upper-right **Settings** menu to configure the CLI executable, open **Runtime & Models**, or configure **VLM review**. VLM review is disabled by default. If enabled, Run OCR passes the configured OpenAI-compatible endpoint/model to the CLI; **Test with image…** runs `scribeforge vlm-check` against an image you explicitly pick, without writing project data or accepting diagnostic text. The settings save only the API-key environment-variable name, never the secret itself. The latter shows detected GPU/driver/VRAM and system RAM, MinerU/PaddleOCR installation state and any failed step, plus the private model, cache, tool and environment paths. Status inspection is read-only; **Install / repair…** reopens the existing setup wizard, including its per-backend repair actions. The CLI defaults to `scribeforge` on `PATH`; otherwise, enter the full path to the executable in the Python environment where ScribeForge is installed (for example, `C:\\ScribeForge\\.venv\\Scripts\\scribeforge.exe` on Windows). The value is stored in the current user's application configuration folder and is reused on the next launch. The app does not bundle the Python runtime, OCR model weights, or a VLM server.
+The JSON contract is versioned; unknown schema versions or malformed evidence are rejected instead of guessed. Additive fields can be ignored by clients that do not use them. Page and pair indexes in CLI/JSON are zero-based; the UI displays both page numbers and pair numbers from one.
 
-For a full novice walkthrough in Chinese, see [ScribeForge 新手使用指南](../../docs/user-guide-zh.md) and the repository [README](../../README.md).
-
-## Prepare candidates manually with Python
-
-After a project has completed both OCR runs, export the persisted raw outputs to explicitly unverified EPUBs:
+## Development checks
 
 ```bash
-scribeforge export-candidates --store path/to/book.scribeforge --out-dir comparison-candidates
+cd clients/flutter_desktop
+dart format lib test
+flutter analyze
+flutter test
 ```
 
-The command produces `candidate-mineru.epub`, `candidate-paddleocr.epub`, and `candidate-manifest.json`. It fails rather than making a partial book if a requested engine has no saved OCR output for a page. These files are marked **UNVERIFIED OCR CANDIDATE** and must not be confused with accepted exports.
-
-Open the original PDF and both candidate EPUBs in the Flutter workspace. The PDF and each candidate are navigated by source-page index. ScribeForge candidate EPUBs use `page-000001.xhtml`-style filenames, so the matching is explicit; generic chapter-based EPUBs use spine order and are flagged as approximate. Candidate text is extracted from EPUB XHTML and compared line-by-line; this slice focuses on content fidelity, not pixel-perfect EPUB CSS rendering. Use **Next A/B difference** to cycle through pages where the candidate texts diverge; the control does not judge which candidate is correct. Keyboard shortcuts are **Alt+Left** / **Alt+Right** to move between source pages and **Alt+D** to find the next A/B text difference; these shortcuts navigate only and never select a winner. The loader rejects duplicate manifest IDs and spine references that do not resolve to readable XHTML/HTML, rather than silently omitting those entries.
-
-## Human evaluation
-
-Choose a better candidate per source page, optionally pick an overall book winner, and add notes about omissions, punctuation, reading order, or layout. The evaluation is saved beside the source PDF as `<file>.pdf.scribeforge-review.json`, including SHA-256 fingerprints of the PDF and candidate EPUBs. If an input changes or disappears, stale ratings are not silently reused. The review progress strip counts A/B/Tie decisions as final; pages marked **Review later** remain pending. Use **Next pending** to jump to the next page that has not received a final decision, wrapping around the book as needed.
-
-No score or winner is inferred automatically: the line diff is a navigation aid, not a measure of OCR or literary quality. The verified `scribeforge export` path continues to export only accepted decisions; candidate EPUBs are a separate review layer.
+The Python CLI and desktop UI can also be tested independently from the repository root with `python -m pytest`.

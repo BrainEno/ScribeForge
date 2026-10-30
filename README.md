@@ -8,9 +8,9 @@ The project is not trying to build yet another OCR engine. It orchestrates multi
 
 ## 新手快速开始（中文）
 
-如果你是第一次拉取仓库，建议先阅读 **[中文新手使用指南](./docs/user-guide-zh.md)**。指南包含 Windows 11 下的 Python/Flutter 安装、首次 OCR 运行环境配置、扫描 PDF 处理、候选 EPUB 生成、Flutter 桌面比较、评估文件位置与常见故障排查。
+如果你是第一次拉取仓库，建议先阅读 **[中文新手使用指南](./docs/user-guide-zh.md)**。指南涵盖运行环境、扫描 PDF 导入、页级处理进度、人工复核、EPUB/DOCX 导出及常见故障排查。
 
-最短流程（已安装 Python 3.11 与 Flutter 3.47.7 的 Windows 开发环境）：
+源码方式启动 Flutter 一体化工作台（Windows；需要 Python 3.11 和 Flutter 3.47.7 stable）：
 
 ```powershell
 git clone https://github.com/BrainEno/ScribeForge.git
@@ -18,15 +18,12 @@ cd ScribeForge
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-scribeforge setup
-scribeforge process "D:\Books\My Book.pdf"
-scribeforge export-candidates --store "D:\Books\My Book.scribeforge" --out-dir "D:\Books\My Book-comparison-candidates"
 cd clients\flutter_desktop
 .\tool\bootstrap_desktop.ps1
 flutter run -d windows
 ```
 
-也可以在 Flutter 工作区中使用 **Set up OCR / Run OCR / Build A/B EPUBs** 按钮。右上角 **Settings** 菜单可以设置 ScribeForge CLI 路径，也可以打开 **Runtime & Models** 查看 GPU、驱动、显存、内存、MinerU/PaddleOCR 状态以及模型和缓存目录；状态检查不会修改运行环境，安装与修复仍由现有运行时向导完成。比较器只辅助人工判断，不会自动认定哪份候选 EPUB 更好。
+启动后依次使用 **书籍 → 导入书籍 → 处理 → 复核 → 导出成品** 完成主要流程；**设置** 页面可检查 OCR 运行环境并打开现有配置向导。应用通过本地 CLI 与 Python 核心通信，不会自动运行 VLM。当前仓库提供源码开发启动方式，尚未发布预编译桌面安装包；运行工作台需要 Flutter SDK。
 
 ## Core principles
 
@@ -150,13 +147,13 @@ src/scribeforge/       Python core
 tests/                 unit / integration / contract tests
 docs/                  architecture, TDD rules, data model, roadmap
 benchmark/             reproducible benchmark fixtures and reports
-clients/flutter_desktop/ Flutter desktop PDF + EPUB comparison workspace
+clients/flutter_desktop/ Flutter desktop end-to-end OCR workflow
 .github/workflows/     Python + Flutter CI enforcement
 ```
 
 ## Development status
 
-The repository is in **Phase 3 — desktop UI**, with Phases 1, 2, and 4 complete. Phase 0 (benchmark harness), Phase 0.5 (private runtime manager plus a first-run setup wizard), the low-level verification path, the resumable CLI slices (PDF/image import, page-granular orchestration, runtime-backed workers, `scribeforge process`/`status`), the decision layer (deterministic adjudication plus the human review queue), and EPUB/DOCX export with integrity self-checks are implemented and covered by tests.
+The repository is in **Phase 3 — desktop workflow integration**, with the Python processing, decision, and export layers implemented. The Flutter client now provides a guided single-book flow for import/open, source identity checks, runtime inspection and setup, resumable processing with page/stage progress, evidence-backed keyboard-assisted human review, and EPUB 3/DOCX export. Flutter invokes the local Python CLI through versioned JSON contracts. The desktop client is currently source-run only; prebuilt installers and a bundled Python/OCR runtime are not yet provided.
 
 **Phase 5 — ancient books and old-edition scans — is now the top development priority**
 (see the section above and [Ancient book support](./docs/ancient-book-support.md)).
@@ -192,7 +189,7 @@ scribeforge export --store store/ --out book.epub --json           # acceptance 
 scribeforge export --store store/ --out book.epub --strict-acceptance # machine-certified only
 scribeforge export --store store/ --out scans.epub --layout page    # facsimile layout
 scribeforge export-candidates --store store/ --out-dir comparison/ # raw OCR EPUB candidates
-cd clients/flutter_desktop && flutter run -d windows # Flutter comparison UI
+cd clients/flutter_desktop && flutter run -d windows # Flutter end-to-end workflow
 scribeforge export --store store/ --out book.epub \
   --title "书名" --author "作者" --modified 2026-10-20T00:00:00Z
 scribeforge ui --store store/                 # keyboard-first desktop review shell
@@ -228,7 +225,7 @@ Two facts are never inferred. First, *agreement is not acceptance*: `adjudicate_
 
 `ui` opens the desktop review shell over the store: library/job status, an unresolved-pair queue, evidence, page raster, and review crop. Selecting a conflict focuses its region on the source-page preview; `a`/`d` locate the primary/secondary OCR line, while `p` restores the pair region. The `Compare` tab displays both OCR lines side by side and highlights persisted character-level substitutions, insertions, deletions, and punctuation differences. Reviewers can explicitly accept either OCR reading or a VLM reading, or enter literal corrected text; keyboard shortcuts (`1`, `2`, `3`, `n`, `Ctrl+Enter`) keep the common path fast. Source highlights are drawn only on transient previews, and each decision appends a human record with evidence references. See [Desktop shell](./docs/ui.md).
 
-`clients/flutter_desktop` is the Flutter-first desktop comparison surface: the original PDF is shown beside two EPUB candidates, changed lines are highlighted, and reviewers can save per-page preferences, an overall winner, and notes. Prepare candidate files using `scribeforge export-candidates`, then follow [Flutter Desktop](./clients/flutter_desktop/README.md) to generate platform runners and launch it. The first version compares extracted EPUB text rather than reproducing all EPUB CSS/layout, and chapter-based EPUBs are aligned approximately. On Windows, enable Developer Mode before compiling `pdfrx`, which uses native asset symlinks. Human review choices are stored beside the PDF with input hashes; the UI never decides a winner automatically. When a project is open and the source identity matches, use **Export verified book** to create the accepted EPUB 3/DOCX with editable title, author and language metadata. Optional fixed modification timestamps support reproducible exports; incomplete verification is still rejected by the CLI.
+`clients/flutter_desktop` is the Flutter-first, single-book pipeline workspace: import or resume a project, check/relink its source identity, inspect runtime readiness, run OCR with page/stage progress, review OCR/VLM evidence, record explicit human decisions, and export accepted EPUB 3 or DOCX. Candidate-fill shortcuts are Alt+1/2/3; Ctrl+Enter records the edited decision. The client communicates with Python through `status --json`, `review --json`, and `resolve --project-id`; it does not silently launch a VLM or auto-accept its suggestions. Follow [Flutter Desktop](./clients/flutter_desktop/README.md) for source setup and platform runner generation. A Flutter SDK is required today; prebuilt desktop installers are not yet published.
 
 `benchmark` validates a corpus manifest (every case needs a non-empty page image and hand-verified ground truth), builds only the requested managed backends, and scores each one for CER, WER, punctuation, missing/extra lines, per-page time, and pages/minute. Add --include-pipeline to also score variant C through production dual-engine alignment/risk/decision stages; unresolved pairs are omitted rather than guessed and reported as coverage counts. Add --include-vlm --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model to compare variant D. Only crop images are sent; remote endpoints require HTTPS and explicit --allow-remote-vlm. It writes a deterministic Markdown report naming the manifest SHA-256, with per-case rows so an aggregate gain cannot hide a hard-page regression. Variants A (MinerU), B (PaddleOCR), C (conservative dual-engine decisions), and D (VLM-assisted decisions through an explicit OpenAI-compatible endpoint) are runnable. ScribeForge does not install or silently start a VLM server; the real-corpus report remains pending. See [Benchmark](./benchmark/README.md).
 

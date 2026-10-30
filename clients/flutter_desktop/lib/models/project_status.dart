@@ -40,6 +40,35 @@ class FailedJobSummary {
   }
 }
 
+class ActiveJobSummary {
+  const ActiveJobSummary({
+    required this.stage,
+    required this.pageIndex,
+    required this.attempts,
+  });
+
+  final String stage;
+  final int? pageIndex;
+  final int attempts;
+
+  String get location =>
+      pageIndex == null ? stage : '$stage · page ${pageIndex! + 1}';
+
+  static ActiveJobSummary fromJson(Map<String, dynamic> json) {
+    final stage = json['stage'];
+    final pageIndex = json['page_index'];
+    final attempts = json['attempts'];
+    if (stage is! String || (pageIndex != null && pageIndex is! int) || attempts is! int) {
+      throw const FormatException('Invalid active-job status record.');
+    }
+    return ActiveJobSummary(
+      stage: stage,
+      pageIndex: pageIndex as int?,
+      attempts: attempts,
+    );
+  }
+}
+
 class ProjectStatusSnapshot {
   const ProjectStatusSnapshot({
     required this.projectId,
@@ -54,6 +83,7 @@ class ProjectStatusSnapshot {
     required this.succeededJobs,
     required this.failedJobs,
     required this.failedJobDetails,
+    required this.activeJobs,
   });
 
   final int projectId;
@@ -68,6 +98,9 @@ class ProjectStatusSnapshot {
   final int succeededJobs;
   final int failedJobs;
   final List<FailedJobSummary> failedJobDetails;
+  final List<ActiveJobSummary> activeJobs;
+
+  ActiveJobSummary? get currentJob => activeJobs.isEmpty ? null : activeJobs.first;
 
   double get ocrProgress {
     if (pagesTotal <= 0) return 0;
@@ -121,6 +154,7 @@ class ProjectStatusSnapshot {
     final reviewQueued = selected['review_queued'];
     final rawJobCounts = selected['job_counts'];
     final rawFailedJobs = selected['failed_jobs'];
+    final rawActiveJobs = selected['active_jobs'];
     if (id is! int ||
         title is! String ||
         sourceUri is! String ||
@@ -129,7 +163,8 @@ class ProjectStatusSnapshot {
         pagesWithBothOcrSuccess is! int ||
         reviewQueued is! int ||
         rawJobCounts is! Map ||
-        rawFailedJobs is! List) {
+        rawFailedJobs is! List ||
+        (rawActiveJobs != null && rawActiveJobs is! List)) {
       throw const FormatException('Status JSON has invalid project fields.');
     }
     final counts = Map<String, dynamic>.from(rawJobCounts);
@@ -145,6 +180,10 @@ class ProjectStatusSnapshot {
         .whereType<Map>()
         .map((item) => FailedJobSummary.fromJson(Map<String, dynamic>.from(item)))
         .toList(growable: false);
+    final activeJobDetails = (rawActiveJobs is List ? rawActiveJobs : const <Object?>[])
+        .whereType<Map>()
+        .map((item) => ActiveJobSummary.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
     return ProjectStatusSnapshot(
       projectId: id,
       title: title,
@@ -158,6 +197,7 @@ class ProjectStatusSnapshot {
       succeededJobs: count('succeeded'),
       failedJobs: count('failed'),
       failedJobDetails: failedDetails,
+      activeJobs: activeJobDetails,
     );
   }
 

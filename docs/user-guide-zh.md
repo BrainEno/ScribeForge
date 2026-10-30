@@ -1,19 +1,18 @@
 # ScribeForge 新手使用指南（Windows 优先）
 
-这份指南面向第一次使用 Git、Python、Flutter 和命令行的用户。ScribeForge 会把扫描书籍保存在本机进行 OCR、保留每页结果与证据，并允许你比较两个 OCR 模型的输出。**OCR 候选 EPUB 尚未校对，不等于最终定稿。**
+这份指南面向第一次使用 Git、Python、Flutter 和命令行的用户。ScribeForge 会在本机对扫描书籍进行 OCR，保留每页原始读取与复核证据，并允许你明确记录人工决定。**未经复核的 OCR 候选不等于最终定稿。**
 
 ## 1. 先了解你要做的事情
 
 常见工作流程如下：
 
-1. 准备一份扫描版 PDF。
-2. 安装 ScribeForge 的 Python 程序与私有 OCR 运行环境。
-3. 运行两套 OCR，让程序将结果保存到项目目录。
-4. 生成 MinerU 与 PaddleOCR 两个候选 EPUB。
-5. 启动 Flutter 桌面端，同时查看原始 PDF、候选 A、候选 B。
-6. 按页比较、标记偏好、写下问题，保存人工评估。
+1. 准备扫描版 PDF 或页面图像。
+2. 安装 ScribeForge Python CLI，并完成一次私有 OCR 运行时配置。
+3. 在 Flutter 桌面工作台导入书籍，运行可恢复的双引擎处理。
+4. 按页查看 OCR / VLM 候选与图像证据，明确记录人工决定。
+5. 从已接受的内容导出 EPUB 3 或 DOCX。
 
-桌面比较器可以独立打开任意 PDF 和 EPUB；若要让它直接启动 OCR，则需要先安装 Python CLI。Windows 是当前优先验证的桌面环境。
+Flutter 工作台负责驱动导入、处理、复核和导出；Python CLI 负责 OCR、证据存储与输出。Windows 是当前优先验证的桌面环境。
 
 ## 2. 安装基础软件
 
@@ -281,9 +280,9 @@ page images: 4 embedded (cover 1, plate 3)
 > DOCX 导出目前只写文字，不含页图；命令行会打印一条 warning。另外，
 > "第一页的图就是封面"是位置先验：如果这本扫描没有拍到封面，第一张插图会被当成封面。
 
-## 7. 启动 Flutter 桌面比较器
+## 7. 用 Flutter 桌面工作台完成全流程
 
-仍在仓库根目录时，执行：
+在仓库根目录执行：
 
 ```powershell
 cd clients\flutter_desktop
@@ -291,93 +290,66 @@ cd clients\flutter_desktop
 flutter run -d windows
 ```
 
-首次启动会生成 Windows 桌面 runner 并拉取 Flutter 依赖。日后直接在 clients\flutter_desktop 中运行 flutter run -d windows 即可。
+首次启动会生成 Windows 桌面 runner 并拉取 Flutter 依赖。macOS/Linux 可分别运行 `sh tool/bootstrap_desktop.sh`，再使用相应平台的 `flutter run` 命令。桌面端负责组织工作流；Python CLI 与本机运行时仍需按第 3、4 节安装。
 
-### 在界面里完成比较
+### 7.1 导入或打开项目
 
-1. 点击 **Open source PDF**，选择原始扫描 PDF；如果已有 `.scribeforge` 项目，也可以先点击 **Open project** 选择项目目录。
-2. 打开已有项目时，应用会读取项目记录并尝试打开其记录的源 PDF，然后核对源文件路径与 SHA-256。若源文件找不到、路径不同或内容已变化，状态条会显示原因，并禁用 OCR 重试与候选导出，避免旧记录被套用到另一份文件。
-3. 点击 **Open Candidate A EPUB** 和 **Open Candidate B EPUB** 载入候选。
-4. 翻页，观察两份 EPUB 文本的差异标记，并同时核对 PDF 原页。
-5. 在 **Human evaluation** 中选择本页更好的版本、平局或稍后复核。
-6. 评估完整本书后选择总体偏好，写上缺行、错字、标点或阅读顺序等备注，再点击 **Save evaluation**。
+在 **书籍** 页面：
 
-支持 OCR 工作流的版本还可以在界面内点击 **Set up OCR**、**Run OCR**、**Build A/B EPUBs**。右上角 **Settings → VLM review** 可以选择性启用视觉模型复核，填写 OpenAI-compatible 本地端点、模型名、请求超时，以及可选的 API Key 环境变量名。API Key 本身不会保存在设置文件中。使用 **Test with image…** 可以先挑选一张图片运行 `vlm-check`；这只是诊断，不会写入项目或把返回文字接受为校对结果。远程服务必须勾选明确授权，并使用 HTTPS。右上角 **Settings** 菜单提供两个入口：**CLI executable** 用于设置 CLI 可执行文件（默认是 scribeforge；若找不到它，填写完整路径，例如 `D:\\ScribeForge\\.venv\\Scripts\\scribeforge.exe`），**Runtime & Models** 用于只读查看 GPU/驱动/显存/内存、MinerU 与 PaddleOCR 的安装状态、失败步骤，以及模型、缓存和运行环境目录。点击 **Install / repair…** 会打开现有运行时向导，可安装或修复对应后端。CLI 路径会保存到当前用户的应用配置目录。
+- 点击 **导入书籍**，选择 PDF 或单页图像。默认项目目录与源文件同目录，名称为 `<文件名>.scribeforge`。
+- 点击 **打开项目文件夹**，选择已有的 `.scribeforge` 目录，可继续之前的处理、复核或导出。当前桌面工作流要求一个目录对应一本书；多项目目录会被明确拒绝。
 
-选择 PDF 后，页面上方会出现项目状态条：显示总页数、两套 OCR 都已成功的页数、任务成功/待处理/运行中/失败数量，以及待人工复核的数量。点击刷新图标可重新读取状态；出现失败任务时，可点击 **Retry failed pages** 重试。该操作会复用 CLI 的可恢复处理流程，不会删除已有页面证据。项目状态只有在源 PDF 的路径与 SHA-256 均匹配时才允许继续处理。如果只是移动了 PDF：先点击 **Open project** 打开原来的 `.scribeforge` 目录，再点击 **Open source PDF** 选择移动后的文件；确认路径或哈希不匹配后，点击 **Relink source PDF**。程序会重新计算 SHA-256，只有与项目中记录的哈希完全相同才更新源路径；该操作不修改哈希、OCR 运行记录、页面和人工校对证据。若文件内容不同，重新关联会失败，请为修改后的 PDF 使用新的项目目录。
+选择源文件后，工作台会检查项目数据库、源文件路径和 SHA-256。已有项目的源文件被移动时，状态卡会说明原因；使用 **重新关联源文件** 选择移动后的原文件。只有 SHA-256 与原记录完全相同才会更新路径，处理证据不会被改写。内容不同的文件必须使用新的项目目录。
 
-也可以从 PowerShell 执行相同的安全操作：
+### 7.2 首次运行检查与处理
 
-```powershell
-scribeforge relink-source --store "D:\Books\My Book.scribeforge" --source "E:\Archive\My Book.pdf"
-```
+第一次使用前，进入 **设置**，查看运行时状态；若尚未安装 OCR 运行时，点击 **运行时配置 (setup)**。若 Python CLI 不在 PATH 中，可在 **命令行工具** 中填写完整可执行文件路径，例如 `D:\ScribeForge\.venv\Scripts\scribeforge.exe`。
 
-重新关联后，正常的 `scribeforge process` 仍会检查源路径和内容身份，不会因手动指定一个不同文件而复用旧证据。
+进入 **处理** 并点击 **开始处理**。工作台调用 `scribeforge process`，同时每秒读取 `scribeforge status --json`，显示已完成双引擎 OCR 的页数、当前运行的页面与阶段、任务计数及失败详情。处理仍按页可恢复；失败页修复运行环境后可再次点击处理，不会删除先前保存的页面证据。CLI 退出码 1 表示部分页面失败，退出码 2 表示源文件、输入或运行时错误。
 
-当候选 EPUB 由 ScribeForge 生成时，程序会自动按源页编号对齐。其他电子书若只含章节而没有源页编号，页面对应关系只能近似判断，界面会提示这一点。当前版本提取 EPUB 的 XHTML 文本进行逐行比较，并不保证还原每个 EPUB 的 CSS、字体和分页布局。
+### 7.3 查看证据并记录人工复核
 
-### 从桌面端导出已校对成品
+进入 **复核**，每条队列项会展示风险原因、OCR 引擎一/二的原始文本、可用的 VLM 候选与不确定标记，以及候选区域裁切图（没有裁切图时显示页面图像）。点击 **填入 OCR 1**、**填入 OCR 2** 或 **填入 VLM 候选** 只会把文字放入编辑框，不会自动接受；请核对图像和候选后，明确点击 **记录人工决策**。
 
-打开与当前源 PDF 路径和 SHA-256 相匹配的项目后，点击 **Export verified book**。选择 EPUB 3 或 Word（DOCX），填写书名、语言标签（例如 zh-Hant、en、ja；未知时用 und），作者可不填。修改时间也可留空；若填入 ISO 8601 时间戳，导出可以固定该元数据时间，便于生成可复现的文件。随后选择输出文件夹，程序会用书名生成文件名；如果同名文件已存在，会先询问是否替换。
+这会调用 `scribeforge resolve`，把人工选择追加到决策证据链。OCR 原始结果不会被覆盖，VLM 标记为“不确定”也不会被当作结论。也可以在候选卡片内使用 **Alt+1/2/3** 填入 OCR 1/OCR 2/VLM 候选，使用 **Ctrl+Enter** 明确记录当前输入。页码与配对序号在界面上从 1 开始显示，CLI/JSON 中的 `page_index` 和 `pair_index` 是从 0 开始。
 
-该操作与 **Build A/B EPUBs** 不同：A/B 文件是未经校对的原始 OCR 候选，仅用于比较；正式导出只使用数据库中已接受的校对决策。只要仍有未验证页面或待处理的冲突，CLI 就会拒绝导出，并在命令日志中显示原因。请先完成人工复核，而不要把候选 EPUB 当作定稿。
+### 7.4 导出 EPUB 或 DOCX
 
-## 8. 评估文件放在哪里
+进入 **导出**，选择 EPUB 3 或 DOCX，选择输出文件夹（文件名会跟随书名和格式生成），再填写书名、语言和可选作者。开启 **严格接受校验** 时，只要仍有待解决内容，CLI 就会阻止导出并报告原因；关闭时，导出行为仍遵循 CLI 的默认接受策略。候选 EPUB 与已接受的正式导出不同：不要把未经复核的 OCR 候选误当成定稿。
 
-人工评估保存在源 PDF 旁边，文件名类似：
+### 7.5 Flutter 与 Python CLI 的 JSON 契约
 
-```text
-My Book.pdf.scribeforge-review.json
-```
+Flutter 通过本机子进程调用 Python CLI，不启动网络服务，也不让浏览器或 UI 直接访问 localhost。当前契约为：
 
-它会记录 PDF 与两个候选 EPUB 的 SHA-256 指纹、逐页判断、整书偏好和备注。如果源 PDF 或候选文件之后发生变化，旧评估不会在没有提示的情况下直接套用到新输入上。
+- `scribeforge status --store <目录> --json`：`schema_version: 1`；每个项目返回页数、双引擎成功数、任务计数、复核数量、失败详情，以及 `active_jobs`（运行中的 `stage`、`page_index`、`attempts`）。工作台在处理期间轮询它以显示页级进度。
+- `scribeforge review --store <目录> --json`：`schema_version: 1`；返回每个未决配对的页码、配对索引、风险分数/原因、两套 OCR 文本、VLM 文本/不确定标记、页面图像与裁切图路径、区域坐标和字符冲突。
+- `scribeforge resolve --store <目录> --project-id <ID> --page <页码> --pair <配对> --text <人工文本>`：明确指定项目并追加人工决策；`--project-id` 对旧式单项目调用仍可省略。
 
-请保留以下文件：
+新增字段以加法方式扩展 schema v1；不认识的 `schema_version` 应被客户端拒绝，不能把未知 JSON 猜成复核结果。`process` 命令本身仍是同步命令，实时进度来自已持久化的 SQLite job 状态，而不是对 CLI 人类可读输出做脆弱的逐行解析。
 
-- 原始 PDF。
-- 对应的 *.scribeforge 项目目录。
-- 候选输出目录。
-- *.scribeforge-review.json 人工评估文件。
+## 8. 常见问题与开发者自检
 
-备份或移动文件时，尽量一起移动相关项目目录和评估文件，并在移动后重新选择实际路径。
+### `scribeforge` 不是可识别的命令
 
-## 9. 常见问题
-
-### scribeforge 不是可识别的命令
-
-说明虚拟环境可能未激活，或 CLI 没有安装成功。在仓库根目录重新激活 .venv，或者用 .\.venv\Scripts\scribeforge.exe 的完整路径执行。
+确认 `.venv` 已激活且在仓库根目录执行过 `python -m pip install -e ".[dev]"`。也可以在设置里填写 `.venv\Scripts\scribeforge.exe` 的完整路径。
 
 ### 首次 OCR 配置失败
 
-检查网络、可用磁盘空间、错误日志中的失败步骤。运行环境是按 OCR 后端隔离安装的；其中一个后端失败时，不要假定另一个已完整就绪。修复环境后重新打开 scribeforge setup。
+检查网络、磁盘空间和运行时报告中的失败步骤；修复后重试 **运行时配置 (setup)**。OCR 运行时按后端隔离安装。不要删除项目数据库或源文件来修复运行环境。
 
-### VLM 端点或视觉模型响应失败
+### 源文件路径或 SHA-256 不匹配
 
-处理长书之前，先选一张可公开或适合发送给该端点的图片/冲突裁剪图，单独检查模型服务：
-
-```powershell
-scribeforge vlm-check --image "D:\\Books\\review-crop.png" --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model --json
-```
-
-正常文本返回退出码 0；模型标记不确定或返回空文本时退出码为 1；图片、连接、配置或响应格式错误时退出码为 2。诊断只打印结果，不会打开项目数据库、不写入校对记录，也不会把这次输出自动接受为正文。默认只允许回环地址；若明确使用远程服务，必须使用 HTTPS 并添加 `--allow-remote-vlm`，发送给模型的只是命令行指定的图片。
+工作台会阻止把不同文件处理进已有项目。若只是移动了源文件，从项目状态卡使用 **重新关联源文件**；只有字节内容完全相同才会通过。若文件内容有改动，请为它创建新的项目目录。
 
 ### Flutter 报告找不到 Windows runner
 
-在 clients\flutter_desktop 目录运行 .\tool\bootstrap_desktop.ps1，完成后再运行 flutter run -d windows。
+在 `clients\flutter_desktop` 目录运行 `tool\bootstrap_desktop.ps1`，完成后再运行 `flutter run -d windows`。
 
 ### PDF 原生依赖在 Windows 上报符号链接错误
 
-启用 Windows Developer Mode，再重新执行 bootstrap 和构建。不要把生成的 windows runner 文件夹提交到 Git。
+启用 Windows Developer Mode，再重新执行 bootstrap 和构建。不要把生成的 `windows` runner 文件夹提交到 Git。
 
-### 界面无法启动 OCR 命令
-
-打开右上角设置，填写完整的 scribeforge.exe 路径。确认 Python 包已在仓库根目录通过 pip install -e ".[dev]" 安装，并确认 CLI 路径对应的环境已安装。
-
-### 候选 EPUB 生成失败或缺页
-
-先运行 scribeforge status --store "<项目目录>" 查看失败页面与任务状态，然后重跑 scribeforge process "<源 PDF>" --store "<项目目录>"。所有页都有所需引擎输出之后，再运行 export-candidates。
-
-## 10. 开发者自检
+### 开发者自检
 
 在仓库根目录：
 
@@ -392,5 +364,3 @@ dart format lib test
 flutter analyze
 flutter test
 ```
-
-如果你只是想比较已有的 PDF 与 EPUB，并不需要先安装 OCR 模型；安装 Flutter 桌面依赖并启动比较器后，直接手动打开三个文件即可。
