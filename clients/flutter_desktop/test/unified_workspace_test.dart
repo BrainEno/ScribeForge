@@ -20,11 +20,19 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('shows the library and six workflow destinations', (tester) async {
+  testWidgets('shows the library and seven workflow destinations', (tester) async {
     await showDesktopWorkspace(tester);
 
     final navigationRail = find.byType(NavigationRail);
-    for (final label in <String>['书籍', '处理', '复核', '候选比较', '导出', '设置']) {
+    for (final label in <String>[
+      '书籍',
+      '处理',
+      '复核',
+      '候选比较',
+      '导出',
+      '项目安全',
+      '设置',
+    ]) {
       expect(
         find.descendant(of: navigationRail, matching: find.text(label)),
         findsOneWidget,
