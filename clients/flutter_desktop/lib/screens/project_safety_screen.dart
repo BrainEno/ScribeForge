@@ -305,24 +305,24 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
       children: <Widget>[
         _pathPickerRow(
           controller: _backupDirectoryController,
-          label: '備份保存目錄',
-          hint: '選擇 ZIP 備份的保存位置',
+          label: '备份保存目录',
+          hint: '选择 ZIP 备份的保存位置',
           key: const ValueKey('backup-directory-path'),
-          buttonLabel: '選擇備份位置',
+          buttonLabel: '选择备份位置',
           onPressed: _busy ? null : _pickBackupDirectory,
         ),
         const SizedBox(height: ScribeSpacing.x4),
         if (_backupError != null) ...<Widget>[
           ScribeStatusBanner(
             kind: ScribeStatusKind.error,
-            title: '備份失敗，原項目保持不變',
+            title: '备份失败，原项目保持不变',
             message: _backupError!,
           ),
           const SizedBox(height: ScribeSpacing.x4),
         ] else if (report != null) ...<Widget>[
           ScribeStatusBanner(
             kind: healthy ? ScribeStatusKind.success : ScribeStatusKind.warning,
-            title: healthy ? '備份已创建' : '备份已创建，但报告提示需要关注',
+            title: healthy ? '备份已创建' : '备份已创建，但报告提示需要关注',
             message: _backupSummary(report),
           ),
           if (report['archive'] is String)
