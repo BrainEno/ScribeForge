@@ -1252,7 +1252,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         DropdownButtonFormField<String>(
-          value: _exportFormatEpub ? 'epub' : 'docx',
+          initialValue: _exportFormatEpub ? 'epub' : 'docx',
           items: const <DropdownMenuItem<String>>[
             DropdownMenuItem(value: 'epub', child: Text('EPUB 3')),
             DropdownMenuItem(value: 'docx', child: Text('DOCX')),
