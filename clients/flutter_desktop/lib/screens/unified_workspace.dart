@@ -10,12 +10,14 @@ import '../models/review_queue.dart';
 import '../models/review_queue_navigation.dart';
 import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
+import '../services/candidate_comparison_store.dart';
 import '../services/cli_executor.dart';
 import '../services/cli_runner.dart';
 import '../services/desktop_file_picker.dart';
 import '../services/settings_store.dart';
 import '../services/workspace_file_system.dart';
 import '../widgets/review_keyboard_shortcuts.dart';
+import 'candidate_comparison_screen.dart';
 import 'runtime_setup_dialog.dart';
 import 'vlm_settings_dialog.dart';
 
@@ -126,6 +128,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     '书籍',
     '处理',
     '复核',
+    '候选比较',
     '导出',
     '设置',
   ];
@@ -134,6 +137,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     Icons.library_books,
     Icons.auto_awesome,
     Icons.fact_check_outlined,
+    Icons.compare_arrows,
     Icons.output,
     Icons.settings,
   ];
@@ -852,6 +856,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                       _buildLibraryPage(),
                       _buildProcessPage(),
                       _buildReviewPage(),
+                      _buildCandidateComparisonPage(),
                       _buildExportPage(),
                       _buildSettingsPage(),
                     ],
@@ -1444,6 +1449,37 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           ),
         ),
       ),
+    );
+  }
+
+  // ======================================================= 候选比较页面
+
+  Widget _buildCandidateComparisonPage() {
+    final status = _projectStatus;
+    final canGenerateCandidates = !_busy &&
+        !_statusLoading &&
+        _projectStorePath != null &&
+        status != null &&
+        _projectSourceMatches &&
+        _projectCanExport &&
+        status.pagesTotal > 0 &&
+        status.runningJobs == 0 &&
+        status.pendingJobs == 0 &&
+        status.pagesWithBothOcrSuccess == status.pagesTotal;
+    return CandidateComparisonScreen(
+      sourcePdfPath: _pdfPath,
+      storePath: _projectStorePath,
+      cliExecutable: _cliExecutable,
+      canGenerateCandidates: canGenerateCandidates,
+      cliExecutor: _cliExecutor,
+      filePicker: _filePicker,
+      comparisonStore: const FileCandidateComparisonStore(),
+      sourcePageCount: status?.pagesTotal,
+      expectedSourceSha256: status?.sourceSha256,
+      onOpenTrustedReview: () {
+        setState(() => _selectedIndex = 2);
+        unawaited(_refreshReviewQueue());
+      },
     );
   }
 

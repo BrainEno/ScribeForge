@@ -46,6 +46,38 @@ void main() {
       expect(await EvaluationStore.read(pdf.path), isNotNull);
     });
 
+    test('refuses to save ratings when candidate bytes changed after loading',
+        () async {
+      final pdf = File('${temp.path}/original.pdf');
+      final a = File('${temp.path}/candidate-a.epub');
+      final b = File('${temp.path}/candidate-b.epub');
+      await pdf.writeAsBytes([0, 1, 2, 3]);
+      await a.writeAsBytes([4, 5, 6]);
+      await b.writeAsBytes([7, 8, 9]);
+
+      await expectLater(
+        EvaluationStore.save(
+          sourcePdfPath: pdf.path,
+          candidateAPath: a.path,
+          candidateBPath: b.path,
+          candidateALabel: 'MinerU',
+          candidateBLabel: 'PaddleOCR',
+          pageDecisions: const {0: 'a'},
+          overallWinner: null,
+          notes: '',
+          expectedSourceSha256: await EvaluationStore.fingerprint(pdf.path),
+          expectedCandidateASha256: List<String>.filled(64, '0').join(),
+          expectedCandidateBSha256: await EvaluationStore.fingerprint(b.path),
+        ),
+        throwsA(isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('candidate A changed'),
+        )),
+      );
+      expect(await File(EvaluationStore.sidecarPath(pdf.path)).exists(), isFalse);
+    });
+
     test('ignores malformed or unsupported review sidecars', () async {
       final pdf = File('${temp.path}/original.pdf');
       await pdf.writeAsBytes([1]);

@@ -99,6 +99,17 @@ class EvaluationStore {
     return digest.toString();
   }
 
+  static void _requireExpectedFingerprint(
+    String label,
+    String path,
+    String actual,
+    String? expected,
+  ) {
+    if (expected != null && expected != actual) {
+      throw StateError('$label changed after it was loaded: $path');
+    }
+  }
+
   static Future<String> save({
     required String sourcePdfPath,
     required String? candidateAPath,
@@ -108,10 +119,35 @@ class EvaluationStore {
     required Map<int, String> pageDecisions,
     required String? overallWinner,
     required String notes,
+    String? expectedSourceSha256,
+    String? expectedCandidateASha256,
+    String? expectedCandidateBSha256,
   }) async {
     final sourceFingerprint = await fingerprint(sourcePdfPath);
+    _requireExpectedFingerprint(
+      'source PDF',
+      sourcePdfPath,
+      sourceFingerprint,
+      expectedSourceSha256,
+    );
     final candidateAHash = candidateAPath == null ? null : await fingerprint(candidateAPath);
+    if (candidateAPath != null) {
+      _requireExpectedFingerprint(
+        'candidate A',
+        candidateAPath,
+        candidateAHash!,
+        expectedCandidateASha256,
+      );
+    }
     final candidateBHash = candidateBPath == null ? null : await fingerprint(candidateBPath);
+    if (candidateBPath != null) {
+      _requireExpectedFingerprint(
+        'candidate B',
+        candidateBPath,
+        candidateBHash!,
+        expectedCandidateBSha256,
+      );
+    }
     final now = DateTime.now().toUtc();
     final payload = <String, Object?>{
       'schema_version': 1,
