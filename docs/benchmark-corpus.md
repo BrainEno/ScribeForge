@@ -1,6 +1,6 @@
 # 基准语料规范（含竖排 / 繁体语料要求）
 
-- 更新日期：2026-10-29
+- 更新日期：2026-10-30
 - 适用范围：`scribeforge benchmark`、`benchmark/corpus/*`、R4/R5 验收
 
 > 本文只描述**语料怎么算合格**。现有语料的实际内容见
@@ -24,6 +24,8 @@
 ```json
 {
   "schema_version": 1,
+  "ground_truth_review_status": "unreviewed",
+  "ground_truth_note": "Describe how the reference transcriptions were produced and checked.",
   "cases": [
     {
       "id": "gj-001",
@@ -42,6 +44,13 @@
   不参与管线判定——管线仍然用几何检测方向。写错只会让报告分组错，不会污染运行。
 - 缺省 `direction` 时，报告把该页归入 `horizontal-lr`：现有 6 页确实都是横排。
 - `tags` 自由填写，用于在报告里定位某一类页面（如 `footnote`、`latin-inline`）。
+- `ground_truth_review_status` 是语料级的显式转写校订状态：`unreviewed`、
+  `single-pass` 或 `double-proofread`。只有确实完成两人独立转写并互相核对，
+  才能声明 `double-proofread`；缺省表示 `not declared`，不会根据说明文字或标签推断。
+- `ground_truth_note` 记录转写方法、校订范围与限制；基准报告会显示这些状态和说明
+  （说明中的空白会规范成单行），让 CER 不会脱离参照文本的证据质量。此状态是数据集
+  维护者的声明，并非 ScribeForge 对文本正确性的认证；`unreviewed` 和未声明状态也可用于
+  开发回归，但不能被描述成金标准。
 
 ## 3. 竖排 / 繁体语料的最低规模（R4）
 

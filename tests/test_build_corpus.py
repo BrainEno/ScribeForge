@@ -80,6 +80,7 @@ def test_builder_renders_real_pages_and_blocks_scoring_until_transcribed(
         tags=("body", "vertical"),
     )
 
+    assert manifest["ground_truth_review_status"] == "unreviewed"
     assert [case["id"] for case in manifest["cases"]] == ["t-010", "t-014"]
     for case in manifest["cases"]:
         assert (out / str(case["image"])).is_file()

@@ -1860,6 +1860,8 @@ def _benchmark(
         corpus=str(manifest_path),
         manifest_sha256=_file_sha256(manifest_path),
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        ground_truth_review_status=manifest.ground_truth_review_status,
+        ground_truth_note=manifest.ground_truth_note,
     )
     try:
         args.out.write_text(report_text, encoding="utf-8")
@@ -1925,6 +1927,8 @@ def _oracle_ceiling(
         corpus=str(manifest_path),
         manifest_sha256=_file_sha256(manifest_path),
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        ground_truth_review_status=manifest.ground_truth_review_status,
+        ground_truth_note=manifest.ground_truth_note,
     )
     try:
         args.out.write_text(report_text, encoding="utf-8")

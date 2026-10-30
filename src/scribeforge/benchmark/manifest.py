@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 _DIRECTIONS = ("horizontal-lr", "horizontal-rl", "vertical-rl", "vertical-lr")
+_GROUND_TRUTH_REVIEW_STATUSES = ("unreviewed", "single-pass", "double-proofread")
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +26,10 @@ class BenchmarkCase:
 class BenchmarkManifest:
     schema_version: int
     cases: tuple[BenchmarkCase, ...]
+    #: Declared transcription review level. ``None`` keeps older manifests honest:
+    #: absence is not evidence that the reference text was proofread.
+    ground_truth_review_status: str | None = None
+    ground_truth_note: str | None = None
 
 
 def load_manifest(path: Path) -> BenchmarkManifest:
@@ -35,6 +40,16 @@ def load_manifest(path: Path) -> BenchmarkManifest:
     raw_cases = raw.get("cases")
     if not isinstance(raw_cases, list):
         raise TypeError("benchmark cases must be a list")
+
+    review_status = raw.get("ground_truth_review_status")
+    if review_status is not None:
+        if not isinstance(review_status, str):
+            raise TypeError("ground_truth_review_status must be a string")
+        if review_status not in _GROUND_TRUTH_REVIEW_STATUSES:
+            raise ValueError(f"unknown ground-truth review status: {review_status}")
+    ground_truth_note = raw.get("ground_truth_note")
+    if ground_truth_note is not None and not isinstance(ground_truth_note, str):
+        raise TypeError("ground_truth_note must be a string")
 
     cases: list[BenchmarkCase] = []
     seen: set[str] = set()
@@ -64,4 +79,9 @@ def load_manifest(path: Path) -> BenchmarkManifest:
                 direction=direction,
             )
         )
-    return BenchmarkManifest(schema_version=1, cases=tuple(cases))
+    return BenchmarkManifest(
+        schema_version=1,
+        cases=tuple(cases),
+        ground_truth_review_status=review_status,
+        ground_truth_note=ground_truth_note,
+    )

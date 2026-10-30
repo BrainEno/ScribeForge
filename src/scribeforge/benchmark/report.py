@@ -64,18 +64,26 @@ def render_report(
     corpus: str,
     manifest_sha256: str,
     generated_at: str,
+    ground_truth_review_status: str | None = None,
+    ground_truth_note: str | None = None,
 ) -> str:
     """Render one Markdown report for every scored variant."""
 
+    review_status = ground_truth_review_status or "not declared"
     lines = [
         "# Benchmark Report",
         "",
         f"- corpus: `{corpus}`",
         f"- manifest sha256: `{manifest_sha256}`",
         f"- generated: {generated_at}",
+        f"- ground-truth review: `{review_status}`",
         f"- variants: {len(reports)}",
-        "",
     ]
+    if ground_truth_note is not None and ground_truth_note.strip():
+        note = " ".join(ground_truth_note.split())
+        lines += [f"> Ground-truth note: {note}", ""]
+    else:
+        lines.append("")
     if not reports:
         lines += ["No variants were scored.", ""]
         return "\n".join(lines)
