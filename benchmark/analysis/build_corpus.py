@@ -110,9 +110,11 @@ def build_corpus(
         "schema_version": 1,
         "description": source_note,
         "source": {"pdf": str(pdf), "dpi": dpi},
+        "ground_truth_review_status": "unreviewed",
         "ground_truth_note": (
-            "Fill ground_truth/*.txt by hand from the page image, two proofreaders "
-            "where possible. Empty files are rejected by validate_corpus()."
+            "Transcriptions have not yet been added. After filling ground_truth/*.txt, "
+            "set ground_truth_review_status to single-pass or double-proofread to match "
+            "the work performed. Empty files are rejected by validate_corpus()."
         ),
         "cases": cases,
     }

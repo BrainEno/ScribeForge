@@ -1,5 +1,7 @@
 {
   "schema_version": 1,
+  "ground_truth_review_status": "unreviewed",
+  "ground_truth_note": "Replace this with the transcription provenance and review note.",
   "cases": [
     {
       "id": "zh-clear-001",

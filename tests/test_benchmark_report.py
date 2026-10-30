@@ -80,6 +80,28 @@ def test_render_report_states_when_no_variant_was_scored() -> None:
     assert "No variants were scored." in text.splitlines()
 
 
+def test_render_report_discloses_ground_truth_review_status_and_note() -> None:
+    text = render_report(
+        (_report("oracle"),),
+        corpus="corpus/manifest.json",
+        manifest_sha256="abc123",
+        generated_at="t",
+        ground_truth_review_status="single-pass",
+        ground_truth_note="Single transcription; not independently proofread.",
+    )
+
+    assert "- ground-truth review: `single-pass`" in text.splitlines()
+    assert "> Ground-truth note: Single transcription; not independently proofread." in text
+
+
+def test_render_report_does_not_infer_ground_truth_review_status() -> None:
+    text = render_report(
+        (_report("oracle"),), corpus="c", manifest_sha256="h", generated_at="t"
+    )
+
+    assert "- ground-truth review: `not declared`" in text.splitlines()
+
+
 def test_render_report_marks_a_case_without_tags() -> None:
     report = _report("mineru")
     untagged = BenchmarkReport(

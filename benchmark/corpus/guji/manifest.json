@@ -7,6 +7,7 @@
     "license": "Apache-2.0 (repository); 原書公有領域",
     "retrieved": "2026-10-29"
   },
+  "ground_truth_review_status": "single-pass",
   "ground_truth_note": "逐列人工转写（繁体，保留原字形，不加标点——刻本无句读）。行序即为从右到左的列序。单次转写，未经第二人复核；作为竖排回归基线可用，作为金标准仍需二次校订。",
   "cases": [
     {

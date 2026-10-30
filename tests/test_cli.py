@@ -1445,6 +1445,28 @@ def test_benchmark_writes_a_report_for_every_engine(
     assert "| zh-1 | zh | clear |" in text
 
 
+def test_benchmark_report_discloses_ground_truth_review_metadata(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _root, manifest = _corpus(tmp_path)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["ground_truth_review_status"] = "single-pass"
+    payload["ground_truth_note"] = "The transcription has not been independently proofread."
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    out_path = tmp_path / "report.md"
+
+    code = run(
+        ["benchmark", "--manifest", str(manifest), "--out", str(out_path)],
+        benchmark_engine_factory=_benchmark_factory(),
+    )
+
+    assert code == 0
+    capsys.readouterr()
+    text = out_path.read_text(encoding="utf-8")
+    assert "- ground-truth review: `single-pass`" in text
+    assert "> Ground-truth note: The transcription has not been independently proofread." in text
+
+
 def test_benchmark_selects_a_named_engine(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

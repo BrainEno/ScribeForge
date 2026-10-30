@@ -8,6 +8,7 @@
     "creator": "DuXiu/SuperStar",
     "producer": "AnnasArchive"
   },
+  "ground_truth_review_status": "single-pass",
   "ground_truth_note": "Each ground truth is a single-pass human transcription of this scan, made to establish methodology and detect regressions. It has not been double-proofread against the printed book, so treat it as a reference transcription rather than publisher-grade gold.",
   "cases": [
     {

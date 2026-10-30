@@ -81,21 +81,20 @@ processing but not complex-layout, non-standard, low-quality scans of ancient
 books and old editions. Old-book/ancient-book recognition with faithful EPUB and
 DOCX output is now the primary development goal.
 
-Four P0 gaps block that claim:
+The 2026-10-28 review identified four P0 gaps at that time (historical findings,
+not a statement that all four remain unimplemented):
 
-1. **No image preprocessing layer.** PDF pages are rasterized and handed straight
-   to OCR engines: no deskew, deshadow, binarization, denoise or resolution
-   adaptation. Old-book scans are routinely skewed, shadowed and faded.
-2. **No vertical / right-to-left support.** Alignment matches on Y-axis centre
-   distance, which is semantically wrong for vertical columns — the mainstream
-   layout of ancient Chinese books.
-3. **Layout analysis is delegated entirely to MinerU's `basic` tier.** The worker
-   flattens each MinerU block into a single "line" with an empty token list, so
-   multi-column pages, mixed text/figure pages, marginalia, character-level
-   confidence and precise review crops are all unavailable.
-4. **No chapter or printed-page model.** `pages` has only a physical index;
-   EPUB navigates "Page 1…Page N"; documents whose sections restart page
-   numbering, and blank/cover/front-matter pages, cannot be represented.
+1. **Image preprocessing.** PDF pages were rasterized without deskew, deshadow,
+   binarization, denoise or resolution adaptation. The preprocessing foundation is
+   now implemented under #85; real OCR accuracy on degraded scans remains unmeasured.
+2. **Vertical / right-to-left handling.** Alignment used Y-axis centre distance.
+   Direction-aware alignment, reading order and vertical paragraph splicing are
+   now implemented and regression-tested; true OCR-engine output remains unvalidated.
+3. **Layout evidence.** MinerU `basic` output was flattened, leaving complex layout
+   evidence unavailable. Worker contract v2 and block persistence are now present,
+   but real model quality for marginalia and complex pages still needs measurement.
+4. **Chapter and printed-page model.** Physical pages lacked printed labels and
+   structure. The chapter/page/role model and structured export are now implemented.
 
 Two defects found by the same review were fixed with regression tests:
 
@@ -107,27 +106,34 @@ Two defects found by the same review were fixed with regression tests:
   dense-page alignment up to 27× faster (80 lines: 1018 ms → 37 ms) with
   identical matching results.
 
-Status as of 2026-10-29: the structure pass now classifies page roles from measured
-ink and builds the chapter tree from the book's own contents page (#87, see
-[Book structure](./book-structure.md)); the acceptance gate and explicit textless-page
-confirmation (#75, #74) are implemented — see
-[The acceptance gate](./acceptance-gate.md) — together with the preprocessing layer
-(#85), worker contract v2 (#86), chapter/printed-page/role model (#87),
-glyph-variant comparison layer (#88) and page-furniture removal (#89); both are
-covered by tests; the
-engine route (#90) is documented in [Technology route](./technology-route.md),
-with PaddleOCR-VL and Surya adoption still to be executed (stages R1–R2).
+Status as of 2026-10-30: the structure pass classifies page roles from measured
+ink and builds the chapter tree from the book's contents page (#87; see
+[Book structure](./book-structure.md)). The acceptance gate and explicit textless-page
+confirmation (#75, #74) are implemented (see
+[The acceptance gate](./acceptance-gate.md)), alongside preprocessing (#85), worker
+contract v2 (#86), chapter/printed-page/role model (#87), glyph-variant comparison
+(#88), and page-furniture removal (#89). These paths have regression tests. The
+engine route (#90) is documented in [Technology route](./technology-route.md);
+PaddleOCR-VL and Surya have worker scaffolding but still need real weights (R1–R2).
 
-What remains genuinely open is vertical text: `align_pages` still pairs lines on
-Y-axis centre distance, which is semantically wrong for vertical columns, and no
-vertical/ traditional-character benchmark corpus exists yet. Until a real vertical
-scan is measured, the README gate stands: ancient-book support must not be claimed.
+The vertical code path is no longer missing: direction detection, direction-aware
+alignment, independent reading order, paragraph reconstruction, and EPUB/DOCX column
+splicing are implemented. Three real traditional-character pages in
+`benchmark/corpus/guji/` pass the Oracle full-pipeline regression, which tests text
+preservation and ordering with recognition errors forced to zero—not OCR accuracy.
 
-Staged plan and gates: see [Ancient book support](./ancient-book-support.md) §8.
-The P0 gate — preprocessing, worker contract v2, vertical text, and
-chapter/page model, then a measurable run on a real traditional-character
-vertical ancient-book scan — must pass before user-facing material claims
-ancient-book support.
+What remains genuinely open is validation: R4 still requires at least 20 licensed or
+public-domain vertical pages and double proofreading; the present three-page corpus
+is single-pass and lacks sufficient complex-layout coverage. R5 still requires a
+real-model CER report, split by direction. The benchmark manifest now records
+`ground_truth_review_status` and `ground_truth_note`; generated reports disclose them
+instead of implying that a transcription is gold. Until R4/R5 evidence exists, the
+README gate stands: ancient-book support must not be claimed.
+
+Staged plan and gates: see [Ancient book support](./ancient-book-support.md) §8 and
+[Technology route](./technology-route.md) §4. The P0 implementation foundation is in
+place, but user-facing ancient-book claims remain blocked on representative data and
+measured real-engine results.
 
 ## Later
 Speech-to-text and text-to-speech may join the same text library only after book digitization is reliable.
