@@ -18,6 +18,7 @@ import '../services/settings_store.dart';
 import '../services/workspace_file_system.dart';
 import '../widgets/review_keyboard_shortcuts.dart';
 import 'candidate_comparison_screen.dart';
+import 'project_safety_screen.dart';
 import 'runtime_setup_dialog.dart';
 import 'vlm_settings_dialog.dart';
 
@@ -130,6 +131,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     '复核',
     '候选比较',
     '导出',
+    '项目安全',
     '设置',
   ];
 
@@ -139,6 +141,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     Icons.fact_check_outlined,
     Icons.compare_arrows,
     Icons.output,
+    Icons.shield_outlined,
     Icons.settings,
   ];
 
@@ -858,6 +861,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                       _buildReviewPage(),
                       _buildCandidateComparisonPage(),
                       _buildExportPage(),
+                      _buildProjectSafetyPage(),
                       _buildSettingsPage(),
                     ],
                   ),
@@ -1583,6 +1587,56 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         ),
       ],
     );
+  }
+
+  // ========================================================= 项目安全页面
+
+  Widget _buildProjectSafetyPage() {
+    var title = _projectStatus?.title ?? '';
+    if (title.isEmpty && _pdfPath != null) {
+      final filename = File(_pdfPath!).uri.pathSegments.last;
+      final extension = filename.lastIndexOf('.');
+      title = extension > 0 ? filename.substring(0, extension) : filename;
+    }
+    return ProjectSafetyScreen(
+      storePath: _projectStorePath,
+      projectTitle: title,
+      cliExecutable: _cliExecutable,
+      cliExecutor: _cliExecutor,
+      filePicker: _filePicker,
+      fileSystem: _fileSystem,
+      onProjectRestored: _handleProjectRestored,
+    );
+  }
+
+  Future<void> _handleProjectRestored(String storePath) async {
+    _clearSourceHashCache();
+    setState(() {
+      _statusRequestVersion++;
+      _statusLoading = false;
+      _projectStorePath = storePath;
+      _pdfPath = null;
+      _projectStatus = null;
+      _projectSourceMatches = true;
+      _projectCanExport = true;
+      _projectSourceMismatchMessage = null;
+      _exportTitleController.clear();
+      _exportOutputController.clear();
+      _exportOutputDirectory = null;
+      _reviewQueue.clear();
+      _selectedReviewIndex = -1;
+      _selectedIndex = 0;
+      _error = null;
+      _notice = '项目已恢复并载入工作台。';
+    });
+    await _refreshStatus();
+    if (!mounted) return;
+    final restoredSourcePath = _projectStatus?.sourceUri;
+    if (restoredSourcePath != null && restoredSourcePath.isNotEmpty) {
+      setState(() => _pdfPath = restoredSourcePath);
+      await _refreshStatus();
+    }
+    await _refreshReviewQueue();
   }
 
   // ========================================================= 设置页面

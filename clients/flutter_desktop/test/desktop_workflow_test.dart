@@ -284,6 +284,22 @@ void main() {
     );
   });
 
+  testWidgets('opens project audit and backup tools from the integrated workspace',
+      (tester) async {
+    await createHarness(tester);
+    await openTab(tester, '项目安全');
+
+    expect(find.byKey(const ValueKey('project-safety-page')), findsOneWidget);
+    expect(find.text('项目安全中心'), findsOneWidget);
+    expect(find.text('请先打开项目'), findsOneWidget);
+    expect(
+      tester.widget<FilledButton>(find.widgetWithText(FilledButton, '创建项目备份'))
+          .onPressed,
+      isNull,
+    );
+    expect(find.text('选择备份文件'), findsOneWidget);
+  });
+
   testWidgets('VLM remains off until the user enables it in settings', (tester) async {
     final harness = await createHarness(tester);
     await openTab(tester, '设置');
@@ -395,6 +411,9 @@ class _FakeWorkspaceFileSystem implements WorkspaceFileSystem {
 
   @override
   Future<bool> fileExists(String path) async => _existingFiles.contains(path);
+
+  @override
+  Future<bool> directoryExists(String path) async => false;
 
   @override
   Future<WorkspaceFileMetadata?> stat(String path) async {

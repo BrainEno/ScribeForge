@@ -2,11 +2,13 @@ import 'dart:io';
 
 /// Small file-system boundary used by the desktop workspace.
 ///
-/// The UI only needs existence checks and a source-file fingerprint. Keeping
-/// these operations replaceable makes the full widget workflow deterministic
-/// in tests without tying it to the host file system.
+/// The UI only needs file/directory existence checks and a source-file
+/// fingerprint. Keeping these operations replaceable makes widget workflows
+/// deterministic in tests without tying them to the host file system.
 abstract interface class WorkspaceFileSystem {
   Future<bool> fileExists(String path);
+
+  Future<bool> directoryExists(String path);
 
   Future<WorkspaceFileMetadata?> stat(String path);
 
@@ -28,6 +30,9 @@ class IoWorkspaceFileSystem implements WorkspaceFileSystem {
 
   @override
   Future<bool> fileExists(String path) => File(path).exists();
+
+  @override
+  Future<bool> directoryExists(String path) => Directory(path).exists();
 
   @override
   Future<WorkspaceFileMetadata?> stat(String path) async {
