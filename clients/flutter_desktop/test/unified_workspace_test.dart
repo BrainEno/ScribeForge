@@ -83,8 +83,25 @@ void main() {
 
     expect(find.text('命令行工具'), findsOneWidget);
     expect(find.text('运行时配置 (setup)'), findsOneWidget);
-    expect(find.text('检测硬件、安装 OCR 运行环境与模型'), findsOneWidget);
+    expect(find.text('查看后端、阶段与步骤进度，或修复单个后端'), findsOneWidget);
     expect(find.text('刷新运行时状态'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opens the Flutter-native runtime setup guide', (tester) async {
+    await showDesktopWorkspace(tester);
+    await openTab(tester, '设置');
+    await tester.tap(find.text('运行时配置 (setup)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('首次 OCR 运行时配置'), findsOneWidget);
+    expect(find.text('开始安装全部后端'), findsOneWidget);
+    expect(find.text('只修复 MinerU'), findsOneWidget);
+    expect(find.text('只修复 PaddleOCR'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('稍后配置'));
+    await tester.pumpAndSettle();
+    expect(find.text('首次 OCR 运行时配置'), findsNothing);
   });
 }

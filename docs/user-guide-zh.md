@@ -72,7 +72,7 @@ scribeforge --help
 scribeforge setup
 ```
 
-首次设置会下载或安装应用管理的运行时、OCR 依赖和模型，过程可能较长，需要网络连接与足够磁盘空间。运行时默认放在当前用户的应用数据目录，不会把模型环境写进每本书的项目目录。
+首次设置会下载或安装应用管理的运行时、OCR 依赖和模型，过程可能较长，需要网络连接与足够磁盘空间。运行时默认放在当前用户的应用数据目录，不会把模型环境写进每本书的项目目录。直接运行 CLI 命令会打开旧版 Tk 配置窗口；在 Flutter 工作台中请前往 **设置 → 运行时配置**，使用原生向导查看持续进度并按后端修复。
 
 若命令不在 PATH 中，可以使用：
 
@@ -290,7 +290,7 @@ cd clients\flutter_desktop
 flutter run -d windows
 ```
 
-首次启动会生成 Windows 桌面 runner 并拉取 Flutter 依赖。macOS/Linux 可分别运行 `sh tool/bootstrap_desktop.sh`，再使用相应平台的 `flutter run` 命令。桌面端负责组织工作流；Python CLI 与本机运行时仍需按第 3、4 节安装。
+首次启动会生成 Windows 桌面 runner 并拉取 Flutter 依赖。macOS/Linux 可分别运行 `sh tool/bootstrap_desktop.sh`，再使用相应平台的 `flutter run` 命令。桌面端负责组织工作流；Python CLI 与本机运行时仍需按第 3、4 节安装。目前尚未发布可直接安装的 Windows 预编译包；打包方向与发布验收条件见 [Windows 桌面分发方案](windows-desktop-distribution.md)。
 
 ### 7.1 导入或打开项目
 
@@ -303,7 +303,7 @@ flutter run -d windows
 
 ### 7.2 首次运行检查与处理
 
-第一次使用前，进入 **设置**，查看运行时状态；若尚未安装 OCR 运行时，点击 **运行时配置 (setup)**。若 Python CLI 不在 PATH 中，可在 **命令行工具** 中填写完整可执行文件路径，例如 `D:\ScribeForge\.venv\Scripts\scribeforge.exe`。
+第一次使用前，进入 **设置**，查看运行时状态；若尚未安装 OCR 运行时，点击 **运行时配置 (setup)**。原生向导会分别显示 MinerU 与 PaddleOCR 的状态、当前安装阶段、步骤计数和失败步骤；全部安装失败或仅单个后端出错时，可从对应后端卡片重试/单独修复。安装完成或失败后，关闭向导会刷新状态；也可随时点击 **刷新运行时状态**。若 Python CLI 不在 PATH 中，可在 **命令行工具** 中填写完整可执行文件路径，例如 `D:\ScribeForge\.venv\Scripts\scribeforge.exe`。
 
 进入 **处理** 并点击 **开始处理**。工作台调用 `scribeforge process`，同时每秒读取 `scribeforge status --json`，显示已完成双引擎 OCR 的页数、当前运行的页面与阶段、任务计数及失败详情。处理仍按页可恢复；失败页修复运行环境后可再次点击处理，不会删除先前保存的页面证据。CLI 退出码 1 表示部分页面失败，退出码 2 表示源文件、输入或运行时错误。
 

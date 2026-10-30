@@ -294,13 +294,24 @@ def build_parser() -> argparse.ArgumentParser:
     _add_vlm_arguments(process)
 
     setup = subparsers.add_parser(
-        "setup", help="Open the first-run wizard for private OCR runtimes and models."
+        "setup", help="Configure private OCR runtimes and models."
     )
     setup.add_argument(
         "--runtime-root",
         type=Path,
         default=None,
         help="Private runtime directory (default: the per-user ScribeForge runtime folder).",
+    )
+    setup.add_argument(
+        "--json",
+        action="store_true",
+        help="Stream versioned JSON progress events for a native desktop client.",
+    )
+    setup.add_argument(
+        "--backend",
+        choices=("mineru", "paddleocr"),
+        default=None,
+        help="Repair only this OCR backend (requires --json).",
     )
 
     runtime_status = subparsers.add_parser(
@@ -585,7 +596,7 @@ def run(
     args = build_parser().parse_args(list(argv))
     out = sys.stdout if stdout is None else stdout
     if args.command == "setup":
-        return _setup(args)
+        return _setup(args, out)
     if args.command == "runtime-status":
         return _runtime_status(args, out)
     if args.command == "vlm-check":
@@ -2053,7 +2064,13 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK
 
 
-def _setup(args: argparse.Namespace) -> int:
+def _setup(args: argparse.Namespace, out: TextIO) -> int:
+    if args.json:
+        return _setup_json(args, out)
+    if args.backend is not None:
+        print("error: --backend requires --json", file=sys.stderr)
+        return EXIT_FATAL
+
     try:
         from scribeforge.ui.runtime_window import run_runtime_setup
     except ImportError as exc:
@@ -2064,6 +2081,88 @@ def _setup(args: argparse.Namespace) -> int:
         args.runtime_root if args.runtime_root is not None else default_runtime_root()
     )
     return run_runtime_setup(runtime_root)
+
+
+def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
+    """Stream step-level setup events and one machine-readable final report."""
+    from scribeforge.runtime.manager import RuntimeEvent, RuntimeInstallError
+    from scribeforge.runtime.workflow import RuntimeSetupWorkflow
+
+    runtime_root: Path = (
+        args.runtime_root if args.runtime_root is not None else default_runtime_root()
+    )
+    action = "repair" if args.backend is not None else "install"
+    workflow = RuntimeSetupWorkflow(runtime_root)
+    result_code = EXIT_OK
+    message: str | None = None
+
+    def emit_progress(event: RuntimeEvent) -> None:
+        record = {
+            "schema_version": 1,
+            "type": "progress",
+            "backend": event.backend,
+            "phase": event.phase,
+            "state": event.state,
+            "step": event.step,
+            "completed_steps": event.completed_steps,
+            "total_steps": event.total_steps,
+        }
+        print(json.dumps(record, ensure_ascii=False, sort_keys=True), file=out, flush=True)
+
+    try:
+        if args.backend is None:
+            workflow.install(on_event=emit_progress)
+        else:
+            workflow.repair(args.backend, on_event=emit_progress)
+    except RuntimeInstallError as exc:
+        result_code = EXIT_PARTIAL
+        message = str(exc).strip() or "OCR runtime setup did not complete."
+    except Exception as exc:  # noqa: BLE001 - return a useful final JSON record
+        result_code = EXIT_FATAL
+        message = str(exc).strip() or exc.__class__.__name__
+
+    try:
+        overview = workflow.inspect()
+    except Exception as exc:  # noqa: BLE001 - preserve machine-readable failure details
+        result_code = max(result_code, EXIT_FATAL)
+        inspection_error = f"Could not inspect final runtime state: {exc}"
+        message = f"{message}; {inspection_error}" if message else inspection_error
+        backend_states: dict[str, dict[str, object]] = {
+            name: {"state": "unknown", "failed_step": None}
+            for name in ("mineru", "paddleocr")
+        }
+    else:
+        backend_states = {}
+        for name in ("mineru", "paddleocr"):
+            status = getattr(overview, name)
+            state = getattr(status, "state", "unknown")
+            failed_step = getattr(status, "failed_step", None)
+            backend_states[name] = {
+                "state": state if isinstance(state, str) else "unknown",
+                "failed_step": failed_step if isinstance(failed_step, str) else None,
+            }
+        target_backends = (args.backend,) if args.backend is not None else (
+            "mineru",
+            "paddleocr",
+        )
+        if message is None and any(
+            backend_states[name]["state"] != "ready" for name in target_backends
+        ):
+            result_code = EXIT_PARTIAL
+            message = "One or more requested OCR backends are not ready."
+
+    report = {
+        "schema_version": 1,
+        "type": "result",
+        "action": action,
+        "backend": args.backend,
+        "runtime_root": str(runtime_root),
+        "success": message is None,
+        "message": message,
+        "backends": backend_states,
+    }
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out, flush=True)
+    return result_code
 
 
 def _ui(args: argparse.Namespace) -> int:

@@ -117,6 +117,16 @@ class RuntimeManager:
             self._set_status(backend.name, RuntimeStatus(phase_state))
             self._emit(RuntimeEvent(backend.name, phase, "started", None, completed, total))
             for step in steps:
+                self._emit(
+                    RuntimeEvent(
+                        backend.name,
+                        phase,
+                        "step_started",
+                        step.name,
+                        completed,
+                        total,
+                    )
+                )
                 try:
                     self._run_step(step, environment)
                 except Exception as exc:
@@ -144,6 +154,16 @@ class RuntimeManager:
                         f"{backend.name}:{failed_step}{suffix}"
                     ) from exc
                 completed += 1
+                self._emit(
+                    RuntimeEvent(
+                        backend.name,
+                        phase,
+                        "step_completed",
+                        step.name,
+                        completed,
+                        total,
+                    )
+                )
             self._emit(RuntimeEvent(backend.name, phase, "completed", None, completed, total))
 
         self._set_status(backend.name, RuntimeStatus("ready"))

@@ -44,14 +44,23 @@ def test_install_runs_packages_models_then_health_and_emits_progress(tmp_path: P
     ]
     assert all(call[1]["SCRIBE_CACHE"] == str(tmp_path / "cache") for call in executor.calls)
     assert manager.status("mineru").state == "ready"
-    assert [(event.phase, event.state) for event in events] == [
-        ("install", "started"),
-        ("install", "completed"),
-        ("models", "started"),
-        ("models", "completed"),
-        ("health", "started"),
-        ("health", "completed"),
-        ("complete", "ready"),
+    assert [
+        (event.phase, event.state, event.step, event.completed_steps, event.total_steps)
+        for event in events
+    ] == [
+        ("install", "started", None, 0, 3),
+        ("install", "step_started", "install", 0, 3),
+        ("install", "step_completed", "install", 1, 3),
+        ("install", "completed", None, 1, 3),
+        ("models", "started", None, 1, 3),
+        ("models", "step_started", "download", 1, 3),
+        ("models", "step_completed", "download", 2, 3),
+        ("models", "completed", None, 2, 3),
+        ("health", "started", None, 2, 3),
+        ("health", "step_started", "verify", 2, 3),
+        ("health", "step_completed", "verify", 3, 3),
+        ("health", "completed", None, 3, 3),
+        ("complete", "ready", None, 3, 3),
     ]
 
 
