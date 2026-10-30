@@ -49,14 +49,19 @@ jobs:
         with:
           name: flutter-analyze-output
           path: clients/flutter_desktop/analyze_output.txt
+      - name: Run replaceable desktop workflow tests
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=30s 4m flutter test --reporter expanded --no-color --timeout 3m test/desktop_workflow_test.dart 2>&1 | tee flutter_test_output.txt
       - name: Run Flutter tests
         shell: bash
         run: |
           set -o pipefail
-          timeout --signal=TERM --kill-after=30s 4m flutter test --reporter expanded --no-color --timeout 3m 2>&1 | tee flutter_test_output.txt
+          timeout --signal=TERM --kill-after=30s 8m flutter test --reporter expanded --no-color --timeout 3m 2>&1 | tee -a flutter_test_output.txt
       - name: Show Flutter test failures as annotations
         if: failure()
         run: |
           if [ -f flutter_test_output.txt ]; then
-            python -c 'from pathlib import Path; lines = Path("flutter_test_output.txt").read_text(errors="replace").splitlines(); markers = ("══╡", "Expected:", "Actual:", "Which:", "The following", "Failed assertion:", "NoSuchMethodError", "Timed out", "Some tests failed"); selected = list(dict.fromkeys(line.strip() for line in lines if "[E]" in line or any(marker in line for marker in markers))); message = "%0A".join(line.replace("%", "%25") for line in selected[:100]); print(f"::error title=Flutter test failures::{message}")'
+            python -c 'from pathlib import Path; lines = Path("flutter_test_output.txt").read_text(errors="replace").splitlines(); markers = ("══╡", "Expected:", "Actual:", "Which:", "The following", "Failed assertion:", "NoSuchMethodError", "Timed out", "Some tests failed"); tail = [line.strip()[:500] for line in lines[-60:] if line.strip()]; diagnostics = [line.strip()[:500] for line in lines if "[E]" in line or any(marker in line for marker in markers)]; selected = list(dict.fromkeys(tail + diagnostics))[-60:]; message = "%0A".join(line.replace("%", "%25") for line in selected); print(f"::error title=Flutter test failures::{message}")'
           fi
