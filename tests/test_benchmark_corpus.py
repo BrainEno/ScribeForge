@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from scribeforge.benchmark.corpus import validate_corpus
-from scribeforge.benchmark.manifest import BenchmarkCase, BenchmarkManifest
+import pytest
+
+from scribeforge.benchmark.corpus import fingerprint_corpus, validate_corpus
+from scribeforge.benchmark.manifest import BenchmarkCase, BenchmarkManifest, load_manifest
 
 
 def _case(case_id: str = "case-1") -> BenchmarkCase:
@@ -19,6 +22,86 @@ def test_validate_corpus_accepts_a_complete_case(tmp_path: Path) -> None:
     (tmp_path / "case-1.txt").write_text("你好", encoding="utf-8")
 
     assert validate_corpus(_manifest(_case()), tmp_path) == ()
+
+
+def test_corpus_fingerprint_binds_manifest_images_and_transcriptions(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "case-1.png"
+    truth = tmp_path / "case-1.txt"
+    image.write_bytes(b"real scan bytes")
+    truth.write_text("初始参照文本", encoding="utf-8")
+    manifest_path = tmp_path / "manifest.json"
+    manifest_data = {
+        "schema_version": 1,
+        "description": "corpus revision one",
+        "cases": [
+            {
+                "id": "case-1",
+                "image": image.name,
+                "ground_truth": truth.name,
+                "language": "zh-Hant",
+                "tags": ["vertical"],
+                "direction": "vertical-rl",
+            }
+        ],
+    }
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+    manifest = load_manifest(manifest_path)
+
+    original = fingerprint_corpus(manifest_path, manifest, tmp_path)
+
+    assert len(original.manifest_sha256) == 64
+    assert len(original.corpus_sha256) == 64
+    assert fingerprint_corpus(manifest_path, manifest, tmp_path) == original
+
+    truth.write_text("校訂后的参照文本", encoding="utf-8")
+    transcription_changed = fingerprint_corpus(manifest_path, manifest, tmp_path)
+    assert transcription_changed.corpus_sha256 != original.corpus_sha256
+
+    image.write_bytes(b"changed scan bytes")
+    image_changed = fingerprint_corpus(manifest_path, manifest, tmp_path)
+    assert image_changed.corpus_sha256 != transcription_changed.corpus_sha256
+
+    manifest_data["description"] = "corpus revision two"
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+    manifest_changed = fingerprint_corpus(
+        manifest_path, load_manifest(manifest_path), tmp_path
+    )
+    assert manifest_changed.manifest_sha256 != image_changed.manifest_sha256
+    assert manifest_changed.corpus_sha256 != image_changed.corpus_sha256
+
+
+def test_fingerprint_refuses_a_manifest_changed_after_loading(tmp_path: Path) -> None:
+    (tmp_path / "case-1.png").write_bytes(b"real scan bytes")
+    (tmp_path / "case-1.txt").write_text("参照文本", encoding="utf-8")
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "id": "case-1",
+                        "image": "case-1.png",
+                        "ground_truth": "case-1.txt",
+                        "language": "zh-Hant",
+                        "tags": ["vertical"],
+                        "direction": "vertical-rl",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = load_manifest(manifest_path)
+    manifest_path.write_text(
+        manifest_path.read_text(encoding="utf-8").replace("vertical", "body"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="manifest changed since it was loaded"):
+        fingerprint_corpus(manifest_path, manifest, tmp_path)
 
 
 def test_validate_corpus_reports_a_missing_image(tmp_path: Path) -> None:

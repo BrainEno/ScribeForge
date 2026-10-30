@@ -85,12 +85,14 @@ def test_render_report_discloses_ground_truth_review_status_and_note() -> None:
         (_report("oracle"),),
         corpus="corpus/manifest.json",
         manifest_sha256="abc123",
+        corpus_sha256="def456",
         generated_at="t",
         ground_truth_review_status="single-pass",
         ground_truth_note="Single transcription; not independently proofread.",
     )
 
     assert "- ground-truth review: `single-pass`" in text.splitlines()
+    assert "- corpus content sha256: `def456`" in text.splitlines()
     assert "> Ground-truth note: Single transcription; not independently proofread." in text
 
 

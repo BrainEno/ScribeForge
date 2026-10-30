@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -30,10 +31,14 @@ class BenchmarkManifest:
     #: absence is not evidence that the reference text was proofread.
     ground_truth_review_status: str | None = None
     ground_truth_note: str | None = None
+    #: Digest of the exact manifest bytes that produced this model instance.
+    #: Directly constructed manifests have no file provenance.
+    manifest_sha256: str | None = field(default=None, compare=False, repr=False)
 
 
 def load_manifest(path: Path) -> BenchmarkManifest:
-    raw: Any = json.loads(path.read_text(encoding="utf-8"))
+    manifest_bytes = path.read_bytes()
+    raw: Any = json.loads(manifest_bytes.decode("utf-8"))
     if not isinstance(raw, dict) or raw.get("schema_version") != 1:
         raise ValueError("unsupported benchmark schema")
 
@@ -84,4 +89,5 @@ def load_manifest(path: Path) -> BenchmarkManifest:
         cases=tuple(cases),
         ground_truth_review_status=review_status,
         ground_truth_note=ground_truth_note,
+        manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
     )

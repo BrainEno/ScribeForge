@@ -1440,9 +1440,44 @@ def test_benchmark_writes_a_report_for_every_engine(
     text = out_path.read_text(encoding="utf-8")
     assert "- corpus:" in text
     assert "- manifest sha256: `" in text
+    assert "- corpus content sha256: `" in text
     assert "| mineru |" in text
     assert "| paddleocr |" in text
     assert "| zh-1 | zh | clear |" in text
+
+
+def test_benchmark_refuses_to_write_a_report_if_the_corpus_changes_during_scoring(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, manifest = _corpus(tmp_path)
+    out_path = tmp_path / "report.md"
+
+    class MutatingEngine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            result = super().analyze_page(image_path, page_index)
+            (root / "truth.txt").write_text("changed while scoring", encoding="utf-8")
+            return result
+
+    def factory(runtime_root: Path, backends: Sequence[str]) -> tuple[FakeEngine, ...]:
+        assert backends == ("mineru",)
+        return (MutatingEngine("mineru", "鸦"),)
+
+    code = run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out_path),
+            "--engine",
+            "mineru",
+        ],
+        benchmark_engine_factory=factory,
+    )
+
+    assert code == 2
+    assert "corpus changed while the benchmark was running" in capsys.readouterr().err
+    assert not out_path.exists()
 
 
 def test_benchmark_report_discloses_ground_truth_review_metadata(
