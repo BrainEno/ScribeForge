@@ -86,7 +86,7 @@ void main() {
       '/tmp/archives',
     );
 
-    await tester.tap(find.text('创建项目备份'));
+    await tester.tap(find.widgetWithText(FilledButton, '创建项目备份'));
     await pumpUntil(
       tester,
       find.text('备份已创建'),
