@@ -19,7 +19,7 @@ Flutter 工作台负责驱动导入、处理、复核和导出；Python CLI 负�
 请安装：
 
 - **Git**：用于下载仓库。
-- **Python 3.11 或更新的兼容版本**：用于 ScribeForge 后端。
+- **Python 3.11（参考版本）或 Python 3.14.4（核心/CLI 已由 CI 验证）**：用于 ScribeForge 后端。
 - **Flutter 3.47.7 稳定版工具链**：用于运行桌面端。
 - Windows 11 用户建议启用 **Developer Mode（开发者模式）**，因为 PDF 组件的原生构建可能需要创建符号链接。
 
@@ -27,12 +27,13 @@ Flutter 工作台负责驱动导入、处理、复核和导出；Python CLI 负�
 
 ```powershell
 git --version
-py -3.11 --version
+py -3.14 --version
+# 若使用参考版本 Python 3.11：py -3.11 --version
 flutter --version
 flutter doctor
 ```
 
-如果 py -3.11 不存在，请先安装 Python 3.11，并在安装程序中启用 Python Launcher。运行 flutter doctor 时，优先处理 Windows Desktop 构建工具的报错。
+这里的 CI 验证版本是 Python 3.14.4；`py -3.14` 会选择本机已安装的 Python 3.14。若没有该版本，可安装 Python 3.11 并将下文命令里的 `-3.14` 换成 `-3.11`，同时在安装程序中启用 Python Launcher。运行 `flutter doctor` 时，优先处理 Windows Desktop 构建工具的报错。ScribeForge 核心/CLI 使用当前虚拟环境；OCR 引擎由 `scribeforge setup` 安装到独立的 Python 3.12 运行环境，详见[模型运行环境](./model-environments.md)。
 
 ## 3. 下载代码并安装 Python CLI
 
@@ -42,7 +43,7 @@ flutter doctor
 git clone https://github.com/BrainEno/ScribeForge.git
 cd ScribeForge
 
-py -3.11 -m venv .venv
+py -3.14 -m venv .venv # Python 3.11 也可：将 -3.14 换成 -3.11
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv\Scripts\Activate.ps1
 

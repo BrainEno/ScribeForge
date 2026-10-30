@@ -4,18 +4,18 @@
 
 ScribeForge turns scanned books into high-confidence, traceable digital text and exports verified results to EPUB/DOCX.
 
-The project is not trying to build yet another OCR engine. It orchestrates multiple OCR/document-analysis engines, detects disagreements, preserves page-level evidence, escalates only uncertain regions to a vision-language model or human review, and keeps every final decision traceable to the source scan.
+The project is not trying to build yet another OCR engine. It orchestrates multiple OCR/document-analysis engines, detects disagreements, preserves page-level evidence, escalates uncertainty to human review, and can optionally ask a vision-language model to inspect selected crops. **VLM review is off by default; no crop is sent unless the user explicitly enables and configures it.** Every final decision remains traceable to the source scan.
 
 ## 新手快速开始（中文）
 
 如果你是第一次拉取仓库，建议先阅读 **[中文新手使用指南](./docs/user-guide-zh.md)**。指南涵盖运行环境、扫描 PDF 导入、页级处理进度、人工复核、EPUB/DOCX 导出及常见故障排查。
 
-源码方式启动 Flutter 一体化工作台（Windows；需要 Python 3.11 和 Flutter 3.47.7 stable）：
+源码方式启动 Flutter 一体化工作台（Windows；Python 3.11 或已验证的 Python 3.14.4；Flutter 3.47.7 stable）：
 
 ```powershell
 git clone https://github.com/BrainEno/ScribeForge.git
 cd ScribeForge
-py -3.11 -m venv .venv
+py -3.14 -m venv .venv # Python 3.11 也可：把 -3.14 换成 -3.11
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 cd clients\flutter_desktop
@@ -60,20 +60,20 @@ MinerU's basic tier, and no chapter/printed-page model.
 Handling old books and ancient books — and exporting them faithfully to EPUB and
 DOCX — is therefore the **primary development goal** until the P0 gate is met.
 
-Since that review, five of the six follow-up issues have shipped: the
-preprocessing stage (deskew, deshadow, contrast, page-adaptive restoration), the
-OCR worker contract v2 (block types, line-level geometry, confidence, direction),
-the chapter/printed-page/page-role model with chapter-based EPUB navigation,
-glyph-variant folding for comparison, page-furniture removal, and vertical /
-right-to-left alignment (the pairing axis and reading order now follow the page
-direction instead of assuming horizontal rows). What is still missing before the
-gate can be declared passed is a real vertical / traditional-character benchmark
-corpus and measured end-to-end CER: every accuracy number in this repository is
-still either pixel-level or unmeasured. The engine route is in [Technology route](./docs/technology-route.md).
-The full assessment, prioritised gap list, verified free/open-source technology
-recommendations and the staged plan live in
-[Ancient book support](./docs/ancient-book-support.md). Do not claim
-ancient-book support in user-facing material before that gate is passed.
+The code now includes a preprocessing stage (deskew, deshadow, contrast,
+page-adaptive restoration), OCR worker contract v2, chapter/printed-page/page-role
+metadata with chapter-based EPUB navigation, glyph-variant folding for comparison,
+page-furniture removal, and direction-aware vertical/right-to-left alignment.
+These code paths and regression fixtures do not by themselves prove real-engine
+accuracy. The current corpora contain six single-pass horizontal pages and three
+single-pass vertical pages; the vertical set is below the R4 gate of at least 20
+pages, double proofreading, and broader complex-layout coverage. Oracle-ceiling
+runs report 0.0000 CER on those fixtures only because the reference text is replayed
+with recognition error forced to zero: that measures pipeline text loss, **not OCR
+accuracy**. No real-engine end-to-end CER has been measured. See the [Technology
+route](./docs/technology-route.md), [Ancient book support](./docs/ancient-book-support.md),
+and [current benchmark report](./benchmark/benchmark_report.md). Do not claim
+ancient-book support in user-facing material before the R4/R5 gates are passed.
 
 Export used to write one `<p>` per accepted text line, so a scanned page arrived
 as 30-odd hard-wrapped fragments — 161 paragraphs for the 36 paragraphs that the
@@ -134,7 +134,7 @@ Import
   -> PaddleOCR independent analysis
   -> spatial/text alignment
   -> disagreement + risk scoring
-  -> cropped VLM verification for uncertain regions
+  -> optional cropped VLM verification (explicit opt-in; off by default)
   -> human verification queue
   -> verified structured document
   -> EPUB / DOCX export
@@ -227,7 +227,7 @@ Two facts are never inferred. First, *agreement is not acceptance*: `adjudicate_
 
 `clients/flutter_desktop` is the Flutter-first, single-book pipeline workspace: import or resume a project, check/relink its source identity, inspect runtime readiness, run OCR with page/stage progress, review OCR/VLM evidence, record explicit human decisions, compare unverified candidate EPUBs, export accepted EPUB 3 or DOCX, and audit/backup/verify/restore projects from **项目安全**. Candidate-fill shortcuts are Alt+1/2/3; Ctrl+Enter records the edited decision. The client communicates with Python through versioned JSON CLI contracts; candidate A/B ratings remain separate from accepted decisions, restore requires explicit confirmation and a new directory, and the client does not silently launch a VLM or auto-accept its suggestions. See the [Flutter UI design pattern](./design-pattern.md) and [Flutter Desktop setup](./clients/flutter_desktop/README.md). A Flutter SDK is required today; prebuilt desktop installers are not yet published.
 
-`benchmark` validates a corpus manifest (every case needs a non-empty page image and hand-verified ground truth), builds only the requested managed backends, and scores each one for CER, WER, punctuation, missing/extra lines, per-page time, and pages/minute. Add --include-pipeline to also score variant C through production dual-engine alignment/risk/decision stages; unresolved pairs are omitted rather than guessed and reported as coverage counts. Add --include-vlm --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model to compare variant D. Only crop images are sent; remote endpoints require HTTPS and explicit --allow-remote-vlm. It writes a deterministic Markdown report naming the manifest SHA-256, with per-case rows so an aggregate gain cannot hide a hard-page regression. Variants A (MinerU), B (PaddleOCR), C (conservative dual-engine decisions), and D (VLM-assisted decisions through an explicit OpenAI-compatible endpoint) are runnable. ScribeForge does not install or silently start a VLM server; the real-corpus report remains pending. See [Benchmark](./benchmark/README.md).
+`benchmark` validates each manifest, image, and reference-text path and rejects missing/blank files, but it does **not** certify that ground truth has been proofread. The declared `ground_truth_review_status` and note are included in the report; the current six horizontal and three vertical pages are single-pass transcriptions, not double-proofread gold. It builds only the requested managed backends and scores CER, WER, punctuation, missing/extra lines, per-page time, and pages/minute. Add `--include-pipeline` to score variant C through production dual-engine alignment/risk/decision stages; unresolved pairs are omitted rather than guessed and reported as coverage counts. Variant D requires explicit `--include-vlm`, an endpoint, and a model; when opted in, only generated review crops are sent. Remote endpoints require HTTPS and explicit `--allow-remote-vlm`. The Markdown report records both the manifest SHA-256 and a corpus-content SHA-256 over the manifest, every referenced image, and every ground-truth file; the runner rechecks that fingerprint after scoring and refuses to write a report if corpus content changed. Per-case rows prevent an aggregate gain from hiding a hard-page regression. Variants A (MinerU), B (PaddleOCR), C (conservative dual-engine decisions), and D (VLM-assisted decisions through an explicit OpenAI-compatible endpoint) are runnable, but real-engine accuracy remains pending. `--oracle-ceiling` reports 0.0000 CER on the current fixtures by replaying ground truth through the pipeline with OCR error forced to zero; this is a pipeline text-loss ceiling, **not OCR accuracy**. See [Benchmark](./benchmark/README.md) and the [current report](./benchmark/benchmark_report.md).
 
 See:
 
@@ -245,7 +245,7 @@ See:
 
 ## Development bootstrap
 
-Python 3.11 is the reference runtime.
+Python 3.11 remains the reference runtime. The package metadata allows Python `>=3.10`; CI also exercises the core/CLI on **CPython 3.14.4 on Windows and Linux**. The compatibility job installs the editable development package, checks the CLI entry point, and runs the non-benchmark/non-GPU test suite. Python 3.10 is the declared floor, not a version currently covered by that CI matrix.
 
 ```bash
 python -m venv .venv
@@ -256,7 +256,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Model backends such as MinerU and PaddleOCR will be isolated behind adapters and may use separate environments/workers when dependency conflicts require it.
+This host Python version applies to ScribeForge's core and CLI. OCR backends are installed by `scribeforge setup` into separate managed environments, currently provisioned with Python 3.12; Python 3.14.4 compatibility does not imply that MinerU or PaddleOCR are imported into the host environment, nor does this CI job validate model downloads, GPU drivers, or OCR accuracy. See [Model Environments](./docs/model-environments.md).
 
 ## Non-goals for the first milestone
 
