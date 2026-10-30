@@ -20,11 +20,11 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('shows the library and five workflow destinations', (tester) async {
+  testWidgets('shows the library and six workflow destinations', (tester) async {
     await showDesktopWorkspace(tester);
 
     final navigationRail = find.byType(NavigationRail);
-    for (final label in <String>['书籍', '处理', '复核', '导出', '设置']) {
+    for (final label in <String>['书籍', '处理', '复核', '候选比较', '导出', '设置']) {
       expect(
         find.descendant(of: navigationRail, matching: find.text(label)),
         findsOneWidget,
@@ -57,6 +57,19 @@ void main() {
       find.text(
         '快捷键：Alt+←/→ 上一项/下一项；Ctrl+J 聚焦决策输入；Ctrl+G 聚焦跳页；Alt+1/2/3 填入候选；Ctrl+Enter 明确记录。',
       ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opens candidate comparison from the unified workspace',
+      (tester) async {
+    await showDesktopWorkspace(tester);
+    await openTab(tester, '候选比较');
+
+    expect(find.text('OCR 候选比较'), findsOneWidget);
+    expect(
+      find.text('请先导入书籍或打开项目，再比较 OCR 候选。'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
