@@ -193,17 +193,30 @@ void main() {
     });
 
     test('builds process arguments with opt-in VLM configuration only when enabled', () {
+      const defaultArguments = <String>[
+        'process',
+        '/tmp/My Book.pdf',
+        '--store',
+        '/tmp/My Book.scribeforge',
+      ];
       expect(
         ScribeForgeCli.processArguments(
           pdfPath: '/tmp/My Book.pdf',
           storePath: '/tmp/My Book.scribeforge',
         ),
-        <String>[
-          'process',
-          '/tmp/My Book.pdf',
-          '--store',
-          '/tmp/My Book.scribeforge',
-        ],
+        defaultArguments,
+      );
+      expect(
+        ScribeForgeCli.processArguments(
+          pdfPath: '/tmp/My Book.pdf',
+          storePath: '/tmp/My Book.scribeforge',
+          vlmSettings: const DesktopVlmSettings(
+            enabled: false,
+            endpoint: 'https://vision.example.test/v1',
+            model: 'configured-but-disabled',
+          ),
+        ),
+        defaultArguments,
       );
       expect(
         ScribeForgeCli.processArguments(

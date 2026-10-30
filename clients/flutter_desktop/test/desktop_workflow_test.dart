@@ -1,0 +1,474 @@
+import 'dart:collection';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:crypto/crypto.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:scribeforge_desktop/screens/unified_workspace.dart';
+import 'package:scribeforge_desktop/services/cli_executor.dart';
+import 'package:scribeforge_desktop/services/desktop_file_picker.dart';
+import 'package:scribeforge_desktop/services/settings_store.dart';
+
+void main() {
+  Future<_Harness> createHarness(
+    WidgetTester tester, {
+    List<int> processResults = const <int>[0],
+    List<int> exportResults = const <int>[0],
+    List<Map<String, Object?>>? reviewItems,
+  }) async {
+    final root = await Directory.systemTemp.createTemp('scribeforge-workflow-');
+    addTearDown(() async {
+      if (await root.exists()) await root.delete(recursive: true);
+    });
+    final source = File('${root.path}${Platform.pathSeparator}Sample.pdf');
+    await source.writeAsBytes(<int>[37, 80, 68, 70, 45, 49, 46, 55]);
+    final exportDirectory = Directory('${root.path}${Platform.pathSeparator}exports');
+    await exportDirectory.create();
+    final settingsDirectory = Directory('${root.path}${Platform.pathSeparator}settings');
+    final sourceHash = sha256.convert(await source.readAsBytes()).toString();
+    final picker = _FakeDesktopFilePicker(
+      files: <String?>[source.path],
+      directories: <String?>[exportDirectory.path],
+    );
+    final cli = _FakeCliExecutor(
+      sourcePath: source.path,
+      sourceHash: sourceHash,
+      processResults: processResults,
+      exportResults: exportResults,
+      reviewItems: reviewItems ?? <Map<String, Object?>>[_reviewItem(0, '鸦', '雅')],
+    );
+
+    tester.view.physicalSize = const Size(1440, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UnifiedWorkspace(
+          cliExecutor: cli,
+          filePicker: picker,
+          settingsStore: DesktopSettingsStore(directory: settingsDirectory),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    return _Harness(source: source, picker: picker, cli: cli);
+  }
+
+  Future<void> openTab(WidgetTester tester, String title) async {
+    final rail = find.byType(NavigationRail);
+    await tester.tap(find.descendant(of: rail, matching: find.text(title)));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> importBook(WidgetTester tester) async {
+    await openTab(tester, '书籍');
+    await tester.tap(find.text('导入书籍'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('imports, processes, reviews and exports through a replaceable CLI',
+      (tester) async {
+    final harness = await createHarness(tester);
+
+    await importBook(tester);
+    expect(find.text('Sample.pdf'), findsWidgets);
+    await tester.tap(find.text('开始处理'));
+    await tester.pumpAndSettle();
+
+    final processCall = harness.cli.calls.singleWhere(
+      (arguments) => arguments.first == 'process',
+    );
+    expect(processCall, contains(harness.source.path));
+    expect(processCall, isNot(contains('--vlm-endpoint')));
+
+    await openTab(tester, '复核');
+    expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
+    await tester.tap(find.text('填入 OCR 1'));
+    await tester.pump();
+    expect(
+      harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
+      isEmpty,
+      reason: 'Choosing a candidate fills the editor but is not a decision.',
+    );
+    await tester.tap(find.text('记录人工决策'));
+    await tester.pumpAndSettle();
+    expect(
+      harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
+      hasLength(1),
+    );
+    expect(harness.cli.lastHumanDecisionText, '鸦');
+    expect(find.text('暂无待处理配对。'), findsOneWidget);
+
+    await openTab(tester, '导出');
+    await tester.tap(find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.readOnly,
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始导出'));
+    await tester.pumpAndSettle();
+
+    expect(
+      harness.cli.calls.where((arguments) => arguments.first == 'export'),
+      hasLength(1),
+    );
+    expect(harness.cli.lastExportPath, contains('Sample.epub'));
+    expect(await File(harness.cli.lastExportPath!).exists(), isTrue);
+  });
+
+  testWidgets('a cancelled import does not invoke processing or create a project',
+      (tester) async {
+    final harness = await createHarness(tester);
+    harness.picker.files.addFirst(null);
+
+    await openTab(tester, '书籍');
+    await tester.tap(find.text('导入书籍'));
+    await tester.pumpAndSettle();
+
+    expect(harness.cli.calls.where((args) => args.first == 'process'), isEmpty);
+    expect(harness.cli.projectCreated, isFalse);
+    expect(find.text('尚未选择书籍或打开项目。'), findsOneWidget);
+  });
+
+  testWidgets('a failed page run is visible and can be retried', (tester) async {
+    final harness = await createHarness(tester, processResults: <int>[1, 0]);
+    await importBook(tester);
+
+    await tester.tap(find.text('开始处理'));
+    await tester.pumpAndSettle();
+    expect(find.text('重试失败页面'), findsOneWidget);
+    expect(find.textContaining('simulated worker failure'), findsOneWidget);
+
+    await tester.tap(find.text('重试失败页面'));
+    await tester.pumpAndSettle();
+    expect(find.text('开始处理'), findsOneWidget);
+    expect(
+      harness.cli.calls.where((args) => args.first == 'process'),
+      hasLength(2),
+    );
+  });
+
+  testWidgets('an export failure can be retried without reprocessing the source',
+      (tester) async {
+    final harness = await createHarness(tester, exportResults: <int>[2, 0]);
+    await importBook(tester);
+    await tester.tap(find.text('开始处理'));
+    await tester.pumpAndSettle();
+    await openTab(tester, '复核');
+    await tester.tap(find.text('填入 OCR 1'));
+    await tester.tap(find.text('记录人工决策'));
+    await tester.pumpAndSettle();
+    await openTab(tester, '导出');
+    await tester.tap(find.byWidgetPredicate(
+      (widget) => widget is TextField && widget.readOnly,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('开始导出'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('simulated export failure'), findsOneWidget);
+
+    await tester.tap(find.text('开始导出'));
+    await tester.pumpAndSettle();
+    expect(
+      harness.cli.calls.where((args) => args.first == 'process'),
+      hasLength(1),
+    );
+    expect(
+      harness.cli.calls.where((args) => args.first == 'export'),
+      hasLength(2),
+    );
+  });
+
+  testWidgets('queue navigation, page jump and focus shortcuts do not decide items',
+      (tester) async {
+    final harness = await createHarness(
+      tester,
+      reviewItems: <Map<String, Object?>>[
+        _reviewItem(0, '第一项', '候选一'),
+        _reviewItem(4, '第二项', '候选二'),
+      ],
+    );
+    await importBook(tester);
+    await tester.tap(find.text('开始处理'));
+    await tester.pumpAndSettle();
+    await openTab(tester, '复核');
+
+    expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
+    await tester.tap(find.byTooltip('下一项'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 5 页 · 第 1 组'), findsOneWidget);
+    await tester.tap(find.byTooltip('上一项'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
+
+    final pageJump = find.byKey(const ValueKey('review-page-jump'));
+    await tester.enterText(pageJump, '5');
+    await tester.tap(find.text('跳转'));
+    await tester.pumpAndSettle();
+    expect(find.text('第 5 页 · 第 1 组'), findsOneWidget);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyJ);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyJ);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(find.byKey(const ValueKey('review-decision-input')))
+          .focusNode!
+          .hasFocus,
+      isTrue,
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyG);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyG);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(pageJump).focusNode!.hasFocus,
+      isTrue,
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.pumpAndSettle();
+    expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
+    expect(
+      harness.cli.calls.where((args) => args.first == 'resolve'),
+      isEmpty,
+    );
+  });
+
+  testWidgets('VLM remains off until the user enables it in settings', (tester) async {
+    final harness = await createHarness(tester);
+    await openTab(tester, '设置');
+    expect(find.textContaining('默认关闭'), findsOneWidget);
+    await tester.tap(find.text('配置 VLM 复核'));
+    await tester.pumpAndSettle();
+
+    final enabledSwitch = find.ancestor(
+      of: find.text('Enable VLM review during OCR'),
+      matching: find.byType(SwitchListTile),
+    );
+    expect(tester.widget<SwitchListTile>(enabledSwitch).value, isFalse);
+    await tester.tap(find.text('Enable VLM review during OCR'));
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'OpenAI-compatible endpoint'),
+      'http://127.0.0.1:1234/v1',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Vision model'),
+      'fixture-vision',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    await importBook(tester);
+    await tester.tap(find.text('开始处理'));
+    await tester.pumpAndSettle();
+    final processCall = harness.cli.calls.singleWhere(
+      (arguments) => arguments.first == 'process',
+    );
+    expect(processCall, contains('--vlm-endpoint'));
+    expect(processCall, contains('http://127.0.0.1:1234/v1'));
+    expect(processCall, contains('--vlm-model'));
+    expect(processCall, contains('fixture-vision'));
+  });
+}
+
+Map<String, Object?> _reviewItem(int pageIndex, String primary, String secondary) =>
+    <String, Object?>{
+      'page_index': pageIndex,
+      'pair_index': 0,
+      'score': 0.8,
+      'reasons': <String>['text_disagreement'],
+      'primary_text': primary,
+      'secondary_text': secondary,
+      'vlm_text': null,
+      'vlm_uncertain': false,
+      'crop_path': null,
+      'source_image_path': '',
+    };
+
+class _Harness {
+  const _Harness({
+    required this.source,
+    required this.picker,
+    required this.cli,
+  });
+
+  final File source;
+  final _FakeDesktopFilePicker picker;
+  final _FakeCliExecutor cli;
+}
+
+class _FakeDesktopFilePicker implements DesktopFilePicker {
+  _FakeDesktopFilePicker({
+    required List<String?> files,
+    required List<String?> directories,
+  })  : files = Queue<String?>.from(files),
+        directories = Queue<String?>.from(directories);
+
+  final Queue<String?> files;
+  final Queue<String?> directories;
+
+  @override
+  Future<String?> pickFile({
+    String? dialogTitle,
+    required List<String> allowedExtensions,
+  }) async =>
+      files.isEmpty ? null : files.removeFirst();
+
+  @override
+  Future<String?> getDirectoryPath({String? dialogTitle}) async =>
+      directories.isEmpty ? null : directories.removeFirst();
+}
+
+class _FakeCliExecutor implements ScribeForgeCliExecutor {
+  _FakeCliExecutor({
+    required this.sourcePath,
+    required this.sourceHash,
+    required List<int> processResults,
+    required List<int> exportResults,
+    required this.reviewItems,
+  })  : _processResults = Queue<int>.from(processResults),
+        _exportResults = Queue<int>.from(exportResults);
+
+  final String sourcePath;
+  final String sourceHash;
+  final Queue<int> _processResults;
+  final Queue<int> _exportResults;
+  final List<Map<String, Object?>> reviewItems;
+  final List<List<String>> calls = <List<String>>[];
+  final Set<String> _resolved = <String>{};
+  bool projectCreated = false;
+  bool _partialFailure = false;
+  String? lastHumanDecisionText;
+  String? lastExportPath;
+
+  @override
+  Future<int> run({
+    required String executable,
+    required List<String> arguments,
+    required void Function(String chunk) onOutput,
+    required void Function(String chunk) onError,
+  }) async {
+    final args = List<String>.unmodifiable(arguments);
+    calls.add(args);
+    switch (args.first) {
+      case 'runtime-status':
+        onOutput(jsonEncode(<String, Object?>{
+          'schema_version': 1,
+          'runtime_root': '/tmp/scribeforge-runtime',
+          'runtime_root_exists': true,
+          'uv_available': true,
+          'hardware': <String, Object?>{},
+          'paths': <String, Object?>{},
+          'backends': <String, Object?>{},
+        }));
+        return 0;
+      case 'process':
+        final result = _processResults.isEmpty ? 0 : _processResults.removeFirst();
+        if (result == 2) {
+          onError('simulated fatal processing failure');
+          return result;
+        }
+        final storePath = args[args.indexOf('--store') + 1];
+        await Directory(storePath).create(recursive: true);
+        await File('$storePath${Platform.pathSeparator}project.sqlite3')
+            .writeAsString('fake project store');
+        projectCreated = true;
+        _partialFailure = result == 1;
+        onOutput('processed');
+        return result;
+      case 'status':
+        onOutput(jsonEncode(_statusPayload()));
+        return 0;
+      case 'review':
+        onOutput(jsonEncode(_reviewPayload()));
+        return 0;
+      case 'resolve':
+        final page = args[args.indexOf('--page') + 1];
+        final pair = args[args.indexOf('--pair') + 1];
+        _resolved.add('$page-$pair');
+        lastHumanDecisionText = args[args.indexOf('--text') + 1];
+        onOutput('human decision recorded');
+        return 0;
+      case 'export':
+        final result = _exportResults.isEmpty ? 0 : _exportResults.removeFirst();
+        final outputPath = args[args.indexOf('--out') + 1];
+        lastExportPath = outputPath;
+        if (result != 0) {
+          onError('simulated export failure');
+          return result;
+        }
+        await File(outputPath).parent.create(recursive: true);
+        await File(outputPath).writeAsString('fake exported book');
+        onOutput('exported');
+        return 0;
+      default:
+        onError('unexpected fake CLI command: ${args.first}');
+        return 2;
+    }
+  }
+
+  Map<String, Object?> _statusPayload() => <String, Object?>{
+        'schema_version': 1,
+        'store': '/fake/store',
+        'projects': <Map<String, Object?>>[
+          <String, Object?>{
+            'id': 1,
+            'title': 'Sample',
+            'source_uri': sourcePath,
+            'source_sha256': sourceHash,
+            'pages_total': 1,
+            'pages_with_both_ocr_success': _partialFailure ? 0 : 1,
+            'review_queued': _pendingReviewItems.length,
+            'job_counts': <String, int>{
+              'pending': _partialFailure ? 1 : 0,
+              'running': 0,
+              'succeeded': _partialFailure ? 4 : 5,
+              'failed': _partialFailure ? 1 : 0,
+            },
+            'failed_jobs': _partialFailure
+                ? <Map<String, Object?>>[
+                    <String, Object?>{
+                      'stage': 'primary_ocr',
+                      'page_index': 0,
+                      'attempts': 1,
+                      'last_error': 'simulated worker failure',
+                    },
+                  ]
+                : <Map<String, Object?>>[],
+            'active_jobs': <Map<String, Object?>>[],
+          },
+        ],
+      };
+
+  Map<String, Object?> _reviewPayload() => <String, Object?>{
+        'schema_version': 1,
+        'store': '/fake/store',
+        'projects': <Map<String, Object?>>[
+          <String, Object?>{
+            'id': 1,
+            'title': 'Sample',
+            'source_uri': sourcePath,
+            'items': _pendingReviewItems
+                .map((item) => <String, Object?>{
+                      ...item,
+                      'source_image_path': sourcePath,
+                    })
+                .toList(growable: false),
+          },
+        ],
+      };
+
+  List<Map<String, Object?>> get _pendingReviewItems => reviewItems
+      .where((item) => !_resolved.contains('${item['page_index']}-${item['pair_index']}'))
+      .toList(growable: false);
+}
