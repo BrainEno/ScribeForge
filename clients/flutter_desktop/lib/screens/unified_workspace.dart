@@ -79,6 +79,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   bool _busy = false;
+  bool _processing = false;
+  bool _cancelRequested = false;
   String? _notice;
   String? _error;
 
@@ -149,7 +151,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   void initState() {
     super.initState();
     _settingsStore = widget.settingsStore ?? DesktopSettingsStore();
-    _cliExecutor = widget.cliExecutor ?? const ProcessScribeForgeCliExecutor();
+    _cliExecutor = widget.cliExecutor ?? ProcessScribeForgeCliExecutor();
     _filePicker = widget.filePicker ?? const PluginDesktopFilePicker();
     _fileSystem = widget.fileSystem ?? const IoWorkspaceFileSystem();
     _loadSettings();
@@ -158,6 +160,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   @override
   void dispose() {
     _processStatusTimer?.cancel();
+    if (_processing) unawaited(_cliExecutor.cancel());
     _exportOutputController.dispose();
     _exportLanguageController.dispose();
     _exportTitleController.dispose();
@@ -552,6 +555,25 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     }
   }
 
+  Future<void> _cancelProcessing() async {
+    if (!_processing || _cancelRequested) return;
+    setState(() {
+      _cancelRequested = true;
+      _error = null;
+      _notice = '正在请求取消处理…';
+    });
+    try {
+      await _cliExecutor.cancel();
+    } catch (exc) {
+      if (!mounted) return;
+      setState(() {
+        _cancelRequested = false;
+        _notice = null;
+        _error = '发送取消请求失败：$exc';
+      });
+    }
+  }
+
   Future<void> _runProcess() async {
     final sourcePath = _pdfPath;
     if (sourcePath == null || _statusLoading || !_projectSourceMatches) return;
@@ -559,6 +581,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         ScribeForgeCli.defaultStorePath(sourcePath);
     setState(() {
       _busy = true;
+      _processing = true;
+      _cancelRequested = false;
       _projectStorePath = storePath;
       _error = null;
       _notice = '处理中；正在读取页级任务状态…';
@@ -573,6 +597,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         pdfPath: sourcePath,
         storePath: storePath,
         vlmSettings: _vlmSettings,
+        cancelable: true,
       );
       final buffer = StringBuffer();
       final exitCode = await _cliExecutor.run(
@@ -582,7 +607,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         onError: buffer.write,
       );
       if (!mounted) return;
-      if (exitCode == 0 || exitCode == 1) {
+      if (exitCode == 130) {
+        await _refreshStatus(waitForInFlight: true);
+        await _refreshReviewQueue();
+        if (!mounted) return;
+        setState(() {
+          _error = null;
+          _notice = '处理已取消；已保存的页面证据和人工决策保留，可重试失败任务。';
+        });
+      } else if (exitCode == 0 || exitCode == 1) {
         await _refreshStatus(waitForInFlight: true);
         await _refreshReviewQueue();
         setState(() {
@@ -599,7 +632,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     } finally {
       _processStatusTimer?.cancel();
       _processStatusTimer = null;
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _processing = false;
+          _cancelRequested = false;
+        });
+      }
     }
   }
 
@@ -1063,14 +1102,29 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              icon: Icon(_busy ? Icons.hourglass_empty : Icons.play_arrow),
-              label: Text(
-                _busy ? '处理中…' : (hasFailedJobs ? '重试失败页面' : '开始处理'),
+              icon: Icon(
+                _processing
+                    ? (_cancelRequested ? Icons.hourglass_empty : Icons.cancel_outlined)
+                    : (_busy ? Icons.hourglass_empty : Icons.play_arrow),
               ),
-              onPressed: _busy || _statusLoading || _pdfPath == null || !_projectSourceMatches
-                  ? null
-                  : _runProcess,
-              style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              label: Text(
+                _processing
+                    ? (_cancelRequested ? '正在取消…' : '取消处理')
+                    : (_busy ? '处理中…' : (hasFailedJobs ? '重试失败页面' : '开始处理')),
+              ),
+              onPressed: _processing
+                  ? (_cancelRequested ? null : _cancelProcessing)
+                  : (_busy ||
+                          _statusLoading ||
+                          _pdfPath == null ||
+                          !_projectSourceMatches
+                      ? null
+                      : _runProcess),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+                backgroundColor: _processing ? Colors.red.shade700 : null,
+                foregroundColor: _processing ? Colors.white : null,
+              ),
             ),
           ),
           if (_busy) ...[

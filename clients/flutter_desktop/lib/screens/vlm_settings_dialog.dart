@@ -5,12 +5,12 @@ import '../services/cli_runner.dart';
 import '../services/settings_store.dart';
 
 class VlmSettingsDialog extends StatefulWidget {
-  const VlmSettingsDialog({
+  VlmSettingsDialog({
     super.key,
     required this.executable,
     required this.initial,
-    this.cliExecutor = const ProcessScribeForgeCliExecutor(),
-  });
+    ScribeForgeCliExecutor? cliExecutor,
+  }) : cliExecutor = cliExecutor ?? ProcessScribeForgeCliExecutor();
 
   final String executable;
   final DesktopVlmSettings initial;

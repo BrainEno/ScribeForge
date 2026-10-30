@@ -6,10 +6,17 @@ import pytest
 from PIL import Image
 
 from scribeforge.adapters.image_preprocess import PreprocessError
+from scribeforge.adapters.subprocess_ocr import OCREngineTimeoutError
+from scribeforge.domain.cancellation import (
+    CancellationToken,
+    ProcessingCancelled,
+    cancellation_scope,
+)
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.page_asset import PageAssetError, PageAssetEvidence
 from scribeforge.domain.vlm import VLMReading
+from scribeforge.pipeline.adjudication import record_human_decision
 from scribeforge.pipeline.orchestrator import process_book, process_page
 from scribeforge.pipeline.preprocessing import preprocess_page
 from scribeforge.storage.sqlite import PageRecord, SQLiteStore
@@ -45,6 +52,22 @@ class ExplodingEngine:
 
     def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
         raise RuntimeError("engine crashed")
+
+
+class CancellingEngine:
+    """Engine that receives an in-run cancellation request while reading a page."""
+
+    def __init__(self, token: CancellationToken) -> None:
+        self._token = token
+
+    @property
+    def name(self) -> str:
+        return "primary"
+
+    def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        self._token.cancel()
+        self._token.raise_if_cancelled()
+        raise AssertionError("cancelled engine unexpectedly returned")
 
 
 class FakeReviewer:
@@ -285,6 +308,110 @@ def test_process_book_isolates_failed_page_and_resumes(tmp_path: Path) -> None:
     assert all(
         state is JobState.SUCCEEDED for state in _stage_states(store, project_id, 0).values()
     )
+
+
+def test_worker_timeout_is_visible_and_retryable(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    _seed_page(store, project_id, tmp_path)
+
+    class TimedOutEngine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            raise OCREngineTimeoutError(
+                f"OCR worker {self._name} timed out on page {page_index + 1} after 1 seconds"
+            )
+
+    first = process_book(
+        store,
+        project_id,
+        primary_engine=TimedOutEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "雅"),
+        crops_dir=tmp_path / "crops",
+    )
+
+    assert first.failed_pages == ((0, "OCR worker primary timed out on page 1 after 1 seconds"),)
+    primary_job_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+    failed_job = store.load_job(primary_job_id)
+    assert failed_job.state is JobState.FAILED
+    assert failed_job.last_error == first.failed_pages[0][1]
+
+    retry = process_book(
+        store,
+        project_id,
+        primary_engine=FakeEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "雅"),
+        crops_dir=tmp_path / "crops",
+    )
+
+    assert retry.failed_pages == ()
+    assert store.load_job(primary_job_id).state is JobState.SUCCEEDED
+    assert store.load_job(primary_job_id).attempts == 2
+
+
+def test_cancelled_page_is_failed_retryable_and_preserves_prior_evidence(
+    tmp_path: Path,
+) -> None:
+    store, project_id = _store(tmp_path)
+    first_page = _seed_page(store, project_id, tmp_path)
+    second_image = tmp_path / "page-1.png"
+    Image.new("RGB", (100, 150), "white").save(second_image)
+    store.add_page(project_id, 1, str(second_image), 100, 150)
+
+    first_outcome = process_page(
+        store,
+        project_id,
+        first_page,
+        primary_engine=FakeEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "雅"),
+        crops_dir=tmp_path / "crops",
+    )
+    record_human_decision(store, project_id, 0, 0, "人工裁定")
+    first_page_bytes = Path(first_page.source_image).read_bytes()
+    first_decisions = store.list_decisions(project_id, 0, 0)
+    token = CancellationToken()
+
+    with cancellation_scope(token), pytest.raises(ProcessingCancelled, match="cancel"):
+        process_book(
+            store,
+            project_id,
+            primary_engine=CancellingEngine(token),
+            secondary_engine=FakeEngine("secondary", "雅"),
+            crops_dir=tmp_path / "crops",
+        )
+
+    cancelled_job = store.load_job(
+        store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=1)
+    )
+    secondary_job = store.load_job(
+        store.ensure_job(project_id, JobStage.SECONDARY_OCR, page_index=1)
+    )
+    assert cancelled_job.state is JobState.FAILED
+    assert "cancel" in (cancelled_job.last_error or "").lower()
+    assert secondary_job.state is JobState.PENDING
+    assert Path(first_page.source_image).read_bytes() == first_page_bytes
+    assert store.list_decisions(project_id, 0, 0) == first_decisions
+    assert store.load_verification(first_outcome.verification_id).primary_run_id == (
+        first_outcome.primary_run_id
+    )
+
+    retried = process_book(
+        store,
+        project_id,
+        primary_engine=FakeEngine("primary", "鸦"),
+        secondary_engine=FakeEngine("secondary", "雅"),
+        crops_dir=tmp_path / "crops",
+    )
+
+    assert retried.failed_pages == ()
+    assert [page.page_index for page in retried.pages] == [0, 1]
+    assert store.load_verification(first_outcome.verification_id).secondary_run_id == (
+        first_outcome.secondary_run_id
+    )
+    assert store.list_decisions(project_id, 0, 0) == first_decisions
+    assert store.latest_decision(project_id, 0, 0).selected_text == "人工裁定"
+    assert store.latest_decision(project_id, 0, 0).actor == "human"
+    assert Path(first_page.source_image).read_bytes() == first_page_bytes
+    assert store.load_job(cancelled_job.id).state is JobState.SUCCEEDED
+    assert store.load_job(cancelled_job.id).attempts == 2
 
 
 class RecordingEngine(FakeEngine):

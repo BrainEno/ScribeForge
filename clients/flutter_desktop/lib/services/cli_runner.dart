@@ -5,6 +5,7 @@ import 'settings_store.dart';
 
 class ScribeForgeCli {
   static const String defaultExecutable = 'scribeforge';
+  static const String cancelControlMessage = '{"schema_version":1,"type":"cancel"}';
 
   static String defaultStorePath(String pdfPath) =>
       _siblingPath(pdfPath, '.scribeforge');
@@ -171,8 +172,10 @@ class ScribeForgeCli {
     required String pdfPath,
     required String storePath,
     DesktopVlmSettings? vlmSettings,
+    bool cancelable = false,
   }) {
     final arguments = <String>['process', pdfPath, '--store', storePath];
+    if (cancelable) arguments.add('--cancelable');
     if (vlmSettings != null && vlmSettings.enabled) {
       arguments.addAll(_vlmArguments(vlmSettings));
     }
@@ -252,8 +255,15 @@ class ScribeForgeCli {
     required List<String> arguments,
     required void Function(String chunk) onOutput,
     void Function(String chunk)? onError,
+    void Function(Process process)? onProcessStarted,
   }) async {
     final process = await Process.start(executable, arguments);
+    try {
+      onProcessStarted?.call(process);
+    } catch (_) {
+      process.kill();
+      rethrow;
+    }
     final stdoutDone = process.stdout
         .transform(const Utf8Decoder(allowMalformed: true))
         .forEach(onOutput);
@@ -262,6 +272,7 @@ class ScribeForgeCli {
         .forEach(onError ?? onOutput);
     final exitCode = await process.exitCode;
     await Future.wait<void>(<Future<void>>[stdoutDone, stderrDone]);
+    await process.stdin.close();
     return exitCode;
   }
 }
