@@ -41,7 +41,7 @@ def test_initialize_creates_versioned_core_schema(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
-    assert version == 11
+    assert version == 12
     assert {
         "projects",
         "pages",
@@ -59,6 +59,79 @@ def test_ocr_evidence_round_trips_with_geometry_and_confidence(tmp_path: Path) -
     restored = store.load_ocr_run(run_id)
 
     assert restored == _result("乌鸦")
+
+
+def test_unknown_and_reported_empty_tokens_round_trip_distinctly(tmp_path: Path) -> None:
+    store, project_id = _prepared_store(tmp_path)
+    box = BoundingBox(0.1, 0.2, 0.4, 0.05)
+    result = PageOCRResult(
+        0,
+        "fixture",
+        "1.2.3",
+        (
+            OCRLine("tokens unavailable", box, tokens=None),
+            OCRLine("reported empty", box, tokens=()),
+        ),
+    )
+
+    run_id = store.record_ocr(project_id, result)
+    restored = store.load_ocr_run(run_id)
+
+    assert restored.lines[0].tokens is None
+    assert restored.lines[1].tokens == ()
+    assert restored == result
+
+
+def test_v11_migration_preserves_known_tokens_and_unknown_state(tmp_path: Path) -> None:
+    path = tmp_path / "legacy-v11.sqlite3"
+    legacy = SQLiteStore(path)
+    with sqlite3.connect(path) as connection:
+        for migration in (
+            legacy._create_v1,
+            legacy._create_v2,
+            legacy._create_v3,
+            legacy._create_v4,
+            legacy._create_v5,
+            legacy._create_v6,
+            legacy._create_v7,
+            legacy._create_v8,
+            legacy._create_v9,
+            legacy._create_v10,
+            legacy._create_v11,
+        ):
+            migration(connection)
+        connection.execute(
+            "INSERT INTO projects(title, source_uri, source_sha256) VALUES ('Legacy', 'old.pdf', 'hash')"
+        )
+        connection.execute(
+            "INSERT INTO pages(project_id, page_index, source_image, width, height) "
+            "VALUES (1, 0, 'page.png', 100, 100)"
+        )
+        connection.execute(
+            "INSERT INTO engine_runs(page_id, engine, engine_version) "
+            "VALUES (1, 'legacy', '1')"
+        )
+        connection.execute(
+            "INSERT INTO ocr_lines(run_id, line_index, text, x, y, width, height) "
+            "VALUES (1, 0, 'known token', 0.1, 0.1, 0.4, 0.05)"
+        )
+        connection.execute(
+            "INSERT INTO ocr_tokens(line_id, token_index, text, confidence, x, y, width, height) "
+            "VALUES (1, 0, 'known', 0.9, 0.1, 0.1, 0.2, 0.05)"
+        )
+        connection.execute(
+            "INSERT INTO ocr_lines(run_id, line_index, text, x, y, width, height) "
+            "VALUES (1, 1, 'availability unknown', 0.1, 0.2, 0.5, 0.05)"
+        )
+        connection.execute("PRAGMA user_version = 11")
+
+    store = SQLiteStore(path)
+    store.initialize()
+    restored = store.load_ocr_run(1)
+
+    assert restored.lines[0].tokens is not None
+    assert restored.lines[0].tokens[0].text == "known"
+    assert restored.lines[1].tokens is None
 
 
 def test_none_token_confidence_round_trips(tmp_path: Path) -> None:

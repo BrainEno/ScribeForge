@@ -155,6 +155,64 @@ def test_adapter_treats_a_v1_document_as_blockless_evidence() -> None:
     assert result.direction_declared is False
 
 
+@pytest.mark.parametrize(
+    ("token_state", "expected"),
+    [("missing", None), ("null", None), ("empty", ())],
+)
+def test_adapter_preserves_token_availability_state(token_state, expected) -> None:
+    raw_line = {"text": "甲", "box": [0.1, 0.1, 0.5, 0.05]}
+    if token_state == "null":
+        raw_line["tokens"] = None
+    elif token_state == "empty":
+        raw_line["tokens"] = []
+    raw = {
+        "schema_version": 2,
+        "engine": "fixture",
+        "engine_version": "1.0",
+        "page_index": 0,
+        "lines": [raw_line],
+    }
+
+    result = _engine().parse_document(raw, 0)
+
+    assert result.lines[0].tokens == expected
+
+
+def test_v1_adapter_keeps_missing_tokens_unknown() -> None:
+    raw = {
+        "schema_version": 1,
+        "engine": "fixture",
+        "engine_version": "1.0",
+        "page_index": 0,
+        "lines": [{"text": "甲", "box": [0.1, 0.1, 0.5, 0.05]}],
+    }
+
+    result = _engine().parse_document(raw, 0)
+
+    assert result.lines[0].tokens is None
+
+
+def test_adapter_keeps_missing_per_token_confidence_unknown() -> None:
+    raw = {
+        "schema_version": 2,
+        "engine": "fixture",
+        "engine_version": "1.0",
+        "page_index": 0,
+        "lines": [
+            {
+                "text": "乌鸦",
+                "box": [0.1, 0.1, 0.2, 0.05],
+                "tokens": [{"text": "乌", "box": [0.1, 0.1, 0.1, 0.05]}],
+            }
+        ],
+    }
+
+    result = _engine().parse_document(raw, 0)
+
+    assert result.lines[0].tokens is not None
+    assert result.lines[0].tokens[0].confidence is None
+
+
 def test_adapter_maps_unknown_block_labels_instead_of_failing() -> None:
     from scribeforge.domain.ocr import BlockType
 

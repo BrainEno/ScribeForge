@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scribeforge.workers import mineru_worker, paddle_worker
+from scribeforge.workers import mineru_worker, paddle_vl_worker, paddle_worker
 
 
 def test_mineru_extract_lines_reads_middle_json_blocks() -> None:
@@ -125,14 +125,36 @@ def test_paddle_extract_lines_maps_confidence_and_geometry() -> None:
             "rec_texts": ["乌鸦"],
             "rec_scores": [0.97],
             "rec_polys": [[[100, 200], [300, 200], [300, 260], [100, 260]]],
+            "text_word": [["乌", "鸦"]],
+            "text_word_boxes": [[[100, 200, 200, 260], [200, 200, 300, 260]]],
         }
     ]
 
     lines = paddle_worker.extract_lines(raw)
 
     assert lines[0]["text"] == "乌鸦"
-    assert lines[0]["tokens"][0]["confidence"] == 0.97
+    assert lines[0]["confidence"] == 0.97
     assert lines[0]["box"] == [0.1, 0.1, 0.2, 0.03]
+    assert lines[0]["tokens"] == [
+        {"text": "乌", "box": [0.1, 0.1, 0.1, 0.03]},
+        {"text": "鸦", "box": [0.2, 0.1, 0.1, 0.03]},
+    ]
+
+
+def test_paddle_vl_reports_region_confidence_without_fabricating_tokens() -> None:
+    lines, _blocks, _direction = paddle_vl_worker.extract_page(
+        {
+            "blocks": [
+                {"type": "text", "bbox": [10, 20, 50, 40], "text": "乌鸦", "score": 0.42}
+            ]
+        },
+        width=100,
+        height=100,
+    )
+
+    assert lines[0]["box"] == pytest.approx([0.1, 0.2, 0.4, 0.2])
+    assert lines[0]["confidence"] == pytest.approx(0.42)
+    assert lines[0]["tokens"] is None
 
 
 def test_paddle_extract_lines_rejects_invalid_arrays() -> None:
@@ -156,6 +178,7 @@ def test_paddle_extract_lines_uses_image_size_when_result_omits_it() -> None:
     lines = paddle_worker.extract_lines(raw, image_size=(100, 200))
 
     assert lines[0]["box"] == [0.1, 0.1, 0.1, 0.05]
+    assert lines[0]["tokens"] is None
 
 
 def test_paddle_extract_lines_rejects_unknown_page_size() -> None:
@@ -172,9 +195,11 @@ def test_paddle_extract_lines_rejects_unknown_page_size() -> None:
 def test_paddle_main_writes_contract_from_saved_result(monkeypatch, capsys, tmp_path: Path) -> None:
     raw = {
         "version": "3.5.0",
-        "rec_texts": ["问"],
+        "rec_texts": ["问字"],
         "rec_scores": [0.91],
-        "rec_polys": [[[10, 20], [20, 20], [20, 30], [10, 30]]],
+        "rec_polys": [[[10, 20], [30, 20], [30, 30], [10, 30]]],
+        "text_word": [["问", "字"]],
+        "text_word_boxes": [[[10, 20, 20, 30], [20, 20, 30, 30]]],
     }
 
     def fake_run(argv, **kwargs):
@@ -194,8 +219,13 @@ def test_paddle_main_writes_contract_from_saved_result(monkeypatch, capsys, tmp_
     assert emitted["engine"] == "paddleocr"
     assert emitted["engine_version"] == "3.5.0"
     assert emitted["page_index"] == 5
-    assert emitted["lines"][0]["text"] == "问"
-    assert emitted["lines"][0]["box"] == [0.1, 0.1, 0.1, 0.05]
+    assert emitted["lines"][0]["text"] == "问字"
+    assert emitted["lines"][0]["box"] == [0.1, 0.1, 0.2, 0.05]
+    assert emitted["lines"][0]["confidence"] == 0.91
+    assert emitted["lines"][0]["tokens"] == [
+        {"text": "问", "box": [0.1, 0.1, 0.1, 0.05]},
+        {"text": "字", "box": [0.2, 0.1, 0.1, 0.05]},
+    ]
 
 
 def test_mineru_extract_lines_clamps_block_boxes_to_the_page() -> None:
@@ -304,6 +334,8 @@ def test_mineru_extract_page_uses_item_bbox_and_score() -> None:
 
     assert lines[0]["box"] == pytest.approx([0.1, 0.2, 0.8, 0.05])
     assert lines[0]["confidence"] == pytest.approx(0.42)
+    assert lines[0]["tokens"] is None
+    assert lines[1]["tokens"] is None
     # No score reported: absence stays absent rather than becoming a fake value.
     assert "confidence" not in lines[1]
     # Falling back to the block box is explicit, not invented geometry.
@@ -338,6 +370,7 @@ def test_mineru_main_emits_contract_v2(monkeypatch, capsys, tmp_path: Path) -> N
     emitted = json.loads(capsys.readouterr().out)
     assert emitted["schema_version"] == 2
     assert emitted["blocks"][0]["type"] == "title"
+    assert emitted["lines"][0]["tokens"] is None
 
 
 def test_paddle_worker_reports_no_blocks_without_layout_output() -> None:

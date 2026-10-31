@@ -165,7 +165,7 @@ class VLMReviewRecord:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 11
+    SCHEMA_VERSION = 12
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -312,6 +312,9 @@ class SQLiteStore:
             if version < 11:
                 self._create_v11(connection)
                 connection.execute("PRAGMA user_version = 11")
+            if version < 12:
+                self._create_v12(connection)
+                connection.execute("PRAGMA user_version = 12")
 
     @staticmethod
     def _create_v11(connection: sqlite3.Connection) -> None:
@@ -337,6 +340,28 @@ class SQLiteStore:
             ALTER TABLE pages ADD COLUMN page_asset_parameters_json TEXT;
             ALTER TABLE pages ADD COLUMN page_asset_version INTEGER CHECK(
                 page_asset_version IS NULL OR page_asset_version > 0
+            );
+            """
+        )
+
+    @staticmethod
+    def _create_v12(connection: sqlite3.Connection) -> None:
+        """Persist whether each OCR line's worker reported token data.
+
+        Existing v11 rows with token records are known to contain token evidence.
+        A line with no token rows remains unknown: older schemas collapsed a
+        missing token field and an explicit empty list, so migration must not
+        invent certainty for those rows.
+        """
+
+        connection.executescript(
+            """
+            ALTER TABLE ocr_lines ADD COLUMN tokens_reported INTEGER NOT NULL
+                DEFAULT 0 CHECK(tokens_reported IN (0, 1));
+            UPDATE ocr_lines
+            SET tokens_reported = 1
+            WHERE EXISTS (
+                SELECT 1 FROM ocr_tokens WHERE ocr_tokens.line_id = ocr_lines.id
             );
             """
         )
@@ -1617,8 +1642,9 @@ class SQLiteStore:
                 line_cursor = connection.execute(
                     """
                     INSERT INTO ocr_lines(
-                        run_id, line_index, text, x, y, width, height, confidence
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        run_id, line_index, text, x, y, width, height, confidence,
+                        tokens_reported
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         run_id,
@@ -1629,10 +1655,11 @@ class SQLiteStore:
                         line.box.width,
                         line.box.height,
                         line.confidence,
+                        int(line.tokens is not None),
                     ),
                 )
                 line_id = self._last_id(line_cursor)
-                for token_index, token in enumerate(line.tokens):
+                for token_index, token in enumerate(line.tokens or ()):
                     connection.execute(
                         """
                         INSERT INTO ocr_tokens(
@@ -1689,7 +1716,8 @@ class SQLiteStore:
 
             line_rows = connection.execute(
                 """
-                SELECT id, line_index, text, x, y, width, height, confidence
+                SELECT id, line_index, text, x, y, width, height, confidence,
+                       tokens_reported
                 FROM ocr_lines
                 WHERE run_id = ?
                 ORDER BY line_index
@@ -1707,7 +1735,7 @@ class SQLiteStore:
                     """,
                     (int(line_row["id"]),),
                 ).fetchall()
-                tokens = tuple(
+                token_evidence: tuple[OCRToken, ...] | None = tuple(
                     OCRToken(
                         text=str(token_row["text"]),
                         confidence=(
@@ -1724,6 +1752,8 @@ class SQLiteStore:
                     )
                     for token_row in token_rows
                 )
+                if not bool(line_row["tokens_reported"]) and not token_evidence:
+                    token_evidence = None
                 lines.append(
                     OCRLine(
                         text=str(line_row["text"]),
@@ -1733,7 +1763,7 @@ class SQLiteStore:
                             float(line_row["width"]),
                             float(line_row["height"]),
                         ),
-                        tokens=tokens,
+                        tokens=token_evidence,
                         confidence=(
                             None
                             if line_row["confidence"] is None

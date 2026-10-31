@@ -165,9 +165,9 @@ def extract_page(
                 "text": text,
                 "box": box,
                 "confidence": confidence,
-                "tokens": [
-                    {"text": text, "confidence": confidence, "box": box}
-                ],
+                # The VL region is line/region evidence, not native token
+                # geometry. Keep its real score at line level only.
+                "tokens": None,
             }
         )
         blocks.append(block_document(label, box, line_index, line_index + 1))

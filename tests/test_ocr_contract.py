@@ -27,6 +27,18 @@ def test_page_result_preserves_line_order_and_evidence() -> None:
     assert tuple(tokens(result)) == (first, second)
 
 
+def test_unknown_tokens_are_distinct_from_reported_empty_tokens() -> None:
+    box = BoundingBox(0.1, 0.1, 0.4, 0.05)
+    unknown = OCRLine("unknown", box, tokens=None)
+    reported_empty = OCRLine("empty", box, tokens=())
+    result = PageOCRResult(0, "fixture", "1", (unknown, reported_empty))
+
+    assert unknown.tokens is None
+    assert reported_empty.tokens == ()
+    assert tuple(tokens(result)) == ()
+    assert unknown.lowest_confidence is None
+
+
 def test_page_index_is_zero_based() -> None:
     with pytest.raises(ValueError):
         PageOCRResult(-1, "fake", "1", ())

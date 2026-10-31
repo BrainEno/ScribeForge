@@ -23,7 +23,7 @@ MinerU 4.x supports Python >=3.10,<3.15. ScribeForge provisions Python 3.12 and 
 
 ## PaddleOCR worker
 
-PaddleOCR receives its own Python 3.12 environment. The runtime planner chooses PaddlePaddle CPU or an NVIDIA wheel from the detected driver capability, then installs `paddleocr>=3,<4`. Current first-pass planning uses PaddlePaddle 3.2.0 package indexes for CPU, CUDA 11.8, or CUDA 12.6.
+PaddleOCR receives its own Python 3.12 environment. The runtime planner chooses PaddlePaddle CPU or an NVIDIA wheel from the detected driver capability, then installs `paddleocr>=3.3,<4` so the PP-OCRv4 worker can request native `return_word_box` output. Current first-pass planning uses PaddlePaddle 3.2.0 package indexes for CPU, CUDA 11.8, or CUDA 12.6.
 
 ScribeForge targets local inference and does **not** use the hosted `paddleocr api` command.
 

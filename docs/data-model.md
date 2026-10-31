@@ -88,8 +88,18 @@ They are nullable so projects imported before v11 keep opening; a NULL digest me
 `scribeforge rehash-pages` fills the gap for those pages without overwriting an
 existing digest, so a changed page can never launder itself through a rehash.
 
-The import pipeline writes these columns for every page it materializes, the
-orchestrator verifies the source raster against them before any engine reads it,
+**Schema v12 preserves token availability separately from token rows.**
+`ocr_lines.tokens_reported` records whether the worker supplied a token array:
+`0` means unavailable/unknown (`tokens` omitted or `null`), while `1` means the
+worker reported the token list, including an explicitly empty list. `ocr_tokens`
+continues to hold each token's own text, confidence (nullable), and geometry. The
+v11-to-v12 migration marks lines with existing token rows as reported; old lines
+without rows remain unknown because v11 could not distinguish missing tokens from
+an explicit empty array. This is a conservative migration: it preserves evidence
+without manufacturing certainty.
+
+The import pipeline writes these page-asset columns for every page it materializes,
+the orchestrator verifies the source raster against them before any engine reads it,
 the audit reports missing / mismatched / unreadable page assets, and `scribeforge
 export` re-checks the digest before a cover or plate is embedded. The bytes and
 their SHA-256 also travel on `VerifiedImage` (in memory only), and the export

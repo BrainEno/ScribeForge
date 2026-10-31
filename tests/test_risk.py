@@ -1,7 +1,15 @@
 import pytest
 
 from scribeforge.domain.alignment import align_pages
-from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
+from scribeforge.domain.crops import plan_review_crops
+from scribeforge.domain.ocr import (
+    BlockType,
+    BoundingBox,
+    OCRBlock,
+    OCRLine,
+    OCRToken,
+    PageOCRResult,
+)
 from scribeforge.domain.risk import RiskReason, assess_page, review_candidates
 
 
@@ -35,6 +43,29 @@ def test_low_confidence_is_risky_even_when_engines_agree() -> None:
 
     assert RiskReason.LOW_CONFIDENCE in risk.reasons
     assert risk.score > 0
+
+
+def test_line_confidence_triggers_review_when_tokens_are_unknown() -> None:
+    box = BoundingBox(0.1, 0.1, 0.8, 0.05)
+    primary = _page(
+        "mineru", OCRLine("同一句。", box, tokens=None, confidence=0.55)
+    )
+    secondary = _page(
+        "paddleocr", OCRLine("同一句。", box, tokens=None, confidence=0.60)
+    )
+    alignment = align_pages(primary, secondary)
+
+    risk = assess_page(alignment, primary, secondary)[0]
+
+    assert RiskReason.LOW_CONFIDENCE in risk.reasons
+    assert risk.min_confidence == pytest.approx(0.55)
+    candidates = review_candidates(
+        alignment,
+        (risk,),
+        primary,
+        secondary,
+    )
+    assert [candidate.pair_index for candidate in candidates] == [0]
 
 
 def test_punctuation_disagreement_scores_below_text_substitution() -> None:
@@ -74,6 +105,31 @@ def test_matched_candidate_crop_unions_both_engine_boxes() -> None:
     assert candidate.crop.y == 0.1
     assert candidate.crop.width == pytest.approx(0.8)
     assert candidate.crop.height == pytest.approx(0.07)
+
+
+def test_review_crop_uses_line_boxes_not_oversized_block_box() -> None:
+    block_box = BoundingBox(0.05, 0.05, 0.9, 0.9)
+    primary_line_box = BoundingBox(0.35, 0.35, 0.10, 0.02)
+    secondary_line_box = BoundingBox(0.36, 0.35, 0.10, 0.02)
+    primary = PageOCRResult(
+        0,
+        "mineru",
+        "1",
+        (OCRLine("乌鸦", primary_line_box),),
+        blocks=(OCRBlock(BlockType.TEXT, block_box, 0, 1),),
+    )
+    secondary = _page("paddleocr", OCRLine("鸟鸦", secondary_line_box))
+    alignment = align_pages(primary, secondary)
+    risks = assess_page(alignment, primary, secondary)
+    candidate = review_candidates(alignment, risks, primary, secondary)[0]
+    crop = plan_review_crops(
+        (candidate,), page_width=1000, page_height=1600, padding_fraction=0
+    )[0].box
+    block_pixel_area = int(block_box.width * 1000) * int(block_box.height * 1600)
+
+    assert candidate.crop.x == primary_line_box.x
+    assert candidate.crop.width == pytest.approx(0.11)
+    assert crop.width * crop.height < block_pixel_area * 0.01
 
 
 def test_unicode_replacement_character_is_flagged() -> None:

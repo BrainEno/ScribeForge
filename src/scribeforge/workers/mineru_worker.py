@@ -109,7 +109,9 @@ def extract_page(raw: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             entry: dict[str, Any] = {
                 "text": text,
                 "box": _item_box(item, block_box),
-                "tokens": [],
+                # MinerU middle-JSON supplies line/item boxes and scores, but no
+                # native token geometry. Do not mislabel a line box as a token.
+                "tokens": None,
             }
             score = item.get("score")
             if isinstance(score, (int, float)) and not isinstance(score, bool):

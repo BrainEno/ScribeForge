@@ -11,9 +11,10 @@ def test_mineru_command_requests_middle_json_in_an_output_directory(tmp_path) ->
     assert "--json" not in command
 
 
-def test_paddle_command_selects_local_pp_ocr_v6() -> None:
+def test_paddle_command_selects_word_box_capable_pp_ocr_v4() -> None:
     command = paddle_command("page.png")
     assert command[:3] == ["paddleocr", "ocr", "--input"]
-    assert command[command.index("--ocr_version") + 1] == "PP-OCRv6"
+    assert command[command.index("--ocr_version") + 1] == "PP-OCRv4"
+    assert command[command.index("--return_word_box") + 1] == "true"
     assert "--model_name" not in command
     assert "api" not in command
