@@ -25,7 +25,7 @@ from scribeforge.pipeline.rounds import (
     repair_book,
 )
 from scribeforge.pipeline.vlm_review import review_pending_candidates
-from scribeforge.storage.sqlite import PageRecord, SQLiteStore
+from scribeforge.storage.sqlite import JobAlreadyRunningError, PageRecord, SQLiteStore
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
 
 T = TypeVar("T")
@@ -259,7 +259,10 @@ def process_book(
                     preprocess=preprocess,
                 )
             )
-        except ProcessingCancelled:
+        except (ProcessingCancelled, JobAlreadyRunningError):
+            # A busy project is not a failed page: another process still owns its
+            # writer lock, and recording a page failure here would misstate the
+            # active owner's work. Let the CLI report this as a retryable conflict.
             raise
         except Exception as exc:  # noqa: BLE001 - one bad page must not stop the book
             failed_pages.append(

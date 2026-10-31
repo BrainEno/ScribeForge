@@ -34,6 +34,8 @@ Schema version 3 adds append-only `vlm_reviews`. Each row references an existing
 
 Schema version 4 adds resumable `jobs`. Jobs are uniquely scoped by project, stage, and optional page. `import` is project-scoped; OCR, verification, and VLM review stages are page-scoped. A job records `pending`, `running`, `failed`, or `succeeded` state, attempt count, last failure, and start/finish timestamps. `ensure_job` is idempotent for a given scope. Pending, failed, and interrupted-running jobs remain discoverable for resume; succeeded jobs are not restarted accidentally. Version 3 databases migrate forward without deleting existing evidence.
 
+Job execution uses a nonblocking project-scoped OS writer lock, stored outside the project assets and keyed by the resolved SQLite path plus project ID. Only the store that acquired it may complete or fail its active job. A competing process gets a retryable ownership error without incrementing attempts or changing evidence. The OS releases the lock on process termination; the next process can then reclaim a persisted `running` job, incrementing (not resetting) its attempt history. This needs no schema migration and works with local filesystem locks; do not assume advisory locks are coordinated by every network filesystem.
+
 Schema version 5 rebuilds `jobs` to widen the stage constraint, version 6 adds
 `page_structure`, `chapters`, `ocr_blocks` and the line-level confidence/direction
 columns, and version 7 records the direction an alignment was computed in.

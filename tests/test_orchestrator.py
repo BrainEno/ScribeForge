@@ -19,7 +19,7 @@ from scribeforge.domain.vlm import VLMReading
 from scribeforge.pipeline.adjudication import record_human_decision
 from scribeforge.pipeline.orchestrator import process_book, process_page
 from scribeforge.pipeline.preprocessing import preprocess_page
-from scribeforge.storage.sqlite import PageRecord, SQLiteStore
+from scribeforge.storage.sqlite import JobAlreadyRunningError, PageRecord, SQLiteStore
 
 
 class FakeEngine:
@@ -182,6 +182,11 @@ def test_process_page_resumes_interrupted_running_stage(tmp_path: Path) -> None:
     running_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
     store.start_job(running_id)
     assert store.load_job(running_id).state is JobState.RUNNING
+    # Releasing the crashed process's handle makes the persisted RUNNING state
+    # safely reclaimable; a second live owner must not be treated as interrupted.
+    store.close()
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
 
     process_page(
         store, project_id, page,
@@ -192,6 +197,34 @@ def test_process_page_resumes_interrupted_running_stage(tmp_path: Path) -> None:
     job = store.load_job(running_id)
     assert job.state is JobState.SUCCEEDED
     assert job.attempts == 2
+
+
+def test_process_book_does_not_misreport_an_owned_job_as_a_failed_page(
+    tmp_path: Path,
+) -> None:
+    owner_store, project_id = _store(tmp_path)
+    page = _seed_page(owner_store, project_id, tmp_path)
+    owned_job = owner_store.ensure_job(
+        project_id, JobStage.PRIMARY_OCR, page_index=page.page_index
+    )
+    owner_store.start_job(owned_job)
+
+    contender_store = SQLiteStore(tmp_path / "project.sqlite3")
+    contender_store.initialize()
+    primary, secondary = _engines()
+
+    with pytest.raises(JobAlreadyRunningError, match="owns the project writer lock"):
+        process_book(
+            contender_store,
+            project_id,
+            primary_engine=primary,
+            secondary_engine=secondary,
+            crops_dir=tmp_path / "crops",
+        )
+
+    assert owner_store.load_job(owned_job).state is JobState.RUNNING
+    assert owner_store.load_job(owned_job).attempts == 1
+    owner_store.fail_job(owned_job, "cleanup after ownership assertion")
 
 
 def test_process_page_skips_vlm_when_engines_agree(tmp_path: Path) -> None:
