@@ -94,6 +94,14 @@ def _positive_seconds(value: str) -> float:
     return seconds
 
 
+def _add_include_page_furniture_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--include-page-furniture",
+        action="store_true",
+        help="Include detected headers, footers and folios in review, repair, and verified export.",
+    )
+
+
 def _add_worker_timeout_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--worker-timeout",
@@ -491,12 +499,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_repair_arguments(repair)
     _add_worker_timeout_argument(repair)
     _add_vlm_arguments(repair)
+    _add_include_page_furniture_argument(repair)
     repair.add_argument("--json", action="store_true", help="Emit a JSON repair report.")
 
     review = subparsers.add_parser(
         "review", help="List the page pairs that still need a human decision."
     )
     review.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    _add_include_page_furniture_argument(review)
     review.add_argument(
         "--json", action="store_true", help="Emit schema-versioned review evidence as JSON."
     )
@@ -541,6 +551,7 @@ def build_parser() -> argparse.ArgumentParser:
         "export", help="Write the verified text of a project to EPUB 3 or DOCX."
     )
     export.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    _add_include_page_furniture_argument(export)
     export.add_argument(
         "--out", type=Path, required=True, help="Destination .epub or .docx file."
     )
@@ -1015,12 +1026,15 @@ def _repair(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> in
             crops_dir=layout.crops_dir / "repair",
             reviewer=engines.reviewer,
             settings=settings,
+            include_page_furniture=args.include_page_furniture,
         )
     except Exception as exc:  # noqa: BLE001 - report any engine/stage failure as fatal
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
-    summary = progress(store, project_id)
+    summary = progress(
+        store, project_id, include_page_furniture=args.include_page_furniture
+    )
     if args.json:
         print(
             json.dumps(
@@ -1314,13 +1328,18 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
         for project in projects:
             pages = {page.page_index: page for page in store.list_pages(project.id)}
             item_reports: list[dict[str, object]] = []
-            for queued in review_queue(store, project.id):
+            for queued in review_queue(
+                store,
+                project.id,
+                include_page_furniture=args.include_page_furniture,
+            ):
                 detail = review_detail(
                     store,
                     project.id,
                     queued.page_index,
                     queued.pair_index,
                     crops_dir=layout.crops_dir,
+                    furniture_reason=queued.furniture_reason,
                 )
                 page = pages[detail.page_index]
                 item_reports.append(
@@ -1329,6 +1348,7 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                         "pair_index": detail.pair_index,
                         "score": detail.score,
                         "reasons": [reason.value for reason in detail.reasons],
+                        "furniture_reason": detail.furniture_reason,
                         "primary_text": detail.primary_text,
                         "secondary_text": detail.secondary_text,
                         "vlm_text": detail.vlm_text,
@@ -1375,7 +1395,11 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_OK
 
     for project in projects:
-        items = review_queue(store, project.id)
+        items = review_queue(
+            store,
+            project.id,
+            include_page_furniture=args.include_page_furniture,
+        )
         print(f"project {project.id}: {project.title}", file=out)
         print(f"review queued: {len(items)}", file=out)
         for item in items:
@@ -1385,6 +1409,7 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                 item.page_index,
                 item.pair_index,
                 crops_dir=layout.crops_dir,
+                furniture_reason=item.furniture_reason,
             )
             reasons = ",".join(reason.value for reason in detail.reasons)
             print(
@@ -1392,6 +1417,8 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                 f"score={detail.score:.2f} reasons={reasons}",
                 file=out,
             )
+            if detail.furniture_reason is not None:
+                print(f"    page_furniture={detail.furniture_reason}", file=out)
             print(f"    primary={_render_text(detail.primary_text)}", file=out)
             print(f"    secondary={_render_text(detail.secondary_text)}", file=out)
             if detail.vlm_text is None:
@@ -1569,7 +1596,11 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
 
     project = projects[0]
     try:
-        book = assemble_verified_content(store, project.id)
+        book = assemble_verified_content(
+            store,
+            project.id,
+            include_page_furniture=args.include_page_furniture,
+        )
     except UnresolvedContentError as exc:
         _report_blocked_export(exc, sys.stderr)
         return EXIT_FATAL

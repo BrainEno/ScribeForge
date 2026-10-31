@@ -16,6 +16,7 @@ import '../services/cli_runner.dart';
 import '../services/desktop_file_picker.dart';
 import '../services/settings_store.dart';
 import '../services/workspace_file_system.dart';
+import '../theme/scribe_theme.dart';
 import '../widgets/review_keyboard_shortcuts.dart';
 import 'candidate_comparison_screen.dart';
 import 'project_safety_screen.dart';
@@ -99,6 +100,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   // 复核队列（来自 `scribeforge review --json` 的稳定契约）
   final List<ReviewQueueItem> _reviewQueue = [];
   bool _reviewLoading = false;
+  bool _includePageFurnitureInReview = false;
   int _selectedReviewIndex = 0;
   final _reviewPageJumpController = TextEditingController();
   final _reviewPageJumpFocusNode = FocusNode(debugLabel: 'review-page-jump');
@@ -113,6 +115,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   var _exportFormatEpub = true;
   var _exportLayoutChapter = true;
   var _exportStrictAcceptance = false;
+  var _exportIncludePageFurniture = false;
 
   // 复核队列每条项的输入控制器（键：projectId-pageIndex-pairIndex）
   final Map<String, TextEditingController> _reviewControllers = {};
@@ -355,7 +358,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     }
     setState(() => _reviewLoading = true);
     try {
-      final arguments = ScribeForgeCli.reviewArguments(storePath: storePath);
+      final arguments = ScribeForgeCli.reviewArguments(
+        storePath: storePath,
+        includePageFurniture: _includePageFurnitureInReview,
+      );
       final buffer = StringBuffer();
       final exitCode = await _cliExecutor.run(
         executable: _cliExecutable,
@@ -700,6 +706,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     String? modified,
     bool layoutChapter = true,
     bool strictAcceptance = false,
+    bool includePageFurniture = false,
   }) async {
     if (_projectStorePath == null || _projectStatus == null || !_projectCanExport) return;
     setState(() {
@@ -715,6 +722,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         language: language,
         author: author,
         modified: modified,
+        includePageFurniture: includePageFurniture,
       );
       // 布局与严格校验：CLI 支持 --layout 与 --strict-acceptance，这里拼接。
       final allArgs = <String>[...arguments];
@@ -1185,7 +1193,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
           ),
           const SizedBox(height: 16),
-          Row(
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: ScribeSpacing.x3,
+            runSpacing: ScribeSpacing.x2,
             children: <Widget>[
               ElevatedButton.icon(
                 icon: Icon(_reviewLoading ? Icons.hourglass_empty : Icons.refresh),
@@ -1194,11 +1205,35 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                     ? null
                     : _refreshReviewQueue,
               ),
-              const SizedBox(width: 12),
-              if (_projectStatus != null)
-                Text('${_projectStatus!.reviewQueued} 项待处理',
-                    style: const TextStyle(fontSize: 13)),
+              FilterChip(
+                key: const ValueKey('review-include-page-furniture'),
+                avatar: Icon(
+                  _includePageFurnitureInReview
+                      ? Icons.visibility
+                      : Icons.visibility_outlined,
+                  size: 18,
+                ),
+                label: const Text('显示页眉 / 页脚 / 页码'),
+                selected: _includePageFurnitureInReview,
+                onSelected: _reviewLoading
+                    ? null
+                    : (include) {
+                        setState(() => _includePageFurnitureInReview = include);
+                        unawaited(_refreshReviewQueue());
+                      },
+              ),
+              Text(
+                '${_reviewQueue.length} 项当前队列',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
+          ),
+          const SizedBox(height: ScribeSpacing.x2),
+          Text(
+            '默认隐藏已识别的页眉、页脚与页码；开启后可查看 OCR 证据及分类依据，决策仍需你明确确认。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
           const SizedBox(height: 12),
           if (_reviewLoading)
@@ -1329,6 +1364,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         _ => reason,
       };
 
+  String _furnitureReasonLabel(String reason) => switch (reason) {
+        'engine_block' => 'OCR 布局标记',
+        'repeated_in_margin' => '重复页边行',
+        'page_number' => '连续页码',
+        _ => reason,
+      };
+
   Widget _buildReviewEvidence(String label, String? text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -1436,6 +1478,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                       label: Text(_reasonLabel(reason)),
                       visualDensity: VisualDensity.compact,
                     )),
+                if (item.furnitureReason != null)
+                  Chip(
+                    avatar: const Icon(Icons.auto_stories_outlined, size: 16),
+                    label: Text(
+                      '页边家具 · ${_furnitureReasonLabel(item.furnitureReason!)}',
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
               ],
             ),
             if (_projectStatus == null || _projectStatus!.projectId != item.projectId)
@@ -1445,6 +1495,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
               ),
             const Divider(height: 12),
+            if (item.furnitureReason != null)
+              _buildReviewEvidence(
+                '页边家具分类依据',
+                _furnitureReasonLabel(item.furnitureReason!),
+              ),
             _buildReviewEvidence('OCR 引擎一候选', item.primaryText),
             _buildReviewEvidence('OCR 引擎二候选', item.secondaryText),
             if (item.vlmText != null) ...[
@@ -1616,6 +1671,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           subtitle: const Text('有待抽查的配对时拒绝导出（退出码 2）'),
           onChanged: (v) => setState(() => _exportStrictAcceptance = v ?? false),
         ),
+        CheckboxListTile(
+          value: _exportIncludePageFurniture,
+          title: const Text('保留页眉、页脚与页码'),
+          subtitle: const Text('包含已识别的页边行；未裁决分歧仍会阻止可信导出。'),
+          onChanged: (v) =>
+              setState(() => _exportIncludePageFurniture = v ?? false),
+        ),
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
@@ -1636,6 +1698,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                       author: _exportAuthorController.text,
                       layoutChapter: _exportLayoutChapter,
                       strictAcceptance: _exportStrictAcceptance,
+                      includePageFurniture: _exportIncludePageFurniture,
                     ),
           ),
         ),

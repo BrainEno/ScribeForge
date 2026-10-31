@@ -83,12 +83,15 @@ def assemble_verified_content(
     project_id: int,
     *,
     policy: AcceptancePolicy = DEFAULT_POLICY,
+    include_page_furniture: bool = False,
 ) -> VerifiedBook:
     """Assemble the accepted text of a project from its newest decisions.
 
     Refuses to produce a partial book: a page without a verification run, or a
     pair without an accepted decision, blocks assembly so export can never
-    silently drop or substitute unverified text.
+    silently drop or substitute unverified text. Detected page furniture is
+    excluded by default; ``include_page_furniture`` preserves it, but does not
+    bypass the normal decision gate for unresolved pairs.
     """
 
     project = next((item for item in store.list_projects() if item.id == project_id), None)
@@ -97,7 +100,9 @@ def assemble_verified_content(
 
     structure = store.load_book_structure(project_id)
     labels = structure.printed_labels_by_page()
-    furniture = _detect_furniture(store, project_id)
+    furniture = (
+        {} if include_page_furniture else _detect_furniture(store, project_id)
+    )
     confirmations = store.latest_page_confirmations(project_id)
     measured_ink = {
         entry.page_index: entry.ink_ratio
@@ -494,11 +499,14 @@ def _first_stored_run(
 def _pair_furniture(
     page_furniture: dict[int, str], pair: LineAlignment
 ) -> str | None:
-    """Reason string when either side of the pair is furniture."""
+    """Reason for furniture mapped from the primary OCR line index."""
 
-    for index in (pair.primary_line_index, pair.secondary_line_index):
-        if index is not None and index in page_furniture:
-            return page_furniture[index]
+    # Detection indexes come from the primary OCR run. A secondary line index may
+    # collide with a different primary line when the engines emit different line
+    # counts; comparing it here can silently drop real body text.
+    index = pair.primary_line_index
+    if index is not None and index in page_furniture:
+        return page_furniture[index]
     return None
 
 

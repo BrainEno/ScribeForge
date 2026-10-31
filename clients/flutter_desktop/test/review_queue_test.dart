@@ -17,6 +17,7 @@ void main() {
             "pair_index": 1,
             "score": 0.72,
             "reasons": ["text_disagreement", "low_confidence"],
+            "furniture_reason": "repeated_in_margin",
             "primary_text": "第一种读法",
             "secondary_text": "第二种读法",
             "vlm_text": "模型读法",
@@ -40,12 +41,25 @@ void main() {
     expect(item.pairIndex, 1);
     expect(item.score, closeTo(0.72, 0.0001));
     expect(item.reasons, <String>['text_disagreement', 'low_confidence']);
+    expect(item.furnitureReason, 'repeated_in_margin');
     expect(item.primaryText, '第一种读法');
     expect(item.secondaryText, '第二种读法');
     expect(item.vlmText, '模型读法');
     expect(item.vlmUncertain, isTrue);
     expect(item.cropPath, '/books/Novel.scribeforge/crops/page-000004-pair-0001.png');
     expect(item.sourceImagePath, '/books/Novel.scribeforge/assets/page-000004.png');
+  });
+
+  test('keeps legacy schema-v1 payloads without a furniture reason compatible', () {
+    final legacyPayload = payload.replaceFirst(
+      '"furniture_reason": "repeated_in_margin",',
+      '',
+    );
+
+    expect(
+      ReviewQueueSnapshot.fromJsonText(legacyPayload).items.single.furnitureReason,
+      isNull,
+    );
   });
 
   test('returns an empty queue for an empty store or no unresolved pairs', () {

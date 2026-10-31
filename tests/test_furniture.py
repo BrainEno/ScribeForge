@@ -148,13 +148,7 @@ def test_repetition_threshold_is_respected() -> None:
 
 
 def test_a_running_head_that_looks_like_a_roman_numeral_is_still_removed() -> None:
-    """This book's own title is "V.", which is also a legal roman numeral.
-
-    It is excluded either way, but it is reported as a page number rather than as
-    repeated text. The ambiguity is real and is recorded rather than hidden: the
-    structure pass additionally refuses to treat a repeated identical numeral as a
-    numbering sequence, so it never becomes a printed page label.
-    """
+    """A repeated V. stays a running head, not a stationary folio sequence."""
 
     pages = {
         index: _page(
@@ -165,7 +159,71 @@ def test_a_running_head_that_looks_like_a_roman_numeral_is_still_removed() -> No
 
     detected = detect_page_furniture(pages)
 
-    assert all(found[0] == REASON_PAGE_NUMBER for found in detected.values())
+    assert all(found[0] == REASON_REPEATED_IN_MARGIN for found in detected.values())
+
+
+def test_folios_require_a_consistent_physical_page_sequence() -> None:
+    """A number at the page edge is not a folio unless nearby labels progress."""
+
+    numbers = {0: "3", 1: "18", 2: "26"}
+    pages = {
+        page_index: _page(
+            [
+                _line("正文第一行", y=0.2),
+                _line(number, y=0.96, height=0.012),
+            ],
+            page_index=page_index,
+        )
+        for page_index, number in numbers.items()
+    }
+
+    assert detect_page_furniture(pages) == {}
+
+    # A stable but non-progressing OCR hallucination is not promoted to a folio
+    # merely because it recurs at the same edge on several pages.
+    repeated = {
+        page_index: _page(
+            [_line("正文第一行", y=0.2), _line("7", y=0.96, height=0.012)],
+            page_index=page_index,
+        )
+        for page_index in range(3)
+    }
+    assert detect_page_furniture(repeated) == {}
+
+
+def test_sparse_v_benchmark_indexes_remove_running_head_and_continuous_folios() -> None:
+    """Sparse manifest page indexes preserve physical-page continuity evidence."""
+
+    # These are the known folios on manifest cases v-020/v-030/v-040. Their
+    # physical page indexes are sparse, and the printed labels progress by ten.
+    folios = {19: "3", 29: "13", 39: "23"}
+    page_indexes = (9, 13, 17, 19, 29, 39)
+    pages = {
+        page_index: _page(
+            [
+                _line("V.", y=0.02, height=0.012),
+                _line("正文第一行", y=0.2),
+                *(
+                    [_line(folios[page_index], y=0.96, height=0.012)]
+                    if page_index in folios
+                    else []
+                ),
+            ],
+            page_index=page_index,
+        )
+        for page_index in page_indexes
+    }
+
+    detected = detect_page_furniture(pages)
+
+    assert detected == {
+        page_index: (
+            {0: REASON_REPEATED_IN_MARGIN, 2: REASON_PAGE_NUMBER}
+            if page_index in folios
+            else {0: REASON_REPEATED_IN_MARGIN}
+        )
+        for page_index in page_indexes
+    }
 
 
 def test_variant_forms_of_a_running_head_count_as_the_same_text() -> None:
@@ -314,10 +372,13 @@ def test_isolated_number_in_body_is_not_folio() -> None:
 # ------------------------------------------------------------------ integration
 
 
-def test_assembly_excludes_furniture_and_reports_it(tmp_path: Path) -> None:
-    """Running heads must not reach the export, and must be reported."""
+def test_assembly_excludes_furniture_and_can_preserve_it(tmp_path: Path) -> None:
+    """Six-page V. fixture drops headers/folios by default, but can keep them."""
 
+    from scribeforge.domain.alignment import align_pages
     from scribeforge.domain.ocr import OCRToken
+    from scribeforge.domain.risk import assess_page, review_candidates
+    from scribeforge.pipeline.adjudication import adjudicate_verification
     from scribeforge.pipeline.assembly import assemble_verified_content
     from scribeforge.storage.sqlite import SQLiteStore
 
@@ -325,63 +386,64 @@ def test_assembly_excludes_furniture_and_reports_it(tmp_path: Path) -> None:
     store.initialize()
     project_id = store.create_project("V.", "v.pdf", "hash")
 
-    for page_index in range(3):
+    for page_index in range(6):
         store.add_page(project_id, page_index, f"p{page_index}.png", 100, 150)
-        box = BoundingBox(0.1, 0.2, 0.8, 0.02)
+        body_box = BoundingBox(0.1, 0.2, 0.8, 0.02)
         head_box = BoundingBox(0.4, 0.02, 0.2, 0.012)
+        folio_box = BoundingBox(0.4, 0.96, 0.2, 0.012)
+        folio = str(page_index + 3)
         lines = (
-            OCRLine("托马斯·品钦", head_box, (OCRToken("托马斯·品钦", 0.9, head_box),)),
-            OCRLine("正文。", box, (OCRToken("正文。", 0.9, box),)),
+            OCRLine("V.", head_box, (OCRToken("V.", 0.9, head_box),)),
+            OCRLine("正文。", body_box, (OCRToken("正文。", 0.9, body_box),)),
+            OCRLine(folio, folio_box, (OCRToken(folio, 0.9, folio_box),)),
         )
-        result = PageOCRResult(page_index, "primary", "1.0", lines)
-        store.record_ocr(project_id, result)
-        secondary = PageOCRResult(
-            page_index, "secondary", "1.0", lines
-        )
-        store.record_ocr(project_id, secondary)
-
-    from scribeforge.domain.alignment import align_pages
-    from scribeforge.domain.risk import assess_page, review_candidates
-    from scribeforge.pipeline.adjudication import adjudicate_verification
-
-    for page in store.list_pages(project_id):
-        primary_run = store.latest_engine_run(project_id, page.page_index, "primary")
-        secondary_run = store.latest_engine_run(project_id, page.page_index, "secondary")
-        primary = store.load_ocr_run(primary_run)
-        secondary = store.load_ocr_run(secondary_run)
+        primary = PageOCRResult(page_index, "primary", "1.0", lines)
+        secondary = PageOCRResult(page_index, "secondary", "1.0", lines)
+        primary_run = store.record_ocr(project_id, primary)
+        secondary_run = store.record_ocr(project_id, secondary)
         alignment = align_pages(primary, secondary)
         risks = assess_page(alignment, primary, secondary)
         candidates = review_candidates(alignment, risks, primary, secondary)
-        store.record_verification(primary_run, secondary_run, alignment, risks, candidates)
-        # Only the body pair is adjudicated; the head is furniture and must not
-        # need a decision to let the book assemble.
+        verification_id = store.record_verification(
+            primary_run, secondary_run, alignment, risks, candidates
+        )
         store.append_decision(
             project_id=project_id,
-            page_index=page.page_index,
+            page_index=page_index,
             pair_index=1,
             selected_text="正文。",
             actor="automatic",
             evidence_refs=("test",),
         )
-        adjudicate_verification(
-            store,
-            project_id,
-            store.latest_verification_id(project_id, page.page_index),
-        )
+        adjudicate_verification(store, project_id, verification_id)
 
-    book = assemble_verified_content(store, project_id)
+    filtered = assemble_verified_content(store, project_id)
+    preserved = assemble_verified_content(
+        store, project_id, include_page_furniture=True
+    )
 
-    assert [page.lines for page in book.pages] == [("正文。",)] * 3
-    assert len(book.dropped_furniture) == 3
-    assert {item.text for item in book.dropped_furniture} == {"托马斯·品钦"}
-    assert {item.reason for item in book.dropped_furniture} == {REASON_REPEATED_IN_MARGIN}
+    assert [page.lines for page in filtered.pages] == [("正文。",)] * 6
+    assert len(filtered.dropped_furniture) == 12
+    assert {item.text for item in filtered.dropped_furniture} == {
+        "V.", "3", "4", "5", "6", "7", "8"
+    }
+    assert {item.reason for item in filtered.dropped_furniture} == {
+        REASON_REPEATED_IN_MARGIN, REASON_PAGE_NUMBER
+    }
+    assert [page.lines for page in preserved.pages] == [
+        ("V.", "正文。", str(page_index + 3)) for page_index in range(6)
+    ]
+    assert preserved.dropped_furniture == ()
 
 
-def test_review_queue_hides_furniture_pairs(tmp_path: Path) -> None:
-    """Reviewers must not be asked to adjudicate a running head 562 times."""
+def test_furniture_line_indexes_do_not_hide_secondary_body_lines(tmp_path: Path) -> None:
+    """A secondary index must not be compared to primary-run furniture indexes."""
 
+    from scribeforge.domain.alignment import align_pages
     from scribeforge.domain.ocr import OCRToken
+    from scribeforge.domain.risk import assess_page, review_candidates
     from scribeforge.pipeline.adjudication import review_queue
+    from scribeforge.pipeline.rounds import open_pairs
     from scribeforge.storage.sqlite import SQLiteStore
 
     store = SQLiteStore(tmp_path / "project.sqlite3")
@@ -398,7 +460,123 @@ def test_review_queue_hides_furniture_pairs(tmp_path: Path) -> None:
             "1.0",
             (
                 OCRLine("V.", head_box, (OCRToken("V.", 0.9, head_box),)),
+                OCRLine("正文甲", body_box, (OCRToken("正文甲", 0.9, body_box),)),
+            ),
+        )
+        secondary = PageOCRResult(
+            page_index,
+            "secondary",
+            "1.0",
+            (OCRLine("正文乙", body_box, (OCRToken("正文乙", 0.9, body_box),)),),
+        )
+        primary_run = store.record_ocr(project_id, primary)
+        secondary_run = store.record_ocr(project_id, secondary)
+        alignment = align_pages(primary, secondary)
+        assert (
+            alignment.pairs[1].primary_line_index,
+            alignment.pairs[1].secondary_line_index,
+        ) == (
+            1,
+            0,
+        )
+        risks = assess_page(alignment, primary, secondary)
+        candidates = review_candidates(alignment, risks, primary, secondary)
+        store.record_verification(primary_run, secondary_run, alignment, risks, candidates)
+
+    queue = review_queue(store, project_id)
+
+    assert len(queue) == 3
+    assert all(item.pair_index == 1 for item in queue)
+    assert len(open_pairs(store, project_id)) == 3
+    assert len(open_pairs(store, project_id, include_page_furniture=True)) == 6
+
+
+def test_furniture_line_indexes_do_not_hide_secondary_body_lines_in_export(
+    tmp_path: Path,
+) -> None:
+    from scribeforge.domain.alignment import align_pages
+    from scribeforge.domain.ocr import OCRToken
+    from scribeforge.domain.risk import assess_page, review_candidates
+    from scribeforge.pipeline.assembly import assemble_verified_content
+    from scribeforge.storage.sqlite import SQLiteStore
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("V.", "v.pdf", "hash")
+
+    for page_index in range(3):
+        store.add_page(project_id, page_index, f"p{page_index}.png", 100, 150)
+        head_box = BoundingBox(0.4, 0.02, 0.2, 0.012)
+        body_box = BoundingBox(0.1, 0.2, 0.8, 0.02)
+        primary = PageOCRResult(
+            page_index,
+            "primary",
+            "1.0",
+            (
+                OCRLine("V.", head_box, (OCRToken("V.", 0.9, head_box),)),
+                OCRLine("正文", body_box, (OCRToken("正文", 0.9, body_box),)),
+            ),
+        )
+        secondary = PageOCRResult(
+            page_index,
+            "secondary",
+            "1.0",
+            (OCRLine("正文", body_box, (OCRToken("正文", 0.9, body_box),)),),
+        )
+        primary_run = store.record_ocr(project_id, primary)
+        secondary_run = store.record_ocr(project_id, secondary)
+        alignment = align_pages(primary, secondary)
+        risks = assess_page(alignment, primary, secondary)
+        candidates = review_candidates(alignment, risks, primary, secondary)
+        store.record_verification(primary_run, secondary_run, alignment, risks, candidates)
+        store.append_decision(
+            project_id=project_id,
+            page_index=page_index,
+            pair_index=1,
+            selected_text="正文",
+            actor="human",
+            evidence_refs=("test",),
+        )
+
+    book = assemble_verified_content(store, project_id)
+
+    assert [page.lines for page in book.pages] == [("正文",)] * 3
+    assert len(book.dropped_furniture) == 3
+    assert {item.text for item in book.dropped_furniture} == {"V."}
+
+
+def test_review_queue_hides_furniture_but_allows_reviewing_it(tmp_path: Path) -> None:
+    """A six-page fake-OCR fixture measures filtering and opt-in review."""
+
+    from scribeforge.domain.alignment import align_pages
+    from scribeforge.domain.ocr import OCRToken
+    from scribeforge.domain.risk import assess_page, review_candidates
+    from scribeforge.pipeline.adjudication import (
+        adjudicate_verification,
+        review_detail,
+        review_queue,
+    )
+    from scribeforge.pipeline.rounds import open_pairs, progress
+    from scribeforge.storage.sqlite import SQLiteStore
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("V.", "v.pdf", "hash")
+
+    for page_index in range(6):
+        store.add_page(project_id, page_index, f"p{page_index}.png", 100, 150)
+        head_box = BoundingBox(0.4, 0.02, 0.2, 0.012)
+        body_box = BoundingBox(0.1, 0.2, 0.8, 0.02)
+        folio_box = BoundingBox(0.4, 0.96, 0.2, 0.012)
+        folio = str(page_index + 3)
+        primary = PageOCRResult(
+            page_index,
+            "primary",
+            "1.0",
+            (
+                OCRLine("V.", head_box, (OCRToken("V.", 0.9, head_box),)),
                 OCRLine("鴉片", body_box, (OCRToken("鴉片", 0.9, body_box),)),
+                OCRLine(folio, folio_box, (OCRToken(folio, 0.9, folio_box),)),
             ),
         )
         secondary = PageOCRResult(
@@ -408,22 +586,75 @@ def test_review_queue_hides_furniture_pairs(tmp_path: Path) -> None:
             (
                 OCRLine("W.", head_box, (OCRToken("W.", 0.9, head_box),)),
                 OCRLine("雅片", body_box, (OCRToken("雅片", 0.9, body_box),)),
+                OCRLine(folio, folio_box, (OCRToken(folio, 0.9, folio_box),)),
             ),
         )
         primary_run = store.record_ocr(project_id, primary)
         secondary_run = store.record_ocr(project_id, secondary)
-
-        from scribeforge.domain.alignment import align_pages
-        from scribeforge.domain.risk import assess_page, review_candidates
-
         alignment = align_pages(primary, secondary)
         risks = assess_page(alignment, primary, secondary)
         candidates = review_candidates(alignment, risks, primary, secondary)
-        store.record_verification(primary_run, secondary_run, alignment, risks, candidates)
+        verification_id = store.record_verification(
+            primary_run, secondary_run, alignment, risks, candidates
+        )
+        adjudicate_verification(store, project_id, verification_id)
 
-    queue = review_queue(store, project_id)
+    filtered_queue = review_queue(store, project_id)
+    complete_queue = review_queue(store, project_id, include_page_furniture=True)
 
-    # Both the head ("V." vs "W.") and the body ("鴉" vs "雅") disagree; only the
-    # body pair is real content.
-    assert queue
-    assert all(item.pair_index == 1 for item in queue)
+    # The mismatched header ("V." vs "W.") and the body ("鴉" vs "雅") remain
+    # reviewable, while aligned folios are accepted and never add queue noise.
+    assert len(filtered_queue) == 6
+    assert all(item.pair_index == 1 for item in filtered_queue)
+    assert len(complete_queue) == 12
+    assert len(open_pairs(store, project_id)) == 6
+    assert len(open_pairs(store, project_id, include_page_furniture=True)) == 12
+    assert progress(store, project_id).pairs == 6
+    assert progress(store, project_id, include_page_furniture=True).pairs == 18
+    furniture_item = next(
+        item for item in complete_queue if item.page_index == 0 and item.pair_index == 0
+    )
+    assert furniture_item.furniture_reason == REASON_REPEATED_IN_MARGIN
+    detail = review_detail(
+        store,
+        project_id,
+        furniture_item.page_index,
+        furniture_item.pair_index,
+        furniture_reason=furniture_item.furniture_reason,
+    )
+    assert detail.primary_text == "V."
+    assert detail.secondary_text == "W."
+    assert detail.furniture_reason == REASON_REPEATED_IN_MARGIN
+    assert (
+        review_detail(
+            store, project_id, furniture_item.page_index, furniture_item.pair_index
+        ).furniture_reason
+        == REASON_REPEATED_IN_MARGIN
+    )
+
+    import io
+    import json
+
+    from scribeforge.cli import run
+
+    output = io.StringIO()
+    assert (
+        run(
+            [
+                "review",
+                "--store",
+                str(tmp_path),
+                "--include-page-furniture",
+                "--json",
+            ],
+            stdout=output,
+        )
+        == 0
+    )
+    review_items = json.loads(output.getvalue())["projects"][0]["items"]
+    assert any(
+        item["furniture_reason"] == REASON_REPEATED_IN_MARGIN
+        and item["primary_text"] == "V."
+        and item["secondary_text"] == "W."
+        for item in review_items
+    )

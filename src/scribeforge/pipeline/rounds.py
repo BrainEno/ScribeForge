@@ -32,7 +32,7 @@ decide whether to spot-check or escalate.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -231,10 +231,29 @@ def _gate_refused(
     )
 
 
-def open_pairs(store: SQLiteStore, project_id: int) -> tuple[PairRef, ...]:
+def open_pairs(
+    store: SQLiteStore,
+    project_id: int,
+    *,
+    include_page_furniture: bool = False,
+) -> tuple[PairRef, ...]:
     """List undecided, non-furniture pairs, highest risk first."""
 
-    furniture = project_furniture(store, project_id)
+    return _open_pairs(
+        store,
+        project_id,
+        include_page_furniture=include_page_furniture,
+        furniture=project_furniture(store, project_id),
+    )
+
+
+def _open_pairs(
+    store: SQLiteStore,
+    project_id: int,
+    *,
+    include_page_furniture: bool,
+    furniture: Mapping[int, Mapping[int, str]],
+) -> tuple[PairRef, ...]:
     refs: list[PairRef] = []
     for page in store.list_pages(project_id):
         try:
@@ -244,10 +263,15 @@ def open_pairs(store: SQLiteStore, project_id: int) -> tuple[PairRef, ...]:
         record = store.load_verification(verification_id)
         page_furniture = furniture.get(page.page_index, {})
         for pair_index, pair in enumerate(record.alignment.pairs):
-            if any(
-                index is not None and index in page_furniture
-                for index in (pair.primary_line_index, pair.secondary_line_index)
-            ):
+            # project_furniture returns primary-run line indexes; never compare a
+            # secondary index here or a line-count mismatch can hide body content.
+            primary_line_index = pair.primary_line_index
+            furniture_reason = (
+                page_furniture.get(primary_line_index)
+                if primary_line_index is not None
+                else None
+            )
+            if furniture_reason is not None and not include_page_furniture:
                 continue
             if store.latest_decision(project_id, page.page_index, pair_index) is None:
                 refs.append(
@@ -340,6 +364,7 @@ def run_repair_round(
     reviewer: VLMReviewer | None = None,
     settings: RepairSettings | None = None,
     round_index: int = 1,
+    include_page_furniture: bool = False,
 ) -> RoundReport:
     """Re-read the still-undecided pairs and accept whatever the readings agree on."""
 
@@ -351,7 +376,9 @@ def run_repair_round(
     settings = settings or RepairSettings()
 
     pages = {page.page_index: page for page in store.list_pages(project_id)}
-    undecided = open_pairs(store, project_id)
+    undecided = open_pairs(
+        store, project_id, include_page_furniture=include_page_furniture
+    )
     candidates = undecided[: settings.max_pairs_per_round]
     deferred = undecided[len(candidates) :]
 
@@ -477,6 +504,7 @@ def repair_book(
     crops_dir: Path,
     reviewer: VLMReviewer | None = None,
     settings: RepairSettings | None = None,
+    include_page_furniture: bool = False,
 ) -> tuple[RoundReport, ...]:
     """Run rounds until the book is settled, stuck, or out of budget."""
 
@@ -491,6 +519,7 @@ def repair_book(
             reviewer=reviewer,
             settings=settings,
             round_index=round_index,
+            include_page_furniture=include_page_furniture,
         )
         if not report.examined and not report.skipped:
             # Nothing left to read and nothing left to report: the book is
@@ -504,13 +533,48 @@ def repair_book(
     return tuple(reports)
 
 
+def _furniture_pair_keys(
+    store: SQLiteStore,
+    project_id: int,
+    furniture: Mapping[int, Mapping[int, str]],
+) -> set[tuple[int, int]]:
+    keys: set[tuple[int, int]] = set()
+    for page in store.list_pages(project_id):
+        try:
+            verification_id = store.latest_verification_id(project_id, page.page_index)
+        except KeyError:
+            continue
+        record = store.load_verification(verification_id)
+        page_furniture = furniture.get(page.page_index, {})
+        for pair_index, pair in enumerate(record.alignment.pairs):
+            line_index = pair.primary_line_index
+            if line_index is not None and line_index in page_furniture:
+                keys.add((page.page_index, pair_index))
+    return keys
+
+
 def progress(
-    store: SQLiteStore, project_id: int, *, high_risk: float = 0.6
+    store: SQLiteStore,
+    project_id: int,
+    *,
+    high_risk: float = 0.6,
+    include_page_furniture: bool = False,
 ) -> ProgressReport:
     """Summarise how much of the book was accepted without a person."""
 
-    undecided = open_pairs(store, project_id)
+    furniture = project_furniture(store, project_id)
+    undecided = _open_pairs(
+        store,
+        project_id,
+        include_page_furniture=include_page_furniture,
+        furniture=furniture,
+    )
     actors = store.latest_decision_actors(project_id)
+    if not include_page_furniture:
+        furniture_pairs = _furniture_pair_keys(store, project_id, furniture)
+        actors = {
+            key: actor for key, actor in actors.items() if key not in furniture_pairs
+        }
     automatic = sum(
         1 for actor in actors.values() if actor == DecisionActor.AUTOMATIC.value
     )

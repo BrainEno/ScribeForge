@@ -12,10 +12,11 @@ independent of position alone:
 
 1. the engine declared it a ``header``/``footer`` block (contract v2), or
 2. it sits in the margin band **and** repeats across pages, or
-3. it sits in the margin band and is a bare page number.
+3. it sits in the margin band and its page number progresses with physical page
+   indexes across at least two observed pages.
 
-A margin line that appears on only one page is *not* furniture: that is exactly
-the shape of a chapter heading.
+A margin line that appears on only one page is *not* furniture based on repetition
+or numbering alone: that is exactly the shape of a chapter heading.
 
 Two common real-world shapes are handled in addition to the three rules above:
 
@@ -34,7 +35,7 @@ from collections.abc import Iterable, Mapping
 
 from scribeforge.domain.normalize import fold_for_comparison
 from scribeforge.domain.ocr import PageOCRResult
-from scribeforge.domain.structure import parse_page_label
+from scribeforge.domain.structure import NumberingScheme, parse_page_label
 
 # Fraction of page height treated as the margin band. A running head set deep into
 # the text block is not furniture by position, and the repetition rule still needs
@@ -44,6 +45,11 @@ MARGIN_BAND = 0.08
 # How many pages a margin line must appear on before it is called a running head.
 # Two pages can share a one-off line (a part title spread); three is a pattern.
 REPETITION_MIN_PAGES = 3
+
+# A folio is removed only when at least two observed labels progress at the same
+# rate as their physical page indexes. This permits sparse benchmark samples while
+# refusing to treat one arbitrary margin number as a page number.
+PAGE_NUMBER_MIN_SEQUENCE_PAGES = 2
 
 # A folio embedded in a margin line is at most this many digits long.
 MAX_FOLIO_DIGITS = 4
@@ -120,6 +126,38 @@ def margin_line_keys(result: PageOCRResult) -> Mapping[str, tuple[int, ...]]:
     return {key: tuple(indexes) for key, indexes in keys.items()}
 
 
+def _continuous_page_number_indexes(
+    pages: Mapping[int, PageOCRResult],
+) -> Mapping[int, frozenset[int]]:
+    """Return margin lines whose folios progress with their physical page indexes.
+
+    Grouping by ``printed sequence - physical page index`` permits sparse sample
+    pages (e.g. folios 3, 13, 23 at ``page_index`` 19, 29, 39) while rejecting
+    isolated, misread, or repeated-but-nonprogressing numbers. A numbering restart
+    naturally forms a new offset group.
+    """
+
+    groups: dict[tuple[NumberingScheme, int], dict[int, set[int]]] = {}
+    for page_index, result in pages.items():
+        for line_index, line in enumerate(result.lines):
+            if not _in_margin(result, line_index):
+                continue
+            label = parse_page_label(line.text)
+            if not label.is_numbered or label.sequence is None:
+                continue
+            offset = label.sequence - page_index
+            page_lines = groups.setdefault((label.scheme, offset), {})
+            page_lines.setdefault(page_index, set()).add(line_index)
+
+    confirmed: dict[int, set[int]] = {}
+    for page_lines in groups.values():
+        if len(page_lines) < PAGE_NUMBER_MIN_SEQUENCE_PAGES:
+            continue
+        for page_index, line_indexes in page_lines.items():
+            confirmed.setdefault(page_index, set()).update(line_indexes)
+    return {page_index: frozenset(indexes) for page_index, indexes in confirmed.items()}
+
+
 def detect_page_furniture(
     pages: Mapping[int, PageOCRResult],
     *,
@@ -137,6 +175,8 @@ def detect_page_furniture(
     *all* pages is caught through the ``all`` bucket even when each parity class
     alone is below the threshold (short books).
     """
+
+    continuous_folios = _continuous_page_number_indexes(pages)
 
     # key -> {"all": set of pages, 0: even pages, 1: odd pages}
     counts: dict[str, dict[str | int, set[int]]] = {}
@@ -162,9 +202,21 @@ def detect_page_furniture(
                 continue
             if not _in_margin(result, index):
                 continue
-            if parse_page_label(line.text).is_numbered:
-                found[index] = REASON_PAGE_NUMBER
-                continue
+            page_label = parse_page_label(line.text)
+            if page_label.is_numbered:
+                if index in continuous_folios.get(page_index, frozenset()):
+                    found[index] = REASON_PAGE_NUMBER
+                    continue
+                if page_label.scheme not in (
+                    NumberingScheme.ROMAN_UPPER,
+                    NumberingScheme.ROMAN_LOWER,
+                ):
+                    # An isolated or non-progressing Arabic/CJK number is ordinary
+                    # page text, even if the same OCR reading repeats at the edge.
+                    continue
+                # A repeated Roman title such as "V." is allowed to reach the
+                # running-head rule below. Without an increasing sequence it is
+                # not evidence of a printed folio.
 
             # Head + folio on one line, e.g. "V. 23": the bare folio part is
             # furniture, and the head part must repeat as a running head for the

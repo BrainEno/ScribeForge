@@ -54,6 +54,19 @@ void main() {
         <String>['review', '--store', '/tmp/My Book.scribeforge', '--json'],
       );
       expect(
+        ScribeForgeCli.reviewArguments(
+          storePath: '/tmp/My Book.scribeforge',
+          includePageFurniture: true,
+        ),
+        <String>[
+          'review',
+          '--store',
+          '/tmp/My Book.scribeforge',
+          '--include-page-furniture',
+          '--json',
+        ],
+      );
+      expect(
         ScribeForgeCli.resolveArguments(
           storePath: '/tmp/My Book.scribeforge',
           projectId: 42,
@@ -136,6 +149,7 @@ void main() {
           author: 'A. Writer',
           language: 'zh-Hant',
           modified: '2026-10-22T00:00:00Z',
+          includePageFurniture: true,
         ),
         <String>[
           'export',
@@ -143,6 +157,7 @@ void main() {
           '/tmp/My Book.scribeforge',
           '--out',
           '/tmp/Verified Book.epub',
+          '--include-page-furniture',
           '--language',
           'zh-Hant',
           '--title',

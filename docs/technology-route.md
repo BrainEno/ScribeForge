@@ -24,7 +24,7 @@
 | #86 | worker 契约 v2（块类型、行级几何、置信度、方向） | `workers/protocol.py`、`domain/ocr.py`、MinerU/Paddle worker | 契约测试 + worker 载荷测试 |
 | #87 | 章节 / 印刷页码 / 页面角色 | `domain/structure.py`、`pipeline/structure.py`、schema v6、EPUB 章节化导航 | 结构测试 55 项 + 导出测试（嵌套 nav、印刷页码标题） |
 | #88 | 繁简/异体规范化（只影响比较） | `domain/normalize.py` | 折叠/风险/裁定三层测试 |
-| #89 | 页眉页脚剔除（块 + 跨页重复 + 孤立页码） | `domain/furniture.py` | 误删防护测试 + 装配集成测试 |
+| #89 | 页眉页脚剔除（块 + 页边重复 + 连续页码） | `domain/furniture.py` | 误删防护测试 + 装配集成测试 |
 
 两个在实施中被实测发现、此前只在纸面上的假设：
 
