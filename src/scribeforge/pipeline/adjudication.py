@@ -5,12 +5,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scribeforge.domain.acceptance import DEFAULT_POLICY, AcceptancePolicy
-from scribeforge.domain.alignment import AlignmentConflict
+from scribeforge.domain.alignment import AlignmentConflict, LineAlignment
 from scribeforge.domain.crops import review_crop_file_name
 from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
 from scribeforge.domain.ocr import BoundingBox, PageOCRResult
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord, VLMReviewRecord
+
+
+class _Unset:
+    __slots__ = ()
+
+
+_FURNITURE_REASON_UNSET = _Unset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +41,7 @@ class ReviewItem:
     pair_index: int
     score: float
     reasons: tuple[RiskReason, ...]
+    furniture_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +62,7 @@ class ReviewDetail:
     primary_box: BoundingBox | None = None
     secondary_box: BoundingBox | None = None
     conflicts: tuple[AlignmentConflict, ...] = ()
+    furniture_reason: str | None = None
 
 
 def _line_box(result: PageOCRResult, index: int | None) -> BoundingBox | None:
@@ -235,7 +244,12 @@ def _blank_pair(primary_text: str | None, secondary_text: str | None) -> bool:
     return all(text is not None and not text.strip() for text in (primary_text, secondary_text))
 
 
-def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
+def review_queue(
+    store: SQLiteStore,
+    project_id: int,
+    *,
+    include_page_furniture: bool = False,
+) -> tuple[ReviewItem, ...]:
     """List every pair that still lacks an accepted decision.
 
     The queue is defined by *what is missing*, not by which pairs happened to clear
@@ -244,10 +258,11 @@ def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
     threshold, and a queue built from candidates would then report "0 queued" while
     export stays blocked — a dead end with nothing to click (issue #75).
 
-    Running heads and folios are excluded (they are not content), and so are pairs
-    where both engines returned an empty line (there is nothing to transcribe;
-    confirmed-blank handling covers the page, see issue #74). Book-wide furniture
-    detection is why this cannot be computed one page at a time.
+    Running heads and folios are excluded by default (they are not content), and
+    so are pairs where both engines returned an empty line (there is nothing to
+    transcribe; confirmed-blank handling covers the page, see issue #74). Set
+    ``include_page_furniture`` to review those pairs explicitly. Book-wide
+    furniture detection is why this cannot be computed one page at a time.
     """
 
     furniture = project_furniture(store, project_id)
@@ -262,10 +277,8 @@ def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
         secondary = store.load_ocr_run(record.secondary_run_id)
         page_furniture = furniture.get(page.page_index, {})
         for pair_index, pair in enumerate(record.alignment.pairs):
-            if any(
-                index is not None and index in page_furniture
-                for index in (pair.primary_line_index, pair.secondary_line_index)
-            ):
+            furniture_reason = _pair_furniture_reason(page_furniture, pair)
+            if furniture_reason is not None and not include_page_furniture:
                 continue
             if store.latest_decision(project_id, page.page_index, pair_index) is not None:
                 continue
@@ -281,10 +294,22 @@ def review_queue(store: SQLiteStore, project_id: int) -> tuple[ReviewItem, ...]:
                     pair_index=pair_index,
                     score=risk.score,
                     reasons=risk.reasons,
+                    furniture_reason=furniture_reason,
                 )
             )
     items.sort(key=lambda item: (-item.score, item.page_index, item.pair_index))
     return tuple(items)
+
+
+def _pair_furniture_reason(
+    page_furniture: Mapping[int, str], pair: LineAlignment
+) -> str | None:
+    # Furniture indexes are derived from the primary reading. Secondary line
+    # indexes are a separate coordinate space and may collide with body indexes.
+    index = pair.primary_line_index
+    if index is not None and index in page_furniture:
+        return page_furniture[index]
+    return None
 
 
 def project_furniture(
@@ -319,14 +344,22 @@ def review_detail(
     pair_index: int,
     *,
     crops_dir: Path | None = None,
+    furniture_reason: str | None | _Unset = _FURNITURE_REASON_UNSET,
 ) -> ReviewDetail:
     """Load the competing evidence for one aligned pair.
 
     The crop path is only reported when the crop file was actually materialized,
-    so a reviewer is never pointed at bytes that do not exist.
+    so a reviewer is never pointed at bytes that do not exist. Furniture is
+    classified from the book-wide evidence unless a caller supplies the already
+    computed reason (including an explicit ``None`` for a known non-furniture pair).
     """
 
     context = _pair_context(store, project_id, page_index, pair_index)
+    if isinstance(furniture_reason, _Unset):
+        pair = context.record.alignment.pairs[pair_index]
+        furniture_reason = _pair_furniture_reason(
+            project_furniture(store, project_id).get(page_index, {}), pair
+        )
     candidate = context.candidate
     decision = store.latest_decision(project_id, page_index, pair_index)
     reading = context.reading
@@ -349,6 +382,7 @@ def review_detail(
         primary_box=context.primary_box,
         secondary_box=context.secondary_box,
         conflicts=context.conflicts,
+        furniture_reason=furniture_reason,
     )
 
 

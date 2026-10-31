@@ -139,6 +139,65 @@ def test_load_review_rows_lists_the_queued_pairs(tmp_path: Path) -> None:
     assert rows[0].label == "page 0 pair 0 score=0.50 reasons=text_disagreement"
 
 
+def test_viewmodel_can_include_page_furniture_and_confirm_it_explicitly(
+    tmp_path: Path,
+) -> None:
+    from scribeforge.domain.alignment import align_pages
+    from scribeforge.domain.risk import assess_page, review_candidates
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("V.", "v.pdf", "hash")
+    head_box = BoundingBox(0.4, 0.02, 0.2, 0.012)
+    body_box = BoundingBox(0.1, 0.2, 0.8, 0.02)
+    for page_index in range(3):
+        store.add_page(project_id, page_index, f"p{page_index}.png", 100, 150)
+        primary = PageOCRResult(
+            page_index,
+            "primary",
+            "1.0",
+            (
+                OCRLine("V.", head_box, (OCRToken("V.", 0.9, head_box),)),
+                OCRLine("正文甲", body_box, (OCRToken("正文甲", 0.9, body_box),)),
+            ),
+        )
+        secondary = PageOCRResult(
+            page_index,
+            "secondary",
+            "1.0",
+            (
+                OCRLine("W.", head_box, (OCRToken("W.", 0.9, head_box),)),
+                OCRLine("正文乙", body_box, (OCRToken("正文乙", 0.9, body_box),)),
+            ),
+        )
+        primary_run = store.record_ocr(project_id, primary)
+        secondary_run = store.record_ocr(project_id, secondary)
+        alignment = align_pages(primary, secondary)
+        risks = assess_page(alignment, primary, secondary)
+        candidates = review_candidates(alignment, risks, primary, secondary)
+        store.record_verification(primary_run, secondary_run, alignment, risks, candidates)
+
+    default_rows = load_review_rows(store, project_id)
+    all_rows = load_review_rows(store, project_id, include_page_furniture=True)
+
+    assert len(default_rows) == 3
+    assert all(row.furniture_reason is None for row in default_rows)
+    assert len(all_rows) == 6
+    furniture_row = next(row for row in all_rows if row.furniture_reason is not None)
+    detail = load_detail(store, project_id, furniture_row)
+    assert detail.furniture_reason == "repeated_in_margin"
+    assert "furniture=repeated_in_margin" in render_detail(detail)
+
+    decision_id = resolve_review_row(store, project_id, furniture_row, "V.")
+
+    assert decision_id > 0
+    assert store.latest_decision(project_id, furniture_row.page_index, furniture_row.pair_index)
+    assert (
+        store.load_ocr_run(store.latest_engine_run(project_id, 0, "primary")).lines[0].text
+        == "V."
+    )
+
+
 def test_load_review_rows_is_empty_once_a_human_decided(tmp_path: Path) -> None:
     store, project_id = _store(tmp_path)
     record_human_decision(store, project_id, 0, 0, "鸦")

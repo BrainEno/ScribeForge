@@ -46,12 +46,17 @@ class ScribeForgeCli {
         '--json',
       ];
 
-  static List<String> reviewArguments({required String storePath}) => <String>[
-    'review',
-    '--store',
-    storePath,
-    '--json',
-  ];
+  static List<String> reviewArguments({
+    required String storePath,
+    bool includePageFurniture = false,
+  }) =>
+      <String>[
+        'review',
+        '--store',
+        storePath,
+        if (includePageFurniture) '--include-page-furniture',
+        '--json',
+      ];
 
   static List<String> resolveArguments({
     required String storePath,
@@ -123,6 +128,7 @@ class ScribeForgeCli {
     required String language,
     String? author,
     String? modified,
+    bool includePageFurniture = false,
   }) =>
       <String>[
         'export',
@@ -130,6 +136,7 @@ class ScribeForgeCli {
         storePath,
         '--out',
         outputPath,
+        if (includePageFurniture) '--include-page-furniture',
         '--language',
         language,
         '--title',

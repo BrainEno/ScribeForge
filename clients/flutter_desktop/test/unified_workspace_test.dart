@@ -60,6 +60,13 @@ void main() {
 
     expect(find.text('复核队列'), findsOneWidget);
     expect(find.text('刷新队列'), findsOneWidget);
+    final furnitureFilter = find.byKey(
+      const ValueKey('review-include-page-furniture'),
+    );
+    expect(tester.widget<FilterChip>(furnitureFilter).selected, isFalse);
+    await tester.tap(furnitureFilter);
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilterChip>(furnitureFilter).selected, isTrue);
     expect(find.text('请先导入书籍或打开一个项目。'), findsOneWidget);
     expect(
       find.text(
@@ -96,6 +103,7 @@ void main() {
     expect(find.text('作者（可选）'), findsOneWidget);
     expect(find.text('按章节布局（EPUB）'), findsOneWidget);
     expect(find.text('严格接受校验'), findsOneWidget);
+    expect(find.text('保留页眉、页脚与页码'), findsOneWidget);
     expect(find.text('开始导出'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

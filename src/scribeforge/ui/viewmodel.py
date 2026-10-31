@@ -140,13 +140,19 @@ class ReviewRow:
     pair_index: int
     score: float
     reasons: tuple[str, ...]
+    furniture_reason: str | None = None
 
     @property
     def label(self) -> str:
         reasons = ",".join(self.reasons) if self.reasons else "none"
-        return (
+        label = (
             f"page {self.page_index} pair {self.pair_index} "
             f"score={self.score:.2f} reasons={reasons}"
+        )
+        return (
+            label
+            if self.furniture_reason is None
+            else f"{label} furniture={self.furniture_reason}"
         )
 
 
@@ -187,8 +193,13 @@ def load_jobs(store: SQLiteStore, project_id: int) -> tuple[JobRow, ...]:
     )
 
 
-def load_review_rows(store: SQLiteStore, project_id: int) -> tuple[ReviewRow, ...]:
-    """List the pairs that still need a human decision."""
+def load_review_rows(
+    store: SQLiteStore,
+    project_id: int,
+    *,
+    include_page_furniture: bool = False,
+) -> tuple[ReviewRow, ...]:
+    """List unresolved pairs, optionally including detected page furniture."""
 
     return tuple(
         ReviewRow(
@@ -196,8 +207,11 @@ def load_review_rows(store: SQLiteStore, project_id: int) -> tuple[ReviewRow, ..
             pair_index=item.pair_index,
             score=item.score,
             reasons=tuple(reason.value for reason in item.reasons),
+            furniture_reason=item.furniture_reason,
         )
-        for item in review_queue(store, project_id)
+        for item in review_queue(
+            store, project_id, include_page_furniture=include_page_furniture
+        )
     )
 
 
@@ -216,7 +230,11 @@ def resolve_review_row(
 
     if not any(
         item.page_index == row.page_index and item.pair_index == row.pair_index
-        for item in load_review_rows(store, project_id)
+        for item in load_review_rows(
+            store,
+            project_id,
+            include_page_furniture=row.furniture_reason is not None,
+        )
     ):
         raise ValueError("review item is no longer queued")
     return record_human_decision(
@@ -234,7 +252,12 @@ def load_detail(
     """Load the competing evidence for one queued pair."""
 
     return review_detail(
-        store, project_id, row.page_index, row.pair_index, crops_dir=crops_dir
+        store,
+        project_id,
+        row.page_index,
+        row.pair_index,
+        crops_dir=crops_dir,
+        furniture_reason=row.furniture_reason,
     )
 
 
@@ -286,10 +309,14 @@ def render_detail(detail: ReviewDetail) -> str:
     """Render the evidence panel text for one pair."""
 
     reasons = ",".join(reason.value for reason in detail.reasons) or "none"
-    return "\n".join(
+    lines = [
+        f"page {detail.page_index} pair {detail.pair_index}",
+        f"risk score={detail.score:.2f} reasons={reasons}",
+    ]
+    if detail.furniture_reason is not None:
+        lines.append(f"furniture={detail.furniture_reason}")
+    lines.extend(
         (
-            f"page {detail.page_index} pair {detail.pair_index}",
-            f"risk score={detail.score:.2f} reasons={reasons}",
             f"primary {_render(detail.primary_text)}",
             f"secondary {_render(detail.secondary_text)}",
             f"vlm {_render_vlm(detail)}",
@@ -297,6 +324,7 @@ def render_detail(detail: ReviewDetail) -> str:
             f"accepted {_render(detail.accepted_text)}",
         )
     )
+    return "\n".join(lines)
 
 
 def _render(text: str | None) -> str:

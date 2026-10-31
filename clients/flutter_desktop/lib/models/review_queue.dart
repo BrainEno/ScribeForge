@@ -52,6 +52,7 @@ class ReviewQueueItem {
     required this.pairIndex,
     required this.score,
     required this.reasons,
+    required this.furnitureReason,
     required this.primaryText,
     required this.secondaryText,
     required this.vlmText,
@@ -66,6 +67,7 @@ class ReviewQueueItem {
   final int pairIndex;
   final double score;
   final List<String> reasons;
+  final String? furnitureReason;
   final String? primaryText;
   final String? secondaryText;
   final String? vlmText;
@@ -85,6 +87,7 @@ class ReviewQueueItem {
     final pairIndex = json['pair_index'];
     final rawScore = json['score'];
     final rawReasons = json['reasons'];
+    final rawFurnitureReason = json['furniture_reason'];
     final rawPrimaryText = json['primary_text'];
     final rawSecondaryText = json['secondary_text'];
     final rawVlmText = json['vlm_text'];
@@ -97,6 +100,7 @@ class ReviewQueueItem {
         !rawScore.isFinite ||
         rawReasons is! List ||
         rawReasons.any((reason) => reason is! String) ||
+        (rawFurnitureReason != null && rawFurnitureReason is! String) ||
         (rawPrimaryText != null && rawPrimaryText is! String) ||
         (rawSecondaryText != null && rawSecondaryText is! String) ||
         (rawVlmText != null && rawVlmText is! String) ||
@@ -112,6 +116,7 @@ class ReviewQueueItem {
       pairIndex: pairIndex,
       score: rawScore.toDouble(),
       reasons: List<String>.unmodifiable(rawReasons.cast<String>()),
+      furnitureReason: rawFurnitureReason as String?,
       primaryText: rawPrimaryText as String?,
       secondaryText: rawSecondaryText as String?,
       vlmText: rawVlmText as String?,

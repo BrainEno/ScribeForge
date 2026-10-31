@@ -179,12 +179,14 @@ scribeforge backup --store store/ --out Book.zip # project DB, assets and verifi
 scribeforge verify-backup --backup Book.zip     # verify hashes, manifest and SQLite integrity
 scribeforge restore --backup Book.zip --to Book-restored.scribeforge # restore to new folder
 scribeforge review --store store/             # pairs awaiting a human decision
+scribeforge review --store store/ --include-page-furniture # inspect headers/footers/folios
 scribeforge resolve --store store/ \
   --page 0 --pair 3 --text "鸦"              # record the accepted reading
 scribeforge confirm --store store/ --page 5 \
   --kind blank --reason "empty leaf"        # declare a page has no text
 scribeforge export --store store/ --out book.epub   # verified text -> EPUB 3
 scribeforge export --store store/ --out book.docx   # verified text -> DOCX
+scribeforge export --store store/ --out book.epub --include-page-furniture # keep margins
 scribeforge export --store store/ --out book.epub --json           # acceptance report
 scribeforge export --store store/ --out book.epub --strict-acceptance # machine-certified only
 scribeforge export --store store/ --out scans.epub --layout page    # facsimile layout
@@ -203,7 +205,7 @@ Run `scribeforge audit --store store/ --json` before archiving or resuming a pro
 
 Create a project backup with `scribeforge backup --store store/ --out Book.zip`. The archive includes a consistent SQLite snapshot, all regular project-store files, and each original source document after confirming its recorded SHA-256. Backup is refused while a job is running or when database/page evidence is damaged or the source identity cannot be verified. Existing archives are never overwritten unless `--overwrite` is supplied. Run `scribeforge verify-backup --backup Book.zip` before restoring; `scribeforge restore --backup Book.zip --to Book-restored.scribeforge` verifies member hashes and SQLite integrity, then restores into a new directory without overwriting an existing destination. Internal page-image and source paths are updated to the restored location; processing/review evidence remains intact.
 
-When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
+When two engines agree a decision is recorded as `automatic`; a confident VLM reading is recorded as `vlm`. Anything else stays in the review queue for a human decision — ScribeForge never rewrites source OCR. `review` prints each queued pair with both engine readings, the VLM reading (when one exists), its risk score/reasons, and the crop file to inspect; detected page furniture is filtered by default, while `--include-page-furniture` exposes its OCR evidence and classification. The same opt-in on `export` preserves detected headers, footers, and continuous folios; unresolved disagreements still block verified export. `resolve` appends a `human` decision that cites the verification run, both engine runs, and any VLM reading, superseding earlier automatic/VLM decisions on that pair without deleting them.
 
 A scanned book is not a list of rasters. `structure` derives what each page *is*
 (cover, copyright, contents, front matter, body, plate, blank), the printed page

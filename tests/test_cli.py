@@ -441,6 +441,101 @@ def test_process_parser_exposes_worker_deadline_and_cancel_control() -> None:
         build_parser().parse_args(["process", "book.pdf", "--worker-timeout", "0"])
 
 
+def test_furniture_cli_commands_expose_include_switch() -> None:
+    parser = build_parser()
+    command_arguments = (
+        ("review", ["--store", "store"]),
+        ("repair", ["--store", "store"]),
+        ("export", ["--store", "store", "--out", "book.epub"]),
+    )
+
+    for command, arguments in command_arguments:
+        default = parser.parse_args([command, *arguments])
+        included = parser.parse_args([command, *arguments, "--include-page-furniture"])
+        assert default.include_page_furniture is False
+        assert included.include_page_furniture is True
+
+
+def test_export_cli_passes_page_furniture_choice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.pipeline.assembly import UnresolvedContentError
+
+    store_dir = tmp_path / "store"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    store.create_project("Book", "book.pdf", "hash")
+    captured: list[bool] = []
+
+    def assemble(
+        _store: SQLiteStore, _project_id: int, *, include_page_furniture: bool
+    ) -> None:
+        captured.append(include_page_furniture)
+        raise UnresolvedContentError(unverified_pages=(), unresolved_pairs=())
+
+    monkeypatch.setattr(cli_module, "assemble_verified_content", assemble)
+    output = io.StringIO()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(tmp_path / "book.epub"),
+            "--include-page-furniture",
+        ],
+        stdout=output,
+    )
+
+    assert code != 0
+    assert captured == [True]
+
+
+def test_repair_cli_passes_page_furniture_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.pipeline.rounds import ProgressReport
+
+    store_dir = tmp_path / "store"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    store.create_project("Book", "book.pdf", "hash")
+    repair_scopes: list[bool] = []
+    progress_scopes: list[bool] = []
+
+    def repair(_store: SQLiteStore, _project_id: int, **kwargs: object) -> tuple[object, ...]:
+        repair_scopes.append(bool(kwargs["include_page_furniture"]))
+        return ()
+
+    def progress_report(
+        _store: SQLiteStore, _project_id: int, *, include_page_furniture: bool
+    ) -> ProgressReport:
+        progress_scopes.append(include_page_furniture)
+        return ProgressReport(
+            pages=0,
+            pairs=0,
+            accepted_automatic=0,
+            accepted_vlm=0,
+            accepted_human=0,
+            open_pairs=0,
+            open_high_risk=0,
+        )
+
+    monkeypatch.setattr(cli_module, "repair_book", repair)
+    monkeypatch.setattr(cli_module, "progress", progress_report)
+
+    code = run(
+        ["repair", "--store", str(store_dir), "--include-page-furniture", "--json"],
+        engine_factory=_factory(),
+        stdout=io.StringIO(),
+    )
+
+    assert code == 0
+    assert repair_scopes == [True]
+    assert progress_scopes == [True]
+
+
 def test_process_cli_passes_worker_timeout_to_managed_engines(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
