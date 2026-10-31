@@ -118,3 +118,29 @@ mapping PaddleX's serialized `text_word` / `text_word_boxes` fields (see the
 Adapters reject schema, engine, and page identity mismatches. This allows MinerU,
 PaddleOCR and future engines to live in independent environments without importing
 their dependency stacks into the core process.
+
+## Real-model smoke test (opt-in)
+
+Contract fixtures verify parsing and geometry mapping, but they do not prove that a
+PaddleOCR installation downloads and emits native word boxes. The opt-in test
+`tests/test_paddle_real_smoke.py` runs the actual PP-OCRv4 worker against the
+repository's dense Chinese sample page (or an image selected with
+`SCRIBEFORGE_PADDLE_SMOKE_IMAGE`) and checks for non-empty word geometry, normalized
+boxes, and line-only confidence. It is marked `gpu` because it needs an installed
+PaddleOCR model runtime and may take several minutes; the default CI suite excludes
+this test and never downloads model weights.
+
+After installing PaddleOCR and provisioning PP-OCRv4 models in the managed runtime, run:
+
+```sh
+SCRIBEFORGE_RUN_PADDLE_SMOKE=1 \
+SCRIBEFORGE_RUNTIME_ROOT=/path/to/ScribeForgeData/runtime \
+python -m pytest -m gpu tests/test_paddle_real_smoke.py
+```
+
+`SCRIBEFORGE_RUNTIME_ROOT` is optional when using the default per-user runtime path.
+The test resolves the PaddleOCR executable and model/cache environment from that root;
+on Windows this uses the environment's `Scripts` directory automatically. Setting the
+opt-in flag without an installed runtime is an error, not a skip. This test is the
+required real-engine evidence for the non-empty-token acceptance item; fixture results
+alone must not be reported as a successful model smoke test.
