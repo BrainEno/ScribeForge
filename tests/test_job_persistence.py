@@ -1,12 +1,46 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.storage.sqlite import SQLiteStore
+
+
+def _claim_job_and_wait(
+    database_path: str,
+    job_id: int,
+    messages: Any,
+    release: Any,
+) -> None:
+    """Hold a job from a child process until the parent releases or kills it."""
+
+    store = SQLiteStore(Path(database_path))
+    store.initialize()
+    job = store.start_job(job_id)
+    messages.put(("claimed", job.attempts))
+    release.wait(30)
+
+
+def _try_claim_job(
+    database_path: str,
+    job_id: int,
+    messages: Any,
+) -> None:
+    """Report whether an independent process can claim the same job."""
+
+    store = SQLiteStore(Path(database_path))
+    store.initialize()
+    try:
+        job = store.start_job(job_id)
+    except RuntimeError as exc:
+        messages.put(("blocked", str(exc)))
+    else:
+        messages.put(("claimed", job.attempts))
 
 
 def _store(tmp_path: Path) -> tuple[SQLiteStore, int]:
@@ -68,6 +102,124 @@ def test_page_job_lifecycle_records_attempts_failure_and_retry(tmp_path: Path) -
 
     with pytest.raises(ValueError, match="succeeded"):
         store.start_job(job_id)
+
+
+def test_independent_processes_cannot_claim_the_same_page_job(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    job_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+    context = mp.get_context("spawn")
+    messages = context.Queue()
+    release = context.Event()
+    owner = context.Process(
+        target=_claim_job_and_wait,
+        args=(str(tmp_path / "project.sqlite3"), job_id, messages, release),
+    )
+    owner.start()
+
+    try:
+        assert messages.get(timeout=15) == ("claimed", 1)
+        competitor = context.Process(
+            target=_try_claim_job,
+            args=(str(tmp_path / "project.sqlite3"), job_id, messages),
+        )
+        competitor.start()
+        competitor.join(timeout=15)
+        assert not competitor.is_alive()
+        outcome, detail = messages.get(timeout=5)
+
+        assert outcome == "blocked"
+        assert any(word in detail.lower() for word in ("running", "owner", "owns"))
+        assert store.load_job(job_id).attempts == 1
+        assert store.load_job(job_id).state is JobState.RUNNING
+    finally:
+        release.set()
+        owner.join(timeout=15)
+        if owner.is_alive():
+            owner.terminate()
+            owner.join(timeout=5)
+        messages.close()
+        messages.join_thread()
+
+
+def test_abnormal_process_exit_allows_safe_running_job_takeover(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    job_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+    context = mp.get_context("spawn")
+    messages = context.Queue()
+    release = context.Event()
+    owner = context.Process(
+        target=_claim_job_and_wait,
+        args=(str(tmp_path / "project.sqlite3"), job_id, messages, release),
+    )
+    owner.start()
+    try:
+        assert messages.get(timeout=15) == ("claimed", 1)
+
+        # Simulate an OS-level crash: no fail/complete transition gets written,
+        # but the OS must drop the process lock as it closes the process.
+        owner.terminate()
+        owner.join(timeout=15)
+        assert not owner.is_alive()
+
+        recovered = store.start_job(job_id)
+        assert recovered.state is JobState.RUNNING
+        assert recovered.attempts == 2
+        assert store.complete_job(job_id).attempts == 2
+    finally:
+        if owner.is_alive():
+            owner.terminate()
+            owner.join(timeout=5)
+        messages.close()
+        messages.join_thread()
+
+
+def test_only_the_process_that_started_a_job_may_finish_it(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    job_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+    store.start_job(job_id)
+
+    non_owner = SQLiteStore(tmp_path / "project.sqlite3")
+    non_owner.initialize()
+    with pytest.raises(RuntimeError, match="owner|owned|own"):
+        non_owner.complete_job(job_id)
+    with pytest.raises(RuntimeError, match="owner|owned|own"):
+        non_owner.fail_job(job_id, "not the owner")
+
+    assert store.load_job(job_id).state is JobState.RUNNING
+    assert store.load_job(job_id).attempts == 1
+    store.fail_job(job_id, "owner completed failure transition")
+
+
+def test_same_store_cannot_restart_a_running_job(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    job_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+
+    store.start_job(job_id)
+    with pytest.raises(RuntimeError, match="running|owns"):
+        store.start_job(job_id)
+
+    assert store.load_job(job_id).attempts == 1
+    store.fail_job(job_id, "cleanup after duplicate-start assertion")
+
+
+def test_writer_lock_is_scoped_to_a_project_not_the_whole_database(
+    tmp_path: Path,
+) -> None:
+    store, first_project_id = _store(tmp_path)
+    second_project_id = store.create_project("Second book", "second.pdf", "second-hash")
+    store.add_page(second_project_id, 0, "second/000001.png", 1000, 1600)
+    first_job = store.ensure_job(
+        first_project_id, JobStage.PRIMARY_OCR, page_index=0
+    )
+    second_job = store.ensure_job(
+        second_project_id, JobStage.PRIMARY_OCR, page_index=0
+    )
+
+    store.start_job(first_job)
+    store.start_job(second_job)
+    assert store.complete_job(first_job).state is JobState.SUCCEEDED
+    assert store.load_job(second_job).state is JobState.RUNNING
+    store.complete_job(second_job)
 
 
 def test_ensure_job_is_idempotent_per_project_page_and_stage(tmp_path: Path) -> None:

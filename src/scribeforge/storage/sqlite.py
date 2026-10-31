@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import errno
+import hashlib
 import json
+import os
 import sqlite3
+import tempfile
+import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, BinaryIO, cast
 
 from scribeforge.domain.alignment import (
     AlignmentConflict,
@@ -39,6 +44,14 @@ from scribeforge.domain.structure import (
     PageStructure,
 )
 from scribeforge.domain.vlm import VLMReading
+
+
+class JobAlreadyRunningError(RuntimeError):
+    """A process cannot claim work while another process owns the project lock."""
+
+
+class JobOwnershipError(RuntimeError):
+    """Only the store that claimed a job may complete or fail that job."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +169,95 @@ class SQLiteStore:
 
     def __init__(self, path: Path) -> None:
         self._path = path
+        self._ownership_guard = threading.RLock()
+        self._writer_locks: dict[int, BinaryIO] = {}
+        self._active_job_ids: dict[int, int] = {}
+
+    def _project_writer_lock_path(self, project_id: int) -> Path:
+        """Return a stable OS-lock path for one project, outside its assets.
+
+        The lock file is intentionally persistent. Unlinking a lock file while
+        another process has it open can give a third process a different inode
+        and accidentally create two simultaneous owners.
+        """
+
+        database_identity = os.fsencode(
+            os.path.normcase(str(self._path.resolve()))
+        )
+        database_key = hashlib.sha256(database_identity).hexdigest()
+        return (
+            Path(tempfile.gettempdir())
+            / "scribeforge"
+            / "job-locks"
+            / database_key
+            / f"project-{project_id}.writer.lock"
+        )
+
+    def _acquire_project_writer_lock(self, project_id: int) -> BinaryIO:
+        lock_path = self._project_writer_lock_path(project_id)
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        handle = lock_path.open("a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                handle.seek(0)
+                windows_locking = cast(Any, msvcrt)
+                windows_locking.locking(
+                    handle.fileno(), windows_locking.LK_NBLCK, 1
+                )
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            handle.close()
+            if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                raise JobAlreadyRunningError(
+                    "another ScribeForge process owns the project writer lock"
+                ) from exc
+            raise
+        return handle
+
+    def _release_project_writer_lock(self, project_id: int) -> None:
+        handle = self._writer_locks.pop(project_id, None)
+        self._active_job_ids.pop(project_id, None)
+        if handle is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                windows_locking = cast(Any, msvcrt)
+                windows_locking.locking(
+                    handle.fileno(), windows_locking.LK_UNLCK, 1
+                )
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            # Closing the handle also releases an OS lock. Do not hide a job's
+            # already-committed terminal state behind an unlock cleanup failure.
+            pass
+        finally:
+            handle.close()
+
+    def close(self) -> None:
+        """Release this store's writer ownership without changing job evidence.
+
+        A job left in ``running`` is recoverable after the handle closes: the
+        next process to acquire the OS lock can safely record another attempt.
+        """
+
+        with self._ownership_guard:
+            for project_id in tuple(self._writer_locks):
+                self._release_project_writer_lock(project_id)
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -1098,35 +1200,70 @@ class SQLiteStore:
             return self._job_record(self._job_row(connection, job_id))
 
     def start_job(self, job_id: int) -> JobRecord:
-        with self._connection() as connection:
-            current = self._job_record(self._job_row(connection, job_id))
-            if current.state is JobState.SUCCEEDED:
-                raise ValueError("succeeded job cannot be started again")
-            connection.execute(
-                """
-                UPDATE jobs
-                SET state = 'running', attempts = attempts + 1, last_error = NULL,
-                    started_at = CURRENT_TIMESTAMP, finished_at = NULL
-                WHERE id = ?
-                """,
-                (job_id,),
+        """Claim one job under a project-scoped, crash-released OS lock.
+
+        If a process dies, the operating system drops its lock and a new process
+        can reclaim the persisted ``running`` job; its attempt count is retained.
+        """
+
+        with self._ownership_guard:
+            project_id = self.load_job(job_id).project_id
+            if project_id in self._writer_locks:
+                active_job_id = self._active_job_ids[project_id]
+                raise JobAlreadyRunningError(
+                    f"this store already owns running job {active_job_id}"
+                )
+            self._writer_locks[project_id] = self._acquire_project_writer_lock(
+                project_id
             )
-            return self._job_record(self._job_row(connection, job_id))
+            try:
+                with self._connection() as connection:
+                    current = self._job_record(self._job_row(connection, job_id))
+                    if current.state is JobState.SUCCEEDED:
+                        raise ValueError("succeeded job cannot be started again")
+                    connection.execute(
+                        """
+                        UPDATE jobs
+                        SET state = 'running', attempts = attempts + 1, last_error = NULL,
+                            started_at = CURRENT_TIMESTAMP, finished_at = NULL
+                        WHERE id = ?
+                        """,
+                        (job_id,),
+                    )
+                    running = self._job_record(self._job_row(connection, job_id))
+                self._active_job_ids[project_id] = job_id
+                return running
+            except BaseException:
+                self._release_project_writer_lock(project_id)
+                raise
+
+    def _require_job_owner(self, job_id: int, project_id: int) -> None:
+        if (
+            project_id not in self._writer_locks
+            or self._active_job_ids.get(project_id) != job_id
+        ):
+            raise JobOwnershipError(
+                f"this store does not own running job {job_id}"
+            )
 
     def complete_job(self, job_id: int) -> JobRecord:
-        with self._connection() as connection:
-            current = self._job_record(self._job_row(connection, job_id))
-            if current.state is not JobState.RUNNING:
-                raise ValueError("job must be running before it can succeed")
-            connection.execute(
-                """
-                UPDATE jobs
-                SET state = 'succeeded', finished_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (job_id,),
-            )
-            return self._job_record(self._job_row(connection, job_id))
+        with self._ownership_guard:
+            with self._connection() as connection:
+                current = self._job_record(self._job_row(connection, job_id))
+                if current.state is not JobState.RUNNING:
+                    raise ValueError("job must be running before it can succeed")
+                self._require_job_owner(job_id, current.project_id)
+                connection.execute(
+                    """
+                    UPDATE jobs
+                    SET state = 'succeeded', finished_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (job_id,),
+                )
+                completed = self._job_record(self._job_row(connection, job_id))
+            self._release_project_writer_lock(current.project_id)
+            return completed
 
     def reopen_job(self, job_id: int, reason: str) -> JobRecord:
         """Return a succeeded job to pending so its stage can run again.
@@ -1158,19 +1295,23 @@ class SQLiteStore:
         error = error.strip()
         if not error:
             raise ValueError("job failure error must not be blank")
-        with self._connection() as connection:
-            current = self._job_record(self._job_row(connection, job_id))
-            if current.state is not JobState.RUNNING:
-                raise ValueError("job must be running before it can fail")
-            connection.execute(
-                """
-                UPDATE jobs
-                SET state = 'failed', last_error = ?, finished_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (error, job_id),
-            )
-            return self._job_record(self._job_row(connection, job_id))
+        with self._ownership_guard:
+            with self._connection() as connection:
+                current = self._job_record(self._job_row(connection, job_id))
+                if current.state is not JobState.RUNNING:
+                    raise ValueError("job must be running before it can fail")
+                self._require_job_owner(job_id, current.project_id)
+                connection.execute(
+                    """
+                    UPDATE jobs
+                    SET state = 'failed', last_error = ?, finished_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (error, job_id),
+                )
+                failed = self._job_record(self._job_row(connection, job_id))
+            self._release_project_writer_lock(current.project_id)
+            return failed
 
     def list_resumable_jobs(self, project_id: int) -> tuple[JobRecord, ...]:
         with self._connection() as connection:
