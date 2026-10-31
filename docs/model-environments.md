@@ -27,6 +27,12 @@ PaddleOCR receives its own Python 3.12 environment. The runtime planner chooses 
 
 ScribeForge targets local inference and does **not** use the hosted `paddleocr api` command.
 
+Once the PaddleOCR environment and PP-OCRv4 model cache are ready, the worker's real
+word-box path can be checked with the opt-in smoke test described in
+[`ocr-worker-contract.md`](ocr-worker-contract.md#real-model-smoke-test-opt-in). It
+runs the real worker/CLI rather than a fixture payload; ordinary CI deliberately does
+not download these weights.
+
 ## Detection and safe fallback
 
 The runtime probe attempts to collect OS, architecture, NVIDIA GPU name, NVIDIA driver, VRAM, and RAM. If GPU capability cannot be established safely, installation falls back to a CPU runtime instead of guessing a GPU package.
