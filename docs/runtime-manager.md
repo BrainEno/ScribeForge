@@ -74,7 +74,7 @@ Environment variables route MinerU and PaddleX model storage, Hugging Face / Mod
 
 ## Model preparation
 
-MinerU uses its official 4.x model commands to download and verify the `standard` tier. PaddleOCR preloads the PP-OCRv6 general OCR pipeline inside its private environment; PaddleX model caching is redirected to `runtime/models/paddleocr`.
+MinerU uses its official 4.x model commands to download and verify the `standard` tier. PaddleOCR preloads the PP-OCRv4 general OCR pipeline with `return_word_box` enabled inside its private environment; PaddleX model caching is redirected to `runtime/models/paddleocr`. The worker uses v4 because the current v5/v6 Transformers recognizers do not expose PaddleX's native word-box output.
 
 Model preparation is explicit during setup rather than being allowed to surprise the user during the first OCR job.
 

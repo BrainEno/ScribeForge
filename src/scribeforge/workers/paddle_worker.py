@@ -24,13 +24,17 @@ def build_command(image: str) -> list[str]:
         "--input",
         image,
         "--ocr_version",
-        "PP-OCRv6",
+        # PP-OCRv5/v6's current Transformers recognizers do not implement
+        # PaddleX return_word_box; PP-OCRv4's CTC path does.
+        "PP-OCRv4",
         "--use_doc_orientation_classify",
         "False",
         "--use_doc_unwarping",
         "False",
         "--use_textline_orientation",
         "False",
+        "--return_word_box",
+        "true",
     ]
 
 
@@ -39,6 +43,26 @@ def _image_size(path: str) -> tuple[int, int]:
 
     with Image.open(path) as image:
         return image.size
+
+
+def _normalize_word_box(raw_box: Any, width: float, height: float) -> list[float]:
+    """Normalize PaddleOCR's native word box ``[left, top, right, bottom]``."""
+
+    if not isinstance(raw_box, list) or len(raw_box) != 4:
+        raise TypeError("PaddleOCR word box must contain left, top, right, bottom")
+    if any(
+        not isinstance(value, (int, float)) or isinstance(value, bool)
+        for value in raw_box
+    ):
+        raise TypeError("PaddleOCR word box coordinates must be numeric")
+    left, top, right, bottom = (float(value) for value in raw_box)
+    if right < left or bottom < top:
+        raise ValueError("PaddleOCR word box has reversed coordinates")
+    return normalize_polygon(
+        [[left, top], [right, top], [right, bottom], [left, bottom]],
+        width,
+        height,
+    )
 
 
 def extract_lines(
@@ -68,22 +92,62 @@ def extract_lines(
     width = float(width_value)
     height = float(height_value)
 
+    raw_word_text_groups = raw.get("text_word")
+    raw_word_box_groups = raw.get("text_word_boxes")
+    word_text_groups: list[Any] | None
+    word_box_groups: list[Any] | None
+    if raw_word_text_groups is None and raw_word_box_groups is None:
+        # Older Paddle output and engines without native word boxes do not
+        # provide token geometry. Never relabel the line polygon as a token.
+        word_text_groups = None
+        word_box_groups = None
+    else:
+        if not isinstance(raw_word_text_groups, list) or not isinstance(
+            raw_word_box_groups, list
+        ):
+            raise TypeError("PaddleOCR word outputs must be lists")
+        if not (
+            len(raw_word_text_groups)
+            == len(raw_word_box_groups)
+            == len(texts)
+        ):
+            raise ValueError("PaddleOCR word arrays have inconsistent lengths")
+        word_text_groups = raw_word_text_groups
+        word_box_groups = raw_word_box_groups
+
     lines: list[dict[str, Any]] = []
-    for text, score, polygon in zip(texts, scores, polygons, strict=True):
+    for line_index, (text, score, polygon) in enumerate(
+        zip(texts, scores, polygons, strict=True)
+    ):
         if not isinstance(polygon, list):
             raise TypeError("PaddleOCR polygon must be a list")
         box = normalize_polygon(polygon, width, height)
+        tokens: list[dict[str, Any]] | None = None
+        if word_text_groups is not None and word_box_groups is not None:
+            raw_word_texts = word_text_groups[line_index]
+            raw_word_boxes = word_box_groups[line_index]
+            if not isinstance(raw_word_texts, list) or not isinstance(raw_word_boxes, list):
+                raise TypeError("PaddleOCR per-line word outputs must be lists")
+            if len(raw_word_texts) != len(raw_word_boxes):
+                raise ValueError("PaddleOCR per-line word arrays have inconsistent lengths")
+            tokens = []
+            for word_text, word_box in zip(raw_word_texts, raw_word_boxes, strict=True):
+                if not isinstance(word_text, str):
+                    raise TypeError("PaddleOCR word text must be a string")
+                tokens.append(
+                    {
+                        "text": word_text,
+                        # PaddleOCR exposes a line-level rec_score, not an
+                        # independently calibrated score for each word.
+                        "box": _normalize_word_box(word_box, width, height),
+                    }
+                )
         lines.append(
             {
                 "text": str(text),
                 "box": box,
-                "tokens": [
-                    {
-                        "text": str(text),
-                        "confidence": float(score),
-                        "box": box,
-                    }
-                ],
+                "confidence": float(score),
+                "tokens": tokens,
             }
         )
     return lines

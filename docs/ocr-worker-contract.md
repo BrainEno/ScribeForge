@@ -58,7 +58,10 @@ decides it (e.g. PaddleOCR-VL's layout stage); do not echo a constant.
 | `lines[].text` | yes | Verbatim recognized text; never normalized by the worker. |
 | `lines[].box` | yes | Normalized line geometry. |
 | `lines[].confidence` | v2 | Optional line-level score in 0..1. |
-| `lines[].tokens[].confidence` | optional | Per-token score in 0..1. |
+| `lines[].tokens` | optional | Native token/word/character entries with their own geometry; `null` or omitted means unavailable, `[]` means the worker reported no token entries. |
+| `lines[].tokens[].text` | yes, when a token exists | Verbatim recognized token text. |
+| `lines[].tokens[].box` | yes, when a token exists | The token's own normalized geometry; never copy the enclosing line/block box as a token box. |
+| `lines[].tokens[].confidence` | optional | Per-token score in 0..1, only when the engine reports one. |
 | `blocks[]` | v2 | Structural regions covering a contiguous run of lines. |
 
 ### Blocks
@@ -82,15 +85,30 @@ Blocks are evidence, not decoration. They drive three downstream behaviours:
 - `figure`/`table` are non-text and are excluded from the text layer.
 - `title` identifies chapter headings; `footnote` keeps notes out of the body flow.
 
-### Confidence absence
+### Confidence and token absence
 
-`confidence` and `tokens` are optional. Omitting them means *unknown*, which is
-materially different from a low score: unknown never raises the low-confidence risk and
-never counts as agreement. A worker must not emit `0.0` as a stand-in for "no score".
+Line and token confidence are independent evidence. Omitting a score means *unknown*,
+which is materially different from a low score: unknown never raises the
+low-confidence risk and never counts as agreement. A worker must not emit `0.0` as a
+stand-in for "no score", or copy a line score into every token as if it were measured
+per-token confidence. A known low line-level score is still preserved and can trigger
+review even when token data is unavailable.
+
+Token availability has three states: an omitted `tokens` field or `"tokens": null`
+means the engine did not provide token evidence; `"tokens": []` means it explicitly
+reported no token entries; a non-empty array carries token/word/character evidence.
+These states survive adapter parsing and SQLite persistence. If an engine has no native
+token/word geometry, it must report `null` rather than wrap a line or region in a fake
+token. PaddleOCR's worker runs PP-OCRv4 and requests its native
+[`return_word_box` output](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/OCR.en.md),
+mapping PaddleX's serialized `text_word` / `text_word_boxes` fields (see the
+[OCR result serializer](https://github.com/PaddlePaddle/PaddleX/blob/develop/paddlex/inference/pipelines/ocr/result.py)). PP-OCRv4's CTC path supports this output; current PP-OCRv5/v6 Transformers recognizers do not. The worker preserves `rec_score` at line level and does not fabricate per-word scores. MinerU middle-JSON and PaddleOCR-VL region output do not currently provide token boxes, so those workers report `null`.
 
 ## Compatibility
 
 - The adapter accepts both `schema_version` 1 and 2.
+- The missing / `null` / empty-array token semantics apply to both versions; they do
+  not require workers to change their schema version.
 - A v1 document has no blocks, so **every line counts as text**. Absence of block
   evidence must never silently delete content.
 - Unknown block labels degrade to `unknown`, which is also retained as text.

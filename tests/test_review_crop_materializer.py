@@ -4,7 +4,10 @@ import pytest
 from PIL import Image
 
 from scribeforge.adapters.image_crops import materialize_review_crops
-from scribeforge.domain.crops import PixelBox, ReviewCropPlan
+from scribeforge.domain.alignment import align_pages
+from scribeforge.domain.crops import PixelBox, ReviewCropPlan, plan_review_crops
+from scribeforge.domain.ocr import BlockType, BoundingBox, OCRBlock, OCRLine, PageOCRResult
+from scribeforge.domain.risk import assess_page, review_candidates
 
 
 def _page(path: Path, *, size: tuple[int, int] = (8, 6)) -> None:
@@ -89,6 +92,47 @@ def test_materializer_rejects_crop_outside_actual_page_bounds(tmp_path: Path) ->
 
     with pytest.raises(ValueError, match="bounds"):
         materialize_review_crops(source, (plan,), tmp_path / "out")
+
+
+def test_materialized_review_crop_uses_line_boxes_not_oversized_block(tmp_path: Path) -> None:
+    """A fixture page crop must stay local to the disputed lines."""
+
+    page_width, page_height = 1000, 1600
+    source = tmp_path / "fixture-page.png"
+    Image.new("RGB", (page_width, page_height), (240, 240, 240)).save(source)
+    block_box = BoundingBox(0.05, 0.05, 0.9, 0.9)
+    primary_line_box = BoundingBox(0.35, 0.35, 0.10, 0.02)
+    secondary_line_box = BoundingBox(0.36, 0.35, 0.10, 0.02)
+    primary = PageOCRResult(
+        0,
+        "mineru",
+        "1",
+        (OCRLine("乌鸦", primary_line_box),),
+        blocks=(OCRBlock(BlockType.TEXT, block_box, 0, 1),),
+    )
+    secondary = PageOCRResult(
+        0,
+        "paddleocr",
+        "1",
+        (OCRLine("鸟鸦", secondary_line_box),),
+    )
+    alignment = align_pages(primary, secondary)
+    risks = assess_page(alignment, primary, secondary)
+    candidates = review_candidates(alignment, risks, primary, secondary)
+    plans = plan_review_crops(
+        candidates,
+        page_width,
+        page_height,
+        padding_fraction=0,
+    )
+    paths = materialize_review_crops(source, plans, tmp_path / "review-crops")
+    block_pixel_area = int(block_box.width * page_width) * int(
+        block_box.height * page_height
+    )
+
+    with Image.open(paths[0]) as crop:
+        assert crop.size == (110, 32)
+        assert crop.width * crop.height < block_pixel_area * 0.01
 
 
 def test_empty_plan_does_not_require_source_image(tmp_path: Path) -> None:

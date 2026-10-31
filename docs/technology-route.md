@@ -9,8 +9,8 @@
 1. **不更换双引擎分歧 → 风险 → 复核 → 决策的骨架。** 这是本仓库唯一别人不提供的
    东西；任何 OCR 模型都只是它的输入。
 2. **换主引擎，不改架构**：主识别用 **PaddleOCR-VL（0.9B, Apache-2.0）**，
-   副识别保留 **PP-OCRv6（CPU 可跑）**，形成"快引擎 × 强引擎"的分歧组合，
-   比现在"两个中等引擎"信息量高。
+   副识别使用 **PP-OCRv4（CPU 可跑，原生 `return_word_box`）**，形成"快引擎 × 强引擎"的分歧组合。
+   v5/v6 的当前 Transformers 识别器不提供该原生词框输出，故不能用行框伪装 token。
 3. **版面/阅读顺序引入独立第二意见：Surya**（只作结构证据，不作文本）。
    它的价值在"页面结构"而非"字形"，正对 #86 之后的剩余缺口。
 4. **竖排代码路径已实现，但真实识别能力尚未验证**：3 页刻本的 Oracle 回归覆盖了方向、配对、阅读顺序与列拼接；R4/R5 仍是能力声明的硬门槛（见 §5）。
@@ -41,7 +41,7 @@
 | 角色 | 引擎 | 许可 | 体量/显存 | 为什么是它 |
 | --- | --- | --- | --- | --- |
 | 主识别（准） | **PaddleOCR-VL 0.9B** | Apache-2.0 | 0.9B，约 2 GB 显存 | 官方明确覆盖繁体、竖排、手写、旧文档；与现有 Paddle 生态同源，`paddle_worker` 改动最小 |
-| 副识别（快） | **PP-OCRv6 + PP-StructureV3** | Apache-2.0 | 数十 MB 级，CPU 可跑 | 极低成本第一意见；PP-Structure 提供版面标签（#86 已能消费） |
+| 副识别（快） | **PP-OCRv4 + PP-StructureV3** | Apache-2.0 | 数十 MB 级，CPU 可跑 | 原生 `return_word_box` 提供真实字符/词框，行级 `rec_score` 仍保留；PP-Structure 提供版面标签 |
 | 版面/阅读顺序证据 | **Surya**（仅结构） | 代码 Apache-2.0，**权重 OpenRAIL-M** | 650M | 版面、阅读顺序、表格的第二意见；不参与文本判定 |
 | 竖排第三意见 | **CnOCR** 或 **Indra OCR** | Apache-2.0 / 见仓库 | CPU | 两者都明确支持竖排，成本低，适合交叉验证 |
 | 古籍分栏 | **Kraken**（评估） | Apache-2.0 | 小，CPU | 专为历史文献分栏设计，可自训字形 |
@@ -73,7 +73,7 @@ PaddleOCR-VL 与 Surya 都不需要新的适配器类型——`docs/ocr-worker-c
   "engine_version": "0.9b",
   "page_index": 12,
   "direction": "vertical-rl",
-  "lines": [{"text": "...", "box": [0.72, 0.11, 0.03, 0.62], "confidence": 0.94, "tokens": []}],
+  "lines": [{"text": "...", "box": [0.72, 0.11, 0.03, 0.62], "confidence": 0.94, "tokens": null}],
   "blocks": [{"type": "text", "box": [0.70, 0.10, 0.08, 0.66], "line_start": 0, "line_end": 24}]
 }
 ```
@@ -107,7 +107,7 @@ PaddleOCR-VL 与 Surya 都不需要新的适配器类型——`docs/ocr-worker-c
 
 | 阶段 | 内容 | 验收标准（可测量） | 状态 |
 | --- | --- | --- | --- |
-| **R1** | PaddleOCR-VL worker 接入（`--image/--page-index` 契约不变） | 6 页基准上双引擎均产出 v2 文档；`normalize` 后分歧率低于 PP-OCRv6 × MinerU 组合 | ⚠️ **代码就绪，未跑真实权重** |
+| **R1** | PaddleOCR-VL worker 接入（`--image/--page-index` 契约不变） | 6 页基准上双引擎均产出 v2 文档；`normalize` 后分歧率低于 PP-OCRv4 × MinerU 组合 | ⚠️ **代码就绪，未跑真实权重** |
 | **R2** | Surya 结构 worker（只出 blocks/direction） | 基准页 block 数量与非文本区（图表）排除结果人工抽查通过 | ⚠️ **代码就绪，未跑真实权重** |
 | **R3** | 竖排对齐、阅读顺序与列拼接（#79 + P0-2） | 3 页真实刻本的 Oracle 全链路回归通过；真实 OCR 引擎输出仍待验证 | ✅ 代码与回归测试完成 |
 | **R4** | 竖排/繁体基准语料（公有领域古籍扫描） | 语料 ≥ 20 页，含页眉页脚、双行夹注、竖排正文；人工转写双人校订 | ⚠️ 已有 3 页，单次校订 |

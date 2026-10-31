@@ -29,14 +29,15 @@ def test_planner_prefetches_and_verifies_mineru_standard_models(tmp_path: Path) 
     assert dict(mineru.environment)["MINERU_HOME"].startswith(str(tmp_path))
 
 
-def test_planner_prefetches_paddle_v6_into_private_cache(tmp_path: Path) -> None:
+def test_planner_prefetches_paddle_word_box_model_into_private_cache(tmp_path: Path) -> None:
     profile = HardwareProfile("windows", "x86_64", None, None, None, 16384)
     plan = build_runtime_plan(profile, RuntimeLayout(tmp_path))
     paddle = plan.backend("paddleocr")
 
     model_command = " ".join(paddle.model_steps[0].argv)
     assert "PaddleOCR" in model_command
-    assert "PP-OCRv6" in model_command
+    assert "PP-OCRv4" in model_command
+    assert "return_word_box=True" in model_command
     env = dict(paddle.environment)
     assert env["PADDLE_PDX_CACHE_HOME"].startswith(str(tmp_path))
     assert env["PADDLE_HOME"].startswith(str(tmp_path))

@@ -88,7 +88,9 @@ class BlockType(str, Enum):
 class OCRLine:
     text: str
     box: BoundingBox
-    tokens: tuple[OCRToken, ...] = ()
+    # ``None`` means the engine did not provide token evidence; ``()`` means it
+    # explicitly reported that no token entries were available for this line.
+    tokens: tuple[OCRToken, ...] | None = None
     confidence: float | None = None
 
     def __post_init__(self) -> None:
@@ -104,7 +106,11 @@ class OCRLine:
         agreement, and it must not be treated as zero either.
         """
 
-        values = [token.confidence for token in self.tokens if token.confidence is not None]
+        values = [
+            token.confidence
+            for token in (self.tokens or ())
+            if token.confidence is not None
+        ]
         if self.confidence is not None:
             values.append(self.confidence)
         return min(values) if values else None
@@ -205,7 +211,7 @@ def text_layer(result: PageOCRResult) -> str:
 
 
 def tokens(result: PageOCRResult) -> Sequence[OCRToken]:
-    return tuple(token for line in result.lines for token in line.tokens)
+    return tuple(token for line in result.lines for token in (line.tokens or ()))
 
 
 def has_confidence(result: PageOCRResult) -> bool:

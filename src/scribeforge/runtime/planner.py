@@ -134,14 +134,16 @@ def build_runtime_plan(
     paddle_prefix = _venv_steps("paddleocr", layout, uv_executable)
     paddle_prefetch = (
         "from paddleocr import PaddleOCR; "
-        "PaddleOCR(ocr_version='PP-OCRv6', use_doc_orientation_classify=False, "
-        "use_doc_unwarping=False, use_textline_orientation=False)"
+        "PaddleOCR(ocr_version='PP-OCRv4', return_word_box=True, "
+        "use_doc_orientation_classify=False, use_doc_unwarping=False, "
+        "use_textline_orientation=False)"
     )
     paddle_health = (
         "import paddle, paddleocr; "
         "from paddleocr import PaddleOCR; "
-        "PaddleOCR(ocr_version='PP-OCRv6', use_doc_orientation_classify=False, "
-        "use_doc_unwarping=False, use_textline_orientation=False); "
+        "PaddleOCR(ocr_version='PP-OCRv4', return_word_box=True, "
+        "use_doc_orientation_classify=False, use_doc_unwarping=False, "
+        "use_textline_orientation=False); "
         "print(paddle.__version__)"
     )
     paddle = RuntimeBackendPlan(
@@ -174,14 +176,14 @@ def build_runtime_plan(
                     "--python",
                     str(paddle_python),
                     "-U",
-                    "paddleocr>=3,<4",
+                    "paddleocr>=3.3,<4",
                 ),
                 attempts=3,
             ),
         ),
         model_steps=(
             InstallStep(
-                "pp-ocrv6-models",
+                "pp-ocrv4-word-box-models",
                 (str(paddle_python), "-c", paddle_prefetch),
                 attempts=3,
             ),

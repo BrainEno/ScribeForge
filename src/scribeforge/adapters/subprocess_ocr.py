@@ -190,17 +190,24 @@ class SubprocessOCREngine:
     def _line(cls, raw: Any) -> OCRLine:
         if not isinstance(raw, dict):
             raise TypeError("OCR worker line must be an object")
-        raw_tokens = raw.get("tokens") or ()
-        tokens = tuple(
-            OCRToken(
-                text=str(token["text"]),
-                confidence=(
-                    None if token.get("confidence") is None else float(token["confidence"])
-                ),
-                box=cls._box(token["box"]),
+        raw_tokens = raw.get("tokens")
+        if raw_tokens is None:
+            tokens = None
+        else:
+            if not isinstance(raw_tokens, list):
+                raise TypeError("OCR worker line tokens must be a list or null")
+            tokens = tuple(
+                OCRToken(
+                    text=str(token["text"]),
+                    confidence=(
+                        None
+                        if token.get("confidence") is None
+                        else float(token["confidence"])
+                    ),
+                    box=cls._box(token["box"]),
+                )
+                for token in raw_tokens
             )
-            for token in raw_tokens
-        )
         raw_confidence = raw.get("confidence")
         return OCRLine(
             text=str(raw["text"]),

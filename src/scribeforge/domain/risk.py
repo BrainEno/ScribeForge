@@ -184,8 +184,14 @@ def review_candidates(
     primary: PageOCRResult,
     secondary: PageOCRResult,
     *,
-    threshold: float = 0.35,
+    threshold: float = 0.25,
 ) -> tuple[ReviewCandidate, ...]:
+    """Select review crops, including a line with low confidence on its own.
+
+    The default cutoff equals the low-confidence signal (0.25), so a known weak
+    line cannot be left without a review crop just because the engines agree.
+    """
+
     if not 0.0 <= threshold <= 1.0:
         raise ValueError("review threshold must be between 0 and 1")
     if len(risks) != len(alignment.pairs):
