@@ -210,6 +210,18 @@ void main() {
         ScribeForgeCli.processArguments(
           pdfPath: '/tmp/My Book.pdf',
           storePath: '/tmp/My Book.scribeforge',
+          cancelable: true,
+        ),
+        <String>[...defaultArguments, '--cancelable'],
+      );
+      expect(
+        ScribeForgeCli.cancelControlMessage,
+        '{"schema_version":1,"type":"cancel"}',
+      );
+      expect(
+        ScribeForgeCli.processArguments(
+          pdfPath: '/tmp/My Book.pdf',
+          storePath: '/tmp/My Book.scribeforge',
           vlmSettings: const DesktopVlmSettings(
             enabled: false,
             endpoint: 'https://vision.example.test/v1',

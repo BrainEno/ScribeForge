@@ -7,6 +7,7 @@ from typing import TypeVar
 
 from scribeforge.adapters.image_crops import materialize_review_crops
 from scribeforge.domain.alignment import align_pages
+from scribeforge.domain.cancellation import ProcessingCancelled, raise_if_cancelled
 from scribeforge.domain.crops import plan_review_crops
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import OCREngine
@@ -65,6 +66,7 @@ def _run_stage(
     error so the stage stays resumable and does not invalidate the whole book.
     """
 
+    raise_if_cancelled()
     job_id = store.ensure_job(project_id, stage, page_index=page_index)
     if store.load_job(job_id).state is not JobState.SUCCEEDED:
         store.start_job(job_id)
@@ -90,6 +92,7 @@ def process_page(
 ) -> PageOutcome:
     """Run every remaining pipeline stage for one page, resumably and page-granular."""
 
+    raise_if_cancelled()
     page_index = page.page_index
     image_path = page.source_image
     image_width = page.width
@@ -243,6 +246,7 @@ def process_book(
     failed_pages: list[tuple[int, str]] = []
     for page in store.list_pages(project_id):
         try:
+            raise_if_cancelled()
             outcomes.append(
                 process_page(
                     store,
@@ -255,11 +259,14 @@ def process_book(
                     preprocess=preprocess,
                 )
             )
+        except ProcessingCancelled:
+            raise
         except Exception as exc:  # noqa: BLE001 - one bad page must not stop the book
             failed_pages.append(
                 (page.page_index, str(exc).strip() or type(exc).__name__)
             )
 
+    raise_if_cancelled()
     rounds: tuple[RoundReport, ...] = ()
     if repair is not None:
         # Repair runs after the whole book, not per page: it needs book-wide

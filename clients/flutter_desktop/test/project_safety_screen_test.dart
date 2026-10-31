@@ -319,6 +319,9 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
       <String, Queue<_FakeResult>>{};
   final List<List<String>> calls = <List<String>>[];
 
+  @override
+  Future<void> cancel() async {}
+
   void enqueue(String command, _FakeResult result) {
     _responses.putIfAbsent(command, () => Queue<_FakeResult>()).add(result);
   }

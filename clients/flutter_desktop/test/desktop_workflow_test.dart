@@ -31,6 +31,7 @@ void main() {
     List<int> processResults = const <int>[0],
     List<int> exportResults = const <int>[0],
     List<Map<String, Object?>>? reviewItems,
+    bool holdProcess = false,
   }) async {
     late Directory root;
     await tester.runAsync(() async {
@@ -60,6 +61,7 @@ void main() {
       processResults: processResults,
       exportResults: exportResults,
       reviewItems: reviewItems ?? <Map<String, Object?>>[_reviewItem(0, '鸦', '雅')],
+      holdProcess: holdProcess,
     );
 
     tester.view.physicalSize = const Size(1440, 1100);
@@ -180,6 +182,39 @@ void main() {
     await waitForWorkflowIdle(tester);
     expect(find.text('重试失败页面'), findsOneWidget);
     expect(find.textContaining('simulated worker failure'), findsOneWidget);
+
+    await tester.tap(find.text('重试失败页面'));
+    await waitForWorkflowIdle(tester);
+    expect(find.text('开始处理'), findsOneWidget);
+    expect(
+      harness.cli.calls.where((args) => args.first == 'process'),
+      hasLength(2),
+    );
+  });
+
+  testWidgets('running processing can be cancelled and retried', (tester) async {
+    final harness = await createHarness(tester, holdProcess: true);
+    await importBook(tester);
+
+    await tester.tap(find.text('开始处理'));
+    await tester.pump();
+    expect(find.text('取消处理'), findsOneWidget);
+    expect(
+      harness.cli.calls.where((args) => args.first == 'process').single,
+      contains('--cancelable'),
+    );
+
+    await tester.tap(find.text('取消处理'));
+    await pumpUntil(
+      tester,
+      () => find.text('取消处理').evaluate().isEmpty &&
+          find.text('正在取消…').evaluate().isEmpty,
+      description: 'the cancelled process to exit',
+    );
+
+    expect(harness.cli.cancelRequests, 1);
+    expect(find.textContaining('处理已取消'), findsOneWidget);
+    expect(find.text('重试失败页面'), findsOneWidget);
 
     await tester.tap(find.text('重试失败页面'));
     await waitForWorkflowIdle(tester);
@@ -463,8 +498,10 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
     required List<int> processResults,
     required List<int> exportResults,
     required this.reviewItems,
+    required bool holdProcess,
   })  : _processResults = Queue<int>.from(processResults),
-        _exportResults = Queue<int>.from(exportResults);
+        _exportResults = Queue<int>.from(exportResults),
+        _holdNextProcess = holdProcess;
 
   final String sourcePath;
   final String sourceHash;
@@ -472,12 +509,22 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
   final Queue<int> _processResults;
   final Queue<int> _exportResults;
   final List<Map<String, Object?>> reviewItems;
+  bool _holdNextProcess;
+  Completer<int>? _pendingProcess;
+  int cancelRequests = 0;
   final List<List<String>> calls = <List<String>>[];
   final Set<String> _resolved = <String>{};
   bool projectCreated = false;
   bool _partialFailure = false;
   String? lastHumanDecisionText;
   String? lastExportPath;
+
+  @override
+  Future<void> cancel() async {
+    cancelRequests++;
+    final pending = _pendingProcess;
+    if (pending != null && !pending.isCompleted) pending.complete(130);
+  }
 
   @override
   Future<int> run({
@@ -501,16 +548,27 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
         }));
         return 0;
       case 'process':
+        final storePath = args[args.indexOf('--store') + 1];
+        if (_holdNextProcess) {
+          _holdNextProcess = false;
+          fileSystem.addProjectStore(storePath);
+          projectCreated = true;
+          _pendingProcess = Completer<int>();
+          onOutput('processing started');
+          final result = await _pendingProcess!.future;
+          _partialFailure = result == 1 || result == 130;
+          onOutput(result == 130 ? 'processing cancelled' : 'processed');
+          return result;
+        }
         final result = _processResults.isEmpty ? 0 : _processResults.removeFirst();
         if (result == 2) {
           onError('simulated fatal processing failure');
           return result;
         }
-        final storePath = args[args.indexOf('--store') + 1];
         fileSystem.addProjectStore(storePath);
         projectCreated = true;
-        _partialFailure = result == 1;
-        onOutput('processed');
+        _partialFailure = result == 1 || result == 130;
+        onOutput(result == 130 ? 'processing cancelled' : 'processed');
         return result;
       case 'status':
         onOutput(jsonEncode(_statusPayload()));

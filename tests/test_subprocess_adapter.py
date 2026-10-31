@@ -1,8 +1,19 @@
 import sys
+import time
+from threading import Timer
 
 import pytest
 
-from scribeforge.adapters.subprocess_ocr import SubprocessOCREngine
+from scribeforge.adapters.subprocess_ocr import (
+    OCREngineOutputLimitError,
+    OCREngineTimeoutError,
+    SubprocessOCREngine,
+)
+from scribeforge.domain.cancellation import (
+    CancellationToken,
+    ProcessingCancelled,
+    cancellation_scope,
+)
 
 
 def test_subprocess_adapter_passes_environment_to_worker(tmp_path) -> None:
@@ -180,3 +191,84 @@ def test_adapter_rejects_a_block_range_beyond_reported_lines() -> None:
 
     with pytest.raises(ValueError, match="block line range exceeds"):
         _engine().parse_document(raw, 0)
+
+
+def _worker_that_leaves_a_child(tmp_path):
+    worker = tmp_path / "worker_with_child.py"
+    child_started = tmp_path / "child-started"
+    child_survived = tmp_path / "child-survived"
+    child_code = (
+        "import pathlib,time; "
+        f"pathlib.Path({str(child_started)!r}).write_text('started'); "
+        "time.sleep(1.5); "
+        f"pathlib.Path({str(child_survived)!r}).write_text('survived')"
+    )
+    worker.write_text(
+        "import subprocess,sys,time\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+        "time.sleep(10)\n",
+        encoding="utf-8",
+    )
+    return worker, child_started, child_survived
+
+
+def test_worker_timeout_kills_its_process_tree(tmp_path) -> None:
+    worker, child_started, child_survived = _worker_that_leaves_a_child(tmp_path)
+    image = tmp_path / "page.png"
+    image.write_bytes(b"x")
+    engine = SubprocessOCREngine(
+        "fixture", [sys.executable, str(worker)], timeout_seconds=0.7
+    )
+    started = time.monotonic()
+
+    with pytest.raises(OCREngineTimeoutError, match=r"page 1.*0\.7"):
+        engine.analyze_page(str(image), 0)
+
+    assert time.monotonic() - started < 4
+    assert child_started.exists()
+    time.sleep(1.0)
+    assert not child_survived.exists(), "the timed-out worker left its child running"
+
+
+def test_cancel_signal_kills_ocr_worker_process_tree(tmp_path) -> None:
+    worker, child_started, child_survived = _worker_that_leaves_a_child(tmp_path)
+    image = tmp_path / "page.png"
+    image.write_bytes(b"x")
+    token = CancellationToken()
+    engine = SubprocessOCREngine(
+        "fixture", [sys.executable, str(worker)], timeout_seconds=5
+    )
+    timer = Timer(0.7, token.cancel)
+    timer.start()
+
+    with cancellation_scope(token), pytest.raises(ProcessingCancelled, match="cancel"):
+        engine.analyze_page(str(image), 0)
+
+    timer.join(timeout=1)
+    assert child_started.exists()
+    time.sleep(1.0)
+    assert not child_survived.exists(), "cancelling left an OCR descendant running"
+
+
+@pytest.mark.parametrize(("stream", "expected_limit"), [("stdout", "stdout"), ("stderr", "stderr")])
+def test_worker_output_is_bounded(tmp_path, stream: str, expected_limit: str) -> None:
+    worker = tmp_path / "noisy_worker.py"
+    worker.write_text(
+        "import sys,time\n"
+        f"sys.{stream}.write('x' * 1000000)\n"
+        f"sys.{stream}.flush()\n"
+        "time.sleep(10)\n",
+        encoding="utf-8",
+    )
+    image = tmp_path / "page.png"
+    image.write_bytes(b"x")
+    engine = SubprocessOCREngine(
+        "fixture",
+        [sys.executable, str(worker)],
+        timeout_seconds=5,
+        max_output_bytes=1024,
+        max_log_bytes=1024,
+    )
+
+    with pytest.raises(OCREngineOutputLimitError, match=expected_limit):
+        engine.analyze_page(str(image), 0)

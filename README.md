@@ -171,7 +171,7 @@ scribeforge vlm-check --image crop.png --vlm-endpoint http://127.0.0.1:1234/v1 -
 scribeforge setup --runtime-root runtime/     # choose a private runtime directory
 scribeforge process book.pdf                  # import + process every page
 scribeforge process book.pdf --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model # optional local crop review
-scribeforge process book.pdf --store store/   # explicit project store
+scribeforge process book.pdf --store store/ --worker-timeout 600 # per-page OCR deadline
 scribeforge status --store store/             # persisted jobs + review queue
 scribeforge structure --store store/ --json   # page roles, printed page numbers, chapter tree
 scribeforge audit --store store/ --json        # read-only project integrity audit
@@ -197,7 +197,7 @@ scribeforge benchmark --manifest benchmark/manifest.json \
   --out benchmark/benchmark_report.md         # score MinerU + PaddleOCR
 ```
 
-`process` writes a project store beside the book by default (`<book-stem>.scribeforge`). OCR runtimes are shared in the per-user application data folder by default; `setup`, `process`, and `benchmark` accept `--runtime-root` to override it. Run `scribeforge setup` once to install the private Python environments and OCR models. Use `scribeforge runtime-status --json` to inspect hardware, backend readiness, and private model/cache paths without changing the installation. Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed).
+`process` writes a project store beside the book by default (`<book-stem>.scribeforge`). Each OCR page worker has a 600-second deadline by default; `--worker-timeout SECONDS` configures the per-page limit for `process`, `repair`, and `benchmark`. Worker stdout/stderr are captured to disk with 64 MiB/4 MiB limits rather than accumulated in memory. Timeout or output-limit failures are recorded against the page stage and can be retried without rewriting imported page images, completed OCR evidence, or human decisions. The Flutter workbench adds `--cancelable` and sends a versioned JSON cancel message over the child process's stdin; cancellation terminates the worker process tree, returns exit code `130`, and leaves already-persisted evidence intact. OCR runtimes are shared in the per-user application data folder by default; `setup`, `process`, and `benchmark` accept `--runtime-root` to override it. Run `scribeforge setup` once to install the private Python environments and OCR models. Use `scribeforge runtime-status --json` to inspect hardware, backend readiness, and private model/cache paths without changing the installation. Exit codes are semantic: `0` every page processed, `1` some pages failed (retryable), `2` fatal setup error (missing file, unsupported source, backend runtime not installed), `130` user cancellation.
 
 Run `scribeforge audit --store store/ --json` before archiving or resuming a project to check SQLite integrity, foreign-key references, source-file SHA-256, and whether every imported page image still exists. The audit opens SQLite read-only and never repairs or changes evidence. Exit code 0 means no findings, 1 means audit findings need attention, and 2 means the audit could not read the project database.
 

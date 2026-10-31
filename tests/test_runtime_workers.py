@@ -68,11 +68,20 @@ def test_build_runtime_engine_puts_backend_executables_on_path(
     python.write_bytes(b"")
     script = tmp_path / "worker.py"
     script.write_text("", encoding="utf-8")
-    captured: dict[str, dict[str, str]] = {}
+    captured: dict[str, object] = {}
 
     class FakeEngine:
-        def __init__(self, name, command, *, environment, preflight):
+        def __init__(
+            self,
+            name,
+            command,
+            *,
+            environment,
+            preflight,
+            timeout_seconds,
+        ):
             captured["environment"] = environment
+            captured["timeout_seconds"] = timeout_seconds
 
     monkeypatch.setattr(runtime_workers, "SubprocessOCREngine", FakeEngine)
     monkeypatch.setenv("PATH", "base-path")
@@ -83,9 +92,11 @@ def test_build_runtime_engine_puts_backend_executables_on_path(
         "windows",
         name="mineru",
         status=lambda backend: "ready",
+        timeout_seconds=123.4,
     )
 
     entries = captured["environment"]["PATH"].split(os.pathsep)
+    assert captured["timeout_seconds"] == 123.4
     assert entries[0] == str(python.parent)
     assert entries[1] == "base-path"
 

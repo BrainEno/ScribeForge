@@ -4,7 +4,10 @@ import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from scribeforge.adapters.subprocess_ocr import SubprocessOCREngine
+from scribeforge.adapters.subprocess_ocr import (
+    DEFAULT_WORKER_TIMEOUT_SECONDS,
+    SubprocessOCREngine,
+)
 from scribeforge.runtime.environment import build_runtime_environment
 from scribeforge.runtime.models import RuntimeLayout
 
@@ -79,6 +82,7 @@ def build_runtime_engine(
     name: str,
     status: Callable[[str], str],
     extra_environment: Mapping[str, str] | None = None,
+    timeout_seconds: float = DEFAULT_WORKER_TIMEOUT_SECONDS,
 ) -> SubprocessOCREngine:
     """Build an OCR engine bound to an application-managed backend runtime.
 
@@ -102,4 +106,5 @@ def build_runtime_engine(
         worker_command(layout, backend, worker_script, os_name),
         environment=runtime_environment(layout, extra),
         preflight=preflight,
+        timeout_seconds=timeout_seconds,
     )

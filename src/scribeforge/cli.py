@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -12,6 +13,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Thread
 from typing import TextIO
 
 from scribeforge.adapters.candidate_epub import build_candidate_epub
@@ -20,6 +22,7 @@ from scribeforge.adapters.epub import write_epub
 from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReviewer
 from scribeforge.adapters.runtime_workers import build_runtime_engine
 from scribeforge.adapters.sources import open_page_source
+from scribeforge.adapters.subprocess_ocr import DEFAULT_WORKER_TIMEOUT_SECONDS
 from scribeforge.benchmark.corpus import (
     CorpusFingerprint,
     fingerprint_corpus,
@@ -30,6 +33,12 @@ from scribeforge.benchmark.oracle import OracleEngine
 from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
 from scribeforge.benchmark.report import render_report
 from scribeforge.benchmark.runner import run_benchmark
+from scribeforge.domain.cancellation import (
+    CancellationToken,
+    ProcessingCancelled,
+    cancellation_scope,
+    raise_if_cancelled,
+)
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
 from scribeforge.domain.flow import build_flow
 from scribeforge.domain.ocr import BoundingBox, OCREngine, PageDirection
@@ -71,6 +80,51 @@ from scribeforge.storage.sqlite import SQLiteStore
 EXIT_OK = 0
 EXIT_PARTIAL = 1
 EXIT_FATAL = 2
+EXIT_CANCELLED = 130
+_CANCEL_CONTROL_SCHEMA_VERSION = 1
+
+
+def _positive_seconds(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number of seconds") from exc
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("must be finite and greater than zero")
+    return seconds
+
+
+def _add_worker_timeout_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--worker-timeout",
+        type=_positive_seconds,
+        default=DEFAULT_WORKER_TIMEOUT_SECONDS,
+        metavar="SECONDS",
+        help=(
+            "Maximum runtime for one OCR page worker (default: "
+            f"{DEFAULT_WORKER_TIMEOUT_SECONDS:g} seconds)."
+        ),
+    )
+
+
+def _start_cancel_control(token: CancellationToken) -> None:
+    """Listen for versioned JSON control lines on stdin without blocking the CLI."""
+
+    def listen() -> None:
+        for line in sys.stdin:
+            try:
+                message = json.loads(line)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if (
+                isinstance(message, dict)
+                and message.get("schema_version") == _CANCEL_CONTROL_SCHEMA_VERSION
+                and message.get("type") == "cancel"
+            ):
+                token.cancel()
+                return
+
+    Thread(target=listen, name="scribeforge-cancel-control", daemon=True).start()
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,6 +330,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum deskew correction in degrees (default: 8).",
     )
+    _add_worker_timeout_argument(process)
+    process.add_argument(
+        "--cancelable",
+        action="store_true",
+        help="Read versioned JSON control messages on stdin for desktop cancellation.",
+    )
     process.add_argument(
         "--reencode-format",
         type=str,
@@ -429,6 +489,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Managed runtime root (default: the per-user ScribeForge runtime folder).",
     )
     _add_repair_arguments(repair)
+    _add_worker_timeout_argument(repair)
     _add_vlm_arguments(repair)
     repair.add_argument("--json", action="store_true", help="Emit a JSON repair report.")
 
@@ -563,6 +624,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Managed runtime root (default: <root>/runtime).",
     )
+    _add_worker_timeout_argument(benchmark)
     benchmark.add_argument(
         "--engine",
         action="append",
@@ -634,11 +696,19 @@ def run(
     if args.command == "ui":
         return _ui(args)
     if args.command == "benchmark":
-        benchmark_factory = (
-            default_benchmark_engine_factory
-            if benchmark_engine_factory is None
-            else benchmark_engine_factory
-        )
+        if benchmark_engine_factory is None:
+            def build_default_benchmark_factory(
+                root: Path, backends: Sequence[str]
+            ) -> tuple[OCREngine, ...]:
+                return default_benchmark_engine_factory(
+                    root,
+                    backends,
+                    worker_timeout_seconds=args.worker_timeout,
+                )
+
+            benchmark_factory: BenchmarkEngineFactory = build_default_benchmark_factory
+        else:
+            benchmark_factory = benchmark_engine_factory
         return _benchmark(args, out, benchmark_factory)
     try:
         reviewer = _configured_vlm_reviewer(args)
@@ -646,7 +716,17 @@ def run(
         print(f"error: VLM configuration: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
-    factory = default_engine_factory if engine_factory is None else engine_factory
+    uses_default_engine_factory = engine_factory is None
+    if engine_factory is None:
+        def build_default_engine_factory(runtime_root: Path) -> Engines:
+            return default_engine_factory(
+                runtime_root,
+                worker_timeout_seconds=args.worker_timeout,
+            )
+
+        factory: EngineFactory = build_default_engine_factory
+    else:
+        factory = engine_factory
     if reviewer is not None:
         original_factory = factory
 
@@ -654,9 +734,19 @@ def run(
             return replace(original_factory(runtime_root), reviewer=reviewer)
 
         factory = configured_factory
-    if args.command == "repair":
-        return _repair(args, out, factory)
-    return _process(args, out, factory)
+
+    token = CancellationToken()
+    if args.command == "process" and args.cancelable:
+        _start_cancel_control(token)
+    with cancellation_scope(token):
+        if args.command == "repair":
+            return _repair(args, out, factory)
+        return _process(
+            args,
+            out,
+            factory,
+            uses_default_engine_factory=uses_default_engine_factory,
+        )
 
 
 def _preprocess_settings(args: argparse.Namespace) -> PreprocessSettings | None:
@@ -684,7 +774,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     return run(sys.argv[1:] if argv is None else argv)
 
 
-def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> int:
+def _process(
+    args: argparse.Namespace,
+    out: TextIO,
+    factory: EngineFactory,
+    *,
+    uses_default_engine_factory: bool = False,
+) -> int:
     book: Path = args.book
     if not book.is_file():
         print(f"error: book not found: {book}", file=sys.stderr)
@@ -713,6 +809,7 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
             layout.assets_dir,
             reencode=reencode,
         )
+        raise_if_cancelled()
         engines = factory(runtime_root)
         outcome = process_book(
             store,
@@ -724,9 +821,12 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
             preprocess=_preprocess_settings(args),
             repair=_repair_settings(args),
         )
+    except ProcessingCancelled as exc:
+        print(f"processing cancelled: {exc}", file=out)
+        return EXIT_CANCELLED
     except Exception as exc:  # noqa: BLE001 - report any setup/stage failure as a fatal exit
         message = str(exc)
-        if factory is default_engine_factory and (
+        if uses_default_engine_factory and (
             "not ready" in message.lower() or "uv bootstrap tool" in message.lower()
         ):
             message += f'; run scribeforge setup --runtime-root="{runtime_root}" and retry'
@@ -746,9 +846,14 @@ def _process(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> i
     # advisory: a failure here must not turn a successful book into a failed run,
     # because the export falls back to physical page numbering.
     try:
+        raise_if_cancelled()
         derived = build_book_structure(store, project_id, engine=engines.primary.name)
+        raise_if_cancelled()
         report = persist_book_structure(store, project_id, derived)
         print(f"structure: {_structure_summary(report)}", file=out)
+    except ProcessingCancelled as exc:
+        print(f"processing cancelled: {exc}", file=out)
+        return EXIT_CANCELLED
     except Exception as exc:  # noqa: BLE001 - structure is advisory, never fatal
         print(f"structure: skipped ({exc})", file=out)
     decisions = sum(page.decision_count for page in outcome.pages)
@@ -2276,7 +2381,11 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def default_engine_factory(runtime_root: Path) -> Engines:
+def default_engine_factory(
+    runtime_root: Path,
+    *,
+    worker_timeout_seconds: float = DEFAULT_WORKER_TIMEOUT_SECONDS,
+) -> Engines:
     """Build OCR engines bound to application-managed backend runtimes.
 
     The backends must already be installed; a missing runtime fails fast with a
@@ -2298,6 +2407,7 @@ def default_engine_factory(runtime_root: Path) -> Engines:
         os_name,
         name="mineru",
         status=status,
+        timeout_seconds=worker_timeout_seconds,
     )
     secondary = build_runtime_engine(
         layout,
@@ -2306,12 +2416,16 @@ def default_engine_factory(runtime_root: Path) -> Engines:
         os_name,
         name="paddleocr",
         status=status,
+        timeout_seconds=worker_timeout_seconds,
     )
     return Engines(primary=primary, secondary=secondary, reviewer=None)
 
 
 def default_benchmark_engine_factory(
-    runtime_root: Path, backends: Sequence[str]
+    runtime_root: Path,
+    backends: Sequence[str],
+    *,
+    worker_timeout_seconds: float = DEFAULT_WORKER_TIMEOUT_SECONDS,
 ) -> tuple[OCREngine, ...]:
     """Build only the requested benchmark backends from managed runtimes.
 
@@ -2338,6 +2452,7 @@ def default_benchmark_engine_factory(
             os_name,
             name=backend,
             status=status,
+            timeout_seconds=worker_timeout_seconds,
         )
         for backend in backends
     )

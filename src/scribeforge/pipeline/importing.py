@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from scribeforge.domain.cancellation import raise_if_cancelled
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.page_asset import PageAssetEvidence, reencode_image
 from scribeforge.domain.source import PageSource, page_asset_name
@@ -63,9 +64,11 @@ def import_source(
     imported: list[int] = []
     try:
         for page_index in range(page_count):
+            raise_if_cancelled()
             if page_index in already_imported:
                 continue
             rendered = source.render_page(page_index)
+            raise_if_cancelled()
             if rendered.page_index != page_index:
                 raise ValueError("rendered page identity does not match requested page")
 

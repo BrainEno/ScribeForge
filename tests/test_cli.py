@@ -1,23 +1,30 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import platform
 import sys
+import time
 import zipfile
 from collections.abc import Sequence
 from pathlib import Path
+from queue import Queue
+from threading import Thread
 
 import pytest
 from PIL import Image
 
+from scribeforge import cli as cli_module
 from scribeforge.cli import (
     Engines,
+    build_parser,
     default_benchmark_engine_factory,
     default_engine_factory,
     main,
     run,
 )
+from scribeforge.domain.cancellation import CancellationToken
 from scribeforge.domain.jobs import JobStage
 from scribeforge.domain.ocr import BoundingBox, OCRLine, OCRToken, PageOCRResult
 from scribeforge.domain.vlm import VLMReading
@@ -416,6 +423,221 @@ def test_main_entrypoint_returns_exit_code(tmp_path: Path, monkeypatch: pytest.M
     assert main() == 2
 
 
+def test_process_parser_exposes_worker_deadline_and_cancel_control() -> None:
+    args = build_parser().parse_args(
+        [
+            "process",
+            "book.pdf",
+            "--worker-timeout",
+            "12.5",
+            "--cancelable",
+        ]
+    )
+
+    assert args.worker_timeout == pytest.approx(12.5)
+    assert args.cancelable is True
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["process", "book.pdf", "--worker-timeout", "0"])
+
+
+def test_process_cli_passes_worker_timeout_to_managed_engines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    captured: list[float] = []
+
+    def default_factory(runtime_root: Path, *, worker_timeout_seconds: float) -> Engines:
+        captured.append(worker_timeout_seconds)
+        return _factory()(runtime_root)
+
+    monkeypatch.setattr(cli_module, "default_engine_factory", default_factory)
+
+    code = run(
+        [
+            "process",
+            str(book),
+            "--store",
+            str(store_dir),
+            "--worker-timeout",
+            "8.25",
+        ],
+        stdout=io.StringIO(),
+    )
+
+    assert code == 0
+    assert captured == [pytest.approx(8.25)]
+
+
+def test_cancel_control_reads_versioned_json_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    token = CancellationToken()
+    monkeypatch.setattr(
+        cli_module.sys,
+        "stdin",
+        io.StringIO(
+            "not-json\n"
+            '{"schema_version":2,"type":"cancel"}\n'
+            '{"schema_version":1,"type":"cancel"}\n'
+        ),
+    )
+
+    cli_module._start_cancel_control(token)
+    deadline = time.monotonic() + 1
+    while not token.cancelled and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert token.cancelled is True
+
+
+def test_cancelled_import_is_visible_and_retryable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    output = io.StringIO()
+    monkeypatch.setattr(
+        cli_module,
+        "_start_cancel_control",
+        lambda token: token.cancel(),
+    )
+
+    cancelled_code = run(
+        ["process", str(book), "--store", str(store_dir), "--cancelable"],
+        engine_factory=_factory(),
+        stdout=output,
+    )
+
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = store.list_projects()[0].id
+    import_job_id = store.ensure_job(project_id, JobStage.IMPORT)
+    failed_import = store.load_job(import_job_id)
+    assert cancelled_code == 130
+    assert "processing cancelled" in output.getvalue().lower()
+    assert failed_import.state.value == "failed"
+    assert "cancel" in (failed_import.last_error or "").lower()
+    assert store.list_pages(project_id) == ()
+
+    retry_code = run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=_factory(),
+        stdout=io.StringIO(),
+    )
+
+    assert retry_code == 0
+    assert store.load_job(import_job_id).state.value == "succeeded"
+    assert store.load_job(import_job_id).attempts == 2
+    assert [page.page_index for page in store.list_pages(project_id)] == [0]
+
+
+def test_stdin_cancellation_stops_worker_and_cli_retry_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.adapters.subprocess_ocr import SubprocessOCREngine
+    from scribeforge.domain.jobs import JobState
+
+    book = _book(tmp_path)
+    original_bytes = book.read_bytes()
+    store_dir = tmp_path / "store"
+    worker = tmp_path / "fake_worker.py"
+    started = tmp_path / "worker-started"
+    worker.write_text(
+        "import argparse,json,pathlib,time\n"
+        "p=argparse.ArgumentParser()\n"
+        "p.add_argument('--engine',required=True)\n"
+        "p.add_argument('--started',required=True)\n"
+        "p.add_argument('--hold',action='store_true')\n"
+        "p.add_argument('--image',required=True)\n"
+        "p.add_argument('--page-index',required=True,type=int)\n"
+        "a=p.parse_args()\n"
+        "pathlib.Path(a.started).write_text('started')\n"
+        "time.sleep(30) if a.hold else None\n"
+        "print(json.dumps({'schema_version':1,'engine':a.engine,'engine_version':'test',"
+        "'page_index':a.page_index,'lines':[{'text':a.engine,'box':[0.1,0.1,0.8,0.1],"
+        "'tokens':[]}]}),flush=True)\n",
+        encoding="utf-8",
+    )
+
+    class QueueInput:
+        def __init__(self) -> None:
+            self.lines: Queue[str] = Queue()
+
+        def __iter__(self):
+            return self
+
+        def __next__(self) -> str:
+            return self.lines.get()
+
+    control_input = QueueInput()
+    monkeypatch.setattr(sys, "stdin", control_input)
+
+    def factory(*, hold: bool):
+        def build(runtime_root: Path) -> Engines:
+            def engine(name: str) -> SubprocessOCREngine:
+                command = [
+                    sys.executable,
+                    str(worker),
+                    "--engine",
+                    name,
+                    "--started",
+                    str(started),
+                    *( ["--hold"] if hold else [] ),
+                ]
+                return SubprocessOCREngine(name, command, timeout_seconds=10)
+
+            return Engines(primary=engine("primary"), secondary=engine("secondary"))
+
+        return build
+
+    results: list[int] = []
+    failures: list[BaseException] = []
+
+    def invoke() -> None:
+        try:
+            results.append(
+                run(
+                    ["process", str(book), "--store", str(store_dir), "--cancelable"],
+                    engine_factory=factory(hold=True),
+                    stdout=io.StringIO(),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - capture background CLI failures for the test
+            failures.append(exc)
+
+    thread = Thread(target=invoke)
+    thread.start()
+    deadline = time.monotonic() + 8
+    while not started.exists() and thread.is_alive() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert started.exists(), "the fake OCR worker did not start"
+    control_input.lines.put('{"schema_version":1,"type":"cancel"}\n')
+    thread.join(timeout=8)
+
+    assert not thread.is_alive(), "the CLI did not stop after the cancellation message"
+    assert failures == []
+    assert results == [130]
+    assert book.read_bytes() == original_bytes
+
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = store.list_projects()[0].id
+    page = store.list_pages(project_id)[0]
+    primary_job_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+    assert store.load_job(primary_job_id).state is JobState.FAILED
+    assert "cancel" in (store.load_job(primary_job_id).last_error or "").lower()
+
+    retry = run(
+        ["process", str(book), "--store", str(store_dir)],
+        engine_factory=factory(hold=False),
+        stdout=io.StringIO(),
+    )
+
+    assert retry == 0
+    assert Path(page.source_image).is_file()
+    assert book.read_bytes() == original_bytes
+    assert store.load_job(primary_job_id).state is JobState.SUCCEEDED
+    assert store.load_job(primary_job_id).attempts == 2
+
+
 def test_default_engine_factory_builds_ready_runtime_engines(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     layout = RuntimeLayout(root=runtime_root)
@@ -433,10 +655,12 @@ def test_default_engine_factory_builds_ready_runtime_engines(tmp_path: Path) -> 
     }
     (runtime_root / "runtime-state.json").write_text(json.dumps(state), encoding="utf-8")
 
-    engines = default_engine_factory(runtime_root)
+    engines = default_engine_factory(runtime_root, worker_timeout_seconds=42.5)
 
     assert engines.primary.name == "mineru"
     assert engines.secondary.name == "paddleocr"
+    assert engines.primary.timeout_seconds == pytest.approx(42.5)
+    assert engines.secondary.timeout_seconds == pytest.approx(42.5)
     assert engines.reviewer is None
 
 
@@ -1626,9 +1850,14 @@ def test_default_benchmark_engine_factory_builds_only_requested_backends(
     }
     (runtime_root / "runtime-state.json").write_text(json.dumps(state), encoding="utf-8")
 
-    engines = default_benchmark_engine_factory(runtime_root, ("paddleocr",))
+    engines = default_benchmark_engine_factory(
+        runtime_root,
+        ("paddleocr",),
+        worker_timeout_seconds=32.5,
+    )
 
     assert [engine.name for engine in engines] == ["paddleocr"]
+    assert engines[0].timeout_seconds == pytest.approx(32.5)
 
 
 def test_default_benchmark_engine_factory_rejects_an_unknown_backend(

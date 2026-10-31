@@ -349,6 +349,9 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
   final List<List<String>> calls = <List<String>>[];
 
   @override
+  Future<void> cancel() async {}
+
+  @override
   Future<int> run({
     required String executable,
     required List<String> arguments,

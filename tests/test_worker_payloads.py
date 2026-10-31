@@ -92,10 +92,13 @@ def test_mineru_main_emits_worker_contract(monkeypatch, capsys, tmp_path: Path) 
         ],
     }
 
+    run_kwargs = {}
+
     def fake_run(argv, **kwargs):
+        run_kwargs.update(kwargs)
         output = Path(argv[argv.index("-o") + 1])
         (output / "page.json").write_text(json.dumps(raw), encoding="utf-8")
-        return SimpleNamespace(stdout="")
+        return SimpleNamespace(returncode=0)
 
     image = tmp_path / "page.png"
     image.write_bytes(b"x")
@@ -109,6 +112,9 @@ def test_mineru_main_emits_worker_contract(monkeypatch, capsys, tmp_path: Path) 
     assert emitted["engine_version"] == "4.0.12"
     assert emitted["page_index"] == 3
     assert emitted["lines"][0]["text"] == "乌鸦"
+    assert run_kwargs["stdout"] is sys.stderr
+    assert run_kwargs["stderr"] is sys.stderr
+    assert "capture_output" not in run_kwargs
 
 
 def test_paddle_extract_lines_maps_confidence_and_geometry() -> None:
