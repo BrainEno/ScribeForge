@@ -118,3 +118,25 @@ def test_an_exact_duplicate_outranks_the_preference_order() -> None:
 def test_a_reading_must_name_its_reader() -> None:
     with pytest.raises(ValueError, match="reader"):
         Reading("  ", "鸦")
+
+
+def test_multiple_attempts_from_one_source_are_only_one_vote() -> None:
+    verdict = consensus([
+        Reading("page-a", "鸦", source="ocr:a"),
+        Reading("crop-a", "鸦", source="ocr:a"),
+        Reading("page-b", "雅", source="ocr:b"),
+        Reading("crop-b", "蛙", source="ocr:b"),
+    ])
+    assert not verdict.settled
+    assert verdict.rationale == "single_reader"
+
+
+def test_independent_sources_vote_once_but_all_supporting_attempts_are_cited() -> None:
+    verdict = consensus([
+        Reading("page-a", "鸦", source="ocr:a"),
+        Reading("crop-a", "鸦", source="ocr:a"),
+        Reading("page-b", "雅", source="ocr:b"),
+        Reading("crop-b", "鸦", source="ocr:b"),
+    ])
+    assert verdict.settled
+    assert verdict.supporters == ("page-a", "crop-a", "crop-b")
