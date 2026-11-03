@@ -113,8 +113,10 @@ rather than text. DOCX stays text-only and prints what it does not carry.
 A disagreement no longer ends in the human queue by default. `scribeforge repair`
 re-reads each disputed line from a wider, enlarged crop, stores every re-read as
 region-scoped evidence, and accepts a text only when **two independent readers**
-agree — the two whole-page engines, the fresh re-reads, and (when configured) a
-vision model re-reading the same crop. Rounds stop on budget, when attempts run
+agree — the two whole-page engines and (when configured) a vision model re-reading the
+same crop. Fresh re-reads of an existing engine are additional evidence, not
+independent votes. Original verification risk and supporting crop confidence still
+pass through the machine acceptance gate. Rounds stop on budget, when attempts run
 out, or when nothing is left to try, and `src/scribeforge/pipeline/rounds.py`'s
 `progress()` reports how much of the book was accepted without a person, so the
 operator can decide between spot-checking and another round. A vision model's

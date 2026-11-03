@@ -33,7 +33,7 @@ decide whether to spot-check or escalate.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from scribeforge.adapters.image_crops import materialize_review_crops
@@ -313,8 +313,9 @@ def _engine_readings(
         ("secondary", secondary, pair.secondary_line_index, record.secondary_run_id),
     ):
         text = None if index is None else result.lines[index].text
-        readings.append(Reading(label, text))
-        refs[label] = (f"engine_run:{run_id}",)
+        source = f"ocr:{result.engine.strip().casefold()}"
+        readings.append(Reading(label, text, source=source))
+        refs[label] = (f"engine_run:{run_id}", f"source:{source}")
 
     return readings, refs
 
@@ -352,7 +353,7 @@ def _vision_reading(
         if review.pair_index == pair_index
     ]
     citation = f"vlm_review:{stored[-1].id}" if stored else "vlm_review:unknown"
-    return Reading(_VLM_LABEL, reading.text, uncertain=reading.uncertain), citation
+    return Reading(_VLM_LABEL, reading.text, uncertain=reading.uncertain, source="vlm"), citation
 
 
 def run_repair_round(
@@ -427,14 +428,29 @@ def run_repair_round(
             store, project_id, ref.page_index, ref.pair_index
         )
         order = [reading.reader for reading in readings]
+        crop_confidences: dict[str, float] = {}
         for reader in readers:
             result = reader.engine.analyze_page(crop_path, ref.page_index)
+            if result.engine != reader.engine.name or result.page_index != ref.page_index:
+                raise ValueError("repair reader returned mismatched engine or page identity")
             run_id = store.record_ocr(project_id, result, scope=scope)
+            confidences = [
+                line.lowest_confidence
+                for line in result.lines
+                if line.lowest_confidence is not None
+            ]
+            if confidences:
+                crop_confidences[reader.label] = min(confidences)
             # A pair is one printed line. A reader that splits it into several
             # lines still returns the same characters, so the text is the
             # concatenation rather than whichever line happened to look longest.
-            readings.append(Reading(reader.label, "".join(line.text for line in result.lines)))
-            refs[reader.label] = (f"engine_run:{run_id}", f"region_read:{scope}")
+            source = f"ocr:{result.engine.strip().casefold()}"
+            readings.append(
+                Reading(reader.label, "".join(line.text for line in result.lines), source=source)
+            )
+            refs[reader.label] = (
+                f"engine_run:{run_id}", f"region_read:{scope}", f"source:{source}"
+            )
             order.append(reader.label)
 
         if reviewer is not None:
@@ -458,10 +474,29 @@ def run_repair_round(
                 refs[_VLM_LABEL] = (
                     f"verification_run:{verification_id}",
                     vision_citation,
+                    "source:vlm",
                 )
 
         verdict: Consensus = consensus(readings, prefer=order)
         if not verdict.settled or verdict.text is None:
+            still_open.append(ref)
+            continue
+
+        record = store.load_verification(verification_id)
+        risk = record.risks[ref.pair_index]
+        # The original persisted evidence remains authoritative: a crop cannot
+        # erase a spatial mismatch, low confidence or other content risk.
+        confidence_values = [
+            crop_confidences[label]
+            for label in verdict.supporters
+            if label in crop_confidences
+        ]
+        if risk.min_confidence is not None:
+            confidence_values.append(risk.min_confidence)
+        gate_risk = (
+            replace(risk, min_confidence=min(confidence_values)) if confidence_values else risk
+        )
+        if machine_blockers(text=verdict.text, risk=gate_risk, policy=DEFAULT_POLICY):
             still_open.append(ref)
             continue
 
@@ -483,6 +518,8 @@ def run_repair_round(
             selected_text=verdict.text,
             actor=actor.value,
             evidence_refs=tuple(evidence),
+            risk_score=risk.score,
+            risk_reasons=tuple(reason.value for reason in risk.reasons),
         )
         resolved.append(ref)
 

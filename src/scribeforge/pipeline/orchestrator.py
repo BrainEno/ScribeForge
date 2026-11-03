@@ -220,9 +220,9 @@ def _repair_readers(
 ) -> tuple[RepairReader, ...]:
     """Default repair readers: the two pipeline engines, re-reading one line.
 
-    The same engines on a *different input* (an isolated, wider, enlarged crop)
-    are a genuinely independent attempt: the first pass failed on the page, not on
-    the crop. A third reader can be supplied by the caller when one is available.
+    A different crop is a new attempt, not an independent source. Consensus
+    counts the engine once per candidate even when it reads both page and crop.
+    A third reader can be supplied by the caller when one is available.
     """
 
     return (reader_for(primary_engine), reader_for(secondary_engine))

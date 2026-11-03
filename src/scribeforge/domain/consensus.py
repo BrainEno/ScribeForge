@@ -42,6 +42,8 @@ class Reading:
     #: A reader may report text *and* say it is unsure of it. Such a reading is
     #: kept for the record but counts for neither side of the argument.
     uncertain: bool = False
+    # Distinct attempts from the same engine count as one source, not extra votes.
+    source: str | None = None
 
     def __post_init__(self) -> None:
         if not self.reader.strip():
@@ -100,9 +102,13 @@ def _choose_text(group: Sequence[Reading], prefer: Sequence[str]) -> str:
     """
 
     counts: dict[str, int] = {}
+    counted: set[str] = set()
     for reading in group:
         assert reading.text is not None
-        counts[reading.text] = counts.get(reading.text, 0) + 1
+        source = reading.source or reading.reader
+        if source not in counted:
+            counts[reading.text] = counts.get(reading.text, 0) + 1
+            counted.add(source)
     candidates = list(counts)
     order = {reader: index for index, reader in enumerate(prefer)}
     return min(
@@ -134,11 +140,15 @@ def consensus(
         return Consensus(None, (), (), "no_reading")
 
     groups = _groups(usable)
-    ranked = sorted(groups, key=len, reverse=True)
+
+    def source_count(group: Sequence[Reading]) -> int:
+        return len({reading.source or reading.reader for reading in group})
+
+    ranked = sorted(groups, key=source_count, reverse=True)
     best = ranked[0]
-    if len(best) < MIN_SUPPORTERS:
+    if source_count(best) < MIN_SUPPORTERS:
         return Consensus(None, (), considered, "single_reader")
-    if len(ranked) > 1 and len(ranked[1]) == len(best):
+    if len(ranked) > 1 and source_count(ranked[1]) == source_count(best):
         return Consensus(None, (), considered, "tie")
     text = _choose_text(best, prefer)
     supporters = tuple(reading.reader for reading in best)

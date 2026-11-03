@@ -3240,3 +3240,25 @@ def test_rehash_pages_reports_missing_raster(tmp_path: Path) -> None:
 
     pages = store.list_pages(project_id)
     assert pages[0].page_asset_sha256 is None
+
+
+def test_process_and_repair_keep_unrepresentable_text_blocked_from_export(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+
+    def factory(runtime_root: Path) -> Engines:
+        return Engines(FakeEngine("primary", "\ufffd"), FakeEngine("secondary", "\ufffd"))
+
+    run(["process", str(book), "--store", str(store_dir), "--repair-rounds", "1"],
+        engine_factory=factory)
+    capsys.readouterr()
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = store.list_projects()[0].id
+    assert store.latest_decision(project_id, 0, 0) is None
+    assert run(["repair", "--store", str(store_dir), "--repair-rounds", "1"],
+               engine_factory=factory) == 1
+    assert run(["export", "--store", str(store_dir), "--out", str(tmp_path / "blocked.epub"),
+                "--title", "Book"]) != 0
+    assert not (tmp_path / "blocked.epub").exists()

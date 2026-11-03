@@ -190,7 +190,7 @@ def test_rounds_stop_once_every_pair_is_settled(tmp_path: Path) -> None:
     reports = repair_book(
         store,
         project_id,
-        readers=(RepairReader("crop", FakeEngine("mineru", "鸦")),),
+        readers=(RepairReader("crop", FakeEngine("paddleocr", "鸦")),),
         crops_dir=tmp_path / "repair",
         settings=RepairSettings(max_rounds=4),
     )
@@ -273,7 +273,7 @@ def test_progress_reports_what_still_needs_a_person(tmp_path: Path) -> None:
     run_repair_round(
         store,
         project_id,
-        readers=(RepairReader("crop", FakeEngine("mineru", "鸦")),),
+        readers=(RepairReader("crop", FakeEngine("paddleocr", "鸦")),),
         crops_dir=tmp_path / "repair",
     )
 
@@ -374,3 +374,131 @@ def test_progress_separates_structural_disagreement_from_blocked_text(
 
     assert report.open_pairs == 1
     assert report.open_blocked == 1
+
+@pytest.mark.parametrize("text", ["\ufffd", "bad\x0btext"])
+def test_repair_cannot_accept_unrepresentable_consensus(tmp_path: Path, text: str) -> None:
+    store, project_id = _page_with(
+        tmp_path,
+        ConfidentTextEngine("mineru", text, 0.9),
+        ConfidentTextEngine("paddleocr", text, 0.9),
+    )
+    assert open_pairs(store, project_id)
+    report = run_repair_round(
+        store, project_id,
+        readers=(RepairReader("one", FakeEngine("mineru", text)),
+                 RepairReader("two", FakeEngine("paddleocr", text))),
+        crops_dir=tmp_path / "repair",
+    )
+    assert report.still_open
+    assert store.latest_decision(project_id, 0, 0) is None
+    reopened = SQLiteStore(tmp_path / "project.sqlite3")
+    reopened.initialize()
+    assert open_pairs(reopened, project_id)
+
+
+def test_repair_cannot_bypass_low_confidence_even_with_independent_agreement(
+    tmp_path: Path,
+) -> None:
+    store, project_id = _page_with(
+        tmp_path,
+        ConfidentTextEngine("mineru", "鸦", 0.1),
+        ConfidentTextEngine("paddleocr", "鸦", 0.1),
+    )
+    report = run_repair_round(
+        store, project_id,
+        readers=(RepairReader("third", FakeEngine("third", "鸦")),),
+        crops_dir=tmp_path / "repair",
+    )
+    assert report.still_open
+    assert store.latest_decision(project_id, 0, 0) is None
+
+
+def test_repair_does_not_count_repeated_engine_as_independent(tmp_path: Path) -> None:
+    store, project_id = _disputed_page(tmp_path)
+    report = run_repair_round(
+        store, project_id,
+        readers=(RepairReader("one", FakeEngine("mineru", "鸦")),
+                 RepairReader("two", FakeEngine("paddleocr", "蛙"))),
+        crops_dir=tmp_path / "repair",
+    )
+    assert report.still_open
+    assert store.latest_decision(project_id, 0, 0) is None
+
+
+def test_repair_records_original_risk_with_independent_corroboration(tmp_path: Path) -> None:
+    store, project_id = _disputed_page(tmp_path)
+    verification = store.load_verification(store.latest_verification_id(project_id, 0))
+    run_repair_round(
+        store, project_id,
+        readers=(RepairReader("one", FakeEngine("mineru", "鸦")),
+                 RepairReader("two", FakeEngine("paddleocr", "鸦"))),
+        crops_dir=tmp_path / "repair",
+    )
+    decision = store.latest_decision(project_id, 0, 0)
+    assert decision is not None
+    assert decision.risk_score == verification.risks[0].score
+    assert decision.risk_reasons == tuple(r.value for r in verification.risks[0].reasons)
+    assert len([ref for ref in decision.evidence_refs if ref.startswith("engine_run:")]) >= 3
+
+
+def test_repair_respects_persisted_spatial_mismatch(tmp_path: Path) -> None:
+    import sqlite3
+
+    store, project_id = _disputed_page(tmp_path)
+    with sqlite3.connect(tmp_path / "project.sqlite3") as connection:
+        connection.execute(
+            "UPDATE risks SET reasons_json = ?, content_score = ?",
+            ('["spatial_mismatch"]', 0.2),
+        )
+    report = run_repair_round(
+        store, project_id,
+        readers=(RepairReader("second", FakeEngine("paddleocr", "鸦")),),
+        crops_dir=tmp_path / "repair",
+    )
+    assert report.still_open
+    assert store.latest_decision(project_id, 0, 0) is None
+
+
+def test_repair_does_not_accept_low_confidence_crop_corroboration(tmp_path: Path) -> None:
+    store, project_id = _disputed_page(tmp_path)
+    report = run_repair_round(
+        store, project_id,
+        readers=(RepairReader("second", ConfidentTextEngine("paddleocr", "鸦", 0.1)),),
+        crops_dir=tmp_path / "repair",
+    )
+    assert report.still_open
+    assert store.latest_decision(project_id, 0, 0) is None
+
+
+def test_engine_version_does_not_create_an_independent_source(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    class NewVersionEngine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            return replace(super().analyze_page(image_path, page_index), engine_version="2.0")
+
+    store, project_id = _disputed_page(tmp_path)
+    report = run_repair_round(
+        store, project_id,
+        readers=(RepairReader("upgraded", NewVersionEngine("mineru", "鸦")),),
+        crops_dir=tmp_path / "repair",
+    )
+    assert report.still_open
+    assert store.latest_decision(project_id, 0, 0) is None
+
+
+def test_repair_rejects_worker_identity_mismatch(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    class MismatchedEngine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            return replace(super().analyze_page(image_path, page_index), engine="impostor")
+
+    store, project_id = _disputed_page(tmp_path)
+    with pytest.raises(ValueError, match="mismatched engine or page identity"):
+        run_repair_round(
+            store, project_id,
+            readers=(RepairReader("wrong", MismatchedEngine("mineru", "鸦")),),
+            crops_dir=tmp_path / "repair",
+        )
+    assert store.latest_decision(project_id, 0, 0) is None
