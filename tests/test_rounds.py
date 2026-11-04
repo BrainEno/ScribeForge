@@ -502,3 +502,25 @@ def test_repair_rejects_worker_identity_mismatch(tmp_path: Path) -> None:
             crops_dir=tmp_path / "repair",
         )
     assert store.latest_decision(project_id, 0, 0) is None
+
+
+def test_repair_refuses_replaced_original_page_before_reading(tmp_path: Path) -> None:
+    from scribeforge.domain.page_asset import PageAssetError, PageAssetEvidence
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("Book", "book.pdf", "source-hash")
+    image = tmp_path / "page.png"
+    Image.new("RGB", (100, 150), "white").save(image)
+    store.add_page(project_id, 0, str(image), 100, 150,
+                   page_asset=PageAssetEvidence.from_bytes(image.read_bytes()))
+    process_page(store, project_id, store.list_pages(project_id)[0],
+                 primary_engine=FakeEngine("mineru", "鸦"),
+                 secondary_engine=FakeEngine("paddleocr", "雅"), crops_dir=tmp_path / "crops")
+    image.write_bytes(b"replacement")
+    engine = FakeEngine("paddleocr", "鸦")
+    with pytest.raises(PageAssetError, match="source image"):
+        run_repair_round(store, project_id, readers=(RepairReader("reread", engine),),
+                         crops_dir=tmp_path / "repair")
+    assert engine.calls == 0
+    assert store.latest_decision(project_id, 0, 0) is None
