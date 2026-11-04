@@ -303,8 +303,10 @@ def test_backup_rejects_snapshot_with_different_audit_warnings(
     snapshot = project_backup._snapshot_database
 
     def snapshot_with_unknown_frame(source: Path, destination: Path) -> None:
+        from contextlib import closing
+
         snapshot(source, destination)
-        with sqlite3.connect(destination) as db:
+        with closing(sqlite3.connect(destination)) as db, db:
             db.execute("DELETE FROM ocr_input_frames WHERE run_id=?", (result.primary_run_id,))
 
     monkeypatch.setattr(project_backup, "_snapshot_database", snapshot_with_unknown_frame)
