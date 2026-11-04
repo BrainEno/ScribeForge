@@ -1345,11 +1345,16 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                 page = pages[detail.page_index]
                 frame_kind = "unknown"
                 frame_path = None
+                trusted_crop_path = None
                 try:
                     verification_id = store.latest_verification_id(project.id, detail.page_index)
                     frame, path = verification_frame(store, project.id, page, verification_id)
                     frame_kind = frame.kind
                     frame_path = str(path)
+                    pair_reviews = [review for review in store.list_vlm_reviews(verification_id)
+                                    if review.pair_index == detail.pair_index]
+                    if pair_reviews and store.load_vlm_crop_input(pair_reviews[-1].id) is not None:
+                        trusted_crop_path = detail.crop_path
                 except (ValueError, OSError, KeyError):
                     # Legacy or corrupt evidence must not be represented as a known frame.
                     pass
@@ -1364,7 +1369,7 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                         "secondary_text": detail.secondary_text,
                         "vlm_text": detail.vlm_text,
                         "vlm_uncertain": detail.vlm_uncertain,
-                        "crop_path": detail.crop_path if frame_path is not None else None,
+                        "crop_path": trusted_crop_path,
                         "source_image_path": page.source_image,
                         "coordinate_frame": frame_kind,
                         "ocr_frame_image_path": frame_path,

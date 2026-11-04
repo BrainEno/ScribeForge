@@ -172,8 +172,22 @@ class OCRInputFrame:
     height: int
 
 
+@dataclass(frozen=True, slots=True)
+class CropInputEvidence:
+    verification_id: int
+    pair_index: int
+    frame_sha256: str
+    crop_sha256: str
+    crop_path: str
+    x: int
+    y: int
+    width: int
+    height: int
+    scale: int
+
+
 class SQLiteStore:
-    SCHEMA_VERSION = 13
+    SCHEMA_VERSION = 14
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -332,6 +346,22 @@ class SQLiteStore:
                     height INTEGER NOT NULL CHECK(height > 0)
                 )""")
                 connection.execute("PRAGMA user_version = 13")
+            if version < 14:
+                connection.execute("""CREATE TABLE IF NOT EXISTS crop_input_evidence (
+                    id INTEGER PRIMARY KEY,
+                    ocr_run_id INTEGER UNIQUE REFERENCES engine_runs(id),
+                    vlm_review_id INTEGER UNIQUE REFERENCES vlm_reviews(id),
+                    verification_id INTEGER NOT NULL REFERENCES verification_runs(id),
+                    pair_index INTEGER NOT NULL CHECK(pair_index >= 0),
+                    frame_sha256 TEXT NOT NULL CHECK(length(frame_sha256) = 64),
+                    crop_sha256 TEXT NOT NULL CHECK(length(crop_sha256) = 64),
+                    crop_path TEXT NOT NULL,
+                    x INTEGER NOT NULL CHECK(x >= 0), y INTEGER NOT NULL CHECK(y >= 0),
+                    width INTEGER NOT NULL CHECK(width > 0), height INTEGER NOT NULL CHECK(height > 0),
+                    scale INTEGER NOT NULL CHECK(scale > 0),
+                    CHECK((ocr_run_id IS NULL) != (vlm_review_id IS NULL))
+                )""")
+                connection.execute("PRAGMA user_version = 14")
 
     @staticmethod
     def _create_v11(connection: sqlite3.Connection) -> None:
@@ -1637,6 +1667,7 @@ class SQLiteStore:
     def record_ocr(
         self, project_id: int, result: PageOCRResult, *, scope: str | None = None,
         frame: OCRInputFrame | None = None,
+        crop_input: CropInputEvidence | None = None,
     ) -> int:
         if scope is not None and not scope.strip():
             raise ValueError("an OCR run scope must be non-empty when given")
@@ -1656,6 +1687,8 @@ class SQLiteStore:
                 ),
             )
             run_id = self._last_id(cursor)
+            if crop_input is not None:
+                self._insert_crop_input(connection, crop_input, ocr_run_id=run_id)
             if frame is not None:
                 connection.execute(
                     "INSERT INTO ocr_input_frames(run_id, kind, sha256, width, height) "
@@ -2206,7 +2239,12 @@ class SQLiteStore:
         *,
         crop_path: str,
         crop_sha256: str,
+        crop_input: CropInputEvidence | None = None,
     ) -> int:
+        if crop_input is not None and (crop_input.verification_id != verification_id or
+                crop_input.pair_index != reading.pair_index or crop_input.crop_path != crop_path or
+                crop_input.crop_sha256 != crop_sha256):
+            raise ValueError("VLM crop evidence does not match reading")
         if not crop_path.strip():
             raise ValueError("VLM review crop path is required")
         if not crop_sha256.strip():
@@ -2230,7 +2268,54 @@ class SQLiteStore:
                     crop_sha256,
                 ),
             )
-            return self._last_id(cursor)
+            review_id = self._last_id(cursor)
+            if crop_input is not None:
+                self._insert_crop_input(connection, crop_input, vlm_review_id=review_id)
+            return review_id
+
+    @staticmethod
+    def _insert_crop_input(connection: sqlite3.Connection, evidence: CropInputEvidence, *,
+                           ocr_run_id: int | None = None, vlm_review_id: int | None = None) -> None:
+        row = connection.execute("""SELECT v.page_id, f.sha256, f.width, f.height,
+                    f.kind, f2.sha256 AS second_sha256, f2.width AS second_width,
+                    f2.height AS second_height, f2.kind AS second_kind
+            FROM verification_runs v
+            JOIN ocr_input_frames f ON f.run_id = v.primary_run_id
+            JOIN ocr_input_frames f2 ON f2.run_id = v.secondary_run_id
+            JOIN alignments a ON a.verification_run_id = v.id AND a.pair_index = ?
+            WHERE v.id = ?""", (evidence.pair_index, evidence.verification_id)).fetchone()
+        if row is None or row["sha256"] != evidence.frame_sha256 or (
+            row["sha256"], row["width"], row["height"], row["kind"]
+        ) != (row["second_sha256"], row["second_width"], row["second_height"], row["second_kind"]):
+            raise ValueError("crop frame does not match verification evidence")
+        if evidence.x + evidence.width > int(row["width"]) or evidence.y + evidence.height > int(row["height"]):
+            raise ValueError("crop geometry exceeds frame")
+        if ocr_run_id is not None:
+            run = connection.execute("SELECT page_id, scope FROM engine_runs WHERE id = ?", (ocr_run_id,)).fetchone()
+            if run is None or run["page_id"] != row["page_id"]:
+                raise ValueError("crop OCR run page does not match verification page")
+            if run["scope"] != f"pair:{evidence.pair_index}":
+                raise ValueError("crop OCR scope does not match verification pair")
+        connection.execute("""INSERT INTO crop_input_evidence
+            (ocr_run_id, vlm_review_id, verification_id, pair_index, frame_sha256,
+             crop_sha256, crop_path, x, y, width, height, scale)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ocr_run_id, vlm_review_id, evidence.verification_id, evidence.pair_index,
+             evidence.frame_sha256, evidence.crop_sha256, evidence.crop_path,
+             evidence.x, evidence.y, evidence.width, evidence.height, evidence.scale))
+
+    def load_vlm_crop_input(self, review_id: int) -> CropInputEvidence | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM crop_input_evidence WHERE vlm_review_id = ?", (review_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            return CropInputEvidence(
+                int(row["verification_id"]), int(row["pair_index"]), str(row["frame_sha256"]),
+                str(row["crop_sha256"]), str(row["crop_path"]), int(row["x"]), int(row["y"]),
+                int(row["width"]), int(row["height"]), int(row["scale"]),
+            )
 
     def list_vlm_reviews(self, verification_id: int) -> tuple[VLMReviewRecord, ...]:
         with self._connection() as connection:

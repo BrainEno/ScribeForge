@@ -18,6 +18,7 @@ from scribeforge.pipeline.adjudication import (
     review_detail,
     review_queue,
 )
+from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.storage.sqlite import SQLiteStore
 
 
@@ -268,6 +269,9 @@ class PairView:
     detail: ReviewDetail
     page_image: Path | None
     crop_image: Path | None
+    frame_image: Path | None = None
+    frame_kind: str = "unknown"
+    trusted_crop_image: Path | None = None
 
     @property
     def sources_label(self) -> str:
@@ -298,10 +302,27 @@ def load_pair_view(
     """Load the evidence and the available imagery for one queued pair."""
 
     detail = load_detail(store, project_id, row, crops_dir=crops_dir)
+    frame_image = None
+    frame_kind = "unknown"
+    trusted_crop = None
+    try:
+        page = next(page for page in store.list_pages(project_id) if page.page_index == row.page_index)
+        verification_id = store.latest_verification_id(project_id, row.page_index)
+        frame, frame_image = verification_frame(store, project_id, page, verification_id)
+        frame_kind = frame.kind
+        reviews = [review for review in store.list_vlm_reviews(verification_id)
+                   if review.pair_index == row.pair_index]
+        if reviews and store.load_vlm_crop_input(reviews[-1].id) is not None and detail.crop_path:
+            trusted_crop = Path(detail.crop_path)
+    except (ValueError, OSError, KeyError, StopIteration):
+        pass
     return PairView(
         detail=detail,
         page_image=page_image_path(store, project_id, row.page_index),
         crop_image=None if detail.crop_path is None else Path(detail.crop_path),
+        frame_image=frame_image,
+        frame_kind=frame_kind,
+        trusted_crop_image=trusted_crop,
     )
 
 

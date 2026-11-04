@@ -9,6 +9,7 @@ from scribeforge.domain.alignment import AlignmentConflict, LineAlignment
 from scribeforge.domain.crops import review_crop_file_name
 from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
 from scribeforge.domain.ocr import BoundingBox, PageOCRResult
+from scribeforge.domain.page_asset import file_sha256
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord, VLMReviewRecord
 
@@ -372,7 +373,12 @@ def review_detail(
         secondary_text=context.secondary_text,
         vlm_text=None if reading is None else reading.reading.text,
         vlm_uncertain=reading is not None and reading.reading.uncertain,
-        crop_path=_materialized_crop(crops_dir, page_index, pair_index, candidate),
+        crop_path=(
+            (_review_crop(reading) if store.load_vlm_crop_input(reading.id) is not None
+             else _materialized_crop(crops_dir, page_index, pair_index, candidate))
+            if reading is not None
+            else _materialized_crop(crops_dir, page_index, pair_index, candidate)
+        ),
         accepted_text=None if decision is None else decision.selected_text,
         source_box=(
             candidate.crop
@@ -409,6 +415,14 @@ def record_human_decision(
         actor=DecisionActor.HUMAN.value,
         evidence_refs=_evidence_refs(context.record, context.reading),
     )
+
+
+def _review_crop(reading: VLMReviewRecord) -> str | None:
+    path = Path(reading.crop_path)
+    try:
+        return str(path) if file_sha256(path) == reading.crop_sha256 else None
+    except OSError:
+        return None
 
 
 def _materialized_crop(

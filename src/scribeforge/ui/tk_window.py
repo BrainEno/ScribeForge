@@ -210,7 +210,14 @@ class ScribeForgeWindow:
         self.page_caption.pack(fill="x")
         self.page_image = ttk.Label(page_tab)
         self.page_image.pack(fill="both", expand=True)
-        notebook.add(page_tab, text="Page image")
+        notebook.add(page_tab, text="OCR coordinate frame")
+
+        original_tab = ttk.Frame(notebook)
+        self.original_caption = ttk.Label(original_tab, text="no original image", anchor="w")
+        self.original_caption.pack(fill="x")
+        self.original_image = ttk.Label(original_tab)
+        self.original_image.pack(fill="both", expand=True)
+        notebook.add(original_tab, text="Original page (no overlays)")
 
         crop_tab = ttk.Frame(notebook)
         self.crop_caption = ttk.Label(crop_tab, text="no crop", anchor="w")
@@ -317,7 +324,7 @@ class ScribeForgeWindow:
         )
         self._current_row = row
         self._current_detail = view.detail
-        self._current_page_image = view.page_image
+        self._current_page_image = view.frame_image
         self._set_choice_states(view.detail)
         self.custom_entry.delete(0, "end")
         self._set_detail(render_detail(view.detail))
@@ -325,18 +332,26 @@ class ScribeForgeWindow:
         self._show_image(
             self.page_image,
             self.page_caption,
+            view.frame_image,
+            box=(560, 720),
+            upscale=False,
+            missing="OCR frame unknown or unverifiable; overlays disabled",
+            focus_box=view.detail.source_box,
+            focus_color="#f59e0b",
+            focus_label=f"{view.frame_kind} OCR frame — pair region",
+        )
+        self._show_image(
+            self.original_image,
+            self.original_caption,
             view.page_image,
             box=(560, 720),
             upscale=False,
-            missing="no page image for this page",
-            focus_box=view.detail.source_box,
-            focus_color="#f59e0b",
-            focus_label="pair region",
+            missing="no original page image",
         )
         self._show_image(
             self.crop_image,
             self.crop_caption,
-            view.crop_image,
+            view.trusted_crop_image,
             box=(560, 240),
             upscale=True,
             missing="no crop for this pair",
