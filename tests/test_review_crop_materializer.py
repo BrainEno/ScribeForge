@@ -48,12 +48,12 @@ def test_materializer_replaces_stale_crop_with_current_source_evidence(tmp_path:
     plan = ReviewCropPlan(0, 0, PixelBox(0, 0, 1, 1), "page-000001-pair-0000.png")
     Image.new("RGB", (2, 2), (10, 20, 30)).save(source)
 
-    first = materialize_review_crops(source, (plan,), output)[0]
+    first = materialize_review_crops(source, (plan,), output, immutable=False)[0]
     with Image.open(first) as crop:
         assert crop.getpixel((0, 0)) == (10, 20, 30)
 
     Image.new("RGB", (2, 2), (90, 80, 70)).save(source)
-    second = materialize_review_crops(source, (plan,), output)[0]
+    second = materialize_review_crops(source, (plan,), output, immutable=False)[0]
 
     assert second == first
     with Image.open(second) as crop:
@@ -157,3 +157,28 @@ def test_a_scaled_crop_is_enlarged_without_inventing_detail(tmp_path: Path) -> N
         assert crop.getpixel((0, 0)) == (40, 30, 30)
         assert crop.getpixel((1, 1)) == (40, 30, 30)
         assert crop.getpixel((3, 0)) == (60, 30, 40)
+
+
+def test_default_materialization_never_replaces_prior_crop(tmp_path: Path) -> None:
+    source = tmp_path / "page.png"
+    output = tmp_path / "crops"
+    plan = ReviewCropPlan(0, 0, PixelBox(0, 0, 1, 1), "evidence.png")
+    Image.new("RGB", (2, 2), "white").save(source)
+    first = Path(materialize_review_crops(source, (plan,), output)[0])
+    original = first.read_bytes()
+    Image.new("RGB", (2, 2), "black").save(source)
+    second = Path(materialize_review_crops(source, (plan,), output)[0])
+    assert first != second
+    assert first.read_bytes() == original
+    with Image.open(second) as crop:
+        assert crop.getpixel((0, 0)) == (0, 0, 0)
+
+
+def test_legacy_replacement_refuses_to_overwrite_its_source(tmp_path: Path) -> None:
+    source = tmp_path / "page.png"
+    Image.new("RGB", (2, 2), "white").save(source)
+    original = source.read_bytes()
+    plan = ReviewCropPlan(0, 0, PixelBox(0, 0, 1, 1), "page.png")
+    with pytest.raises(ValueError, match="source"):
+        materialize_review_crops(source, (plan,), tmp_path, immutable=False)
+    assert source.read_bytes() == original

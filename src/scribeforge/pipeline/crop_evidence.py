@@ -6,7 +6,12 @@ from PIL import Image
 
 from scribeforge.domain.crops import ReviewCropPlan
 from scribeforge.domain.page_asset import PageAssetError, file_sha256
-from scribeforge.storage.sqlite import CropInputEvidence, OCRInputFrame
+from scribeforge.storage.sqlite import (
+    CropInputEvidence,
+    OCRInputFrame,
+    SQLiteStore,
+    VLMReviewRecord,
+)
 
 
 def crop_evidence(
@@ -41,3 +46,25 @@ def verify_crop(evidence: CropInputEvidence) -> None:
         or digest != evidence.crop_sha256
     ):
         raise PageAssetError("crop evidence changed; restore it from a verified backup")
+
+
+def verified_vlm_crop(
+    store: SQLiteStore, verification_id: int, frame: OCRInputFrame, review: VLMReviewRecord
+) -> CropInputEvidence:
+    """Validate the binding and bytes before reusing or displaying a VLM crop."""
+    evidence = store.load_vlm_crop_input(review.id)
+    if evidence is None:
+        raise ValueError("VLM crop input is unknown for legacy evidence; re-import into a new project")
+    if (
+        evidence.frame_sha256 != frame.sha256
+        or evidence.verification_id != verification_id
+        or review.verification_run_id != verification_id
+        or evidence.pair_index != review.pair_index
+        or evidence.crop_path != review.crop_path
+        or evidence.crop_sha256 != review.crop_sha256
+        or evidence.x + evidence.width > frame.width
+        or evidence.y + evidence.height > frame.height
+    ):
+        raise ValueError("VLM crop evidence mismatch")
+    verify_crop(evidence)
+    return evidence

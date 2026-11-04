@@ -18,6 +18,7 @@ from scribeforge.pipeline.adjudication import (
     review_detail,
     review_queue,
 )
+from scribeforge.pipeline.crop_evidence import verified_vlm_crop
 from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.storage.sqlite import SQLiteStore
 
@@ -312,8 +313,9 @@ def load_pair_view(
         frame_kind = frame.kind
         reviews = [review for review in store.list_vlm_reviews(verification_id)
                    if review.pair_index == row.pair_index]
-        if reviews and store.load_vlm_crop_input(reviews[-1].id) is not None and detail.crop_path:
-            trusted_crop = Path(detail.crop_path)
+        if reviews:
+            evidence = verified_vlm_crop(store, verification_id, frame, reviews[-1])
+            trusted_crop = Path(evidence.crop_path)
     except (ValueError, OSError, KeyError, StopIteration):
         pass
     return PairView(

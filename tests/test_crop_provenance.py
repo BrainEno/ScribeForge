@@ -449,3 +449,112 @@ def test_desktop_disables_overlay_for_unknown_legacy_frame(tmp_path: Path):
     view = load_pair_view(store, pid, load_review_rows(store, pid)[0], crops_dir=tmp_path / "crops")
     assert view.frame_kind == "unknown"
     assert view.frame_image is None
+
+
+def test_resume_checks_existing_vlm_crop_before_any_new_review(tmp_path: Path):
+    store = SQLiteStore(tmp_path / "db.sqlite3")
+    store.initialize()
+    pid, page = project(store, tmp_path, "one", "white")
+
+    class TwoLines(Engine):
+        def analyze_page(self, image_path, page_index):
+            return PageOCRResult(
+                page_index,
+                self.name,
+                "1",
+                (
+                    OCRLine(self.text, BoundingBox(0.1, 0.1, 0.5, 0.1)),
+                    OCRLine(self.text, BoundingBox(0.1, 0.4, 0.5, 0.1)),
+                ),
+            )
+
+    class Interrupting(Reviewer):
+        def transcribe_crop(self, image_path, page_index, pair_index):
+            if pair_index == 1:
+                raise RuntimeError("interrupted")
+            return super().transcribe_crop(image_path, page_index, pair_index)
+
+    first, second = TwoLines("a", "甲"), TwoLines("b", "乙")
+    with pytest.raises(RuntimeError, match="interrupted"):
+        process_page(
+            store,
+            pid,
+            page,
+            primary_engine=first,
+            secondary_engine=second,
+            reviewer=Interrupting(),
+            crops_dir=tmp_path / "crops",
+        )
+    verification = store.latest_verification_id(pid, 0)
+    reviews = store.list_vlm_reviews(verification)
+    assert len(reviews) == 1
+    Path(reviews[0].crop_path).write_bytes(b"changed")
+
+    class Counting(Reviewer):
+        calls = 0
+
+        def transcribe_crop(self, image_path, page_index, pair_index):
+            self.calls += 1
+            return super().transcribe_crop(image_path, page_index, pair_index)
+
+    reviewer = Counting()
+    with pytest.raises(ValueError, match="crop.*changed"):
+        process_page(
+            store,
+            pid,
+            page,
+            primary_engine=first,
+            secondary_engine=second,
+            reviewer=reviewer,
+            crops_dir=tmp_path / "crops",
+        )
+    assert reviewer.calls == 0
+    assert len(store.list_vlm_reviews(verification)) == 1
+
+
+def test_review_surfaces_hide_crop_if_bound_geometry_is_corrupt(tmp_path: Path, capsys):
+    import json
+
+    from scribeforge.cli import run
+    from scribeforge.ui.viewmodel import load_pair_view, load_review_rows
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    pid, page = project(store, tmp_path, "one", "white")
+    process_page(
+        store,
+        pid,
+        page,
+        primary_engine=Engine("a", "甲"),
+        secondary_engine=Engine("b", "乙"),
+        reviewer=Reviewer(),
+        crops_dir=tmp_path / "crops",
+    )
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute("UPDATE crop_input_evidence SET width = width + 1")
+    assert run(["review", "--store", str(tmp_path), "--json"]) == 0
+    item = json.loads(capsys.readouterr().out)["projects"][0]["items"][0]
+    assert item["crop_path"] is None
+    view = load_pair_view(store, pid, load_review_rows(store, pid)[0], crops_dir=tmp_path / "crops")
+    assert view.trusted_crop_image is None
+
+
+def test_review_text_does_not_expose_unverified_crop(tmp_path: Path, capsys):
+    from scribeforge.cli import run
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    pid, page = project(store, tmp_path, "one", "white")
+    process_page(
+        store,
+        pid,
+        page,
+        primary_engine=Engine("a", "甲"),
+        secondary_engine=Engine("b", "乙"),
+        reviewer=Reviewer(),
+        crops_dir=tmp_path / "crops",
+    )
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute("DELETE FROM crop_input_evidence")
+    assert run(["review", "--store", str(tmp_path)]) == 0
+    assert "crop=none" in capsys.readouterr().out
