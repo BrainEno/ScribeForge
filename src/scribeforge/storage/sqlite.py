@@ -31,8 +31,8 @@ from scribeforge.domain.ocr import (
 )
 from scribeforge.domain.page_asset import (
     PAGE_ASSET_VERSION,
+    PageAssetError,
     PageAssetEvidence,
-    file_sha256,
 )
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.domain.structure import (
@@ -44,6 +44,17 @@ from scribeforge.domain.structure import (
     PageStructure,
 )
 from scribeforge.domain.vlm import VLMReading
+
+
+def _measure_page_asset(path: Path) -> tuple[str, int]:
+    """Hash and count the same byte stream, even if the path is replaced."""
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+            size += len(chunk)
+    return digest.hexdigest(), size
 
 
 class JobAlreadyRunningError(RuntimeError):
@@ -957,18 +968,22 @@ class SQLiteStore:
             )
             return self._last_id(cursor)
 
-    def rehash_page_asset(self, page_id: int) -> PageAssetEvidence | None:
+    def rehash_page_asset(
+        self, page_id: int, *, require_missing: bool = False
+    ) -> PageAssetEvidence | None:
         """Re-measure one persisted page's raster and store its digest.
 
         Returns the newly recorded evidence, or None when the raster is missing
         (the caller decides whether that is an error). Never overwrites evidence
         that already exists: a changed page must not launder itself through here.
+        ``require_missing`` rejects a digest another writer added since enumeration.
         """
 
         with self._connection() as connection:
             found = connection.execute(
                 """
-                SELECT source_image, page_asset_sha256
+                SELECT source_image, page_asset_sha256, page_asset_byte_size,
+                       page_asset_parameters_json, page_asset_version
                 FROM pages
                 WHERE id = ?
                 """,
@@ -976,39 +991,68 @@ class SQLiteStore:
             ).fetchone()
         if found is None:
             return None
+        if require_missing and found["page_asset_sha256"] is not None:
+            raise PageAssetError(f"page {page_id} evidence changed during rehash; retry after audit")
         path = Path(str(found["source_image"])).expanduser()
         if not path.is_file():
             return None
-        actual = file_sha256(path)
-        if found["page_asset_sha256"] == actual:
-            return PageAssetEvidence(
-                sha256=actual,
-                byte_size=path.stat().st_size,
-                render_parameters={},
-                version=PAGE_ASSET_VERSION,
-            )
+        actual, byte_size = _measure_page_asset(path)
+        if byte_size == 0:
+            raise PageAssetError(f"page {page_id} is empty; cannot record a page asset digest")
+        measured = PageAssetEvidence(
+            sha256=actual,
+            byte_size=byte_size,
+            render_parameters={},
+            version=PAGE_ASSET_VERSION,
+        )
+        if found["page_asset_sha256"] is not None:
+            if found["page_asset_sha256"] != actual:
+                raise PageAssetError(
+                    f"page {page_id} does not match its recorded digest; "
+                    "restore it from a verified backup instead of rehashing"
+                )
+            if (
+                found["page_asset_byte_size"] != byte_size
+                or found["page_asset_parameters_json"] is None
+                or found["page_asset_version"] is None
+            ):
+                raise PageAssetError(f"page {page_id} recorded evidence is incomplete or inconsistent")
+            try:
+                parameters = json.loads(found["page_asset_parameters_json"])
+                if not isinstance(parameters, dict):
+                    raise TypeError("render parameters must be an object")
+                return PageAssetEvidence(
+                    sha256=actual,
+                    byte_size=byte_size,
+                    render_parameters=parameters,
+                    version=found["page_asset_version"],
+                )
+            except (ValueError, TypeError) as exc:
+                raise PageAssetError(f"page {page_id} has invalid recorded evidence") from exc
+        if _measure_page_asset(path) != (actual, byte_size):
+            raise PageAssetError(f"page {page_id} raster changed during rehash; retry after audit")
         with self._connection() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 UPDATE pages
                 SET page_asset_sha256 = ?, page_asset_byte_size = ?,
                     page_asset_parameters_json = ?, page_asset_version = ?
-                WHERE id = ?
+                WHERE id = ? AND page_asset_sha256 IS NULL AND source_image = ?
                 """,
                 (
                     actual,
-                    path.stat().st_size,
+                    byte_size,
                     json.dumps({}, sort_keys=True),
                     PAGE_ASSET_VERSION,
                     page_id,
+                    found["source_image"],
                 ),
             )
-        return PageAssetEvidence(
-            sha256=actual,
-            byte_size=path.stat().st_size,
-            render_parameters={},
-            version=PAGE_ASSET_VERSION,
-        )
+            if cursor.rowcount != 1:
+                raise PageAssetError(
+                    f"page {page_id} evidence or source path changed during rehash; retry after audit"
+                )
+        return measured
 
     def rehash_missing_page_assets(self) -> tuple[int, int]:
         """Re-measure every page whose raster digest was never recorded.
@@ -1034,7 +1078,7 @@ class SQLiteStore:
             if not path.is_file():
                 missing += 1
                 continue
-            evidence = self.rehash_page_asset(page_id)
+            evidence = self.rehash_page_asset(page_id, require_missing=True)
             if evidence is not None:
                 rehashed += 1
         return rehashed, missing
