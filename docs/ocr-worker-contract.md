@@ -38,6 +38,12 @@ Boxes are normalized page coordinates `[x, y, width, height]` in 0..1. Geometry 
 clamped into the page by the adapter: a polygon that spills past the trim or carries
 negative coordinates after deskew is corrected rather than rejecting the page.
 
+The page orchestrator applies the same exact page-index and engine-name checks
+to every `OCREngine`, including in-process implementations. A mismatched result
+is rejected before persistence, marks that page's OCR stage failed, and may be
+retried; existing runs are not rewritten. This check does not repair historical
+runs or prove that an engine actually read the supplied pixels.
+
 ## Fields
 
 | Field | Required | Meaning |

@@ -138,7 +138,10 @@ def process_page(
     frame = capture_frame(Path(image_path), "preprocessed" if preprocess is not None else "original",
                           image_width, image_height)
 
-    def read_engine(engine: OCREngine) -> None:
+    primary_name = primary_engine.name
+    secondary_name = secondary_engine.name
+
+    def read_engine(engine: OCREngine, expected_name: str) -> None:
         if capture_frame(Path(image_path), frame.kind, frame.width, frame.height) != frame:
             raise PageAssetError("OCR frame changed before reading")
         with tempfile.TemporaryDirectory(prefix="scribeforge-ocr-input-") as temporary_dir:
@@ -152,6 +155,14 @@ def process_page(
             if copied != frame or source != frame:
                 raise PageAssetError("OCR frame changed while preparing the worker input")
             result = engine.analyze_page(str(scratch), page_index)
+            if result.page_index != page_index:
+                raise ValueError(
+                    f"OCR page mismatch: expected {page_index}, got {result.page_index}"
+                )
+            if result.engine != expected_name:
+                raise ValueError(
+                    f"OCR engine mismatch: expected {expected_name!r}, got {result.engine!r}"
+                )
             try:
                 copied = capture_frame(scratch, frame.kind, frame.width, frame.height)
                 source = capture_frame(Path(image_path), frame.kind, frame.width, frame.height)
@@ -162,7 +173,7 @@ def process_page(
         store.record_ocr(project_id, result, frame=frame)
 
     def compute_primary() -> None:
-        read_engine(primary_engine)
+        read_engine(primary_engine, primary_name)
 
     primary_run_id = _run_stage(
         store,
@@ -170,14 +181,14 @@ def process_page(
         JobStage.PRIMARY_OCR,
         page_index,
         compute_primary,
-        lambda: store.latest_engine_run(project_id, page_index, primary_engine.name),
+        lambda: store.latest_engine_run(project_id, page_index, primary_name),
     )
 
     if store.load_ocr_frame(primary_run_id) != frame:
         raise ValueError("primary OCR frame mismatch or unknown; re-import into a new project")
 
     def compute_secondary() -> None:
-        read_engine(secondary_engine)
+        read_engine(secondary_engine, secondary_name)
 
     secondary_run_id = _run_stage(
         store,
@@ -185,7 +196,7 @@ def process_page(
         JobStage.SECONDARY_OCR,
         page_index,
         compute_secondary,
-        lambda: store.latest_engine_run(project_id, page_index, secondary_engine.name),
+        lambda: store.latest_engine_run(project_id, page_index, secondary_name),
     )
 
     if store.load_ocr_frame(secondary_run_id) != frame:
