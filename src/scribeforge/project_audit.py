@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scribeforge.domain.page_asset import PageAssetEvidence
+from scribeforge.evidence_audit import audit_model_evidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +121,12 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
                 ORDER BY project_id, page_index
                 """
             ).fetchall()
+            audit_model_evidence(
+                connection,
+                lambda code, severity, message, path: findings.append(
+                    AuditFinding(code, severity, message, path)
+                ),
+            )
     except (OSError, sqlite3.Error, ValueError) as exc:
         findings.append(
             AuditFinding(
