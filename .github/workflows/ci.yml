@@ -20,34 +20,22 @@ jobs:
       - run: mypy src
       - run: pytest -m "not benchmark and not gpu"
 
-      # EPUBCheck official conformance validation (issue #84). Skipped when no
-      # Java runtime is available; the internal check_epub() already runs on
-      # every build and covers most EPUBCheck checkpoints.
-      - name: Check Java availability
-        id: java-check
-        run: |
-          if command -v java >/dev/null 2>&1; then echo "java_available=true" >> "$GITHUB_OUTPUT"; else echo "java_available=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Set up Java for official EPUBCheck
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-      - name: Run EPUBCheck conformance validation
-        if: steps.java-check.outputs.java_available == 'true'
-        continue-on-error: true
+      - name: Download and verify official EPUBCheck 5.4.0
         run: |
-          EPUBCHECK_VERSION=5.3.2
-          if ! command -v unzip >/dev/null 2>&1; then
-            echo "unzip not available; skipping EPUBCheck download."
-            exit 0
-          fi
-          if ! curl -sL --fail "https://github.com/w3c/epubcheck/releases/download/v${EPUBCHECK_VERSION}/epubcheck-${EPUBCHECK_VERSION}.zip" -o epubcheck.zip; then
-            echo "EPUBCheck download failed; skipping official conformance validation."
-            exit 0
-          fi
-          unzip -q epubcheck.zip
-          EPUB_FILE=$(find . -name '*.epub' | head -1)
-          if [ -n "$EPUB_FILE" ]; then
-            java -jar "epubcheck-${EPUBCHECK_VERSION}/epubcheck.jar" "$EPUB_FILE" || true
-          else
-            echo "No EPUB file found to validate; EPUBCheck jar is available for manual use."
-          fi
+          curl --fail --show-error --location --retry 3 \
+            https://github.com/w3c/epubcheck/releases/download/v5.4.0/epubcheck-5.4.0.zip \
+            -o epubcheck-5.4.0.zip
+          echo '33350c61038e71dfb3d45a76aed04bf5481e6d5500cb780f6e98db8bbd15a28c  epubcheck-5.4.0.zip' | sha256sum --check
+          unzip -q epubcheck-5.4.0.zip
+
+      - name: Run official EPUBCheck positive and negative controls
+        run: python .github/scripts/epubcheck_gate.py epubcheck-5.4.0/epubcheck.jar
 
   python-314:
     name: Python 3.14.4 core compatibility (${{ matrix.os }})
