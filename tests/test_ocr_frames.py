@@ -378,3 +378,120 @@ def test_worker_failure_preserves_frame_for_retry_and_cleans_temporary_input(
     frame = store.load_ocr_frame(outcome.primary_run_id)
     assert frame is not None
     assert frame.sha256 == hashlib.sha256(before).hexdigest()
+
+
+@pytest.mark.parametrize("stage", ["primary", "secondary"])
+@pytest.mark.parametrize("mismatch", ["page", "engine"])
+def test_page_ocr_rejects_wrong_result_identity_and_retries(
+    tmp_path: Path, stage: str, mismatch: str
+) -> None:
+    from dataclasses import replace
+
+    from scribeforge.domain.jobs import JobStage, JobState
+
+    store, project, page = setup_page(tmp_path)
+    other_image = tmp_path / "other.png"
+    Image.new("RGB", (200, 200), "blue").save(other_image)
+    store.add_page(project, 1, str(other_image), 200, 200)
+    original_page = Path(page.source_image).read_bytes()
+    other_bytes = other_image.read_bytes()
+
+    class WrongIdentity(Engine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            result = super().analyze_page(image_path, page_index)
+            if mismatch == "page":
+                return replace(result, page_index=1)
+            return replace(result, engine="wrong-engine")
+
+    primary = WrongIdentity("a", "甲") if stage == "primary" else Engine("a", "甲")
+    secondary = WrongIdentity("b", "乙") if stage == "secondary" else Engine("b", "乙")
+    with pytest.raises(ValueError, match="(?i)(engine|page).*(mismatch|expected)"):
+        process_page(store, project, page, primary_engine=primary,
+                     secondary_engine=secondary, crops_dir=tmp_path / "crops")
+
+    expected_stage = JobStage.PRIMARY_OCR if stage == "primary" else JobStage.SECONDARY_OCR
+    job = next(job for job in store.list_jobs(project) if job.stage == expected_stage)
+    assert job.state is JobState.FAILED
+    assert job.attempts == 1
+    assert job.last_error
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        runs = db.execute("SELECT p.page_index, r.engine FROM engine_runs r "
+                          "JOIN pages p ON p.id=r.page_id ORDER BY r.id").fetchall()
+        frames = db.execute("SELECT count(*) FROM ocr_input_frames").fetchone()[0]
+    assert runs == ([] if stage == "primary" else [(0, "a")])
+    assert frames == len(runs)
+    assert Path(page.source_image).read_bytes() == original_page
+    assert other_image.read_bytes() == other_bytes
+
+    outcome = process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                           secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    job = next(job for job in store.list_jobs(project) if job.stage == expected_stage)
+    assert job.state is JobState.SUCCEEDED
+    assert job.attempts == 2
+    assert store.load_ocr_run(outcome.primary_run_id).engine == "a"
+    assert store.load_ocr_run(outcome.secondary_run_id).engine == "b"
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        runs = db.execute("SELECT p.page_index, r.engine FROM engine_runs r "
+                          "JOIN pages p ON p.id=r.page_id ORDER BY r.id").fetchall()
+    assert runs == [(0, "a"), (0, "b")]
+
+
+def test_wrong_ocr_identity_cannot_be_hidden_by_an_older_matching_run(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from scribeforge.domain.jobs import JobStage, JobState
+    from scribeforge.pipeline.ocr_frame import capture_frame
+
+    store, project, page = setup_page(tmp_path)
+    frame = capture_frame(Path(page.source_image), "original", page.width, page.height)
+    old_id = store.record_ocr(project, PageOCRResult(0, "a", "old", ()), frame=frame)
+
+    class WrongEngine(Engine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            return replace(super().analyze_page(image_path, page_index), engine="other")
+
+    with pytest.raises(ValueError, match="(?i)engine.*mismatch"):
+        process_page(store, project, page, primary_engine=WrongEngine("a", "甲"),
+                     secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    job = next(job for job in store.list_jobs(project) if job.stage is JobStage.PRIMARY_OCR)
+    assert job.state is JobState.FAILED
+    assert store.latest_engine_run(project, 0, "a") == old_id
+    with pytest.raises(KeyError):
+        store.latest_engine_run(project, 0, "other")
+    result = process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                          secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    assert result.primary_run_id != old_id
+    assert store.load_ocr_run(result.primary_run_id).lines[0].text == "甲"
+
+
+def test_bad_ocr_identity_fails_only_its_page_and_book_retries(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from scribeforge.pipeline.orchestrator import process_book
+
+    store, project, page = setup_page(tmp_path)
+    second_path = tmp_path / "page2.png"
+    Image.new("RGB", (200, 200), "blue").save(second_path)
+    store.add_page(project, 1, str(second_path), 200, 200)
+
+    class WrongFirstPage(Engine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            result = super().analyze_page(image_path, page_index)
+            return replace(result, page_index=1) if page_index == 0 else result
+
+    first = process_book(store, project, primary_engine=WrongFirstPage("a", "甲"),
+                         secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    assert [p.page_index for p in first.pages] == [1]
+    assert len(first.failed_pages) == 1
+    assert first.failed_pages[0][0] == page.page_index
+    assert "page mismatch" in first.failed_pages[0][1]
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        runs = db.execute("SELECT p.page_index, r.engine FROM engine_runs r "
+                          "JOIN pages p ON p.id=r.page_id ORDER BY r.id").fetchall()
+    assert runs == [(1, "a"), (1, "b")]
+    retry = process_book(store, project, primary_engine=Engine("a", "甲"),
+                         secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    assert not retry.failed_pages
+    assert [p.page_index for p in retry.pages] == [0, 1]
+    assert retry.pages[1].primary_run_id == first.pages[0].primary_run_id
+    assert retry.pages[1].secondary_run_id == first.pages[0].secondary_run_id
