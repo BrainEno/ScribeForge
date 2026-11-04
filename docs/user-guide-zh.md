@@ -132,7 +132,7 @@ scribeforge audit --store "D:\Books\My Book.scribeforge" --json
 scribeforge backup --store "D:\Books\My Book.scribeforge" --out "D:\Backups\My Book.zip"
 ```
 
-备份会包含项目数据库、项目目录中的页面图像和其他文件，并将原始 PDF 一并打包，但前提是 PDF 存在且 SHA-256 与项目记录一致。若源文件已移动，先用 `scribeforge relink-source` 重新关联；若页面图像缺失、数据库有完整性错误或仍有任务正在运行，备份会拒绝创建。已有 ZIP 默认不会覆盖，只有明确提供 `--overwrite` 才会替换。
+备份会包含项目数据库、项目目录中的页面图像和其他文件，并将原始 PDF 一并打包，但前提是 PDF 存在且 SHA-256 与项目记录一致。备份会同时检查活动数据库和实际生成的数据库快照，拒绝包含运行中任务的快照；检查本身不会在整个备份期间锁住项目，操作时仍应先停止处理并避免并发修改。若源文件已移动，先用 `scribeforge relink-source` 重新关联；若页面图像缺失、数据库有完整性错误或仍有任务正在运行，备份会拒绝创建。已有 ZIP 默认不会覆盖，只有明确提供 `--overwrite` 才会替换。
 
 先验证备份：
 

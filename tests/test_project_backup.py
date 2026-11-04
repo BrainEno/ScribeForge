@@ -353,3 +353,49 @@ def test_restore_relocates_preprocessed_page_paths(tmp_path: Path) -> None:
         assert connection.execute("SELECT output_image FROM page_preprocess").fetchone()[0] == str(
             (target / "preprocessed" / "page-pre.png").resolve()
         )
+
+
+def test_backup_rejects_job_started_after_live_check_but_before_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard must inspect the same SQLite state that is actually archived."""
+    store_dir, _source = _prepared_store(tmp_path)
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = store.list_projects()[0].id
+    job_id = store.ensure_job(project_id, JobStage.IMPORT)
+    original_connect = sqlite3.connect
+    started: list[bool] = []
+
+    class StartJobBeforeBackup:
+        def __init__(self, connection: sqlite3.Connection) -> None:
+            self.connection = connection
+
+        def __getattr__(self, name):
+            return getattr(self.connection, name)
+
+        def backup(self, destination):
+            store.start_job(job_id)
+            started.append(True)
+            return self.connection.backup(destination)
+
+    def tracked_connect(database, *args, **kwargs):
+        connection = original_connect(database, *args, **kwargs)
+        if Path(database) == store_dir / "project.sqlite3" and kwargs.get("timeout") == 10:
+            return StartJobBeforeBackup(connection)
+        return connection
+
+    monkeypatch.setattr(project_backup.sqlite3, "connect", tracked_connect)
+    archive = tmp_path / "Book.zip"
+    archive.write_bytes(b"prior archive")
+    try:
+        with pytest.raises(ProjectBackupError, match="running job"):
+            create_project_backup(store_dir, archive, overwrite=True)
+        assert started
+        assert archive.read_bytes() == b"prior archive"
+        assert not list(tmp_path.glob(".Book.zip.*.tmp"))
+    finally:
+        if started:
+            store.fail_job(job_id, "test cleanup")
+    monkeypatch.undo()
+    create_project_backup(store_dir, archive, overwrite=True)
+    assert verify_project_backup(archive)["healthy"] is True

@@ -258,23 +258,30 @@ def _restore_verified_archive(
 def _snapshot_database(source_path: Path, destination_path: Path) -> None:
     try:
         with closing(sqlite3.connect(source_path, timeout=10)) as source:
-            table_exists = source.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'"
-            ).fetchone()
-            if table_exists is not None:
-                running = int(
-                    source.execute("SELECT COUNT(*) FROM jobs WHERE state = 'running'").fetchone()[0]
-                )
-                if running:
-                    raise ProjectBackupError(
-                        f"project has {running} running job(s); wait for processing to finish before backup"
-                    )
+            _assert_no_running_jobs(source)
             with closing(sqlite3.connect(destination_path)) as destination:
                 source.backup(destination)
+                # A worker can start after the live check but before backup copies
+                # the database. Inspect the exact snapshot that will be archived.
+                _assert_no_running_jobs(destination)
     except sqlite3.Error as exc:
         raise ProjectBackupError(f"could not create a consistent SQLite snapshot: {exc}") from exc
     _validate_sqlite_database(destination_path)
 
+
+
+def _assert_no_running_jobs(connection: sqlite3.Connection) -> None:
+    table_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'"
+    ).fetchone()
+    if table_exists is not None:
+        running = int(connection.execute(
+            "SELECT COUNT(*) FROM jobs WHERE state = 'running'"
+        ).fetchone()[0])
+        if running:
+            raise ProjectBackupError(
+                f"project has {running} running job(s); wait for processing to finish before backup"
+            )
 
 def _verify_archive(
     archive_path: Path,
