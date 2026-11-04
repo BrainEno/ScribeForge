@@ -51,7 +51,11 @@ from scribeforge.domain.preprocess import (
 )
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
-from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
+from scribeforge.pipeline.assembly import (
+    PageImageError,
+    UnresolvedContentError,
+    assemble_verified_content,
+)
 from scribeforge.pipeline.crop_evidence import verified_vlm_crop
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.ocr_frame import verification_frame
@@ -1655,6 +1659,9 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         )
     except UnresolvedContentError as exc:
         _report_blocked_export(exc, sys.stderr)
+        return EXIT_FATAL
+    except PageImageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
     if not book.pages:

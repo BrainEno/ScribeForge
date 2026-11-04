@@ -3512,3 +3512,35 @@ def test_rehash_pages_empty_raster_reports_error_without_recording_digest(
     assert "empty" in captured.err
     assert captured.out == ""
     assert store.list_pages(pid)[0].page_asset_sha256 is None
+
+
+def test_export_refuses_replaced_recorded_cover_preserving_existing_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = _book_with_ink(tmp_path)
+    root = tmp_path / "store"
+    output = tmp_path / "out.epub"
+    assert run(["process", str(source), "--store", str(root)],
+               engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary"))) == 0
+    assert run(["confirm", "--store", str(root), "--page", "0", "--kind", "non_text",
+                "--reason", "checked illustration"]) == 0
+    store = SQLiteStore(root / "project.sqlite3")
+    project = store.list_projects()[0]
+    page = store.list_pages(project.id)[0]
+    assert page.page_asset_sha256 is not None
+    original = Path(page.source_image).read_bytes()
+    Image.new("RGB", (200, 200), "red").save(page.source_image)
+    replacement = Path(page.source_image).read_bytes()
+    assert original != replacement
+    output.write_bytes(b"existing publication")
+    capsys.readouterr()
+    code = run(["export", "--store", str(root), "--out", str(output)])
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "recorded" in captured.err.lower()
+    assert output.read_bytes() == b"existing publication"
+    assert Path(page.source_image).read_bytes() == replacement
+    Path(page.source_image).write_bytes(original)
+    assert run(["export", "--store", str(root), "--out", str(output)]) == 0
+    with zipfile.ZipFile(output) as archive:
+        assert archive.read("OEBPS/images/page-000001.png") == original

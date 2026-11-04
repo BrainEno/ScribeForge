@@ -595,3 +595,72 @@ def test_epub_is_reader_acceptable() -> None:
     assert '<meta name="cover" content="image-page-0"/>' in package
     assert '<img src="images/page-000001.png" alt="封面"/>' in front
     assert '<img src="images/page-000003.png" alt="第 3 页的插图"/>' in chapter
+
+
+@pytest.mark.parametrize("role", [PageRole.COVER, PageRole.PLATE, PageRole.BODY])
+def test_assembly_refuses_replaced_image_with_recorded_digest(tmp_path: Path, role: PageRole) -> None:
+    store, project_id = _store(tmp_path)
+    raster = _png(tmp_path / "pages" / "0.png", "black")
+    _add_page(store, project_id, 0, (), raster=raster)
+    _confirm(store, project_id, 0, "non_text")
+    _roles(store, project_id, {0: role})
+    page = store.list_pages(project_id)[0]
+    evidence = store.rehash_page_asset(page.id)
+    assert evidence is not None
+    original = raster.read_bytes()
+    _png(raster, "red")
+    replacement = raster.read_bytes()
+    assert original != replacement
+    with pytest.raises(PageImageError, match="(?i)(recorded|digest|mismatch)"):
+        assemble_verified_content(store, project_id)
+    assert store.list_pages(project_id)[0].page_asset_sha256 == evidence.sha256
+    assert raster.read_bytes() == replacement
+    raster.write_bytes(original)
+    book = assemble_verified_content(store, project_id)
+    assert book.images[0].data == original
+    assert book.images[0].sha256 == evidence.sha256
+
+
+def test_assembly_checks_the_actual_bytes_read_not_a_prior_file_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, project_id = _store(tmp_path)
+    raster = _png(tmp_path / "cover.png", "black")
+    _add_page(store, project_id, 0, (), raster=raster)
+    _confirm(store, project_id, 0, "non_text")
+    store.rehash_page_asset(store.list_pages(project_id)[0].id)
+    other = _png(tmp_path / "replacement.png", "red").read_bytes()
+    read_bytes = Path.read_bytes
+
+    def substituted_read(path: Path) -> bytes:
+        return other if path == raster else read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", substituted_read)
+    with pytest.raises(PageImageError, match="recorded"):
+        assemble_verified_content(store, project_id)
+
+
+def test_assembly_checks_digest_even_when_recorded_size_is_missing(tmp_path: Path) -> None:
+    import sqlite3
+
+    store, project_id = _store(tmp_path)
+    raster = _png(tmp_path / "cover.png", "black")
+    _add_page(store, project_id, 0, (), raster=raster)
+    _confirm(store, project_id, 0, "non_text")
+    store.rehash_page_asset(store.list_pages(project_id)[0].id)
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_byte_size=NULL")
+    _png(raster, "red")
+    with pytest.raises(PageImageError, match="recorded"):
+        assemble_verified_content(store, project_id)
+
+
+def test_assembly_keeps_legacy_page_without_digest_exportable(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    raster = _png(tmp_path / "cover.png", "black")
+    _add_page(store, project_id, 0, (), raster=raster)
+    _confirm(store, project_id, 0, "non_text")
+    assert store.list_pages(project_id)[0].page_asset_sha256 is None
+    image = assemble_verified_content(store, project_id).images[0]
+    assert image.data == raster.read_bytes()
+    assert image.sha256 == hashlib.sha256(image.data).hexdigest()
