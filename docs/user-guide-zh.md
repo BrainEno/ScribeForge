@@ -140,6 +140,10 @@ scribeforge backup --store "D:\Books\My Book.scribeforge" --out "D:\Backups\My B
 scribeforge verify-backup --backup "D:\Backups\My Book.zip"
 ```
 
+验证会临时解压并审计归档中的证据，检查页图、预处理帧和裁剪是否与数据库记录一致；
+请确保系统临时目录有足够空间。未知的历史来源会作为警告返回；警告中的 `archive:/`
+路径指归档内文件。验证不会修改备份，但无法证明备份来自可信来源。
+
 恢复到一个**尚不存在**的新目录：
 
 ```powershell

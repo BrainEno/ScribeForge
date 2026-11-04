@@ -475,7 +475,7 @@ def build_parser() -> argparse.ArgumentParser:
     backup.add_argument("--json", action="store_true", help="Emit a JSON backup report.")
 
     verify_backup = subparsers.add_parser(
-        "verify-backup", help="Verify backup manifest, file hashes, and SQLite integrity."
+        "verify-backup", help="Verify archive, SQLite, and recorded evidence in a temporary store."
     )
     verify_backup.add_argument("--backup", type=Path, required=True, help="Backup ZIP archive.")
     verify_backup.add_argument("--json", action="store_true", help="Emit a JSON verification report.")
