@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -19,13 +22,25 @@ class ImportResult:
     page_count: int
 
 
-def _write_asset(destination: Path, data: bytes) -> None:
-    temporary = destination.with_name(f".{destination.name}.tmp")
+def _write_asset(destination: Path, data: bytes) -> Path:
+    """Publish complete bytes without replacing existing source evidence."""
+    temporary: Path | None = None
+    original_name = destination.name
     try:
-        temporary.write_bytes(data)
-        temporary.replace(destination)
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent, prefix=".import-", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(data)
+        while True:
+            try:
+                os.link(temporary, destination)
+                return destination
+            except FileExistsError:
+                destination = destination.parent / f"{uuid.uuid4().hex}-{original_name}"
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def import_source(
@@ -59,10 +74,10 @@ def import_source(
         return ImportResult(project_id, job_id, (), page_count)
 
     store.start_job(job_id)
-    assets_dir.mkdir(parents=True, exist_ok=True)
-    already_imported = store.imported_page_indexes(project_id)
     imported: list[int] = []
     try:
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        already_imported = store.imported_page_indexes(project_id)
         for page_index in range(page_count):
             raise_if_cancelled()
             if page_index in already_imported:
@@ -88,7 +103,7 @@ def import_source(
                 }
 
             destination = assets_dir / page_asset_name(page_index, extension)
-            _write_asset(destination, data)
+            destination = _write_asset(destination, data)
             page_asset = PageAssetEvidence.from_bytes(
                 data,
                 render_parameters=render_parameters,
