@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 import uuid
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -33,8 +34,19 @@ def materialize_review_crops(
     plans: Sequence[ReviewCropPlan],
     output_dir: Path,
     *,
-    immutable: bool = False,
+    immutable: bool = True,
 ) -> dict[int, str]:
+    """Create crop files without overwriting by default.
+
+    ``immutable=False`` is a deprecated scratch-only compatibility mode. It
+    must not be used for evidence, and never replaces the input image itself.
+    """
+    if not immutable:
+        warnings.warn(
+            "immutable=False replaces existing files; use only in disposable scratch directories",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     if not plans:
         return {}
 
@@ -53,6 +65,8 @@ def materialize_review_crops(
                 )
 
             destination = output_dir / plan.file_name
+            if not immutable and destination.resolve() == source_image.resolve():
+                raise ValueError("crop destination cannot overwrite the source image")
             crop = page.crop((box.x, box.y, right, bottom))
             if plan.scale > 1:
                 # Nearest-neighbour keeps the strokes it enlarges identical to the

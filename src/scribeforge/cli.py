@@ -50,6 +50,7 @@ from scribeforge.domain.preprocess import (
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
 from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
+from scribeforge.pipeline.crop_evidence import verified_vlm_crop
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.orchestrator import process_book
@@ -1353,8 +1354,9 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                     frame_path = str(path)
                     pair_reviews = [review for review in store.list_vlm_reviews(verification_id)
                                     if review.pair_index == detail.pair_index]
-                    if pair_reviews and store.load_vlm_crop_input(pair_reviews[-1].id) is not None:
-                        trusted_crop_path = detail.crop_path
+                    if pair_reviews:
+                        evidence = verified_vlm_crop(store, verification_id, frame, pair_reviews[-1])
+                        trusted_crop_path = evidence.crop_path
                 except (ValueError, OSError, KeyError):
                     # Legacy or corrupt evidence must not be represented as a known frame.
                     pass
@@ -1420,6 +1422,7 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
         )
         print(f"project {project.id}: {project.title}", file=out)
         print(f"review queued: {len(items)}", file=out)
+        pages = {page.page_index: page for page in store.list_pages(project.id)}
         for item in items:
             detail = review_detail(
                 store,
@@ -1444,7 +1447,17 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
             else:
                 uncertain = "true" if detail.vlm_uncertain else "false"
                 print(f'    vlm="{detail.vlm_text}" uncertain={uncertain}', file=out)
-            print(f"    crop={detail.crop_path or 'none'}", file=out)
+            trusted_crop_path = None
+            try:
+                verification_id = store.latest_verification_id(project.id, item.page_index)
+                frame, _ = verification_frame(store, project.id, pages[item.page_index], verification_id)
+                reviews = [review for review in store.list_vlm_reviews(verification_id)
+                           if review.pair_index == item.pair_index]
+                if reviews:
+                    trusted_crop_path = verified_vlm_crop(store, verification_id, frame, reviews[-1]).crop_path
+            except (ValueError, OSError, KeyError):
+                pass
+            print(f"    crop={trusted_crop_path or 'none'}", file=out)
     return EXIT_OK
 
 

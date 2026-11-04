@@ -327,7 +327,10 @@ class ScribeForgeWindow:
         self._current_page_image = view.frame_image
         self._set_choice_states(view.detail)
         self.custom_entry.delete(0, "end")
-        self._set_detail(render_detail(view.detail))
+        detail_text = render_detail(view.detail)
+        if view.detail.crop_path is not None and view.trusted_crop_image is None:
+            detail_text = detail_text.replace(f"crop {view.detail.crop_path}", "crop unavailable or unverified")
+        self._set_detail(detail_text)
         self._render_comparison(view.detail)
         self._show_image(
             self.page_image,
