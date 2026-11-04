@@ -495,3 +495,209 @@ def test_bad_ocr_identity_fails_only_its_page_and_book_retries(tmp_path: Path) -
     assert [p.page_index for p in retry.pages] == [0, 1]
     assert retry.pages[1].primary_run_id == first.pages[0].primary_run_id
     assert retry.pages[1].secondary_run_id == first.pages[0].secondary_run_id
+
+
+@pytest.mark.parametrize("entrypoint", ["process", "preprocess"])
+@pytest.mark.parametrize("stale_field", ["project", "source", "geometry", "evidence", "index"])
+def test_page_pipeline_rejects_page_not_matching_persisted_project_record(
+    tmp_path: Path, entrypoint: str, stale_field: str
+) -> None:
+    from dataclasses import replace
+
+    from scribeforge.domain.page_asset import PageAssetEvidence
+    from scribeforge.pipeline.preprocessing import preprocess_page
+
+    store, project, page = setup_page(tmp_path)
+    other_path = tmp_path / "other.png"
+    Image.new("RGB", (200, 200), "blue").save(other_path)
+    other_project = store.create_project("other", "other.pdf", "other-hash")
+    store.add_page(other_project, 0, str(other_path), 200, 200,
+                   page_asset=PageAssetEvidence.from_bytes(other_path.read_bytes()))
+    store.add_page(project, 1, str(other_path), 200, 200)
+    if stale_field == "project":
+        passed_page = store.list_pages(other_project)[0]
+    elif stale_field == "source":
+        passed_page = replace(page, source_image=str(other_path))
+    elif stale_field == "geometry":
+        passed_page = replace(page, width=page.width + 1)
+    elif stale_field == "evidence":
+        passed_page = replace(page, page_asset_sha256="a" * 64)
+    else:
+        passed_page = replace(page, page_index=1)
+    before = [Path(page.source_image).read_bytes(), other_path.read_bytes()]
+    primary, secondary = Engine("a", "甲"), Engine("b", "乙")
+    with pytest.raises(ValueError, match="(?i)page.*(record|project|changed|match)"):
+        if entrypoint == "process":
+            process_page(store, project, passed_page, primary_engine=primary,
+                         secondary_engine=secondary, crops_dir=tmp_path / "crops")
+        else:
+            preprocess_page(store, project, passed_page, PreprocessSettings(),
+                            assets_dir=tmp_path / "preprocessed")
+    assert not primary.images and not secondary.images
+    assert not store.list_jobs(project)
+    assert store.load_preprocess(project, 0) is None
+    assert store.load_preprocess(project, 1) is None
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        assert db.execute("SELECT count(*) FROM engine_runs").fetchone()[0] == 0
+    assert [Path(page.source_image).read_bytes(), other_path.read_bytes()] == before
+    assert not (tmp_path / "crops").exists()
+    assert not (tmp_path / "preprocessed").exists()
+    fresh_page = store.list_pages(project)[0]
+    if entrypoint == "process":
+        outcome = process_page(store, project, fresh_page, primary_engine=primary,
+                               secondary_engine=secondary, crops_dir=tmp_path / "crops")
+        assert store.load_ocr_run(outcome.primary_run_id).page_index == 0
+    else:
+        result = preprocess_page(store, project, fresh_page, PreprocessSettings(),
+                                 assets_dir=tmp_path / "preprocessed")
+        assert result.image_path.is_file()
+
+
+@pytest.mark.parametrize("entrypoint", ["process", "preprocess"])
+def test_page_pipeline_refuses_stale_page_after_legacy_rehash(
+    tmp_path: Path, entrypoint: str
+) -> None:
+    from scribeforge.pipeline.preprocessing import preprocess_page
+
+    store, project, stale = setup_page(tmp_path)
+    assert stale.page_asset_sha256 is None
+    assert store.rehash_page_asset(stale.id) is not None
+    image = Path(stale.source_image)
+    Image.new("RGB", (200, 200), "red").save(image)
+    primary, secondary = Engine("a", "甲"), Engine("b", "乙")
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        if entrypoint == "process":
+            process_page(store, project, stale, primary_engine=primary,
+                         secondary_engine=secondary, crops_dir=tmp_path / "crops")
+        else:
+            preprocess_page(store, project, stale, PreprocessSettings(),
+                            assets_dir=tmp_path / "preprocessed")
+    assert not store.list_jobs(project)
+    assert not primary.images and not secondary.images
+    fresh = store.list_pages(project)[0]
+    with pytest.raises(ValueError, match="(?i)(raster|page).*(recorded|mismatch)"):
+        if entrypoint == "process":
+            process_page(store, project, fresh, primary_engine=primary,
+                         secondary_engine=secondary, crops_dir=tmp_path / "crops")
+        else:
+            preprocess_page(store, project, fresh, PreprocessSettings(),
+                            assets_dir=tmp_path / "preprocessed")
+
+
+def test_page_ocr_refuses_evidence_backfilled_during_frame_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.domain.jobs import JobStage, JobState
+    from scribeforge.pipeline import orchestrator
+
+    store, project, page = setup_page(tmp_path)
+    capture = orchestrator.capture_frame
+    original = Path(page.source_image).read_bytes()
+    first = True
+
+    def rehash_then_replace(path: Path, kind: str, width: int, height: int):
+        nonlocal first
+        if first:
+            first = False
+            store.rehash_page_asset(page.id)
+            Image.new("RGB", (200, 200), "red").save(page.source_image)
+        return capture(path, kind, width, height)
+
+    monkeypatch.setattr(orchestrator, "capture_frame", rehash_then_replace)
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                     secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    job = next(job for job in store.list_jobs(project) if job.stage is JobStage.PRIMARY_OCR)
+    assert job.state is JobState.FAILED
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        assert db.execute("SELECT count(*) FROM engine_runs").fetchone()[0] == 0
+    Path(page.source_image).write_bytes(original)
+    monkeypatch.setattr(orchestrator, "capture_frame", capture)
+    fresh = store.list_pages(project)[0]
+    outcome = process_page(store, project, fresh, primary_engine=Engine("a", "甲"),
+                           secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    assert store.load_ocr_run(outcome.primary_run_id).page_index == 0
+    assert next(j for j in store.list_jobs(project) if j.stage is JobStage.PRIMARY_OCR).attempts == 2
+
+
+def test_preprocess_refuses_evidence_backfilled_during_processing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.domain.jobs import JobStage, JobState
+    from scribeforge.pipeline import preprocessing
+
+    store, project, page = setup_page(tmp_path)
+    apply = preprocessing.apply_preprocess
+
+    def change_before_record(*args, **kwargs):
+        Image.new("RGB", (200, 200), "red").save(page.source_image)
+        store.rehash_page_asset(page.id)
+        return apply(*args, **kwargs)
+
+    monkeypatch.setattr(preprocessing, "apply_preprocess", change_before_record)
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        preprocessing.preprocess_page(store, project, page, PreprocessSettings(),
+                                      assets_dir=tmp_path / "preprocessed")
+    job = next(job for job in store.list_jobs(project) if job.stage is JobStage.PREPROCESS)
+    assert job.state is JobState.FAILED
+    assert store.load_preprocess(project, 0) is None
+    assert not (tmp_path / "preprocessed").exists()
+    monkeypatch.setattr(preprocessing, "apply_preprocess", apply)
+    fresh = store.list_pages(project)[0]
+    result = preprocessing.preprocess_page(store, project, fresh, PreprocessSettings(),
+                                           assets_dir=tmp_path / "preprocessed")
+    assert result.image_path.is_file()
+    assert next(j for j in store.list_jobs(project) if j.stage is JobStage.PREPROCESS).attempts == 2
+
+
+def test_page_ocr_rechecks_page_evidence_in_record_transaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, project, page = setup_page(tmp_path)
+    record_ocr = store.record_ocr
+
+    def changed_before_insert(*args, **kwargs):
+        store.rehash_page_asset(page.id)
+        return record_ocr(*args, **kwargs)
+
+    monkeypatch.setattr(store, "record_ocr", changed_before_insert)
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                     secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        assert db.execute("SELECT count(*) FROM engine_runs").fetchone()[0] == 0
+
+
+def test_preprocess_rechecks_page_evidence_in_record_transaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.pipeline.preprocessing import preprocess_page
+
+    store, project, page = setup_page(tmp_path)
+    record_preprocess = store.record_preprocess
+
+    def changed_before_insert(*args, **kwargs):
+        store.rehash_page_asset(page.id)
+        return record_preprocess(*args, **kwargs)
+
+    monkeypatch.setattr(store, "record_preprocess", changed_before_insert)
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        preprocess_page(store, project, page, PreprocessSettings(),
+                        assets_dir=tmp_path / "preprocessed")
+    assert store.load_preprocess(project, 0) is None
+
+
+def test_guarded_storage_rejects_result_for_a_different_page(tmp_path: Path) -> None:
+    store, project, page = setup_page(tmp_path)
+    store.add_page(project, 1, page.source_image, 200, 200)
+    with pytest.raises(ValueError, match="page record.*page index"):
+        store.record_ocr(project, PageOCRResult(1, "a", "1", ()), expected_page=page)
+    with pytest.raises(ValueError, match="page record.*page index"):
+        store.record_preprocess(
+            project, 1, settings={}, applied=(), measured_skew_degrees=0,
+            output_image="unused", output_sha256="0" * 64,
+            output_width=200, output_height=200, notes={}, expected_page=page,
+        )
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        assert db.execute("SELECT count(*) FROM engine_runs").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM page_preprocess").fetchone()[0] == 0

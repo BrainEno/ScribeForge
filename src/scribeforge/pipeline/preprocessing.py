@@ -122,6 +122,7 @@ def preprocess_page(
     which is silently destructive.
     """
 
+    store.require_current_page(project_id, page)
     source_evidence = (
         PageAssetEvidence(
             sha256=page.page_asset_sha256,
@@ -184,6 +185,7 @@ def preprocess_page(
             else assets_dir / preprocessed_asset_name(page.page_index)
         )
         width, height = _dimensions(data)
+        store.require_current_page(project_id, page)
         destination = _write_immutable(destination, data, allow_new_name=stored is None)
         if stored is None:
             store.record_preprocess(
@@ -197,6 +199,7 @@ def preprocess_page(
                 output_width=width,
                 output_height=height,
                 notes=outcome.notes,
+                expected_page=page,
             )
     except Exception as exc:
         store.fail_job(job_id, str(exc).strip() or type(exc).__name__)

@@ -93,6 +93,15 @@ concurrent evidence or path updates. It may have completed earlier pages before 
 error; audit and retry the remaining pages. The checks cannot prevent an external
 writer from changing the raster after measurement.
 
+Page processing and preprocessing require the supplied page record to match the
+current project row, including source path, dimensions and asset evidence. New
+OCR and preprocessing records recheck that snapshot in the same SQLite write
+transaction as persistence; a stale or cross-project record is rejected. Reload
+the page after an evidence update before retrying. A preprocessing file published
+just before a concurrent row change can remain unreferenced; it is not overwritten.
+These checks do not lock out external filesystem writers, and direct lower-level
+storage calls that omit the expected page snapshot do not get this protection.
+
 **Schema v12 preserves token availability separately from token rows.**
 `ocr_lines.tokens_reported` records whether the worker supplied a token array:
 `0` means unavailable/unknown (`tokens` omitted or `null`), while `1` means the
