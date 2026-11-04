@@ -28,7 +28,7 @@ from scribeforge.domain.furniture import detect_page_furniture
 from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
 from scribeforge.domain.paragraphs import LineRole
 from scribeforge.domain.structure import BookStructure, PageRole
-from scribeforge.storage.sqlite import PageConfirmation, SQLiteStore, VerificationRecord
+from scribeforge.storage.sqlite import PageConfirmation, PageRecord, SQLiteStore, VerificationRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,7 +306,7 @@ def _page_images(
     """
 
     roles = {entry.page_index: entry.role for entry in structure.pages}
-    assets = {page.page_index: page.source_image for page in store.list_pages(project_id)}
+    assets = {page.page_index: page for page in store.list_pages(project_id)}
     images: list[VerifiedImage] = []
     for page in pages:
         confirmation = confirmations.get(page.page_index)
@@ -344,11 +344,11 @@ def _page_images(
 
 
 def _load_image(
-    page: VerifiedPage, source: str, role: PageImageRole, caption: str = ""
+    page: VerifiedPage, source: PageRecord, role: PageImageRole, caption: str = ""
 ) -> VerifiedImage:
     """Read one page raster and record its digest, or refuse with the reason."""
 
-    path = Path(source)
+    path = Path(source.source_image)
     suffix = path.suffix.lower()
     media_type = IMAGE_MEDIA_TYPES.get(suffix)
     if media_type is None:
@@ -369,6 +369,12 @@ def _load_image(
             f"page {page.page_index} must be embedded as an image, but its raster "
             f"{path} is empty"
         )
+    actual_sha256 = hashlib.sha256(data).hexdigest()
+    if source.page_asset_sha256 is not None and actual_sha256 != source.page_asset_sha256:
+        raise PageImageError(
+            f"page {page.page_index} image does not match the recorded page raster digest; "
+            "restore it from a verified backup or re-import the project"
+        )
     label = page.printed_label or str(page.page_index + 1)
     alt = "封面" if role is PageImageRole.COVER else f"第 {label} 页的插图"
     return VerifiedImage(
@@ -376,7 +382,7 @@ def _load_image(
         file_name=f"page-{page.page_index + 1:06d}{suffix}",
         media_type=media_type,
         role=role,
-        sha256=hashlib.sha256(data).hexdigest(),
+        sha256=actual_sha256,
         data=data,
         alt=alt,
         caption=caption,

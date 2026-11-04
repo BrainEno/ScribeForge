@@ -117,8 +117,11 @@ the orchestrator verifies the source raster against them before any engine reads
 the audit reports missing / mismatched / unreadable page assets, and `scribeforge
 export` re-checks the digest before a cover or plate is embedded. The bytes and
 their SHA-256 also travel on `VerifiedImage` (in memory only), and the export
-check re-derives the digest from the archive entry it wrote: the image a reader
-sees is provably the image that was imported, measured, and audited.
+check re-derives the digest from the archive entry it wrote. When an import-time
+digest is present, assembly also checks the exact bytes being embedded against it;
+the archive image can then be tied to that recorded raster. For legacy pages
+without a recorded digest, export hashes the current bytes but cannot establish
+that they are the original raster.
 
 One consequence of the chapter layout is worth stating here because it changes an
 old assumption: **a document in the exported EPUB is no longer a page.** One
