@@ -663,3 +663,61 @@ def test_process_page_refuses_replaced_page_raster(tmp_path: Path) -> None:
             reviewer=None,
             crops_dir=tmp_path / "crops",
         )
+
+
+def test_preprocess_rejects_replaced_existing_raster(tmp_path: Path) -> None:
+    from scribeforge.domain.page_asset import PageAssetError
+    from scribeforge.domain.preprocess import PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    settings = PreprocessSettings()
+    first = preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
+    first.image_path.write_bytes(b"replacement")
+    with pytest.raises(PageAssetError, match="preprocessed"):
+        preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
+    assert first.image_path.read_bytes() == b"replacement"
+    assert store.load_preprocess(project_id, 0).output_sha256 == first.outcome.output_sha256
+
+
+def test_preprocess_rejects_changed_settings_on_resume(tmp_path: Path) -> None:
+    from scribeforge.domain.preprocess import PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    first = preprocess_page(store, project_id, page, PreprocessSettings(),
+                            assets_dir=tmp_path / "preprocessed")
+    before = first.image_path.read_bytes()
+    with pytest.raises(ValueError, match="settings"):
+        preprocess_page(store, project_id, page, PreprocessSettings(max_skew_degrees=5),
+                        assets_dir=tmp_path / "preprocessed")
+    assert first.image_path.read_bytes() == before
+
+
+def test_preprocess_rebuild_refuses_different_output_without_replacing_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+    from hashlib import sha256
+
+    from scribeforge.domain.page_asset import PageAssetError
+    from scribeforge.domain.preprocess import PreprocessSettings
+    from scribeforge.pipeline import preprocessing
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    settings = PreprocessSettings()
+    first = preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
+    first.image_path.unlink()
+    original = preprocessing.apply_preprocess
+
+    def changed(*args, **kwargs):
+        data, outcome = original(*args, **kwargs)
+        data += b"different"
+        return data, replace(outcome, output_sha256=sha256(data).hexdigest())
+
+    monkeypatch.setattr(preprocessing, "apply_preprocess", changed)
+    with pytest.raises(PageAssetError, match="preprocessed"):
+        preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
+    assert not first.image_path.exists()
+    assert store.load_preprocess(project_id, 0).output_sha256 == first.outcome.output_sha256
