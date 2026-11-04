@@ -138,6 +138,21 @@ class PageRecord:
     page_asset_version: int | None = None
 
 
+def _page_record(row: sqlite3.Row) -> PageRecord:
+    return PageRecord(
+        id=int(row["id"]),
+        project_id=int(row["project_id"]),
+        page_index=int(row["page_index"]),
+        source_image=str(row["source_image"]),
+        width=int(row["width"]),
+        height=int(row["height"]),
+        page_asset_sha256=row["page_asset_sha256"],
+        page_asset_byte_size=row["page_asset_byte_size"],
+        page_asset_parameters_json=row["page_asset_parameters_json"],
+        page_asset_version=row["page_asset_version"],
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PreprocessRecord:
     """Stored preprocessing evidence for one page."""
@@ -1110,21 +1125,31 @@ class SQLiteStore:
                 """,
                 (project_id,),
             ).fetchall()
-            return tuple(
-                PageRecord(
-                    id=int(row["id"]),
-                    project_id=int(row["project_id"]),
-                    page_index=int(row["page_index"]),
-                    source_image=str(row["source_image"]),
-                    width=int(row["width"]),
-                    height=int(row["height"]),
-                    page_asset_sha256=row["page_asset_sha256"],
-                    page_asset_byte_size=row["page_asset_byte_size"],
-                    page_asset_parameters_json=row["page_asset_parameters_json"],
-                    page_asset_version=row["page_asset_version"],
-                )
-                for row in rows
+            return tuple(_page_record(row) for row in rows)
+
+    @staticmethod
+    def _require_current_page(
+        connection: sqlite3.Connection, project_id: int, page: PageRecord
+    ) -> None:
+        row = connection.execute(
+            """
+            SELECT id, project_id, page_index, source_image, width, height,
+                   page_asset_sha256, page_asset_byte_size,
+                   page_asset_parameters_json, page_asset_version
+            FROM pages WHERE id = ? AND project_id = ?
+            """,
+            (page.id, project_id),
+        ).fetchone()
+        if row is None or _page_record(row) != page:
+            raise ValueError(
+                "page record does not match the current project evidence; "
+                "reload the page before processing"
             )
+
+    def require_current_page(self, project_id: int, page: PageRecord) -> None:
+        """Reject a page from another project or a stale page-evidence snapshot."""
+        with self._connection() as connection:
+            self._require_current_page(connection, project_id, page)
 
     def latest_engine_run(self, project_id: int, page_index: int, engine: str) -> int:
         """Resolve the newest whole-page OCR run for one engine on one page.
@@ -1489,6 +1514,7 @@ class SQLiteStore:
         output_width: int,
         output_height: int,
         notes: Mapping[str, object],
+        expected_page: PageRecord | None = None,
     ) -> int:
         """Persist the preprocessing evidence for one page, replacing any prior run.
 
@@ -1500,6 +1526,11 @@ class SQLiteStore:
         if output_width <= 0 or output_height <= 0:
             raise ValueError("preprocessed page dimensions must be positive")
         with self._connection() as connection:
+            if expected_page is not None:
+                connection.execute("BEGIN IMMEDIATE")
+                self._require_current_page(connection, project_id, expected_page)
+                if expected_page.page_index != page_index:
+                    raise ValueError("page record does not match preprocessing page index")
             page_id = self._page_id(connection, project_id, page_index)
             connection.execute(
                 """
@@ -1722,10 +1753,16 @@ class SQLiteStore:
         self, project_id: int, result: PageOCRResult, *, scope: str | None = None,
         frame: OCRInputFrame | None = None,
         crop_input: CropInputEvidence | None = None,
+        expected_page: PageRecord | None = None,
     ) -> int:
         if scope is not None and not scope.strip():
             raise ValueError("an OCR run scope must be non-empty when given")
         with self._connection() as connection:
+            if expected_page is not None:
+                connection.execute("BEGIN IMMEDIATE")
+                self._require_current_page(connection, project_id, expected_page)
+                if expected_page.page_index != result.page_index:
+                    raise ValueError("page record does not match OCR result page index")
             page_id = self._page_id(connection, project_id, result.page_index)
             cursor = connection.execute(
                 """

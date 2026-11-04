@@ -97,6 +97,7 @@ def process_page(
     """Run every remaining pipeline stage for one page, resumably and page-granular."""
 
     raise_if_cancelled()
+    store.require_current_page(project_id, page)
     page_index = page.page_index
     image_path = page.source_image
     image_width = page.width
@@ -170,7 +171,7 @@ def process_page(
                 raise PageAssetError("OCR frame changed during reading") from exc
             if copied != frame or source != frame:
                 raise PageAssetError("OCR frame changed during reading")
-        store.record_ocr(project_id, result, frame=frame)
+        store.record_ocr(project_id, result, frame=frame, expected_page=page)
 
     def compute_primary() -> None:
         read_engine(primary_engine, primary_name)
