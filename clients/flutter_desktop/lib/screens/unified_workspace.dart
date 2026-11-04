@@ -1515,6 +1515,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             if (item.cropPath != null)
               _buildReviewImage('候选区域裁切', item.cropPath!),
             _buildReviewImage('原始页面图像', item.sourceImagePath),
+            if (item.coordinateFrame == 'preprocessed' && item.ocrFrameImagePath != null)
+              _buildReviewImage('OCR 坐标帧（预处理图像）', item.ocrFrameImagePath!),
+            if (item.coordinateFrame == 'unknown')
+              const Text('OCR 坐标帧未知或无法验证；请勿根据坐标推断原图位置。'),
             const SizedBox(height: 12),
             TextField(
               key: const ValueKey('review-decision-input'),

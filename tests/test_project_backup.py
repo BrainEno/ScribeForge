@@ -335,3 +335,21 @@ def test_verification_rejects_nonportable_archive_path_components(
 
     with pytest.raises(ProjectBackupError, match="unsafe archive path"):
         verify_project_backup(archive)
+
+
+def test_restore_relocates_preprocessed_page_paths(tmp_path: Path) -> None:
+    database = tmp_path / "project.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE pages (id INTEGER PRIMARY KEY, source_image TEXT)")
+        connection.execute("CREATE TABLE page_preprocess (page_id INTEGER PRIMARY KEY, output_image TEXT)")
+        connection.execute("INSERT INTO pages VALUES (1, ?)",
+                           (str(tmp_path / "old" / "assets" / "page.png"),))
+        connection.execute("INSERT INTO page_preprocess VALUES (1, ?)",
+                           (str(tmp_path / "old" / "preprocessed" / "page-pre.png"),))
+    target = tmp_path / "restored"
+    project_backup._remap_page_assets(database, target,
+                                      {"assets/page.png", "preprocessed/page-pre.png"})
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT output_image FROM page_preprocess").fetchone()[0] == str(
+            (target / "preprocessed" / "page-pre.png").resolve()
+        )

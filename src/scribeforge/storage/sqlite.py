@@ -164,8 +164,16 @@ class VLMReviewRecord:
     created_at: str
 
 
+@dataclass(frozen=True, slots=True)
+class OCRInputFrame:
+    kind: str
+    sha256: str
+    width: int
+    height: int
+
+
 class SQLiteStore:
-    SCHEMA_VERSION = 12
+    SCHEMA_VERSION = 13
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -315,6 +323,15 @@ class SQLiteStore:
             if version < 12:
                 self._create_v12(connection)
                 connection.execute("PRAGMA user_version = 12")
+            if version < 13:
+                connection.execute("""CREATE TABLE IF NOT EXISTS ocr_input_frames (
+                    run_id INTEGER PRIMARY KEY REFERENCES engine_runs(id) ON DELETE RESTRICT,
+                    kind TEXT NOT NULL CHECK(kind IN ('original', 'preprocessed')),
+                    sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+                    width INTEGER NOT NULL CHECK(width > 0),
+                    height INTEGER NOT NULL CHECK(height > 0)
+                )""")
+                connection.execute("PRAGMA user_version = 13")
 
     @staticmethod
     def _create_v11(connection: sqlite3.Connection) -> None:
@@ -1618,7 +1635,8 @@ class SQLiteStore:
         return BookStructure(tuple(pages), chapters)
 
     def record_ocr(
-        self, project_id: int, result: PageOCRResult, *, scope: str | None = None
+        self, project_id: int, result: PageOCRResult, *, scope: str | None = None,
+        frame: OCRInputFrame | None = None,
     ) -> int:
         if scope is not None and not scope.strip():
             raise ValueError("an OCR run scope must be non-empty when given")
@@ -1638,6 +1656,12 @@ class SQLiteStore:
                 ),
             )
             run_id = self._last_id(cursor)
+            if frame is not None:
+                connection.execute(
+                    "INSERT INTO ocr_input_frames(run_id, kind, sha256, width, height) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (run_id, frame.kind, frame.sha256, frame.width, frame.height),
+                )
             for line_index, line in enumerate(result.lines):
                 line_cursor = connection.execute(
                     """
@@ -1698,6 +1722,17 @@ class SQLiteStore:
                     ),
                 )
             return run_id
+
+    def load_ocr_frame(self, run_id: int) -> OCRInputFrame | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT kind, sha256, width, height FROM ocr_input_frames WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            return OCRInputFrame(str(row["kind"]), str(row["sha256"]),
+                                 int(row["width"]), int(row["height"]))
 
     def load_ocr_run(self, run_id: int) -> PageOCRResult:
         with self._connection() as connection:
