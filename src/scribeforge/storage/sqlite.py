@@ -245,6 +245,16 @@ class SQLiteStore:
             raise
         return handle
 
+    @contextmanager
+    def project_writer_guard(self, project_id: int) -> Iterator[None]:
+        """Exclude cooperating job writers while a maintenance operation runs."""
+        handle = self._acquire_project_writer_lock(project_id)
+        try:
+            yield
+        finally:
+            # Closing the handle releases the platform's advisory lock.
+            handle.close()
+
     def _release_project_writer_lock(self, project_id: int) -> None:
         handle = self._writer_locks.pop(project_id, None)
         self._active_job_ids.pop(project_id, None)
