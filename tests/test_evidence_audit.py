@@ -229,3 +229,144 @@ def test_audit_checks_preprocessed_asset_even_before_ocr(tmp_path: Path) -> None
         f.code == "preprocess_hash_mismatch" and f.severity == "error"
         for f in audit_project_store(root).findings
     )
+
+
+@pytest.mark.parametrize("kind", ["preprocessed", "crop", "legacy_crop", "region_crop"])
+def test_backup_rejects_references_to_unarchived_external_evidence(
+    tmp_path: Path, kind: str
+) -> None:
+    import shutil
+
+    from scribeforge.project_backup import ProjectBackupError, create_project_backup
+
+    root, store, pid, result = prepared(tmp_path)
+    if kind == "preprocessed":
+        original = Path(store.load_preprocess(pid, 0).output_image)
+    elif kind == "region_crop":
+        with sqlite3.connect(root / "project.sqlite3") as db:
+            original = Path(db.execute(
+                "SELECT crop_path FROM crop_input_evidence WHERE ocr_run_id IS NOT NULL"
+            ).fetchone()[0])
+    else:
+        original = Path(store.list_vlm_reviews(result.verification_id)[0].crop_path)
+    external = tmp_path / "external" / original.name
+    external.parent.mkdir()
+    shutil.move(original, external)
+    with sqlite3.connect(root / "project.sqlite3") as db:
+        if kind == "preprocessed":
+            db.execute("UPDATE page_preprocess SET output_image=?", (str(external),))
+        else:
+            db.execute("UPDATE vlm_reviews SET crop_path=? WHERE crop_path=?",
+                       (str(external), str(original)))
+            if kind == "legacy_crop":
+                db.execute("DELETE FROM crop_input_evidence WHERE crop_path=?", (str(original),))
+            else:
+                db.execute("UPDATE crop_input_evidence SET crop_path=? WHERE crop_path=?",
+                           (str(external), str(original)))
+    assert not [f for f in audit_project_store(root).findings if f.severity in {"error", "fatal"}]
+    archive = tmp_path / "backup.zip"
+    with pytest.raises(ProjectBackupError, match="missing or ambiguously maps"):
+        create_project_backup(root, archive)
+    assert not archive.exists()
+
+
+@pytest.mark.parametrize("kind", ["frame", "crop"])
+def test_backup_refuses_evidence_changed_after_live_audit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    from scribeforge import project_backup
+
+    root, store, pid, result = prepared(tmp_path)
+    path = (Path(store.load_preprocess(pid, 0).output_image) if kind == "frame"
+            else Path(store.list_vlm_reviews(result.verification_id)[0].crop_path))
+    snapshot = project_backup._snapshot_database
+
+    def snapshot_then_change(source: Path, destination: Path) -> None:
+        snapshot(source, destination)
+        Image.new("RGB", (100, 100), "black").save(path)
+
+    monkeypatch.setattr(project_backup, "_snapshot_database", snapshot_then_change)
+    archive = tmp_path / "backup.zip"
+    archive.write_bytes(b"previous backup")
+    with pytest.raises(project_backup.ProjectBackupError, match="integrity"):
+        project_backup.create_project_backup(root, archive, overwrite=True)
+    assert archive.read_bytes() == b"previous backup"
+    assert not list(tmp_path.glob(".backup.zip.*.tmp"))
+
+
+def test_backup_rejects_snapshot_with_different_audit_warnings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge import project_backup
+
+    root, _, _, result = prepared(tmp_path)
+    snapshot = project_backup._snapshot_database
+
+    def snapshot_with_unknown_frame(source: Path, destination: Path) -> None:
+        snapshot(source, destination)
+        with sqlite3.connect(destination) as db:
+            db.execute("DELETE FROM ocr_input_frames WHERE run_id=?", (result.primary_run_id,))
+
+    monkeypatch.setattr(project_backup, "_snapshot_database", snapshot_with_unknown_frame)
+    archive = tmp_path / "backup.zip"
+    with pytest.raises(project_backup.ProjectBackupError, match="warnings.*changed"):
+        project_backup.create_project_backup(root, archive)
+    assert not archive.exists()
+
+
+@pytest.mark.parametrize("directory", ["preprocessed", "crops"])
+def test_verify_backup_rejects_omitted_referenced_evidence(
+    tmp_path: Path, directory: str
+) -> None:
+    import json
+    import zipfile
+
+    from scribeforge.project_backup import (
+        ProjectBackupError,
+        create_project_backup,
+        restore_project_backup,
+        verify_project_backup,
+    )
+
+    root, _, _, _ = prepared(tmp_path)
+    good = tmp_path / "good.zip"
+    incomplete = tmp_path / "incomplete.zip"
+    create_project_backup(root, good)
+    with zipfile.ZipFile(good) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        removed = next(item["path"] for item in manifest["files"]
+                       if item["path"].startswith(directory + "/"))
+        manifest["files"] = [item for item in manifest["files"] if item["path"] != removed]
+        with zipfile.ZipFile(incomplete, "w") as target:
+            for name in archive.namelist():
+                if name not in {removed, "manifest.json"}:
+                    target.writestr(name, archive.read(name))
+            target.writestr("manifest.json", json.dumps(manifest))
+    with pytest.raises(ProjectBackupError, match="missing or ambiguously maps"):
+        verify_project_backup(incomplete)
+    with pytest.raises(ProjectBackupError, match="missing or ambiguously maps"):
+        restore_project_backup(incomplete, tmp_path / "restore")
+    assert not (tmp_path / "restore").exists()
+
+
+def test_valid_backup_restores_evidence_without_the_original_store_or_source(tmp_path: Path) -> None:
+    import shutil
+
+    from scribeforge.project_backup import create_project_backup, restore_project_backup
+
+    root, _, _, processed = prepared(tmp_path)
+    archive = tmp_path / "backup.zip"
+    create_project_backup(root, archive)
+    shutil.rmtree(root)
+    (tmp_path / "book.pdf").unlink()
+    target = tmp_path / "restored"
+    result = restore_project_backup(archive, target)
+    assert result["healthy"] is True
+    assert not [f for f in audit_project_store(target).findings if f.severity in {"error", "fatal"}]
+    store = SQLiteStore(target / "project.sqlite3")
+    pid = store.list_projects()[0].id
+    assert Path(store.load_preprocess(pid, 0).output_image).is_relative_to(target)
+    reviews = store.list_vlm_reviews(processed.verification_id)
+    assert reviews
+    for review in reviews:
+        assert Path(review.crop_path).is_relative_to(target)
