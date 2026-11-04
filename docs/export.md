@@ -353,7 +353,7 @@ instead of writing a file whose text drifted from the accepted decisions.
 
 ## 阅读器验收：EPUB 能否被阅读器打开
 
-沙箱没有 Java，不能跑 EPUBCheck；取而代之的是导出前自检对阅读器必须结构的逐条断言，即 `check_epub` 里的导航部分：
+导出前自检对阅读器必须结构提供逐条断言，即 `check_epub` 里的导航部分：
 
 - `OEBPS/nav.xhtml` 存在，且其 `<nav>` 带 `epub:type="toc"` —— 阅读器能从这里找到目录；
 - manifest 里恰好有一个 `nav` 条目，媒体类型 `application/xhtml+xml`、属性 `properties="nav"`，且指向 `OEBPS/nav.xhtml`；
@@ -361,7 +361,7 @@ instead of writing a file whose text drifted from the accepted decisions.
 - 封面同时用 EPUB 3 的 `properties="cover-image"` 和 EPUB 2 的 `<meta name="cover">` 声明，书架和阅读器都能显示封面；
 - 每张图片只在声称拥有它的那篇文档里出现一次，`alt` 非空。
 
-这些断言在 `build_epub` 返回前自动运行，不通过则拒绝写出文件。与 EPUBCheck 的关系：EPUBCheck 还会检查 OPF 语义细节与资源引用是否完全符合规范，而本项目的自检覆盖了阅读器实际会用到的结构（目录、封面、图片、分页标记、文本不丢失）。等环境里能装 Java 时，可在 CI 里补上 `epubcheck` 作为第二道闸。
+这些断言在 `build_epub` 返回前自动运行，不通过则拒绝写出文件。与 EPUBCheck 的关系：EPUBCheck 还会检查 OPF 语义细节与资源引用是否完全符合规范，而本项目的自检覆盖了阅读器实际会用到的结构（目录、封面、图片、分页标记、文本不丢失）。CI 对确定性样本运行固定版本的官方 EPUBCheck（含无效负向对照），但不能代替逐个验证用户文件或阅读器验收；参见 `docs/epubcheck-validation.md`。
 
 ## CLI
 
