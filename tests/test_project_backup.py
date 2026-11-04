@@ -374,7 +374,11 @@ def test_backup_rejects_job_started_after_live_check_but_before_snapshot(
             return getattr(self.connection, name)
 
         def backup(self, destination):
-            store.start_job(job_id)
+            # Simulate a non-cooperating writer that bypasses the project OS lock.
+            from contextlib import closing
+
+            with closing(original_connect(store_dir / "project.sqlite3")) as db, db:
+                db.execute("UPDATE jobs SET state='running' WHERE id=?", (job_id,))
             started.append(True)
             return self.connection.backup(destination)
 
@@ -395,7 +399,136 @@ def test_backup_rejects_job_started_after_live_check_but_before_snapshot(
         assert not list(tmp_path.glob(".Book.zip.*.tmp"))
     finally:
         if started:
-            store.fail_job(job_id, "test cleanup")
+            from contextlib import closing
+
+            with closing(original_connect(store_dir / "project.sqlite3")) as db, db:
+                db.execute("UPDATE jobs SET state='failed' WHERE id=?", (job_id,))
     monkeypatch.undo()
     create_project_backup(store_dir, archive, overwrite=True)
     assert verify_project_backup(archive)["healthy"] is True
+
+
+@pytest.mark.parametrize("phase", ["audit", "snapshot", "archive", "validate"])
+def test_backup_excludes_job_claims_through_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    from scribeforge.storage.sqlite import JobAlreadyRunningError
+
+    store_dir, _source = _prepared_store(tmp_path)
+    other = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = other.list_projects()[0].id
+    job_id = other.ensure_job(project_id, JobStage.IMPORT)
+    names = {"audit": "audit_project_store", "snapshot": "_snapshot_database",
+             "archive": "_stream_file_to_zip", "validate": "restore_project_backup"}
+    name = names[phase]
+    original = getattr(project_backup, name)
+    blocked = []
+
+    def attempt_during_backup(*args, **kwargs):
+        if not blocked:
+            try:
+                with pytest.raises(JobAlreadyRunningError):
+                    other.start_job(job_id)
+                blocked.append(True)
+            finally:
+                other.close()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(project_backup, name, attempt_during_backup)
+    create_project_backup(store_dir, tmp_path / "Book.zip")
+    assert blocked
+    assert other.load_job(job_id).attempts == 0
+    other.start_job(job_id)
+    other.fail_job(job_id, "test cleanup")
+
+
+def test_backup_releases_project_locks_when_validation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_dir, _source = _prepared_store(tmp_path)
+    other = SQLiteStore(store_dir / "project.sqlite3")
+    job_id = other.ensure_job(other.list_projects()[0].id, JobStage.IMPORT)
+    archive = tmp_path / "Book.zip"
+    archive.write_bytes(b"previous archive")
+
+    def fail_validation(*args, **kwargs):
+        raise ProjectBackupError("validation failed")
+
+    monkeypatch.setattr(project_backup, "restore_project_backup", fail_validation)
+    with pytest.raises(ProjectBackupError, match="validation failed"):
+        create_project_backup(store_dir, archive, overwrite=True)
+    assert archive.read_bytes() == b"previous archive"
+    other.start_job(job_id)
+    other.fail_job(job_id, "test cleanup")
+
+
+def test_backup_refuses_owned_writer_and_preserves_archive(tmp_path: Path) -> None:
+    store_dir, _source = _prepared_store(tmp_path)
+    other = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = other.list_projects()[0].id
+    archive = tmp_path / "Book.zip"
+    archive.write_bytes(b"previous archive")
+    with other.project_writer_guard(project_id), pytest.raises(
+        ProjectBackupError, match="active writer"
+    ):
+        create_project_backup(store_dir, archive, overwrite=True)
+    assert archive.read_bytes() == b"previous archive"
+    create_project_backup(store_dir, archive, overwrite=True)
+    assert verify_project_backup(archive)["healthy"] is True
+
+
+def test_backup_releases_earlier_project_locks_if_another_is_busy(tmp_path: Path) -> None:
+    store_dir, source = _prepared_store(tmp_path)
+    other = SQLiteStore(store_dir / "project.sqlite3")
+    first = other.list_projects()[0].id
+    second = other.create_project("Second", str(source), _sha256(source))
+    job_id = other.ensure_job(first, JobStage.IMPORT)
+    with other.project_writer_guard(second):
+        with pytest.raises(ProjectBackupError, match="active writer"):
+            create_project_backup(store_dir, tmp_path / "backup.zip")
+        other.start_job(job_id)
+        other.fail_job(job_id, "test cleanup")
+    assert not (tmp_path / "backup.zip").exists()
+
+
+def test_backup_lock_blocks_a_separate_worker_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+    import sys
+
+    store_dir, _source = _prepared_store(tmp_path)
+    other = SQLiteStore(store_dir / "project.sqlite3")
+    job_id = other.ensure_job(other.list_projects()[0].id, JobStage.IMPORT)
+    original_snapshot = project_backup._snapshot_database
+    outcomes: list[str] = []
+    script = """
+import sys
+from pathlib import Path
+from scribeforge.storage.sqlite import SQLiteStore, JobAlreadyRunningError
+store = SQLiteStore(Path(sys.argv[1]))
+try:
+    store.start_job(int(sys.argv[2]))
+except JobAlreadyRunningError:
+    print('blocked')
+else:
+    store.fail_job(int(sys.argv[2]), 'unexpected lock acquisition')
+    print('acquired')
+finally:
+    store.close()
+"""
+
+    def snapshot_with_worker(*args, **kwargs):
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(store_dir / "project.sqlite3"), str(job_id)],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+        outcomes.append(result.stdout.strip())
+        return original_snapshot(*args, **kwargs)
+
+    monkeypatch.setattr(project_backup, "_snapshot_database", snapshot_with_worker)
+    create_project_backup(store_dir, tmp_path / "backup.zip")
+    assert outcomes == ["blocked"]
+    assert other.load_job(job_id).attempts == 0
+    other.start_job(job_id)
+    other.fail_job(job_id, "test cleanup")

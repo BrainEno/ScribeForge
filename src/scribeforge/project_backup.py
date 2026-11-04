@@ -10,13 +10,14 @@ import tempfile
 import unicodedata
 import zipfile
 from collections import Counter
-from collections.abc import Iterable
-from contextlib import closing
+from collections.abc import Iterable, Iterator
+from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from scribeforge.project_audit import audit_project_store
+from scribeforge.storage.sqlite import JobAlreadyRunningError, SQLiteStore
 
 _FORMAT = "scribeforge-project-backup"
 _SCHEMA_VERSION = 1
@@ -48,6 +49,38 @@ def create_project_backup(
     if destination.exists() and not overwrite:
         raise FileExistsError(f"backup already exists: {destination}")
 
+    with _backup_project_locks(database):
+        return _create_locked_backup(root, database, destination, overwrite=overwrite)
+
+
+@contextmanager
+def _backup_project_locks(database: Path) -> Iterator[None]:
+    """Hold every existing project's cooperative writer lock through publication."""
+    def project_ids() -> tuple[int, ...]:
+        try:
+            with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as db:
+                return tuple(int(row[0]) for row in db.execute("SELECT id FROM projects ORDER BY id"))
+        except sqlite3.Error as exc:
+            raise ProjectBackupError(f"could not inspect project locks: {exc}") from exc
+
+    store = SQLiteStore(database)
+    with ExitStack() as stack:
+        before = project_ids()
+        try:
+            for project_id in before:
+                stack.enter_context(store.project_writer_guard(project_id))
+        except JobAlreadyRunningError as exc:
+            raise ProjectBackupError(
+                "project has a running job or active writer; wait for processing to finish before backup"
+            ) from exc
+        if project_ids() != before:
+            raise ProjectBackupError("project list changed during backup; retry after processing stops")
+        yield
+
+
+def _create_locked_backup(
+    root: Path, database: Path, destination: Path, *, overwrite: bool
+) -> dict[str, Any]:
     audit = audit_project_store(root)
     blocking = [finding for finding in audit.findings if finding.severity in {"fatal", "error"}]
     if blocking:
