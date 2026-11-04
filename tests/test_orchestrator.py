@@ -453,9 +453,11 @@ class RecordingEngine(FakeEngine):
     def __init__(self, name: str, text: str) -> None:
         super().__init__(name, text)
         self.seen: list[tuple[str, int]] = []
+        self.seen_bytes: list[bytes] = []
 
     def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
         self.seen.append((image_path, page_index))
+        self.seen_bytes.append(Path(image_path).read_bytes())
         return super().analyze_page(image_path, page_index)
 
 
@@ -492,8 +494,12 @@ def test_process_page_runs_preprocess_before_ocr_and_feeds_it_the_corrected_scan
     assert expected is not None
     assert expected.applied == ("deshadow",)
     assert primary.seen and secondary.seen
-    assert primary.seen[0][0] == expected.output_image
-    assert secondary.seen[0][0] == expected.output_image
+    assert primary.seen_bytes[0] == Path(expected.output_image).read_bytes()
+    assert secondary.seen_bytes[0] == Path(expected.output_image).read_bytes()
+    assert primary.seen[0][0] != expected.output_image
+    assert secondary.seen[0][0] != expected.output_image
+    assert not Path(primary.seen[0][0]).exists()
+    assert not Path(secondary.seen[0][0]).exists()
     assert Path(expected.output_image).is_file()
     # The imported original stays byte-identical: it is the evidence of record.
     assert page.source_image != expected.output_image
@@ -516,7 +522,10 @@ def test_process_page_without_preprocess_reads_the_original_scan(tmp_path: Path)
         crops_dir=tmp_path / "crops",
     )
 
-    assert primary.seen[0][0] == page.source_image
+    assert primary.seen_bytes[0] == Path(page.source_image).read_bytes()
+    assert secondary.seen_bytes[0] == Path(page.source_image).read_bytes()
+    assert primary.seen[0][0] != page.source_image
+    assert not Path(primary.seen[0][0]).exists()
     assert store.load_preprocess(project_id, 0) is None
     states = _stage_states(store, project_id, 0)
     preprocess_job = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=0)

@@ -558,3 +558,48 @@ def test_review_text_does_not_expose_unverified_crop(tmp_path: Path, capsys):
         db.execute("DELETE FROM crop_input_evidence")
     assert run(["review", "--store", str(tmp_path)]) == 0
     assert "crop=none" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("with_reviewer", [False, True])
+@pytest.mark.parametrize("crash", [False, True])
+def test_modifying_model_cannot_corrupt_saved_crop_artifact(
+    tmp_path: Path, with_reviewer: bool, crash: bool
+) -> None:
+    store = SQLiteStore(tmp_path / "db.sqlite3")
+    store.initialize()
+    pid, page = project(store, tmp_path, "one", "white")
+    process_page(store, pid, page, primary_engine=Engine("a", "甲"),
+                 secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+
+    passed_paths: list[Path] = []
+
+    def mutate(image_path: str) -> None:
+        passed_paths.append(Path(image_path))
+        Image.new("RGB", (2, 2), "red").save(image_path)
+        if crash:
+            raise RuntimeError("worker crashed")
+
+    class MutatingEngine(Engine):
+        def analyze_page(self, image_path, page_index):
+            mutate(image_path)
+            return super().analyze_page(image_path, page_index)
+
+    class MutatingReviewer(Reviewer):
+        def transcribe_crop(self, image_path, page_index, pair_index):
+            mutate(image_path)
+            return super().transcribe_crop(image_path, page_index, pair_index)
+
+    engine = Engine("c", "丙") if with_reviewer else MutatingEngine("c", "丙")
+    reviewer = MutatingReviewer() if with_reviewer else None
+    error = RuntimeError if crash else ValueError
+    match = "worker crashed" if crash else "crop.*changed"
+    with pytest.raises(error, match=match):
+        run_repair_round(store, pid, readers=(RepairReader("c", engine),),
+                         reviewer=reviewer, crops_dir=tmp_path / "repair")
+    assert passed_paths and all(not path.exists() for path in passed_paths)
+    saved_crops = list((tmp_path / "repair").glob("*.png"))
+    assert saved_crops
+    for path in saved_crops:
+        with Image.open(path) as crop:
+            assert crop.size != (2, 2)
+            assert crop.convert("RGB").getpixel((0, 0)) != (255, 0, 0)

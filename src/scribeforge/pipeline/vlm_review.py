@@ -6,7 +6,7 @@ from typing import Protocol
 
 from scribeforge.domain.risk import ReviewCandidate
 from scribeforge.domain.vlm import VLMReading, VLMReviewer
-from scribeforge.pipeline.crop_evidence import verify_crop
+from scribeforge.pipeline.crop_evidence import isolated_crop
 from scribeforge.storage.sqlite import CropInputEvidence
 
 
@@ -53,14 +53,14 @@ def review_pending_candidates(
 
         crop_input = crop_inputs[candidate.pair_index] if crop_inputs is not None else None
         if crop_input is not None:
-            verify_crop(crop_input)
-        reading = reviewer.transcribe_crop(
-            crop_path,
-            page_index=candidate.page_index,
-            pair_index=candidate.pair_index,
-        )
-        if crop_input is not None:
-            verify_crop(crop_input)
+            with isolated_crop(crop_input) as private_path:
+                reading = reviewer.transcribe_crop(
+                    private_path, page_index=candidate.page_index, pair_index=candidate.pair_index
+                )
+        else:
+            reading = reviewer.transcribe_crop(
+                crop_path, page_index=candidate.page_index, pair_index=candidate.pair_index
+            )
         if reading.page_index != candidate.page_index or reading.pair_index != candidate.pair_index:
             raise ValueError("VLM reading identity does not match review candidate")
 

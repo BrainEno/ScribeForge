@@ -1,5 +1,10 @@
 """Identity and page-frame geometry for an isolated model input."""
 
+import shutil
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
@@ -46,6 +51,21 @@ def verify_crop(evidence: CropInputEvidence) -> None:
         or digest != evidence.crop_sha256
     ):
         raise PageAssetError("crop evidence changed; restore it from a verified backup")
+
+
+@contextmanager
+def isolated_crop(evidence: CropInputEvidence) -> Iterator[str]:
+    """Give a worker a disposable byte copy, retaining the recorded crop unchanged."""
+    verify_crop(evidence)
+    with tempfile.TemporaryDirectory(prefix="scribeforge-crop-") as directory:
+        copy = Path(directory) / Path(evidence.crop_path).name
+        shutil.copyfile(evidence.crop_path, copy)
+        private = replace(evidence, crop_path=str(copy))
+        verify_crop(private)
+        verify_crop(evidence)
+        yield str(copy)
+        verify_crop(private)
+        verify_crop(evidence)
 
 
 def verified_vlm_crop(

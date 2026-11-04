@@ -27,6 +27,7 @@ from scribeforge.domain.ocr import (
     PageDirection,
     PageOCRResult,
 )
+from scribeforge.domain.page_asset import file_sha256
 
 
 def _horizontal_lines(texts: tuple[str, ...]) -> tuple[OCRLine, ...]:
@@ -75,6 +76,7 @@ class OracleEngine(OCREngine):
         self._name = name
         self._version = version
         self._texts: dict[Path, tuple[tuple[str, ...], PageDirection]] = {}
+        self._digests: dict[Path, str] = {}
 
     def register(
         self,
@@ -90,7 +92,12 @@ class OracleEngine(OCREngine):
         alignment check and prove nothing.
         """
 
-        self._texts[image.resolve()] = (tuple(text.splitlines()), direction)
+        key = image.resolve()
+        self._texts[key] = (tuple(text.splitlines()), direction)
+        if key.is_file():
+            self._digests[key] = file_sha256(key)
+        else:
+            self._digests.pop(key, None)
 
     @property
     def name(self) -> str:
@@ -98,9 +105,19 @@ class OracleEngine(OCREngine):
 
     def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
         key = Path(image_path).resolve()
-        if key not in self._texts:
-            raise KeyError(f"oracle engine has no reference text for {image_path}")
-        texts, direction = self._texts[key]
+        if key in self._texts:
+            texts, direction = self._texts[key]
+        else:
+            try:
+                digest = file_sha256(key)
+            except OSError as exc:
+                raise KeyError(f"oracle engine has no reference text for {image_path}") from exc
+            matches = {self._texts[path] for path, known in self._digests.items() if known == digest}
+            if not matches:
+                raise KeyError(f"oracle engine has no reference text for {image_path}")
+            if len(matches) != 1:
+                raise ValueError(f"ambiguous oracle reference for identical image bytes: {image_path}")
+            texts, direction = matches.pop()
         return PageOCRResult(
             page_index,
             self._name,

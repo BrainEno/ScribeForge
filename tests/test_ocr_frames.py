@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -301,3 +302,79 @@ def test_vlm_and_repair_read_the_same_preprocessed_frame(tmp_path: Path) -> None
     assert len(reviewer.crops) == 2
     with Image.open(BytesIO(reviewer.crops[1])) as crop:
         assert crop.convert("L").getextrema()[0] > 200
+
+
+@pytest.mark.parametrize("use_preprocess", [False, True])
+@pytest.mark.parametrize("raises", [False, True])
+def test_worker_cannot_overwrite_page_or_preprocessed_evidence(
+    tmp_path: Path, use_preprocess: bool, raises: bool
+) -> None:
+    store, project, page = setup_page(tmp_path)
+    original = Path(page.source_image).read_bytes()
+
+    class WritingEngine(Engine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            Image.new("RGB", (200, 200), "red").save(image_path)
+            if raises:
+                raise RuntimeError("worker failed")
+            return PageOCRResult(page_index, self.name, "1", ())
+
+    settings = PreprocessSettings() if use_preprocess else None
+    with pytest.raises((ValueError, RuntimeError)):
+        process_page(
+            store,
+            project,
+            page,
+            primary_engine=WritingEngine("a", "甲"),
+            secondary_engine=Engine("b", "乙"),
+            crops_dir=tmp_path / "crops",
+            preprocess=settings,
+        )
+    assert Path(page.source_image).read_bytes() == original
+    if use_preprocess:
+        from scribeforge.domain.page_asset import file_sha256
+
+        record = store.load_preprocess(project, 0)
+        assert record is not None
+        assert file_sha256(Path(record.output_image)) == record.output_sha256
+    with pytest.raises(KeyError):
+        store.latest_engine_run(project, 0, "a")
+
+
+def test_worker_failure_preserves_frame_for_retry_and_cleans_temporary_input(
+    tmp_path: Path,
+) -> None:
+    store, project, page = setup_page(tmp_path)
+    before = Path(page.source_image).read_bytes()
+
+    class Broken(Engine):
+        input_path: Path | None = None
+
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            self.input_path = Path(image_path)
+            self.input_path.write_bytes(b"broken")
+            raise RuntimeError("worker failed")
+
+    broken = Broken("a", "甲")
+    with pytest.raises(RuntimeError, match="worker failed"):
+        process_page(
+            store,
+            project,
+            page,
+            primary_engine=broken,
+            secondary_engine=Engine("b", "乙"),
+            crops_dir=tmp_path / "crops",
+        )
+    assert broken.input_path is not None and not broken.input_path.exists()
+    assert Path(page.source_image).read_bytes() == before
+    outcome = process_page(
+        store,
+        project,
+        page,
+        primary_engine=Engine("a", "甲"),
+        secondary_engine=Engine("b", "乙"),
+        crops_dir=tmp_path / "crops",
+    )
+    frame = store.load_ocr_frame(outcome.primary_run_id)
+    assert frame is not None
+    assert frame.sha256 == hashlib.sha256(before).hexdigest()
