@@ -9,6 +9,7 @@ import stat
 import tempfile
 import unicodedata
 import zipfile
+from collections import Counter
 from collections.abc import Iterable
 from contextlib import closing
 from datetime import datetime, timezone
@@ -110,7 +111,23 @@ def create_project_backup(
                     _MANIFEST_NAME,
                     json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
                 )
-            _verify_archive(temporary_archive)
+            # Audit the exact archived snapshot and bytes, not only the live store
+            # inspected before the snapshot.  A concurrent change may occur between them.
+            validation = restore_project_backup(
+                temporary_archive, Path(temporary_root) / "validation-restore"
+            )
+            live_warnings = Counter(
+                (finding.code, finding.message)
+                for finding in audit.findings if finding.severity == "warning"
+            )
+            archived_warnings = Counter(
+                (finding["code"], finding["message"])
+                for finding in validation["audit_warnings"]
+            )
+            if live_warnings != archived_warnings:
+                raise ProjectBackupError(
+                    "project audit warnings changed during backup; retry after processing stops"
+                )
             if destination.exists() and not overwrite:
                 raise FileExistsError(f"backup already exists: {destination}")
             temporary_archive.replace(destination)
@@ -644,23 +661,36 @@ def _remap_project_sources(
 
 
 def _validate_page_asset_references(database: Path, archive_names: set[str]) -> None:
-    """Require every persisted page raster to be represented in the archive."""
-    assets = [
-        name for name in archive_names if name.startswith("assets/") and len(PurePosixPath(name).parts) > 1
-    ]
+    """Require each recorded evidence path to map uniquely to an archived member."""
+    references: list[tuple[str, str, str]] = []
     try:
         with closing(sqlite3.connect(database)) as connection:
-            rows = connection.execute("SELECT source_image FROM pages").fetchall()
+            tables = {row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )}
+            for table, column, directory, label in (
+                ("pages", "source_image", "assets", "page image"),
+                ("page_preprocess", "output_image", "preprocessed", "preprocessed image"),
+                ("crop_input_evidence", "crop_path", "crops", "crop evidence"),
+                ("vlm_reviews", "crop_path", "crops", "VLM crop"),
+            ):
+                if table in tables:
+                    references.extend(
+                        (str(row[0]), directory, label)
+                        for row in connection.execute(f"SELECT {column} FROM {table}")
+                    )
     except sqlite3.Error as exc:
-        raise ProjectBackupError(f"could not inspect archived page references: {exc}") from exc
-    for (source_image,) in rows:
-        normalized = str(source_image).replace("\\", "/").lstrip("./")
+        raise ProjectBackupError(f"could not inspect archived evidence references: {exc}") from exc
+    for original, directory, label in references:
+        normalized = original.replace("\\", "/").lstrip("./")
         matches = [
-            name for name in assets
-            if normalized == name or normalized.endswith("/" + name)
+            name for name in archive_names
+            if name.startswith(directory + "/")
+            and len(PurePosixPath(name).parts) > 1
+            and (normalized == name or normalized.endswith("/" + name))
         ]
         if len(matches) != 1:
             raise ProjectBackupError(
-                "backup is missing or ambiguously maps a page image referenced by the project: "
-                f"{source_image}"
+                f"backup is missing or ambiguously maps a {label} referenced by the project: "
+                f"{original}"
             )
