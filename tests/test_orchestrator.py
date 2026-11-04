@@ -730,3 +730,155 @@ def test_preprocess_rebuild_refuses_different_output_without_replacing_evidence(
         preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
     assert not first.image_path.exists()
     assert store.load_preprocess(project_id, 0).output_sha256 == first.outcome.output_sha256
+
+
+def test_preprocess_rebuild_refuses_file_created_during_processing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.domain.page_asset import PageAssetError
+    from scribeforge.domain.preprocess import PreprocessSettings
+    from scribeforge.pipeline import preprocessing
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    settings = PreprocessSettings()
+    first = preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
+    first.image_path.unlink()
+    original = preprocessing.apply_preprocess
+
+    def concurrent_writer(*args, **kwargs):
+        result = original(*args, **kwargs)
+        first.image_path.write_bytes(b"do not overwrite")
+        return result
+
+    monkeypatch.setattr(preprocessing, "apply_preprocess", concurrent_writer)
+    with pytest.raises(PageAssetError, match="preprocessed.*exist"):
+        preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
+    assert first.image_path.read_bytes() == b"do not overwrite"
+    assert store.load_preprocess(project_id, 0).output_sha256 == first.outcome.output_sha256
+    job = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=0)
+    assert store.load_job(job).state is JobState.FAILED
+    first.image_path.unlink()
+    monkeypatch.undo()
+    rebuilt = preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
+    assert rebuilt.image_path == first.image_path
+    assert rebuilt.outcome.output_sha256 == first.outcome.output_sha256
+
+
+def test_preprocess_publication_failure_cleans_temporary_file_and_can_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.domain.preprocess import PreprocessSettings
+    from scribeforge.pipeline import preprocessing
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    directory = tmp_path / "preprocessed"
+    settings = PreprocessSettings()
+    source_before = Path(page.source_image).read_bytes()
+
+    def fail_link(*args, **kwargs):
+        raise OSError("publication failed")
+
+    monkeypatch.setattr(preprocessing.os, "link", fail_link)
+    with pytest.raises(OSError, match="publication failed"):
+        preprocess_page(store, project_id, page, settings, assets_dir=directory)
+    assert not list(directory.iterdir())
+    assert store.load_preprocess(project_id, 0) is None
+    assert Path(page.source_image).read_bytes() == source_before
+    job = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=0)
+    assert store.load_job(job).state is JobState.FAILED
+    monkeypatch.undo()
+    result = preprocess_page(store, project_id, page, settings, assets_dir=directory)
+    assert result.image_path.is_file()
+    assert store.load_job(job).state is JobState.SUCCEEDED
+    assert not list(directory.glob(".preprocess-*"))
+
+
+@pytest.mark.parametrize("mode", ["fresh", "rebuild", "reuse"])
+def test_preprocess_rejects_changed_recorded_source_bytes_directly(
+    tmp_path: Path, mode: str
+) -> None:
+    from scribeforge.domain.preprocess import PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    source = tmp_path / "source.png"
+    Image.new("RGB", (100, 150), "white").save(source)
+    original = source.read_bytes()
+    store.add_page(project_id, 0, str(source), 100, 150,
+                   page_asset=PageAssetEvidence.from_bytes(original))
+    page = store.list_pages(project_id)[0]
+    directory = tmp_path / "preprocessed"
+    settings = PreprocessSettings()
+    previous = None
+    if mode != "fresh":
+        previous = preprocess_page(store, project_id, page, settings, assets_dir=directory)
+        if mode == "rebuild":
+            previous.image_path.unlink()
+    Image.new("RGB", (100, 150), "black").save(source)
+    changed = source.read_bytes()
+    with pytest.raises(PageAssetError, match="raster this project recorded"):
+        preprocess_page(store, project_id, page, settings, assets_dir=directory)
+    assert source.read_bytes() == changed
+    if previous:
+        assert previous.image_path.exists() == (mode == "reuse")
+        assert store.load_preprocess(project_id, 0).output_sha256 == previous.outcome.output_sha256
+    else:
+        assert store.load_preprocess(project_id, 0) is None
+        assert not directory.exists()
+
+
+def test_preprocess_checks_the_actual_bytes_read_after_source_verification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.domain.preprocess import PreprocessSettings
+    from scribeforge.pipeline import preprocessing
+
+    store, project_id = _store(tmp_path)
+    source = tmp_path / "source.png"
+    Image.new("RGB", (100, 150), "white").save(source)
+    store.add_page(project_id, 0, str(source), 100, 150,
+                   page_asset=PageAssetEvidence.from_bytes(source.read_bytes()))
+    page = store.list_pages(project_id)[0]
+    verifier = preprocessing.verify_page_asset
+
+    def replace_after_verification(*args, **kwargs):
+        result = verifier(*args, **kwargs)
+        Image.new("RGB", (100, 150), "black").save(source)
+        return result
+
+    monkeypatch.setattr(preprocessing, "verify_page_asset", replace_after_verification)
+    directory = tmp_path / "preprocessed"
+    with pytest.raises(PageAssetError, match="raster this project recorded"):
+        preprocess_page(store, project_id, page, PreprocessSettings(), assets_dir=directory)
+    assert store.load_preprocess(project_id, 0) is None
+    assert not directory.exists()
+    job = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=0)
+    assert store.load_job(job).state is JobState.FAILED
+
+
+def test_preprocess_retry_does_not_overwrite_output_left_by_failed_db_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.domain.preprocess import PreprocessSettings
+
+    store, project_id = _store(tmp_path)
+    page = _seed_page(store, project_id, tmp_path)
+    directory = tmp_path / "preprocessed"
+
+    def fail_record(*args, **kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(store, "record_preprocess", fail_record)
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        preprocess_page(store, project_id, page, PreprocessSettings(), assets_dir=directory)
+    leftovers = list(directory.glob("*.png"))
+    assert len(leftovers) == 1
+    original = leftovers[0].read_bytes()
+    assert store.load_preprocess(project_id, 0) is None
+    monkeypatch.undo()
+    result = preprocess_page(store, project_id, page, PreprocessSettings(), assets_dir=directory)
+    assert result.image_path != leftovers[0]
+    assert leftovers[0].read_bytes() == original
+    assert result.image_path.read_bytes() == original
+    assert not list(directory.glob(".preprocess-*"))
