@@ -43,6 +43,7 @@ from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
 from scribeforge.domain.flow import build_flow
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import BoundingBox, OCREngine, PageDirection
+from scribeforge.domain.page_asset import PageAssetError
 from scribeforge.domain.preprocess import (
     PreprocessOperation,
     PreprocessSettings,
@@ -1259,7 +1260,11 @@ def _rehash_pages(args: argparse.Namespace, out: TextIO) -> int:
     except (OSError, sqlite3.Error) as exc:
         print(f"error: could not open store at {args.store}: {exc}", file=sys.stderr)
         return EXIT_FATAL
-    rehashed, missing = store.rehash_missing_page_assets()
+    try:
+        rehashed, missing = store.rehash_missing_page_assets()
+    except (OSError, sqlite3.Error, PageAssetError) as exc:
+        print(f"error: could not rehash page evidence: {exc}", file=sys.stderr)
+        return EXIT_FATAL
     payload = {
         "store": str(args.store),
         "rehashed": rehashed,

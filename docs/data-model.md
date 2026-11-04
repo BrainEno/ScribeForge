@@ -85,8 +85,13 @@ columns — `page_asset_sha256`, `page_asset_byte_size`,
 the rendered page's bytes and render parameters (DPI, renderer, source format).
 They are nullable so projects imported before v11 keep opening; a NULL digest means
 "evidence from before v11" and is reported by the audit, not treated as an error.
-`scribeforge rehash-pages` fills the gap for those pages without overwriting an
-existing digest, so a changed page can never launder itself through a rehash.
+`scribeforge rehash-pages` records the current raster for those pages without
+overwriting an existing digest. This is a new observation, not proof that the
+legacy raster is the one originally imported; establish that provenance separately
+before backfilling. The command checks for changes during measurement and refuses
+concurrent evidence or path updates. It may have completed earlier pages before an
+error; audit and retry the remaining pages. The checks cannot prevent an external
+writer from changing the raster after measurement.
 
 **Schema v12 preserves token availability separately from token rows.**
 `ocr_lines.tokens_reported` records whether the worker supplied a token array:

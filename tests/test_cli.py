@@ -3462,3 +3462,53 @@ def test_cancelled_snapshot_does_not_modify_an_owned_import_job(
         assert current.last_error is None
     finally:
         owner.fail_job(job_id, "test cleanup")
+
+
+def test_rehash_pages_reports_concurrent_evidence_change_without_clobbering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sqlite3
+    from contextlib import closing
+
+    from scribeforge.storage import sqlite as storage
+
+    root = tmp_path / "store"
+    store = SQLiteStore(root / "project.sqlite3")
+    store.initialize()
+    pid = store.create_project("Book", "book.pdf", "source-hash")
+    image = tmp_path / "page.png"
+    image.write_bytes(b"legacy")
+    page_id = store.add_page(pid, 0, str(image), 10, 20)
+    concurrent_hash = hashlib.sha256(b"other evidence").hexdigest()
+    measure = storage._measure_page_asset
+
+    def concurrent_record(path: Path) -> tuple[str, int]:
+        digest = measure(path)
+        with closing(sqlite3.connect(root / "project.sqlite3")) as db, db:
+            db.execute("UPDATE pages SET page_asset_sha256=?, page_asset_byte_size=14, "
+                       "page_asset_version=1 WHERE id=?", (concurrent_hash, page_id))
+        return digest
+
+    monkeypatch.setattr(storage, "_measure_page_asset", concurrent_record)
+    assert run(["rehash-pages", "--store", str(root), "--json"]) == 2
+    output = capsys.readouterr()
+    assert "rehash" in output.err.lower()
+    assert output.out == ""
+    assert store.list_pages(pid)[0].page_asset_sha256 == concurrent_hash
+
+
+def test_rehash_pages_empty_raster_reports_error_without_recording_digest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "store"
+    store = SQLiteStore(root / "project.sqlite3")
+    store.initialize()
+    pid = store.create_project("book", "book.pdf", "hash")
+    path = tmp_path / "empty.png"
+    path.write_bytes(b"")
+    store.add_page(pid, 0, str(path), 10, 20)
+    assert run(["rehash-pages", "--store", str(root), "--json"]) == 2
+    captured = capsys.readouterr()
+    assert "empty" in captured.err
+    assert captured.out == ""
+    assert store.list_pages(pid)[0].page_asset_sha256 is None
