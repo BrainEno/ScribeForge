@@ -603,3 +603,42 @@ def test_modifying_model_cannot_corrupt_saved_crop_artifact(
         with Image.open(path) as crop:
             assert crop.size != (2, 2)
             assert crop.convert("RGB").getpixel((0, 0)) != (255, 0, 0)
+
+
+def test_shared_preprocessing_directory_preserves_other_project_frame(tmp_path: Path) -> None:
+    from scribeforge.domain.preprocess import PreprocessSettings
+    from scribeforge.pipeline.preprocessing import preprocess_page
+
+    store = SQLiteStore(tmp_path / "db.sqlite3")
+    store.initialize()
+    first, page1 = project(store, tmp_path, "first", "white")
+    second, page2 = project(store, tmp_path, "second", "black")
+    directory = tmp_path / "preprocessed"
+    a = preprocess_page(store, first, page1, PreprocessSettings(), assets_dir=directory)
+    original = a.image_path.read_bytes()
+    b = preprocess_page(store, second, page2, PreprocessSettings(), assets_dir=directory)
+    assert a.image_path != b.image_path
+    assert a.image_path.read_bytes() == original
+    assert a.outcome.output_sha256 != b.outcome.output_sha256
+    assert store.load_preprocess(first, 0).output_sha256 == a.outcome.output_sha256
+    assert preprocess_page(store, first, page1, PreprocessSettings(), assets_dir=directory).image_path == a.image_path
+
+
+def test_preprocessing_cannot_overwrite_source_or_existing_temporary_file(tmp_path: Path) -> None:
+    from scribeforge.domain.preprocess import PreprocessSettings
+    from scribeforge.pipeline.preprocessing import preprocess_page
+
+    store = SQLiteStore(tmp_path / "db.sqlite3")
+    store.initialize()
+    pid = store.create_project("book", "book", "hash")
+    source = tmp_path / "page-00000-pre.png"
+    Image.new("RGB", (100, 100), "white").save(source)
+    before = source.read_bytes()
+    temp = tmp_path / ".page-00000-pre.png.tmp"
+    temp.write_bytes(b"previous evidence")
+    store.add_page(pid, 0, str(source), 100, 100)
+    result = preprocess_page(store, pid, store.list_pages(pid)[0], PreprocessSettings(),
+                             assets_dir=tmp_path)
+    assert result.image_path != source
+    assert source.read_bytes() == before
+    assert temp.read_bytes() == b"previous evidence"
