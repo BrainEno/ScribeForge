@@ -273,3 +273,36 @@ def test_geometry_alone_detects_vertical_on_the_real_corpus() -> None:
         )
 
         assert detect_page_direction(undeclared) is PageDirection.VERTICAL_RL, case.id
+
+
+def test_oracle_resolves_isolated_copy_by_content_and_refuses_ambiguous_images(tmp_path: Path) -> None:
+    import shutil
+
+    original = tmp_path / "original.png"
+    Image.new("RGB", (16, 16), "white").save(original)
+    copy = tmp_path / "copy.png"
+    shutil.copyfile(original, copy)
+    oracle = OracleEngine("oracle")
+    oracle.register(original, "甲")
+    assert oracle.analyze_page(str(copy), 0).lines[0].text == "甲"
+    oracle.register(copy, "乙")
+    assert oracle.analyze_page(str(original), 0).lines[0].text == "甲"
+    assert oracle.analyze_page(str(copy), 0).lines[0].text == "乙"
+    other = tmp_path / "unregistered.png"
+    shutil.copyfile(original, other)
+    with pytest.raises(ValueError, match="ambiguous"):
+        oracle.analyze_page(str(other), 0)
+
+
+def test_oracle_copy_matches_registration_snapshot_not_later_file_contents(tmp_path: Path) -> None:
+    import shutil
+
+    original = tmp_path / "original.png"
+    copy = tmp_path / "copy.png"
+    Image.new("RGB", (10, 10), "white").save(original)
+    oracle = OracleEngine("oracle")
+    oracle.register(original, "甲")
+    Image.new("RGB", (10, 10), "black").save(original)
+    shutil.copyfile(original, copy)
+    with pytest.raises(KeyError, match="no reference text"):
+        oracle.analyze_page(str(copy), 0)

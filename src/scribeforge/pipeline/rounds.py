@@ -46,7 +46,7 @@ from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.page_asset import PageAssetEvidence, verify_page_asset
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import project_furniture, review_detail
-from scribeforge.pipeline.crop_evidence import crop_evidence, verify_crop
+from scribeforge.pipeline.crop_evidence import crop_evidence, isolated_crop
 from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.vlm_review import ReviewEvidence
 from scribeforge.storage.sqlite import CropInputEvidence, SQLiteStore, VerificationRecord
@@ -345,11 +345,10 @@ def _vision_reading(
         # candidate; a model answer that cannot be stored must not be cited.
         return None
     state = SQLiteVLMReviewState(store, verification_id)
-    verify_crop(crop_input)
-    reading = reviewer.transcribe_crop(
-        crop_path, page_index=page_index, pair_index=pair_index
-    )
-    verify_crop(crop_input)
+    with isolated_crop(crop_input) as private_path:
+        reading = reviewer.transcribe_crop(
+            private_path, page_index=page_index, pair_index=pair_index
+        )
     if reading.page_index != page_index or reading.pair_index != pair_index:
         raise ValueError("VLM reading identity does not match the pair being repaired")
     state.append(ReviewEvidence(reading=reading, crop_path=crop_path, crop_input=crop_input))
@@ -455,9 +454,8 @@ def run_repair_round(
                 )[ref.pair_index]
                 verification_frame(store, project_id, page, verification_id)
                 crop_input = crop_evidence(crop_path, plan, frame, verification_id)
-            verify_crop(crop_input)
-            result = reader.engine.analyze_page(crop_path, ref.page_index)
-            verify_crop(crop_input)
+            with isolated_crop(crop_input) as private_path:
+                result = reader.engine.analyze_page(private_path, ref.page_index)
             verification_frame(store, project_id, page, verification_id)
             if result.engine != reader.engine.name or result.page_index != ref.page_index:
                 raise ValueError("repair reader returned mismatched engine or page identity")

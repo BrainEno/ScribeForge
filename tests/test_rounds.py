@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,7 @@ class FakeEngine:
         self._texts = list(texts)
         self.calls = 0
         self.last_image = ""
+        self.seen_bytes: list[bytes] = []
 
     @property
     def name(self) -> str:
@@ -37,6 +39,7 @@ class FakeEngine:
     def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
         self.calls += 1
         self.last_image = image_path
+        self.seen_bytes.append(Path(image_path).read_bytes())
         text = self._texts[min(self.calls - 1, len(self._texts) - 1)]
         box = BoundingBox(0.1, 0.1, 0.8, 0.02)
         return PageOCRResult(page_index, self._name, "1.0", (OCRLine(text, box),))
@@ -135,7 +138,12 @@ def test_the_second_attempt_reads_a_wider_larger_crop(tmp_path: Path) -> None:
     assert not first.progressed and not second.progressed
     assert first_crop.name.endswith("-read-01.png")
     assert second_crop.name.endswith("-read-02.png")
-    with Image.open(first_crop) as before, Image.open(second_crop) as after:
+    assert not first_crop.exists() and not second_crop.exists()
+    assert reader.seen_bytes[0] == (tmp_path / "repair" / first_crop.name).read_bytes()
+    assert reader.seen_bytes[1] == (tmp_path / "repair" / second_crop.name).read_bytes()
+    with Image.open(BytesIO(reader.seen_bytes[0])) as before, Image.open(
+        BytesIO(reader.seen_bytes[1])
+    ) as after:
         assert after.size[0] > before.size[0]
         assert after.size[1] >= before.size[1]
 

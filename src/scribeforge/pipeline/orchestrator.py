@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -139,9 +141,24 @@ def process_page(
     def read_engine(engine: OCREngine) -> None:
         if capture_frame(Path(image_path), frame.kind, frame.width, frame.height) != frame:
             raise PageAssetError("OCR frame changed before reading")
-        result = engine.analyze_page(image_path, page_index)
-        if capture_frame(Path(image_path), frame.kind, frame.width, frame.height) != frame:
-            raise PageAssetError("OCR frame changed during reading")
+        with tempfile.TemporaryDirectory(prefix="scribeforge-ocr-input-") as temporary_dir:
+            scratch = Path(temporary_dir) / Path(image_path).name
+            shutil.copyfile(image_path, scratch)
+            try:
+                copied = capture_frame(scratch, frame.kind, frame.width, frame.height)
+                source = capture_frame(Path(image_path), frame.kind, frame.width, frame.height)
+            except (OSError, ValueError) as exc:
+                raise PageAssetError("OCR frame changed while preparing the worker input") from exc
+            if copied != frame or source != frame:
+                raise PageAssetError("OCR frame changed while preparing the worker input")
+            result = engine.analyze_page(str(scratch), page_index)
+            try:
+                copied = capture_frame(scratch, frame.kind, frame.width, frame.height)
+                source = capture_frame(Path(image_path), frame.kind, frame.width, frame.height)
+            except (OSError, ValueError) as exc:
+                raise PageAssetError("OCR frame changed during reading") from exc
+            if copied != frame or source != frame:
+                raise PageAssetError("OCR frame changed during reading")
         store.record_ocr(project_id, result, frame=frame)
 
     def compute_primary() -> None:
