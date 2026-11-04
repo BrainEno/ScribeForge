@@ -41,6 +41,7 @@ from scribeforge.domain.cancellation import (
 )
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
 from scribeforge.domain.flow import build_flow
+from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import BoundingBox, OCREngine, PageDirection
 from scribeforge.domain.preprocess import (
     PreprocessOperation,
@@ -62,6 +63,7 @@ from scribeforge.pipeline.rounds import (
     reader_for,
     repair_book,
 )
+from scribeforge.pipeline.source_snapshot import verified_source_snapshot
 from scribeforge.pipeline.structure import (
     StructureReport,
     build_book_structure,
@@ -77,7 +79,7 @@ from scribeforge.project_backup import (
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime.paths import default_runtime_root, runtime_root_for_store
-from scribeforge.storage.sqlite import SQLiteStore
+from scribeforge.storage.sqlite import JobAlreadyRunningError, SQLiteStore
 
 EXIT_OK = 0
 EXIT_PARTIAL = 1
@@ -815,13 +817,27 @@ def _process(
             quality = getattr(args, "reencode_quality", None)
             if quality is not None:
                 reencode["quality"] = quality
-        imported = import_source(
-            store,
-            project_id,
-            open_page_source(book),
-            layout.assets_dir,
-            reencode=reencode,
-        )
+        project = next(project for project in store.list_projects() if project.id == project_id)
+        import_started = False
+        try:
+            with verified_source_snapshot(book, project.source_sha256) as snapshot:
+                source = open_page_source(snapshot)
+                import_started = True
+                imported = import_source(
+                    store, project_id, source, layout.assets_dir, reencode=reencode,
+                )
+        except ProcessingCancelled as exc:
+            if not import_started:
+                job_id = store.ensure_job(project_id, JobStage.IMPORT)
+                if store.load_job(job_id).state is not JobState.SUCCEEDED:
+                    try:
+                        store.start_job(job_id)
+                    except JobAlreadyRunningError:
+                        # Never alter a job owned by another process.
+                        pass
+                    else:
+                        store.fail_job(job_id, str(exc).strip() or "processing cancelled")
+            raise
         raise_if_cancelled()
         engines = factory(runtime_root)
         outcome = process_book(

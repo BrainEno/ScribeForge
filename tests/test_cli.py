@@ -3262,3 +3262,203 @@ def test_process_and_repair_keep_unrepresentable_text_blocked_from_export(
     assert run(["export", "--store", str(store_dir), "--out", str(tmp_path / "blocked.epub"),
                 "--title", "Book"]) != 0
     assert not (tmp_path / "blocked.epub").exists()
+
+
+def test_process_refuses_changed_source_after_project_identity_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    original = cli_module._ensure_project
+
+    def change_after_identity_check(store, path):
+        project_id = original(store, path)
+        Image.new("RGB", (80, 120), "black").save(book)
+        return project_id
+
+    monkeypatch.setattr(cli_module, "_ensure_project", change_after_identity_check)
+    code = run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    assert code == 2
+    assert "source" in capsys.readouterr().err.lower()
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    assert store.list_pages(project.id) == ()
+    assert not (store_dir / "assets").exists()
+
+
+def test_process_image_uses_verified_snapshot_if_original_changes_during_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    book = _book(tmp_path)
+    original_bytes = book.read_bytes()
+    store_dir = tmp_path / "store"
+    open_source = cli_module.open_page_source
+    passed_paths: list[Path] = []
+
+    def change_original_before_render(path):
+        passed_paths.append(path)
+        source = open_source(path)
+
+        class ChangedSource:
+            page_count = source.page_count
+
+            def render_page(self, index):
+                Image.new("RGB", (81, 121), "black").save(book)
+                return source.render_page(index)
+
+        return ChangedSource()
+
+    monkeypatch.setattr(cli_module, "open_page_source", change_original_before_render)
+    assert run(["process", str(book), "--store", str(store_dir), "--no-preprocess"],
+               engine_factory=_factory()) == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    page = store.list_pages(project.id)[0]
+    assert (page.width, page.height) == (80, 120)
+    assert Path(page.source_image).read_bytes() == original_bytes
+    assert project.source_sha256 == hashlib.sha256(original_bytes).hexdigest()
+    assert passed_paths and passed_paths[0] != book and not passed_paths[0].exists()
+
+
+def test_process_pdf_keeps_every_page_bound_to_same_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.adapters.pdf_pages import PdfPageSource
+
+    book = tmp_path / "book.pdf"
+
+    def write_pdf(color: str) -> None:
+        first = Image.new("RGB", (40, 60), color)
+        second = Image.new("RGB", (40, 60), color)
+        try:
+            first.save(book, format="PDF", save_all=True, append_images=[second])
+        finally:
+            first.close()
+            second.close()
+
+    write_pdf("white")
+    original_bytes = book.read_bytes()
+    render = PdfPageSource.render_page
+    snapshot_paths: list[Path] = []
+
+    def change_original_after_first(source, page_index):
+        snapshot_paths.append(source._path)
+        result = render(source, page_index)
+        if page_index == 0:
+            write_pdf("black")
+        return result
+
+    monkeypatch.setattr(PdfPageSource, "render_page", change_original_after_first)
+    store_dir = tmp_path / "store"
+    assert run(["process", str(book), "--store", str(store_dir), "--no-preprocess"],
+               engine_factory=_factory()) == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    pages = store.list_pages(project.id)
+    assert len(pages) == 2
+    assert project.source_sha256 == hashlib.sha256(original_bytes).hexdigest()
+    for page in pages:
+        with Image.open(page.source_image) as image:
+            assert image.convert("L").getextrema()[0] > 240
+    assert len(snapshot_paths) == 2 and snapshot_paths[0] == snapshot_paths[1]
+    assert snapshot_paths[0] != book and not snapshot_paths[0].exists()
+
+
+def test_process_import_exception_cleans_source_snapshot_and_can_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    book = _book(tmp_path)
+    original = cli_module.open_page_source
+    snapshots: list[Path] = []
+
+    def fail_during_render(path):
+        snapshots.append(path)
+        source = original(path)
+
+        class FailingSource:
+            page_count = source.page_count
+
+            def render_page(self, index):
+                raise RuntimeError("render failed")
+
+        return FailingSource()
+
+    monkeypatch.setattr(cli_module, "open_page_source", fail_during_render)
+    store_dir = tmp_path / "store"
+    assert run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory()) == 2
+    assert snapshots and snapshots[0] != book and not snapshots[0].exists()
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    assert store.list_pages(project.id) == ()
+    assert store.load_job(store.ensure_job(project.id, JobStage.IMPORT)).state.value == "failed"
+    monkeypatch.undo()
+    assert run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory()) == 0
+
+
+def test_interrupted_pdf_import_rejects_changed_source_then_resumes_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from scribeforge.adapters.pdf_pages import PdfPageSource
+
+    book = tmp_path / "book.pdf"
+    a = Image.new("RGB", (40, 60), "white")
+    b = Image.new("RGB", (40, 60), "white")
+    try:
+        a.save(book, format="PDF", save_all=True, append_images=[b])
+    finally:
+        a.close()
+        b.close()
+    source_bytes = book.read_bytes()
+    render = PdfPageSource.render_page
+    snapshots: list[Path] = []
+
+    def interrupt(source, page_index):
+        snapshots.append(source._path)
+        if page_index == 1:
+            book.write_bytes(b"different source")
+            raise RuntimeError("render interrupted")
+        return render(source, page_index)
+
+    store_dir = tmp_path / "store"
+    monkeypatch.setattr(PdfPageSource, "render_page", interrupt)
+    args = ["process", str(book), "--store", str(store_dir), "--no-preprocess"]
+    assert run(args, engine_factory=_factory()) == 2
+    assert snapshots and all(not path.exists() for path in snapshots)
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    pages = store.list_pages(project.id)
+    assert [page.page_index for page in pages] == [0]
+    first = Path(pages[0].source_image)
+    first_bytes = first.read_bytes()
+    monkeypatch.undo()
+    assert run(args, engine_factory=_factory()) == 2
+    assert "source sha-256 differs" in capsys.readouterr().err.lower()
+    assert [page.page_index for page in store.list_pages(project.id)] == [0]
+    assert first.read_bytes() == first_bytes
+    book.write_bytes(source_bytes)
+    assert run(args, engine_factory=_factory()) == 0
+    assert [page.page_index for page in store.list_pages(project.id)] == [0, 1]
+    assert first.read_bytes() == first_bytes
+
+
+def test_cancelled_snapshot_does_not_modify_an_owned_import_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    store_dir.mkdir()
+    owner = SQLiteStore(store_dir / "project.sqlite3")
+    owner.initialize()
+    pid = owner.create_project("book", str(book.resolve()), hashlib.sha256(book.read_bytes()).hexdigest())
+    job_id = owner.ensure_job(pid, JobStage.IMPORT)
+    owner.start_job(job_id)
+    monkeypatch.setattr(cli_module, "_start_cancel_control", lambda token: token.cancel())
+    try:
+        assert run(["process", str(book), "--store", str(store_dir), "--cancelable"],
+                   engine_factory=_factory(), stdout=io.StringIO()) == 130
+        current = owner.load_job(job_id)
+        assert current.state.value == "running"
+        assert current.attempts == 1
+        assert current.last_error is None
+    finally:
+        owner.fail_job(job_id, "test cleanup")
