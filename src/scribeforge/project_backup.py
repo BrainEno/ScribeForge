@@ -145,9 +145,25 @@ def create_project_backup(
 
 
 def verify_project_backup(backup_path: Path) -> dict[str, Any]:
-    """Validate an archive's member list, path safety, hashes and SQLite snapshot."""
+    """Verify archive structure and audit its extracted evidence in a disposable store."""
     archive_path = backup_path.expanduser().resolve()
     manifest, files, total_bytes, integrity, foreign_key_violations = _verify_archive(archive_path)
+    with tempfile.TemporaryDirectory(prefix="scribeforge-verify-evidence-") as temporary_root:
+        target = (Path(temporary_root) / "store").resolve()
+        restored = _restore_verified_archive(archive_path, target, manifest, files, total_bytes)
+        if not restored["healthy"]:
+            raise ProjectBackupError("restored project failed integrity checks during verification")
+        warnings = []
+        for finding in restored["audit_warnings"]:
+            item = dict(finding)
+            if "path" in item:
+                try:
+                    relative = Path(item["path"]).relative_to(target)
+                except ValueError:
+                    pass
+                else:
+                    item["path"] = "archive:/" + relative.as_posix()
+            warnings.append(item)
     return {
         "archive": str(archive_path),
         "format": _FORMAT,
@@ -158,7 +174,7 @@ def verify_project_backup(backup_path: Path) -> dict[str, Any]:
         "total_bytes": total_bytes,
         "sqlite_integrity": integrity,
         "foreign_key_violations": foreign_key_violations,
-        "audit_warnings": manifest.get("audit_warnings", []),
+        "audit_warnings": warnings,
         "healthy": True,
     }
 
@@ -173,6 +189,17 @@ def restore_project_backup(backup_path: Path, target_path: Path) -> dict[str, An
         raise ProjectBackupError("restore destination must be a directory separate from the backup file")
 
     manifest, files, total_bytes, _integrity, _fk_violations = _verify_archive(archive_path)
+    return _restore_verified_archive(archive_path, target, manifest, files, total_bytes)
+
+
+def _restore_verified_archive(
+    archive_path: Path,
+    target: Path,
+    manifest: dict[str, Any],
+    files: list[dict[str, Any]],
+    total_bytes: int,
+) -> dict[str, Any]:
+    """Extract already-verified members, check each byte again, and audit the result."""
     target.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{target.name}.restore-", dir=target.parent))
     try:
@@ -377,6 +404,7 @@ def _verify_archive(
                     shutil.copyfileobj(source, target, length=_CHUNK_SIZE)
                 integrity, violations = _validate_sqlite_database(database)
                 _validate_page_asset_references(database, set(file_names))
+                _validate_source_records(database, manifest["sources"])
             if violations:
                 raise ProjectBackupError(
                     f"backup database has {violations} foreign-key violation(s)"
@@ -386,6 +414,21 @@ def _verify_archive(
         if isinstance(exc, ProjectBackupError):
             raise
         raise ProjectBackupError(f"could not verify backup archive: {exc}") from exc
+
+
+def _validate_source_records(database: Path, sources: list[dict[str, Any]]) -> None:
+    """Never leave a restored project pointing at a source outside the archive."""
+    try:
+        with closing(sqlite3.connect(database)) as connection:
+            projects = {
+                int(row[0]): str(row[1])
+                for row in connection.execute("SELECT id, source_sha256 FROM projects")
+            }
+    except sqlite3.Error as exc:
+        raise ProjectBackupError(f"could not inspect archived project sources: {exc}") from exc
+    archived = {int(item["project_id"]): str(item["sha256"]) for item in sources}
+    if projects != archived:
+        raise ProjectBackupError("backup source records do not match all archived projects")
 
 
 def _validate_archive_path(value: str) -> None:

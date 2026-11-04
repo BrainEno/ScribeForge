@@ -372,3 +372,155 @@ def test_valid_backup_restores_evidence_without_the_original_store_or_source(tmp
     assert reviews
     for review in reviews:
         assert Path(review.crop_path).is_relative_to(target)
+
+
+def _rewrite_backup_member(archive_path: Path, output_path: Path, member: str, data: bytes) -> None:
+    """Construct a self-consistent archive whose bytes conflict with its SQLite evidence."""
+    import json
+    import zipfile
+
+    with zipfile.ZipFile(archive_path) as source:
+        manifest = json.loads(source.read("manifest.json"))
+        record = next(item for item in manifest["files"] if item["path"] == member)
+        record["sha256"] = hashlib.sha256(data).hexdigest()
+        record["size"] = len(data)
+        with zipfile.ZipFile(output_path, "w") as target:
+            for name in source.namelist():
+                if name == "manifest.json":
+                    target.writestr(name, json.dumps(manifest))
+                else:
+                    target.writestr(name, data if name == member else source.read(name))
+
+
+@pytest.mark.parametrize("directory", ["assets", "preprocessed", "crops"])
+def test_verify_backup_rejects_self_consistent_archive_with_corrupt_evidence(
+    tmp_path: Path, directory: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import tempfile
+    import zipfile
+
+    from scribeforge.project_backup import (
+        ProjectBackupError,
+        create_project_backup,
+        restore_project_backup,
+        verify_project_backup,
+    )
+
+    root, _, _, _ = prepared(tmp_path)
+    good, corrupt = tmp_path / "good.zip", tmp_path / "corrupt.zip"
+    create_project_backup(root, good)
+    with zipfile.ZipFile(good) as archive:
+        member = next(name for name in archive.namelist() if name.startswith(directory + "/"))
+        with Image.open(io.BytesIO(archive.read(member))) as image:
+            changed = io.BytesIO()
+            Image.new("RGB", image.size, "black").save(changed, format="PNG")
+    _rewrite_backup_member(good, corrupt, member, changed.getvalue())
+    before = corrupt.read_bytes()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    with pytest.raises(ProjectBackupError, match="integrity"):
+        verify_project_backup(corrupt)
+    assert not list(scratch.iterdir())
+    with pytest.raises(ProjectBackupError, match="integrity"):
+        restore_project_backup(corrupt, tmp_path / "restored")
+    assert corrupt.read_bytes() == before
+    assert not (tmp_path / "restored").exists()
+
+
+def test_verify_backup_reports_actual_unknown_provenance_not_manifest_claim(tmp_path: Path) -> None:
+    import json
+    import zipfile
+    from contextlib import closing
+
+    from scribeforge.project_backup import create_project_backup, verify_project_backup
+
+    root, _, _, processed = prepared(tmp_path)
+    good, modified = tmp_path / "good.zip", tmp_path / "modified.zip"
+    create_project_backup(root, good)
+    database = tmp_path / "snapshot.sqlite3"
+    with zipfile.ZipFile(good) as archive:
+        database.write_bytes(archive.read("project.sqlite3"))
+        assert json.loads(archive.read("manifest.json"))["audit_warnings"] == []
+    with closing(sqlite3.connect(database)) as db, db:
+        db.execute("DELETE FROM ocr_input_frames WHERE run_id=?", (processed.primary_run_id,))
+    _rewrite_backup_member(good, modified, "project.sqlite3", database.read_bytes())
+    result = verify_project_backup(modified)
+    assert result["healthy"] is True
+    assert "ocr_frame_unknown" in {item["code"] for item in result["audit_warnings"]}
+
+
+def test_verify_backup_rejects_missing_source_manifest_mapping(tmp_path: Path) -> None:
+    import json
+    import zipfile
+
+    from scribeforge.project_backup import (
+        ProjectBackupError,
+        create_project_backup,
+        verify_project_backup,
+    )
+
+    root, _, _, _ = prepared(tmp_path)
+    good, incomplete = tmp_path / "good.zip", tmp_path / "incomplete.zip"
+    create_project_backup(root, good)
+    with zipfile.ZipFile(good) as source, zipfile.ZipFile(incomplete, "w") as target:
+        manifest = json.loads(source.read("manifest.json"))
+        manifest["sources"] = []
+        for name in source.namelist():
+            target.writestr(name, json.dumps(manifest) if name == "manifest.json" else source.read(name))
+    with pytest.raises(ProjectBackupError, match="source.*project"):
+        verify_project_backup(incomplete)
+
+
+def test_verify_backup_works_offline_and_reports_stable_warning_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+    import tempfile
+    from contextlib import closing
+
+    from scribeforge.project_backup import create_project_backup, verify_project_backup
+
+    root, _, pid, _ = prepared(tmp_path)
+    with closing(sqlite3.connect(root / "project.sqlite3")) as db, db:
+        db.execute("UPDATE pages SET page_asset_sha256=NULL WHERE project_id=?", (pid,))
+    archive = tmp_path / "legacy.zip"
+    create_project_backup(root, archive)
+    shutil.rmtree(root)
+    (tmp_path / "book.pdf").unlink()
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    before = archive.read_bytes()
+    result = verify_project_backup(archive)
+    warning = next(item for item in result["audit_warnings"]
+                   if item["code"] == "page_asset_evidence_missing")
+    assert warning["path"] == "archive:/assets/page.png"
+    assert result["healthy"] is True
+    assert not list(scratch.iterdir())
+    assert archive.read_bytes() == before
+
+
+def test_verify_backup_cli_rejects_self_consistent_corrupt_evidence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import io
+    import zipfile
+
+    from scribeforge.cli import run
+    from scribeforge.project_backup import create_project_backup
+
+    root, _, _, _ = prepared(tmp_path)
+    good, corrupt = tmp_path / "good.zip", tmp_path / "corrupt.zip"
+    create_project_backup(root, good)
+    with zipfile.ZipFile(good) as archive:
+        member = next(name for name in archive.namelist() if name.startswith("crops/"))
+        with Image.open(io.BytesIO(archive.read(member))) as image:
+            changed = io.BytesIO()
+            Image.new("RGB", image.size, "black").save(changed, format="PNG")
+    _rewrite_backup_member(good, corrupt, member, changed.getvalue())
+    assert run(["verify-backup", "--backup", str(corrupt), "--json"]) != 0
+    output = capsys.readouterr()
+    assert "integrity" in output.err
+    assert not output.out
