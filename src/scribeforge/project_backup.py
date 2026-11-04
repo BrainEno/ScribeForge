@@ -436,7 +436,11 @@ def _remap_page_assets(database: Path, destination_root: Path, archive_names: It
         name for name in archive_names
         if name.startswith("preprocessed/") and len(PurePosixPath(name).parts) > 1
     ]
-    if not internal_assets and not preprocessed_assets:
+    crop_assets = [
+        name for name in archive_names
+        if name.startswith("crops/") and len(PurePosixPath(name).parts) > 1
+    ]
+    if not internal_assets and not preprocessed_assets and not crop_assets:
         return
     try:
         with closing(sqlite3.connect(database)) as connection, connection:
@@ -474,6 +478,23 @@ def _remap_page_assets(database: Path, destination_root: Path, archive_names: It
                             "UPDATE page_preprocess SET output_image = ? WHERE page_id = ?",
                             (restored_path, int(page_id)),
                         )
+            for table in ("vlm_reviews", "crop_input_evidence"):
+                exists = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+                ).fetchone()
+                if exists:
+                    for row_id, original in connection.execute(
+                        f"SELECT id, crop_path FROM {table}"
+                    ).fetchall():
+                        normalized = str(original).replace("\\", "/").lstrip("./")
+                        matches = [name for name in crop_assets
+                                   if normalized == name or normalized.endswith("/" + name)]
+                        if len(matches) == 1:
+                            restored_path = str((destination_root / PurePosixPath(matches[0])).resolve())
+                            connection.execute(
+                                f"UPDATE {table} SET crop_path = ? WHERE id = ?",
+                                (restored_path, int(row_id)),
+                            )
     except sqlite3.Error as exc:
         raise ProjectBackupError(f"could not relocate restored page assets: {exc}") from exc
 

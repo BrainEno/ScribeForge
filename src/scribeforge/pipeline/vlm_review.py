@@ -6,12 +6,15 @@ from typing import Protocol
 
 from scribeforge.domain.risk import ReviewCandidate
 from scribeforge.domain.vlm import VLMReading, VLMReviewer
+from scribeforge.pipeline.crop_evidence import verify_crop
+from scribeforge.storage.sqlite import CropInputEvidence
 
 
 @dataclass(frozen=True, slots=True)
 class ReviewEvidence:
     reading: VLMReading
     crop_path: str
+    crop_input: CropInputEvidence | None = None
 
 
 class VLMReviewState(Protocol):
@@ -25,6 +28,8 @@ def review_pending_candidates(
     crop_paths: Mapping[int, str],
     reviewer: VLMReviewer,
     state: VLMReviewState,
+    *,
+    crop_inputs: Mapping[int, CropInputEvidence] | None = None,
 ) -> tuple[VLMReading, ...]:
     if not candidates:
         return ()
@@ -46,15 +51,20 @@ def review_pending_candidates(
                 "whole-page fallback is forbidden"
             ) from exc
 
+        crop_input = crop_inputs[candidate.pair_index] if crop_inputs is not None else None
+        if crop_input is not None:
+            verify_crop(crop_input)
         reading = reviewer.transcribe_crop(
             crop_path,
             page_index=candidate.page_index,
             pair_index=candidate.pair_index,
         )
+        if crop_input is not None:
+            verify_crop(crop_input)
         if reading.page_index != candidate.page_index or reading.pair_index != candidate.pair_index:
             raise ValueError("VLM reading identity does not match review candidate")
 
-        state.append(ReviewEvidence(reading=reading, crop_path=crop_path))
+        state.append(ReviewEvidence(reading=reading, crop_path=crop_path, crop_input=crop_input))
         completed.add(candidate.pair_index)
         readings.append(reading)
 

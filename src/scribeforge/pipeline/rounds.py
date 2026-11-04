@@ -46,9 +46,10 @@ from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.page_asset import PageAssetEvidence, verify_page_asset
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import project_furniture, review_detail
+from scribeforge.pipeline.crop_evidence import crop_evidence, verify_crop
 from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.vlm_review import ReviewEvidence
-from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord
+from scribeforge.storage.sqlite import CropInputEvidence, SQLiteStore, VerificationRecord
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
 
 #: Prefix of the scope an engine run gets when it read one line of a page.
@@ -331,6 +332,7 @@ def _vision_reading(
     pair_index: int,
     crop_path: str,
     has_candidate: bool,
+    crop_input: CropInputEvidence,
 ) -> tuple[Reading, str] | None:
     """Ask the vision model to read the enlarged crop, and persist its answer.
 
@@ -343,12 +345,14 @@ def _vision_reading(
         # candidate; a model answer that cannot be stored must not be cited.
         return None
     state = SQLiteVLMReviewState(store, verification_id)
+    verify_crop(crop_input)
     reading = reviewer.transcribe_crop(
         crop_path, page_index=page_index, pair_index=pair_index
     )
+    verify_crop(crop_input)
     if reading.page_index != page_index or reading.pair_index != pair_index:
         raise ValueError("VLM reading identity does not match the pair being repaired")
-    state.append(ReviewEvidence(reading=reading, crop_path=crop_path))
+    state.append(ReviewEvidence(reading=reading, crop_path=crop_path, crop_input=crop_input))
     stored = [
         review
         for review in store.list_vlm_reviews(verification_id)
@@ -433,21 +437,31 @@ def run_repair_round(
             scale=scale,
         )
         crop_path = materialize_review_crops(
-            frame_path, (plan,), crops_dir
+            frame_path, (plan,), crops_dir, immutable=True
         )[ref.pair_index]
+        verification_frame(store, project_id, page, verification_id)
+        crop_input = crop_evidence(crop_path, plan, frame, verification_id)
         examined.append(ref)
 
-        verification_id = store.latest_verification_id(project_id, ref.page_index)
         readings, refs = _engine_readings(
             store, project_id, ref.page_index, ref.pair_index
         )
         order = [reading.reader for reading in readings]
         crop_confidences: dict[str, float] = {}
-        for reader in readers:
+        for index, reader in enumerate(readers):
+            if index:
+                crop_path = materialize_review_crops(
+                    frame_path, (plan,), crops_dir, immutable=True
+                )[ref.pair_index]
+                verification_frame(store, project_id, page, verification_id)
+                crop_input = crop_evidence(crop_path, plan, frame, verification_id)
+            verify_crop(crop_input)
             result = reader.engine.analyze_page(crop_path, ref.page_index)
+            verify_crop(crop_input)
+            verification_frame(store, project_id, page, verification_id)
             if result.engine != reader.engine.name or result.page_index != ref.page_index:
                 raise ValueError("repair reader returned mismatched engine or page identity")
-            run_id = store.record_ocr(project_id, result, scope=scope)
+            run_id = store.record_ocr(project_id, result, scope=scope, crop_input=crop_input)
             confidences = [
                 line.lowest_confidence
                 for line in result.lines
@@ -468,6 +482,11 @@ def run_repair_round(
             order.append(reader.label)
 
         if reviewer is not None:
+            crop_path = materialize_review_crops(
+                frame_path, (plan,), crops_dir, immutable=True
+            )[ref.pair_index]
+            verification_frame(store, project_id, page, verification_id)
+            crop_input = crop_evidence(crop_path, plan, frame, verification_id)
             record = store.load_verification(verification_id)
             vision = _vision_reading(
                 store,
@@ -476,6 +495,7 @@ def run_repair_round(
                 page_index=ref.page_index,
                 pair_index=ref.pair_index,
                 crop_path=crop_path,
+                crop_input=crop_input,
                 has_candidate=any(
                     candidate.pair_index == ref.pair_index
                     for candidate in record.candidates

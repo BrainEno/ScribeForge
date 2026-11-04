@@ -26,4 +26,5 @@ class SQLiteVLMReviewState:
             evidence.reading,
             crop_path=evidence.crop_path,
             crop_sha256=crop_sha256,
+            crop_input=evidence.crop_input,
         )

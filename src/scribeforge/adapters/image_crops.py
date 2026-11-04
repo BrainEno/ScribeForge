@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import tempfile
+import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -29,6 +32,8 @@ def materialize_review_crops(
     source_image: Path,
     plans: Sequence[ReviewCropPlan],
     output_dir: Path,
+    *,
+    immutable: bool = False,
 ) -> dict[int, str]:
     if not plans:
         return {}
@@ -48,7 +53,6 @@ def materialize_review_crops(
                 )
 
             destination = output_dir / plan.file_name
-            temporary = output_dir / f".{plan.file_name}.tmp"
             crop = page.crop((box.x, box.y, right, bottom))
             if plan.scale > 1:
                 # Nearest-neighbour keeps the strokes it enlarges identical to the
@@ -61,12 +65,24 @@ def materialize_review_crops(
                 )
                 crop.close()
                 crop = enlarged
+            temporary = None
             try:
-                crop.save(temporary, format="PNG", optimize=False, compress_level=6)
-                temporary.replace(destination)
+                with tempfile.NamedTemporaryFile(dir=output_dir, prefix=".crop-", delete=False) as stream:
+                    temporary = Path(stream.name)
+                    crop.save(stream, format="PNG", optimize=False, compress_level=6)
+                if immutable:
+                    while True:
+                        try:
+                            os.link(temporary, destination)
+                            break
+                        except FileExistsError:
+                            destination = output_dir / f"{uuid.uuid4().hex}-{plan.file_name}"
+                else:
+                    temporary.replace(destination)
             finally:
                 crop.close()
-                temporary.unlink(missing_ok=True)
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
             paths[plan.pair_index] = str(destination)
 
     return paths

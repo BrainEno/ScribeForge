@@ -16,6 +16,7 @@ from scribeforge.domain.preprocess import PreprocessSettings
 from scribeforge.domain.risk import assess_page, review_candidates
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import adjudicate_verification
+from scribeforge.pipeline.crop_evidence import crop_evidence, verify_crop
 from scribeforge.pipeline.ocr_frame import capture_frame, verification_frame
 from scribeforge.pipeline.preprocessing import preprocess_page
 from scribeforge.pipeline.rounds import (
@@ -192,7 +193,7 @@ def process_page(
         lambda: store.latest_verification_id(project_id, page_index),
     )
 
-    verification_frame(store, project_id, page, verification_id)
+    verified_frame, _ = verification_frame(store, project_id, page, verification_id)
 
     if reviewer is None:
         # No adjudication model is configured yet: leave the VLM stage untouched so a
@@ -205,9 +206,14 @@ def process_page(
             if not record.candidates:
                 return
             plans = plan_review_crops(record.candidates, image_width, image_height)
-            crop_paths = materialize_review_crops(Path(image_path), plans, crops_dir)
+            crop_paths = materialize_review_crops(Path(image_path), plans, crops_dir, immutable=True)
+            verification_frame(store, project_id, page, verification_id)
+            crop_inputs = {plan.pair_index: crop_evidence(crop_paths[plan.pair_index], plan,
+                           verified_frame, verification_id) for plan in plans}
             state = SQLiteVLMReviewState(store, verification_id)
-            review_pending_candidates(record.candidates, crop_paths, reviewer, state)
+            review_pending_candidates(record.candidates, crop_paths, reviewer, state,
+                                      crop_inputs=crop_inputs)
+            verification_frame(store, project_id, page, verification_id)
 
         vlm_review_count = _run_stage(
             store,
@@ -218,6 +224,17 @@ def process_page(
             lambda: len(store.reviewed_pair_indexes(verification_id)),
         )
 
+    for review in store.list_vlm_reviews(verification_id):
+        crop_input = store.load_vlm_crop_input(review.id)
+        if crop_input is None:
+            raise ValueError("VLM crop input is unknown for legacy evidence; re-import into a new project")
+        if (crop_input.frame_sha256 != verified_frame.sha256 or
+                crop_input.verification_id != verification_id or
+                crop_input.pair_index != review.pair_index or
+                crop_input.crop_path != review.crop_path or
+                crop_input.crop_sha256 != review.crop_sha256):
+            raise ValueError("VLM crop evidence mismatch")
+        verify_crop(crop_input)
     adjudication = adjudicate_verification(store, project_id, verification_id)
 
     return PageOutcome(
