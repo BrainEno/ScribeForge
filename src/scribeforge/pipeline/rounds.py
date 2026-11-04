@@ -46,6 +46,7 @@ from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.page_asset import PageAssetEvidence, verify_page_asset
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import project_furniture, review_detail
+from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.vlm_review import ReviewEvidence
 from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
@@ -418,19 +419,21 @@ def run_repair_round(
                 ),
                 what=f"page {ref.page_index} source image",
             )
+        verification_id = store.latest_verification_id(project_id, ref.page_index)
+        frame, frame_path = verification_frame(store, project_id, page, verification_id)
         padding, scale = settings.escalation(attempts)
         plan = plan_region_read(
             page_index=ref.page_index,
             pair_index=ref.pair_index,
             box=detail.source_box,
-            page_width=page.width,
-            page_height=page.height,
+            page_width=frame.width,
+            page_height=frame.height,
             attempt=attempts + 1,
             padding_fraction=padding,
             scale=scale,
         )
         crop_path = materialize_review_crops(
-            Path(page.source_image), (plan,), crops_dir
+            frame_path, (plan,), crops_dir
         )[ref.pair_index]
         examined.append(ref)
 

@@ -143,3 +143,20 @@ lists **every undecided pair** rather than only score-thresholded candidates —
 queue built from candidates could report "0 queued" while export stayed blocked.
 
 Export reads only this decision layer: `assemble_verified_content` takes the newest decision per pair and blocks when any page or pair is unresolved, so the reader output is always derived from accepted, cited evidence rather than raw OCR. It also blocks a page that produced zero aligned pairs until `page_confirmations` records why (`scribeforge confirm`), because "no pairs" is equally the signature of a failed read.
+
+**Schema v13: OCR 坐标帧。** 新的 `ocr_input_frames` 用 run id 绑定整页 OCR
+使用的帧类型（原始/预处理）、SHA-256 和宽高。两个 run 的帧不一致或任何一个
+没有绑定时，不能进行基于其坐标的自动裁切；v12 及更早项目的历史 run 在迁移后
+保持未知，不按是否存在预处理记录猜测。旧证据与人工决策保留不变；需要自动重读的
+历史项目应将源文件重新导入新项目，或从有明确帧证据的备份恢复，不能通过重新哈希
+将不确定的历史帧变成已知帧。当前 region-scope OCR 的结果不参与页帧匹配，页帧
+记录针对整页识别。
+
+重新处理已成功页面时要求所选择的帧与原 run 相同；改变预处理开关或参数不会把
+不同帧的两个引擎结果合并。图像缺失、变更或帧尺寸不符会拒绝自动重读。备份恢复
+会重定位项目内的 `preprocessed/` 路径；外部图像仍需要用户恢复到原路径。
+
+限制：region-scope OCR 与 VLM 的独立裁剪文件目前没有逐次持久化摘要和几何映射；
+裁剪文件名仍可能被后续物化复用或覆盖，多项目共用裁剪目录亦可能发生冲突。因此
+不能把已有裁剪文件视为不可变的逐次输入证据。整页帧绑定及拒绝混帧并不解决这一
+剩余问题，#124 仍需跟踪；源页和预处理图不会由此迁移覆盖。

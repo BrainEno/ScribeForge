@@ -59,6 +59,8 @@ class ReviewQueueItem {
     required this.vlmUncertain,
     required this.cropPath,
     required this.sourceImagePath,
+    this.coordinateFrame = 'unknown',
+    this.ocrFrameImagePath,
   });
 
   final int projectId;
@@ -74,6 +76,8 @@ class ReviewQueueItem {
   final bool vlmUncertain;
   final String? cropPath;
   final String sourceImagePath;
+  final String coordinateFrame;
+  final String? ocrFrameImagePath;
 
   String get description =>
       '风险 ${score.toStringAsFixed(2)}${reasons.isEmpty ? '' : ' · ${reasons.join('、')}'}';
@@ -94,6 +98,8 @@ class ReviewQueueItem {
     final vlmUncertain = json['vlm_uncertain'];
     final rawCropPath = json['crop_path'];
     final sourceImagePath = json['source_image_path'];
+    final coordinateFrame = json['coordinate_frame'];
+    final ocrFrameImagePath = json['ocr_frame_image_path'];
     if (pageIndex is! int ||
         pairIndex is! int ||
         rawScore is! num ||
@@ -106,7 +112,9 @@ class ReviewQueueItem {
         (rawVlmText != null && rawVlmText is! String) ||
         vlmUncertain is! bool ||
         (rawCropPath != null && rawCropPath is! String) ||
-        sourceImagePath is! String) {
+        sourceImagePath is! String ||
+        (coordinateFrame != null && coordinateFrame is! String) ||
+        (ocrFrameImagePath != null && ocrFrameImagePath is! String)) {
       throw const FormatException('Review JSON has invalid evidence fields.');
     }
     return ReviewQueueItem(
@@ -123,6 +131,8 @@ class ReviewQueueItem {
       vlmUncertain: vlmUncertain,
       cropPath: rawCropPath as String?,
       sourceImagePath: sourceImagePath,
+      coordinateFrame: coordinateFrame as String? ?? 'unknown',
+      ocrFrameImagePath: ocrFrameImagePath as String?,
     );
   }
 }

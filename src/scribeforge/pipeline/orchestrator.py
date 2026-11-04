@@ -16,6 +16,7 @@ from scribeforge.domain.preprocess import PreprocessSettings
 from scribeforge.domain.risk import assess_page, review_candidates
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import adjudicate_verification
+from scribeforge.pipeline.ocr_frame import capture_frame, verification_frame
 from scribeforge.pipeline.preprocessing import preprocess_page
 from scribeforge.pipeline.rounds import (
     RepairReader,
@@ -131,10 +132,19 @@ def process_page(
         image_width = prepared.width
         image_height = prepared.height
 
+    frame = capture_frame(Path(image_path), "preprocessed" if preprocess is not None else "original",
+                          image_width, image_height)
+
+    def read_engine(engine: OCREngine) -> None:
+        if capture_frame(Path(image_path), frame.kind, frame.width, frame.height) != frame:
+            raise PageAssetError("OCR frame changed before reading")
+        result = engine.analyze_page(image_path, page_index)
+        if capture_frame(Path(image_path), frame.kind, frame.width, frame.height) != frame:
+            raise PageAssetError("OCR frame changed during reading")
+        store.record_ocr(project_id, result, frame=frame)
+
     def compute_primary() -> None:
-        store.record_ocr(
-            project_id, primary_engine.analyze_page(image_path, page_index)
-        )
+        read_engine(primary_engine)
 
     primary_run_id = _run_stage(
         store,
@@ -145,10 +155,11 @@ def process_page(
         lambda: store.latest_engine_run(project_id, page_index, primary_engine.name),
     )
 
+    if store.load_ocr_frame(primary_run_id) != frame:
+        raise ValueError("primary OCR frame mismatch or unknown; re-import into a new project")
+
     def compute_secondary() -> None:
-        store.record_ocr(
-            project_id, secondary_engine.analyze_page(image_path, page_index)
-        )
+        read_engine(secondary_engine)
 
     secondary_run_id = _run_stage(
         store,
@@ -158,6 +169,9 @@ def process_page(
         compute_secondary,
         lambda: store.latest_engine_run(project_id, page_index, secondary_engine.name),
     )
+
+    if store.load_ocr_frame(secondary_run_id) != frame:
+        raise ValueError("secondary OCR frame mismatch or unknown; re-import into a new project")
 
     def compute_verify() -> None:
         primary = store.load_ocr_run(primary_run_id)
@@ -177,6 +191,8 @@ def process_page(
         compute_verify,
         lambda: store.latest_verification_id(project_id, page_index),
     )
+
+    verification_frame(store, project_id, page, verification_id)
 
     if reviewer is None:
         # No adjudication model is configured yet: leave the VLM stage untouched so a

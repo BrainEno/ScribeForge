@@ -48,6 +48,20 @@ void main() {
     expect(item.vlmUncertain, isTrue);
     expect(item.cropPath, '/books/Novel.scribeforge/crops/page-000004-pair-0001.png');
     expect(item.sourceImagePath, '/books/Novel.scribeforge/assets/page-000004.png');
+    expect(item.coordinateFrame, 'unknown');
+    expect(item.ocrFrameImagePath, isNull);
+  });
+
+  test('parses a verified preprocessed coordinate frame', () {
+    final withFrame = payload.replaceFirst(
+      '"source_image_path": "/books/Novel.scribeforge/assets/page-000004.png"',
+      '"source_image_path": "/books/Novel.scribeforge/assets/page-000004.png",'
+          '"coordinate_frame": "preprocessed",'
+          '"ocr_frame_image_path": "/books/Novel.scribeforge/preprocessed/page.png"',
+    );
+    final item = ReviewQueueSnapshot.fromJsonText(withFrame).items.single;
+    expect(item.coordinateFrame, 'preprocessed');
+    expect(item.ocrFrameImagePath, '/books/Novel.scribeforge/preprocessed/page.png');
   });
 
   test('keeps legacy schema-v1 payloads without a furniture reason compatible', () {

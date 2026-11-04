@@ -432,7 +432,11 @@ def _remap_page_assets(database: Path, destination_root: Path, archive_names: It
     internal_assets = [
         name for name in archive_names if name.startswith("assets/") and len(PurePosixPath(name).parts) > 1
     ]
-    if not internal_assets:
+    preprocessed_assets = [
+        name for name in archive_names
+        if name.startswith("preprocessed/") and len(PurePosixPath(name).parts) > 1
+    ]
+    if not internal_assets and not preprocessed_assets:
         return
     try:
         with closing(sqlite3.connect(database)) as connection, connection:
@@ -455,6 +459,21 @@ def _remap_page_assets(database: Path, destination_root: Path, archive_names: It
                         "UPDATE pages SET source_image = ? WHERE id = ?",
                         (restored_path, int(row_id)),
                     )
+            preprocess_exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='page_preprocess'"
+            ).fetchone()
+            if preprocess_exists:
+                rows = connection.execute("SELECT page_id, output_image FROM page_preprocess").fetchall()
+                for page_id, original in rows:
+                    normalized = str(original).replace("\\", "/").lstrip("./")
+                    matches = [name for name in preprocessed_assets
+                               if normalized == name or normalized.endswith("/" + name)]
+                    if len(matches) == 1:
+                        restored_path = str((destination_root / PurePosixPath(matches[0])).resolve())
+                        connection.execute(
+                            "UPDATE page_preprocess SET output_image = ? WHERE page_id = ?",
+                            (restored_path, int(page_id)),
+                        )
     except sqlite3.Error as exc:
         raise ProjectBackupError(f"could not relocate restored page assets: {exc}") from exc
 

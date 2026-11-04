@@ -51,6 +51,7 @@ from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
 from scribeforge.pipeline.assembly import UnresolvedContentError, assemble_verified_content
 from scribeforge.pipeline.importing import import_source
+from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.orchestrator import process_book
 from scribeforge.pipeline.rounds import (
     ProgressReport,
@@ -1342,6 +1343,16 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                     furniture_reason=queued.furniture_reason,
                 )
                 page = pages[detail.page_index]
+                frame_kind = "unknown"
+                frame_path = None
+                try:
+                    verification_id = store.latest_verification_id(project.id, detail.page_index)
+                    frame, path = verification_frame(store, project.id, page, verification_id)
+                    frame_kind = frame.kind
+                    frame_path = str(path)
+                except (ValueError, OSError, KeyError):
+                    # Legacy or corrupt evidence must not be represented as a known frame.
+                    pass
                 item_reports.append(
                     {
                         "page_index": detail.page_index,
@@ -1353,8 +1364,10 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                         "secondary_text": detail.secondary_text,
                         "vlm_text": detail.vlm_text,
                         "vlm_uncertain": detail.vlm_uncertain,
-                        "crop_path": detail.crop_path,
+                        "crop_path": detail.crop_path if frame_path is not None else None,
                         "source_image_path": page.source_image,
+                        "coordinate_frame": frame_kind,
+                        "ocr_frame_image_path": frame_path,
                         "source_box": _bounding_box_json(detail.source_box),
                         "primary_box": _bounding_box_json(detail.primary_box),
                         "secondary_box": _bounding_box_json(detail.secondary_box),
