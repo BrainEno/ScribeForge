@@ -120,6 +120,11 @@ new project for reprocessing. For compatibility, a single-verification legacy
 page may still contain uncited decisions: their provenance has not been proven.
 The check relies on stored citations, not protection against forged low-level
 writes, and does not make separate reads an atomic project-wide snapshot.
+The read-only project audit uses the same rule to report each ambiguous latest
+decision as `decision_verification_ambiguous` (warning), with identifiers for
+investigation. Backups remain available to preserve the original evidence and
+carry the warning through verification and restoration; a structurally valid
+backup does not resolve the ambiguity.
 Earlier successful runs are preserved
 if a later read fails. Reload the page after an evidence update before retrying, and restore a verified backup
 or re-import if the underlying raster no longer matches existing evidence. A preprocessing file published

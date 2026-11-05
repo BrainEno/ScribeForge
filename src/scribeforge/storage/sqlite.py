@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
+from scribeforge.decision_bindings import ambiguous_latest_decisions
 from scribeforge.domain.alignment import (
     AlignmentConflict,
     ConflictKind,
@@ -1267,32 +1268,14 @@ class SQLiteStore:
                 raise KeyError(f"unknown verification run for page {page_index}")
             verification_id = int(row["id"])
             if int(row["run_count"]) > 1:
-                decisions = connection.execute(
-                    """
-                    SELECT d.pair_index, d.evidence_refs_json, a.id AS alignment_id
-                    FROM decisions AS d
-                    LEFT JOIN alignments AS a
-                      ON a.verification_run_id = ? AND a.pair_index = d.pair_index
-                    WHERE d.page_id = ? AND d.id = (
-                        SELECT MAX(newer.id) FROM decisions AS newer
-                        WHERE newer.page_id = d.page_id AND newer.pair_index = d.pair_index
+                decisions = ambiguous_latest_decisions(connection, int(row["page_id"]), verification_id)
+                if decisions:
+                    decision = decisions[0]
+                    raise ValueError(
+                        f"ambiguous verification batch for decision on project {project_id}, "
+                        f"page {page_index}, pair {decision['pair_index']}; "
+                        "preserve the history and create a new project for reprocessing"
                     )
-                    """,
-                    (verification_id, row["page_id"]),
-                ).fetchall()
-                for decision in decisions:
-                    try:
-                        refs = self._json_strings(decision["evidence_refs_json"])
-                        verification_refs = [ref for ref in refs if ref.startswith("verification_run:")]
-                    except (ValueError, TypeError):
-                        verification_refs = []
-                    if (decision["alignment_id"] is None or
-                            verification_refs != [f"verification_run:{verification_id}"]):
-                        raise ValueError(
-                            f"ambiguous verification batch for decision on project {project_id}, "
-                            f"page {page_index}, pair {decision['pair_index']}; "
-                            "preserve the history and create a new project for reprocessing"
-                        )
             return verification_id
 
     @staticmethod
