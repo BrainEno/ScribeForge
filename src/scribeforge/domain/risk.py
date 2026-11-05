@@ -17,6 +17,7 @@ class RiskReason(str, Enum):
     LOW_CONFIDENCE = "low_confidence"
     UNICODE_ANOMALY = "unicode_anomaly"
     SPATIAL_MISMATCH = "spatial_mismatch"
+    ALIGNMENT_AMBIGUITY = "alignment_ambiguity"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,8 +47,8 @@ class ReviewCandidate:
     crop: BoundingBox
 
 
-def _line(result: PageOCRResult, index: int | None) -> OCRLine | None:
-    return None if index is None else result.lines[index]
+def _lines(result: PageOCRResult, indexes: tuple[int, ...]) -> tuple[OCRLine, ...]:
+    return tuple(result.lines[index] for index in indexes)
 
 
 def _confidence(line: OCRLine | None) -> float | None:
@@ -72,9 +73,9 @@ def _has_unicode_anomaly(text: str) -> bool:
 
 
 def _pair_text(pair: LineAlignment, primary: PageOCRResult, secondary: PageOCRResult) -> str:
-    left = _line(primary, pair.primary_line_index)
-    right = _line(secondary, pair.secondary_line_index)
-    return "".join(line.text for line in (left, right) if line is not None)
+    left = _lines(primary, pair.primary_line_indexes)
+    right = _lines(secondary, pair.secondary_line_indexes)
+    return "".join(line.text for line in (*left, *right))
 
 
 def assess_page(
@@ -119,9 +120,13 @@ def assess_page(
             score += 0.55
             reasons.append(RiskReason.MISSING_OR_EXTRA_LINE)
 
-        left = _line(primary, pair.primary_line_index)
-        right = _line(secondary, pair.secondary_line_index)
-        confidences = [value for value in (_confidence(left), _confidence(right)) if value is not None]
+        left = _lines(primary, pair.primary_line_indexes)
+        right = _lines(secondary, pair.secondary_line_indexes)
+        confidences = [
+            value
+            for value in (_confidence(line) for line in (*left, *right))
+            if value is not None
+        ]
         if confidences and min(confidences) < 0.80:
             score += 0.25
             content_score += 0.25
@@ -136,6 +141,11 @@ def assess_page(
             score += 0.15
             content_score += 0.15
             reasons.append(RiskReason.SPATIAL_MISMATCH)
+        if pair.is_ambiguous:
+            # Structural uncertainty is not a text-quality score, but it is an
+            # unconditional machine-acceptance blocker and always gets a crop.
+            score = 1.0
+            reasons.append(RiskReason.ALIGNMENT_AMBIGUITY)
 
         assessments.append(
             PairRisk(
@@ -166,10 +176,9 @@ def _candidate_crop(
     boxes = tuple(
         line.box
         for line in (
-            _line(primary, pair.primary_line_index),
-            _line(secondary, pair.secondary_line_index),
+            *_lines(primary, pair.primary_line_indexes),
+            *_lines(secondary, pair.secondary_line_indexes),
         )
-        if line is not None
     )
     if not boxes:
         raise ValueError("review candidate requires OCR geometry")

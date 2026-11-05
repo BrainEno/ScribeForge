@@ -1396,6 +1396,33 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                         "furniture_reason": detail.furniture_reason,
                         "primary_text": detail.primary_text,
                         "secondary_text": detail.secondary_text,
+                        "primary_line_indexes": list(detail.primary_line_indexes),
+                        "secondary_line_indexes": list(detail.secondary_line_indexes),
+                        "alignment_status": detail.alignment_status.value,
+                        "ambiguity": (
+                            None
+                            if detail.ambiguity is None
+                            else {
+                                "reason": detail.ambiguity.reason.value,
+                                "score_margin": detail.ambiguity.score_margin,
+                                "alternatives": [
+                                    {
+                                        "primary_line_indexes": list(
+                                            alternative.primary_line_indexes
+                                        ),
+                                        "secondary_line_indexes": list(
+                                            alternative.secondary_line_indexes
+                                        ),
+                                        "score": alternative.score,
+                                        "text_similarity": alternative.text_similarity,
+                                        "cross_axis_distance": (
+                                            alternative.cross_axis_distance
+                                        ),
+                                    }
+                                    for alternative in detail.ambiguity.alternatives
+                                ],
+                            }
+                        ),
                         "vlm_text": detail.vlm_text,
                         "vlm_uncertain": detail.vlm_uncertain,
                         "crop_path": trusted_crop_path,
@@ -1467,8 +1494,21 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
             )
             if detail.furniture_reason is not None:
                 print(f"    page_furniture={detail.furniture_reason}", file=out)
+            print(
+                f"    primary_lines={list(detail.primary_line_indexes)} "
+                f"secondary_lines={list(detail.secondary_line_indexes)} "
+                f"status={detail.alignment_status.value}",
+                file=out,
+            )
             print(f"    primary={_render_text(detail.primary_text)}", file=out)
             print(f"    secondary={_render_text(detail.secondary_text)}", file=out)
+            if detail.ambiguity is not None:
+                print(
+                    f"    ambiguity={detail.ambiguity.reason.value} "
+                    f"margin={detail.ambiguity.score_margin:.4f} "
+                    f"alternatives={len(detail.ambiguity.alternatives)}",
+                    file=out,
+                )
             if detail.vlm_text is None:
                 print("    vlm=none", file=out)
             else:

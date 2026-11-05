@@ -10,6 +10,9 @@ Core entities:
 - `verification_runs`: immutable comparisons between two OCR engine runs
 - `alignments`: relationships between evidence produced by independent engines
 - `alignment_conflicts`: character-range disagreements within an aligned pair
+- `alignment_line_members`: every original OCR line index in a bounded aligned group
+- `alignment_ambiguities` / `alignment_alternatives`: unresolved mapping evidence and scores
+- `alignment_alternative_members`: original line indexes belonging to each alternative
 - `risks`: reason codes and score for an aligned pair
 - `review_candidates`: risky evidence regions queued for VLM/human review
 - `vlm_reviews`: append-only literal VLM readings linked to one persisted review candidate, including model identity and crop SHA-256
@@ -226,6 +229,16 @@ v13 及更早已有的 VLM 和区域 OCR 记录不会被猜测补填几何；恢
 呈现，不做反推或补写，也不自动阻止备份；历史 VLM 已记录的裁剪摘要仍会核对，
 但摘要匹配并不证明该未知几何或实际模型输入。审计不能证明模型没有在两次哈希之间
 读取被替换后又还原的文件，或证明历史的未知帧。
+
+**Schema v15: 多行组合与对齐歧义证据。** `alignment_line_members` 按成员顺序保存每个
+alignment 两侧的全部原始 OCR 行索引；`alignment_ambiguities` 保存未决原因和完整路径
+分数差，`alignment_alternatives` 与 `alignment_alternative_members` 保存每个候选映射的
+分数及原始行索引。旧 `alignments` 行、`pair_index`、两个标量行索引和距离字段均保留；
+新组合的标量仅是首成员锚点，旧的一对一记录含义不变。v14 升级只把每个非空旧标量
+回填为单成员记录，不重新对齐、不推断历史歧义、不移动 decision。缺少成员或标量与首
+成员不一致时读取直接失败，不猜测归属。写入时验证行索引属于对应 OCR run、同一原始行
+不能出现在两个 pair 中，且 alternative 不得越出其歧义区域。详见
+[Alignment](./alignment.md)。
 
 **模型输入副本。** 整页 OCR 以及带 `crop_input_evidence` 的区域 OCR/VLM
 生产调用收到每次独立的临时字节副本，而不是源帧或已保存裁剪路径。调用前后

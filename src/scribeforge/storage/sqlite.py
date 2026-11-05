@@ -15,7 +15,11 @@ from typing import Any, BinaryIO, cast
 
 from scribeforge.decision_bindings import inspect_latest_decisions
 from scribeforge.domain.alignment import (
+    AlignmentAlternative,
+    AlignmentAmbiguity,
     AlignmentConflict,
+    AlignmentStatus,
+    AmbiguityReason,
     ConflictKind,
     LineAlignment,
     PageAlignment,
@@ -225,7 +229,7 @@ class CropInputEvidence:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 14
+    SCHEMA_VERSION = 15
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -410,6 +414,78 @@ class SQLiteStore:
                     CHECK((ocr_run_id IS NULL) != (vlm_review_id IS NULL))
                 )""")
                 connection.execute("PRAGMA user_version = 14")
+            if version < 15:
+                self._create_v15(connection)
+                connection.execute("PRAGMA user_version = 15")
+
+    @staticmethod
+    def _create_v15(connection: sqlite3.Connection) -> None:
+        """Add multi-line and ambiguous alignment evidence without rebinding v14.
+
+        The old scalar columns and pair indexes stay untouched.  Migration only
+        backfills one member row for each known non-NULL scalar, so an old 1:1
+        pair and every decision that cites it retain exactly their old identity.
+        Ambiguity alternatives are new evidence and are never inferred for old
+        records during upgrade.
+        """
+
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS alignment_line_members (
+                alignment_id INTEGER NOT NULL
+                    REFERENCES alignments(id) ON DELETE RESTRICT,
+                side TEXT NOT NULL CHECK(side IN ('primary', 'secondary')),
+                member_index INTEGER NOT NULL CHECK(member_index >= 0),
+                line_index INTEGER NOT NULL CHECK(line_index >= 0),
+                UNIQUE(alignment_id, side, member_index),
+                UNIQUE(alignment_id, side, line_index)
+            );
+
+            CREATE TABLE IF NOT EXISTS alignment_ambiguities (
+                alignment_id INTEGER PRIMARY KEY
+                    REFERENCES alignments(id) ON DELETE RESTRICT,
+                reason TEXT NOT NULL,
+                score_margin REAL NOT NULL CHECK(score_margin >= 0)
+            );
+
+            CREATE TABLE IF NOT EXISTS alignment_alternatives (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alignment_id INTEGER NOT NULL
+                    REFERENCES alignment_ambiguities(alignment_id) ON DELETE RESTRICT,
+                alternative_index INTEGER NOT NULL CHECK(alternative_index >= 0),
+                score REAL NOT NULL,
+                text_similarity REAL NOT NULL,
+                cross_axis_distance REAL NOT NULL,
+                UNIQUE(alignment_id, alternative_index)
+            );
+
+            CREATE TABLE IF NOT EXISTS alignment_alternative_members (
+                alternative_id INTEGER NOT NULL
+                    REFERENCES alignment_alternatives(id) ON DELETE RESTRICT,
+                side TEXT NOT NULL CHECK(side IN ('primary', 'secondary')),
+                member_index INTEGER NOT NULL CHECK(member_index >= 0),
+                line_index INTEGER NOT NULL CHECK(line_index >= 0),
+                UNIQUE(alternative_id, side, member_index),
+                UNIQUE(alternative_id, side, line_index)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_alignment_members_alignment
+                ON alignment_line_members(alignment_id, side, member_index);
+            CREATE INDEX IF NOT EXISTS idx_alignment_alternatives_alignment
+                ON alignment_alternatives(alignment_id, alternative_index);
+
+            INSERT OR IGNORE INTO alignment_line_members(
+                alignment_id, side, member_index, line_index
+            )
+            SELECT id, 'primary', 0, primary_line_index
+            FROM alignments WHERE primary_line_index IS NOT NULL;
+            INSERT OR IGNORE INTO alignment_line_members(
+                alignment_id, side, member_index, line_index
+            )
+            SELECT id, 'secondary', 0, secondary_line_index
+            FROM alignments WHERE secondary_line_index IS NOT NULL;
+            """
+        )
 
     @staticmethod
     def _create_v11(connection: sqlite3.Connection) -> None:
@@ -2009,6 +2085,7 @@ class SQLiteStore:
 
     @staticmethod
     def _validate_verification(
+        connection: sqlite3.Connection,
         primary: sqlite3.Row,
         secondary: sqlite3.Row,
         alignment: PageAlignment,
@@ -2032,6 +2109,34 @@ class SQLiteStore:
                 raise ValueError("review candidate page does not match alignment")
             if not 0 <= candidate.pair_index < len(alignment.pairs):
                 raise ValueError("review candidate pair index is out of range")
+        line_counts = {
+            side: int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ocr_lines WHERE run_id = ?",
+                    (int(run["id"]),),
+                ).fetchone()[0]
+            )
+            for side, run in (("primary", primary), ("secondary", secondary))
+        }
+        used: dict[str, set[int]] = {"primary": set(), "secondary": set()}
+        for pair in alignment.pairs:
+            for side, indexes in (
+                ("primary", pair.primary_line_indexes),
+                ("secondary", pair.secondary_line_indexes),
+            ):
+                if any(index >= line_counts[side] for index in indexes):
+                    raise ValueError(f"{side} alignment line index is outside its OCR run")
+                if used[side] & set(indexes):
+                    raise ValueError(f"{side} OCR line occurs in more than one alignment pair")
+                used[side].update(indexes)
+            if pair.ambiguity is not None:
+                for alternative in pair.ambiguity.alternatives:
+                    if not set(alternative.primary_line_indexes) <= set(
+                        pair.primary_line_indexes
+                    ) or not set(alternative.secondary_line_indexes) <= set(
+                        pair.secondary_line_indexes
+                    ):
+                        raise ValueError("ambiguity alternative escapes its alignment region")
 
     def record_verification(
         self,
@@ -2045,7 +2150,9 @@ class SQLiteStore:
             connection.execute("BEGIN IMMEDIATE")
             primary = self._engine_evidence(connection, primary_run_id)
             secondary = self._engine_evidence(connection, secondary_run_id)
-            self._validate_verification(primary, secondary, alignment, risks, candidates)
+            self._validate_verification(
+                connection, primary, secondary, alignment, risks, candidates
+            )
             if connection.execute(
                 "SELECT 1 FROM decisions WHERE page_id = ? LIMIT 1", (primary["page_id"],)
             ).fetchone() is not None:
@@ -2087,6 +2194,64 @@ class SQLiteStore:
                 )
                 alignment_id = self._last_id(pair_cursor)
                 alignment_ids.append(alignment_id)
+                for side, indexes in (
+                    ("primary", pair.primary_line_indexes),
+                    ("secondary", pair.secondary_line_indexes),
+                ):
+                    for member_index, line_index in enumerate(indexes):
+                        connection.execute(
+                            """
+                            INSERT INTO alignment_line_members(
+                                alignment_id, side, member_index, line_index
+                            ) VALUES (?, ?, ?, ?)
+                            """,
+                            (alignment_id, side, member_index, line_index),
+                        )
+                if pair.ambiguity is not None:
+                    connection.execute(
+                        """
+                        INSERT INTO alignment_ambiguities(
+                            alignment_id, reason, score_margin
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (
+                            alignment_id,
+                            pair.ambiguity.reason.value,
+                            pair.ambiguity.score_margin,
+                        ),
+                    )
+                    for alternative_index, alternative in enumerate(
+                        pair.ambiguity.alternatives
+                    ):
+                        alternative_cursor = connection.execute(
+                            """
+                            INSERT INTO alignment_alternatives(
+                                alignment_id, alternative_index, score,
+                                text_similarity, cross_axis_distance
+                            ) VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                alignment_id,
+                                alternative_index,
+                                alternative.score,
+                                alternative.text_similarity,
+                                alternative.cross_axis_distance,
+                            ),
+                        )
+                        alternative_id = self._last_id(alternative_cursor)
+                        for side, indexes in (
+                            ("primary", alternative.primary_line_indexes),
+                            ("secondary", alternative.secondary_line_indexes),
+                        ):
+                            for member_index, line_index in enumerate(indexes):
+                                connection.execute(
+                                    """
+                                    INSERT INTO alignment_alternative_members(
+                                        alternative_id, side, member_index, line_index
+                                    ) VALUES (?, ?, ?, ?)
+                                    """,
+                                    (alternative_id, side, member_index, line_index),
+                                )
                 for conflict_index, conflict in enumerate(pair.conflicts):
                     connection.execute(
                         """
@@ -2151,6 +2316,88 @@ class SQLiteStore:
             raise TypeError("stored JSON list is invalid")
         return tuple(str(item) for item in decoded)
 
+    @staticmethod
+    def _stored_line_members(
+        connection: sqlite3.Connection,
+        alignment_id: int,
+        scalar_index: int | None,
+        side: str,
+    ) -> tuple[int, ...]:
+        rows = connection.execute(
+            """
+            SELECT line_index FROM alignment_line_members
+            WHERE alignment_id = ? AND side = ?
+            ORDER BY member_index
+            """,
+            (alignment_id, side),
+        ).fetchall()
+        if not rows:
+            if scalar_index is None:
+                return ()
+            raise ValueError(
+                f"stored alignment {alignment_id} is missing {side} membership evidence"
+            )
+        indexes = tuple(int(row["line_index"]) for row in rows)
+        if scalar_index is None or indexes[0] != scalar_index:
+            raise ValueError(
+                f"stored alignment {alignment_id} has inconsistent {side} membership evidence"
+            )
+        return indexes
+
+    @staticmethod
+    def _stored_ambiguity(
+        connection: sqlite3.Connection, alignment_id: int
+    ) -> AlignmentAmbiguity | None:
+        row = connection.execute(
+            """
+            SELECT reason, score_margin FROM alignment_ambiguities
+            WHERE alignment_id = ?
+            """,
+            (alignment_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        alternative_rows = connection.execute(
+            """
+            SELECT id, score, text_similarity, cross_axis_distance
+            FROM alignment_alternatives
+            WHERE alignment_id = ? ORDER BY alternative_index
+            """,
+            (alignment_id,),
+        ).fetchall()
+        alternatives: list[AlignmentAlternative] = []
+        for alternative_row in alternative_rows:
+            alternative_id = int(alternative_row["id"])
+            member_rows = connection.execute(
+                """
+                SELECT side, member_index, line_index
+                FROM alignment_alternative_members
+                WHERE alternative_id = ? ORDER BY side, member_index
+                """,
+                (alternative_id,),
+            ).fetchall()
+            indexes: dict[str, tuple[int, ...]] = {"primary": (), "secondary": ()}
+            for side in ("primary", "secondary"):
+                indexes[side] = tuple(
+                    int(member["line_index"])
+                    for member in member_rows
+                    if member["side"] == side
+                )
+            alternatives.append(
+                AlignmentAlternative(
+                    primary_line_indexes=indexes["primary"],
+                    secondary_line_indexes=indexes["secondary"],
+                    score=float(alternative_row["score"]),
+                    text_similarity=float(alternative_row["text_similarity"]),
+                    cross_axis_distance=float(alternative_row["cross_axis_distance"]),
+                )
+            )
+        return AlignmentAmbiguity(
+            reason=AmbiguityReason(str(row["reason"])),
+            score_margin=float(row["score_margin"]),
+            alternatives=tuple(alternatives),
+        )
+
     def load_verification(self, verification_id: int) -> VerificationRecord:
         with self._connection() as connection:
             run = connection.execute(
@@ -2209,18 +2456,27 @@ class SQLiteStore:
                     )
                     for conflict in conflict_rows
                 )
+                primary_scalar = (
+                    None
+                    if row["primary_line_index"] is None
+                    else int(row["primary_line_index"])
+                )
+                secondary_scalar = (
+                    None
+                    if row["secondary_line_index"] is None
+                    else int(row["secondary_line_index"])
+                )
+                primary_indexes = self._stored_line_members(
+                    connection, alignment_id, primary_scalar, "primary"
+                )
+                secondary_indexes = self._stored_line_members(
+                    connection, alignment_id, secondary_scalar, "secondary"
+                )
+                ambiguity = self._stored_ambiguity(connection, alignment_id)
                 pairs.append(
                     LineAlignment(
-                        primary_line_index=(
-                            None
-                            if row["primary_line_index"] is None
-                            else int(row["primary_line_index"])
-                        ),
-                        secondary_line_index=(
-                            None
-                            if row["secondary_line_index"] is None
-                            else int(row["secondary_line_index"])
-                        ),
+                        primary_line_index=primary_scalar,
+                        secondary_line_index=secondary_scalar,
                         text_similarity=float(row["text_similarity"]),
                         cross_axis_distance=(
                             None
@@ -2228,6 +2484,14 @@ class SQLiteStore:
                             else float(row["vertical_distance"])
                         ),
                         conflicts=conflicts,
+                        primary_line_indexes=primary_indexes,
+                        secondary_line_indexes=secondary_indexes,
+                        status=(
+                            AlignmentStatus.AMBIGUOUS
+                            if ambiguity is not None
+                            else AlignmentStatus.MATCHED
+                        ),
+                        ambiguity=ambiguity,
                     )
                 )
                 risk_row = connection.execute(

@@ -1,0 +1,188 @@
+[
+  {
+    "name": "horizontal-one-to-two",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "春眠不觉晓", "box": [0.10, 0.20, 0.50, 0.04], "role": "text", "column": "body"},
+      {"text": "处处闻啼鸟", "box": [0.10, 0.40, 0.50, 0.04], "role": "text", "column": "body"}
+    ],
+    "secondary": [
+      {"text": "春眠", "box": [0.10, 0.18, 0.50, 0.03], "role": "text", "column": "body"},
+      {"text": "不觉晓", "box": [0.10, 0.23, 0.50, 0.03], "role": "text", "column": "body"},
+      {"text": "处处闻啼鸟", "box": [0.10, 0.40, 0.50, 0.04], "role": "text", "column": "body"}
+    ],
+    "expected_groups": [
+      {"primary": [0], "secondary": [0, 1]},
+      {"primary": [1], "secondary": [2]}
+    ]
+  },
+  {
+    "name": "horizontal-two-to-one",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "夜来", "box": [0.10, 0.18, 0.50, 0.03], "role": "text", "column": "body"},
+      {"text": "风雨声", "box": [0.10, 0.23, 0.50, 0.03], "role": "text", "column": "body"},
+      {"text": "花落知多少", "box": [0.10, 0.40, 0.50, 0.04], "role": "text", "column": "body"}
+    ],
+    "secondary": [
+      {"text": "夜来风雨声", "box": [0.10, 0.20, 0.50, 0.04], "role": "text", "column": "body"},
+      {"text": "花落知多少", "box": [0.10, 0.40, 0.50, 0.04], "role": "text", "column": "body"}
+    ],
+    "expected_groups": [
+      {"primary": [0, 1], "secondary": [0]},
+      {"primary": [2], "secondary": [1]}
+    ]
+  },
+  {
+    "name": "horizontal-two-column-repeated-text",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "相同文字", "box": [0.05, 0.20, 0.35, 0.04], "role": "text", "column": "left"},
+      {"text": "相同文字", "box": [0.60, 0.20, 0.35, 0.04], "role": "text", "column": "right"},
+      {"text": "第二行", "box": [0.05, 0.36, 0.35, 0.04], "role": "text", "column": "left"},
+      {"text": "第二行", "box": [0.60, 0.36, 0.35, 0.04], "role": "text", "column": "right"}
+    ],
+    "secondary": [
+      {"text": "相同文字", "box": [0.60, 0.21, 0.35, 0.04], "role": "text", "column": "right"},
+      {"text": "相同文字", "box": [0.05, 0.21, 0.35, 0.04], "role": "text", "column": "left"},
+      {"text": "第二行", "box": [0.60, 0.37, 0.35, 0.04], "role": "text", "column": "right"},
+      {"text": "第二行", "box": [0.05, 0.37, 0.35, 0.04], "role": "text", "column": "left"}
+    ],
+    "expected_groups": [
+      {"primary": [0], "secondary": [1]},
+      {"primary": [1], "secondary": [0]},
+      {"primary": [2], "secondary": [3]},
+      {"primary": [3], "secondary": [2]}
+    ]
+  },
+  {
+    "name": "vertical-rl-split-and-merge",
+    "direction": "vertical-rl",
+    "primary": [
+      {"text": "右列完整文字", "box": [0.70, 0.10, 0.05, 0.40], "role": "text", "column": "right"},
+      {"text": "左列", "box": [0.40, 0.10, 0.05, 0.19], "role": "text", "column": "left"},
+      {"text": "完整文字", "box": [0.40, 0.31, 0.05, 0.19], "role": "text", "column": "left"}
+    ],
+    "secondary": [
+      {"text": "右列", "box": [0.70, 0.10, 0.05, 0.19], "role": "text", "column": "right"},
+      {"text": "完整文字", "box": [0.70, 0.31, 0.05, 0.19], "role": "text", "column": "right"},
+      {"text": "左列完整文字", "box": [0.40, 0.10, 0.05, 0.40], "role": "text", "column": "left"}
+    ],
+    "expected_groups": [
+      {"primary": [0], "secondary": [0, 1]},
+      {"primary": [1, 2], "secondary": [2]}
+    ]
+  },
+  {
+    "name": "vertical-lr-reading-order",
+    "direction": "vertical-lr",
+    "primary": [
+      {"text": "右列文字", "box": [0.70, 0.10, 0.05, 0.40], "role": "text", "column": "right"},
+      {"text": "左列", "box": [0.30, 0.10, 0.05, 0.19], "role": "text", "column": "left"},
+      {"text": "文字", "box": [0.30, 0.31, 0.05, 0.19], "role": "text", "column": "left"}
+    ],
+    "secondary": [
+      {"text": "右列", "box": [0.70, 0.10, 0.05, 0.19], "role": "text", "column": "right"},
+      {"text": "文字", "box": [0.70, 0.31, 0.05, 0.19], "role": "text", "column": "right"},
+      {"text": "左列文字", "box": [0.30, 0.10, 0.05, 0.40], "role": "text", "column": "left"}
+    ],
+    "expected_groups": [
+      {"primary": [1, 2], "secondary": [2]},
+      {"primary": [0], "secondary": [0, 1]}
+    ]
+  },
+  {
+    "name": "header-title-body-footnote-regions",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "页眉", "box": [0.10, 0.02, 0.60, 0.03], "role": "header", "column": "header"},
+      {"text": "相同文字", "box": [0.10, 0.18, 0.60, 0.04], "role": "title", "column": "title"},
+      {"text": "正文内容", "box": [0.10, 0.23, 0.60, 0.04], "role": "text", "column": "body"},
+      {"text": "相同文字", "box": [0.10, 0.28, 0.60, 0.03], "role": "footnote", "column": "footnote"}
+    ],
+    "secondary": [
+      {"text": "页眉", "box": [0.10, 0.02, 0.60, 0.03], "role": "header", "column": "header"},
+      {"text": "相同文字", "box": [0.10, 0.18, 0.60, 0.04], "role": "title", "column": "title"},
+      {"text": "正文内容", "box": [0.10, 0.23, 0.60, 0.04], "role": "text", "column": "body"},
+      {"text": "相同文字", "box": [0.10, 0.28, 0.60, 0.03], "role": "footnote", "column": "footnote"}
+    ],
+    "expected_groups": [
+      {"primary": [0], "secondary": [0]},
+      {"primary": [1], "secondary": [1]},
+      {"primary": [2], "secondary": [2]},
+      {"primary": [3], "secondary": [3]}
+    ]
+  },
+  {
+    "name": "identical-text-at-different-positions",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "重复文字", "box": [0.10, 0.20, 0.60, 0.04], "role": "text", "column": "upper"},
+      {"text": "重复文字", "box": [0.10, 0.55, 0.60, 0.04], "role": "text", "column": "lower"}
+    ],
+    "secondary": [
+      {"text": "重复文字", "box": [0.10, 0.55, 0.60, 0.04], "role": "text", "column": "lower"},
+      {"text": "重复文字", "box": [0.10, 0.20, 0.60, 0.04], "role": "text", "column": "upper"}
+    ],
+    "expected_groups": [
+      {"primary": [0], "secondary": [1]},
+      {"primary": [1], "secondary": [0]}
+    ]
+  },
+  {
+    "name": "primary-extra-line",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "第一行", "box": [0.10, 0.20, 0.60, 0.04], "role": "text", "column": "body"},
+      {"text": "仅主引擎有这一行", "box": [0.10, 0.50, 0.60, 0.04], "role": "text", "column": "body"}
+    ],
+    "secondary": [
+      {"text": "第一行", "box": [0.10, 0.20, 0.60, 0.04], "role": "text", "column": "body"}
+    ],
+    "expected_groups": [
+      {"primary": [0], "secondary": [0]}
+    ],
+    "expected_unmatched": [
+      {"primary": [1], "secondary": []}
+    ]
+  },
+  {
+    "name": "secondary-extra-line",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "第一行", "box": [0.10, 0.20, 0.60, 0.04], "role": "text", "column": "body"}
+    ],
+    "secondary": [
+      {"text": "第一行", "box": [0.10, 0.20, 0.60, 0.04], "role": "text", "column": "body"},
+      {"text": "仅次引擎有这一行", "box": [0.10, 0.50, 0.60, 0.04], "role": "text", "column": "body"}
+    ],
+    "expected_groups": [
+      {"primary": [0], "secondary": [0]}
+    ],
+    "expected_unmatched": [
+      {"primary": [], "secondary": [1]}
+    ]
+  },
+  {
+    "name": "close-score-alternatives-are-ambiguous",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "相同文字", "box": [0.10, 0.30, 0.60, 0.04], "role": "text", "column": "body"}
+    ],
+    "secondary": [
+      {"text": "相同文字", "box": [0.10, 0.29, 0.60, 0.04], "role": "text", "column": "body"},
+      {"text": "相同文字", "box": [0.10, 0.31, 0.60, 0.04], "role": "text", "column": "body"}
+    ],
+    "expected_groups": [],
+    "expected_ambiguities": [
+      {
+        "primary": [0],
+        "secondary": [0, 1],
+        "alternatives": [
+          {"primary": [0], "secondary": [0]},
+          {"primary": [0], "secondary": [1]}
+        ]
+      }
+    ]
+  }
+]

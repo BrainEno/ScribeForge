@@ -45,11 +45,15 @@ def test_latest_schema_contains_verification_tables(tmp_path: Path) -> None:
             )
         }
 
-    assert version == 14
+    assert version == 15
     assert {
         "verification_runs",
         "alignments",
         "alignment_conflicts",
+        "alignment_line_members",
+        "alignment_ambiguities",
+        "alignment_alternatives",
+        "alignment_alternative_members",
         "risks",
         "review_candidates",
     }.issubset(tables)
@@ -131,7 +135,7 @@ def test_v1_database_migrates_without_losing_existing_project(tmp_path: Path) ->
     SQLiteStore(path).initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
 
 

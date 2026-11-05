@@ -11,7 +11,8 @@ Signals in the first version:
 - missing or extra lines;
 - low OCR line or token confidence;
 - Unicode replacement/control anomalies;
-- suspicious vertical mismatch between aligned lines.
+- suspicious cross-axis mismatch between aligned lines;
+- unresolved alignment ambiguity (always a machine-acceptance blocker).
 
 Scores are capped at 1.0. A configurable threshold converts risky pairs into `ReviewCandidate` records. Each candidate retains the page index, alignment pair index, risk reasons, score, and a normalized crop box that unions the source geometry from both OCR engines.
 
@@ -28,7 +29,8 @@ narrower `content_score` that counts only *evidence quality* signals:
 | missing/extra line | 0.55 | — |
 | low line/token confidence (< 0.80) | 0.25 | 0.25 |
 | Unicode anomaly | 0.35 | 0.35 |
-| vertical spatial mismatch (> 0.04) | 0.15 | 0.15 |
+| cross-axis spatial mismatch (> 0.04) | 0.15 | 0.15 |
+| alignment ambiguity | total set to 1.0 | — |
 
 The default crop-candidate threshold is `0.25`, matching the low-confidence signal,
 so a line below the confidence floor receives a review crop even when both engines
