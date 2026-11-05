@@ -8,7 +8,7 @@ from enum import Enum
 
 from scribeforge.domain.direction import resolve_page_direction
 from scribeforge.domain.normalize import similarity_for_comparison
-from scribeforge.domain.ocr import OCRLine, PageDirection, PageOCRResult
+from scribeforge.domain.ocr import BlockType, OCRLine, PageDirection, PageOCRResult
 from scribeforge.domain.reading_order import reading_order_key
 
 
@@ -165,6 +165,51 @@ def _group_line_indexes_into_columns(
     return columns
 
 
+
+def _column_centroid(lines: Sequence[OCRLine], indexes: Sequence[int], direction: PageDirection) -> float:
+    return sum(_main_axis_center(lines[index], direction) for index in indexes) / len(indexes)
+
+
+def _pair_columns(
+    primary: PageOCRResult, secondary: PageOCRResult,
+    primary_columns: list[list[int]], secondary_columns: list[list[int]], direction: PageDirection,
+) -> list[tuple[list[int], list[int]]]:
+    """Pair mutually closest regions; a tie or a large shift is left unmatched."""
+    primary_centers = [_column_centroid(primary.lines, c, direction) for c in primary_columns]
+    secondary_centers = [_column_centroid(secondary.lines, c, direction) for c in secondary_columns]
+
+    def unique_nearest(value: float, choices: list[float]) -> int | None:
+        ranked = sorted((abs(value - center), index) for index, center in enumerate(choices))
+        if not ranked or ranked[0][0] > 0.12:
+            return None
+        if len(ranked) > 1 and ranked[1][0] - ranked[0][0] < 0.01:
+            return None
+        return ranked[0][1]
+
+    pairs: list[tuple[list[int], list[int]]] = []
+    for index, center in enumerate(primary_centers):
+        other = unique_nearest(center, secondary_centers)
+        if other is not None and unique_nearest(secondary_centers[other], primary_centers) == index:
+            pairs.append((primary_columns[index], secondary_columns[other]))
+    return pairs
+
+
+def _line_block_roles(result: PageOCRResult) -> list[set[BlockType]]:
+    roles: list[set[BlockType]] = [set() for _ in result.lines]
+    for block in result.blocks:
+        for index in range(block.line_start, block.line_end):
+            roles[index].add(block.block_type)
+    return roles
+
+
+def _compatible_block_roles(left: set[BlockType], right: set[BlockType]) -> bool:
+    if len(left) > 1 or len(right) > 1:
+        return False
+    if BlockType.UNKNOWN in left or BlockType.UNKNOWN in right:
+        return False
+    return not left or not right or left == right
+
+
 def _match_primary_lines(
     primary: PageOCRResult,
     secondary: PageOCRResult,
@@ -191,14 +236,12 @@ def _match_primary_lines(
     """
 
     matches: dict[int, tuple[int, float, float]] = {}
+    primary_roles = _line_block_roles(primary)
+    secondary_roles = _line_block_roles(secondary)
     primary_columns = _group_line_indexes_into_columns(primary.lines, direction)
     secondary_columns = _group_line_indexes_into_columns(secondary.lines, direction)
 
-    # Pair columns by their main-axis position: the leftmost primary column
-    # with the leftmost secondary column, and so on. A page whose column count
-    # differs between engines still matches every column that exists on both
-    # sides; unmatched columns fall through to unpaired lines below.
-    paired_columns = list(zip(primary_columns, secondary_columns))
+    paired_columns = _pair_columns(primary, secondary, primary_columns, secondary_columns, direction)
 
     for p_col, s_col in paired_columns:
         secondary_centers = [
@@ -211,6 +254,13 @@ def _match_primary_lines(
             for offset, secondary_index in enumerate(s_col):
                 distance = abs(primary_center - secondary_centers[offset])
                 if distance > max_cross_axis_distance:
+                    continue
+                p_box, s_box = primary_line.box, secondary.lines[secondary_index].box
+                p_start, p_extent = (p_box.y, p_box.height) if direction.is_vertical else (p_box.x, p_box.width)
+                s_start, s_extent = (s_box.y, s_box.height) if direction.is_vertical else (s_box.x, s_box.width)
+                if min(p_start + p_extent, s_start + s_extent) <= max(p_start, s_start):
+                    continue
+                if not _compatible_block_roles(primary_roles[primary_index], secondary_roles[secondary_index]):
                     continue
                 similarity = _text_similarity(
                     primary_line, secondary.lines[secondary_index]
