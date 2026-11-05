@@ -9,6 +9,7 @@ from pathlib import Path
 from scribeforge.decision_bindings import inspect_latest_decisions
 from scribeforge.domain.page_asset import PageAssetError, parse_page_asset_evidence
 from scribeforge.evidence_audit import audit_model_evidence
+from scribeforge.storage.sqlite import SQLiteStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +58,32 @@ class ProjectAuditReport:
             "page_count": self.page_count,
             "findings": [finding.to_dict() for finding in self.findings],
         }
+
+
+def _audit_group_proposals(connection: sqlite3.Connection, findings: list[AuditFinding]) -> None:
+    """Validate the experimental ledger in the same read-only audit snapshot."""
+    present = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='group_proposal_runs'"
+    ).fetchone()
+    if present is None:
+        if int(connection.execute("PRAGMA user_version").fetchone()[0]) >= 15:
+            findings.append(AuditFinding(
+                "group_proposal_schema_missing", "error", "Schema v15 group proposal ledger is missing."
+            ))
+        return
+    rows = connection.execute(
+        """SELECT g.id, p.project_id FROM group_proposal_runs g
+           LEFT JOIN pages p ON p.id=g.page_id ORDER BY g.id"""
+    ).fetchall()
+    for row in rows:
+        try:
+            if row["project_id"] is None:
+                raise ValueError("proposal page is missing")
+            SQLiteStore._load_group_proposals(connection, int(row["project_id"]), int(row["id"]))
+        except (ValueError, KeyError, TypeError, OverflowError) as exc:
+            findings.append(AuditFinding(
+                "group_proposal_invalid", "error", f"Group proposal {row['id']}: {exc}"
+            ))
 
 
 def audit_project_store(store_path: Path) -> ProjectAuditReport:
@@ -123,6 +150,7 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
                 """
             ).fetchall()
             _audit_decision_bindings(connection, findings)
+            _audit_group_proposals(connection, findings)
             audit_model_evidence(
                 connection,
                 lambda code, severity, message, path: findings.append(

@@ -1,0 +1,38 @@
+[
+  {
+    "name": "horizontal-split", "direction": "horizontal-lr",
+    "primary": [{"text":"春眠不觉晓","box":[0.1,0.2,0.6,0.05],"region":"body"}],
+    "secondary": [{"text":"春眠","box":[0.1,0.2,0.24,0.05],"region":"body"},{"text":"不觉晓","box":[0.34,0.2,0.36,0.05],"region":"body"}],
+    "matches": [[[0],[0,1]]], "ambiguous": 0
+  },
+  {
+    "name": "horizontal-merge", "direction": "horizontal-lr",
+    "primary": [{"text":"春眠","box":[0.1,0.2,0.24,0.05],"region":"body"},{"text":"不觉晓","box":[0.34,0.2,0.36,0.05],"region":"body"}],
+    "secondary": [{"text":"春眠不觉晓","box":[0.1,0.2,0.6,0.05],"region":"body"}],
+    "matches": [[[0,1],[0]]], "ambiguous": 0
+  },
+  {
+    "name": "horizontal-same-text-two-columns", "direction": "horizontal-lr",
+    "primary": [{"text":"重复文字","box":[0.1,0.2,0.3,0.05],"region":"left"},{"text":"重复文字","box":[0.6,0.2,0.3,0.05],"region":"right"}],
+    "secondary": [{"text":"重复文字","box":[0.1,0.2,0.3,0.05],"region":"left"},{"text":"重复文字","box":[0.6,0.2,0.3,0.05],"region":"right"}],
+    "matches": [[[0],[0]],[[1],[1]]], "ambiguous": 0
+  },
+  {
+    "name": "vertical-rl-two-splits", "direction": "vertical-rl",
+    "primary": [{"text":"甲乙","box":[0.2,0.1,0.05,0.4],"region":"left"},{"text":"甲乙","box":[0.7,0.1,0.05,0.4],"region":"right"}],
+    "secondary": [{"text":"甲","box":[0.2,0.1,0.05,0.2],"region":"left"},{"text":"乙","box":[0.2,0.3,0.05,0.2],"region":"left"},{"text":"甲","box":[0.7,0.1,0.05,0.2],"region":"right"},{"text":"乙","box":[0.7,0.3,0.05,0.2],"region":"right"}],
+    "matches": [[[1],[2,3]],[[0],[0,1]]], "ambiguous": 0
+  },
+  {
+    "name": "extra-line", "direction": "horizontal-lr",
+    "primary": [{"text":"甲","box":[0.1,0.1,0.4,0.05],"region":"body"},{"text":"乙","box":[0.1,0.3,0.4,0.05],"region":"body"}],
+    "secondary": [{"text":"甲","box":[0.1,0.1,0.4,0.05],"region":"body"},{"text":"新增","box":[0.1,0.2,0.4,0.05],"region":"body"},{"text":"乙","box":[0.1,0.3,0.4,0.05],"region":"body"}],
+    "matches": [[[0],[0]],[[1],[2]]], "ambiguous": 0
+  },
+  {
+    "name": "duplicate-ambiguous", "direction": "horizontal-lr",
+    "primary": [{"text":"甲","box":[0.1,0.2,0.4,0.05],"region":"unknown"}],
+    "secondary": [{"text":"甲","box":[0.1,0.2,0.4,0.05],"region":"unknown"},{"text":"甲","box":[0.1,0.2,0.4,0.05],"region":"unknown"}],
+    "matches": [], "ambiguous": 3
+  }
+]
