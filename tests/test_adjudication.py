@@ -581,3 +581,109 @@ def test_decisions_on_other_pages_do_not_block_new_verification(tmp_path: Path) 
     second = store.record_verification(primary, secondary, alignment, (PairRisk(0, 0.0, ()),), ())
     assert store.latest_verification_id(project, 1) == second
     assert store.latest_decision(project, 0, 1).selected_text == "乙"
+
+
+def _historical_batches(tmp_path: Path) -> tuple[SQLiteStore, int, int, int]:
+    """Produce a state older versions allowed: same pair index, different lines."""
+    store, project, old, primary, secondary = _two_engine_page(tmp_path)
+    original = store.load_verification(old)
+    reversed_alignment = PageAlignment(
+        0, "primary", "secondary", tuple(reversed(original.alignment.pairs))
+    )
+    new = store.record_verification(
+        primary, secondary, reversed_alignment,
+        (PairRisk(0, 0.0, ()), PairRisk(1, 0.5, (RiskReason.TEXT_DISAGREEMENT,))), (),
+    )
+    return store, project, old, new
+
+
+@pytest.mark.parametrize("path", ["assembly", "review", "detail", "progress", "repair"])
+def test_historical_decision_cannot_be_reinterpreted_as_new_pair(
+    tmp_path: Path, path: str
+) -> None:
+    from scribeforge.pipeline.assembly import assemble_verified_content
+    from scribeforge.pipeline.rounds import open_pairs, progress
+
+    store, project, old, new = _historical_batches(tmp_path)
+    store.append_decision(project_id=project, page_index=0, pair_index=0,
+                          selected_text="乙", actor="human",
+                          evidence_refs=(f"verification_run:{new}",))
+    # This was pair 1 (乙) in the old run; pair 1 now means 鸦/雅.
+    store.append_decision(project_id=project, page_index=0, pair_index=1,
+                          selected_text="乙", actor="human",
+                          evidence_refs=(f"verification_run:{old}",))
+    with pytest.raises(ValueError, match="(?i)(ambiguous|verification).*(decision|batch)"):
+        if path == "assembly":
+            assemble_verified_content(store, project, include_page_furniture=True)
+        elif path == "review":
+            review_queue(store, project, include_page_furniture=True)
+        elif path == "detail":
+            review_detail(store, project, 0, 1)
+        elif path == "progress":
+            progress(store, project, include_page_furniture=True)
+        else:
+            open_pairs(store, project, include_page_furniture=True)
+    # Raw evidence remains accessible for an audit and is not rewritten.
+    assert store.list_decisions(project, 0, 1)[0].selected_text == "乙"
+    assert store.load_verification(old).alignment.pairs[1].primary_line_index == 1
+
+
+@pytest.mark.parametrize("refs", [(), ("engine_run:1",), ("verification_run:bad",)])
+def test_multibatch_decision_without_provable_binding_is_rejected(
+    tmp_path: Path, refs: tuple[str, ...]
+) -> None:
+    store, project, _, _ = _historical_batches(tmp_path)
+    store.append_decision(project_id=project, page_index=0, pair_index=0,
+                          selected_text="乙", actor="human", evidence_refs=refs)
+    with pytest.raises(ValueError, match="(?i)(ambiguous|verification).*(decision|batch)"):
+        store.latest_verification_id(project, 0)
+
+
+def test_multibatch_matching_latest_decisions_and_revisions_are_usable(tmp_path: Path) -> None:
+    store, project, old, new = _historical_batches(tmp_path)
+    assert store.latest_verification_id(project, 0) == new  # no decisions
+    store.append_decision(project_id=project, page_index=0, pair_index=0,
+                          selected_text="历史", actor="human",
+                          evidence_refs=(f"verification_run:{old}",))
+    store.append_decision(project_id=project, page_index=0, pair_index=0,
+                          selected_text="乙", actor="human",
+                          evidence_refs=(f"verification_run:{new}",))
+    assert store.latest_verification_id(project, 0) == new
+    assert review_detail(store, project, 0, 0).accepted_text == "乙"
+    assert len(store.list_decisions(project, 0, 0)) == 2
+
+
+def test_multibatch_conflicting_verification_refs_rejected(tmp_path: Path) -> None:
+    store, project, old, new = _historical_batches(tmp_path)
+    store.append_decision(project_id=project, page_index=0, pair_index=0,
+                          selected_text="乙", actor="human",
+                          evidence_refs=(f"verification_run:{new}", f"verification_run:{old}"))
+    with pytest.raises(ValueError, match="(?i)(ambiguous|verification).*(decision|batch)"):
+        store.latest_verification_id(project, 0)
+
+
+def test_multibatch_orphan_pair_rejected_even_if_it_cites_latest(tmp_path: Path) -> None:
+    store, project, _, new = _historical_batches(tmp_path)
+    store.append_decision(project_id=project, page_index=0, pair_index=9,
+                          selected_text="不可归属", actor="human",
+                          evidence_refs=(f"verification_run:{new}",))
+    with pytest.raises(ValueError, match="(?i)(ambiguous|verification).*(decision|batch)"):
+        store.latest_verification_id(project, 0)
+
+
+def test_single_batch_legacy_uncited_decision_remains_compatible(tmp_path: Path) -> None:
+    store, project, only, _, _ = _two_engine_page(tmp_path)
+    store.append_decision(project_id=project, page_index=0, pair_index=0,
+                          selected_text="旧决定", actor="human", evidence_refs=())
+    assert store.latest_verification_id(project, 0) == only
+    assert review_detail(store, project, 0, 0).accepted_text == "旧决定"
+
+
+def test_human_cannot_append_on_ambiguous_history(tmp_path: Path) -> None:
+    store, project, old, _ = _historical_batches(tmp_path)
+    store.append_decision(project_id=project, page_index=0, pair_index=1,
+                          selected_text="乙", actor="human",
+                          evidence_refs=(f"verification_run:{old}",))
+    with pytest.raises(ValueError, match="ambiguous verification batch"):
+        record_human_decision(store, project, 0, 1, "重新审阅")
+    assert len(store.list_decisions(project, 0, 1)) == 1
