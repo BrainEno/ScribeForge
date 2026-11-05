@@ -556,6 +556,8 @@ def run_repair_round(
             evidence_refs=tuple(evidence),
             risk_score=risk.score,
             risk_reasons=tuple(reason.value for reason in risk.reasons),
+            expected_page=page,
+            expected_verification_id=verification_id,
         )
         resolved.append(ref)
 

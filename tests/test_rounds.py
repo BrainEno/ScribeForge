@@ -532,3 +532,55 @@ def test_repair_refuses_replaced_original_page_before_reading(tmp_path: Path) ->
                          crops_dir=tmp_path / "repair")
     assert engine.calls == 0
     assert store.latest_decision(project_id, 0, 0) is None
+
+
+def test_repair_decision_refuses_page_change_at_write_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, project = _disputed_page(tmp_path)
+    page = store.list_pages(project)[0]
+    append = store.append_decision
+
+    def backfill_before_write(*args, **kwargs):
+        store.rehash_page_asset(page.id)
+        return append(*args, **kwargs)
+
+    monkeypatch.setattr(store, "append_decision", backfill_before_write)
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        run_repair_round(store, project, readers=(
+            RepairReader("one", FakeEngine("mineru", "鸦")),
+            RepairReader("two", FakeEngine("paddleocr", "鸦")),
+        ), crops_dir=tmp_path / "repair")
+    assert store.latest_decision(project, 0, 0) is None
+    original_runs = store.list_scoped_run_ids(project, 0, "pair:0")
+    assert len(original_runs) == 2
+    monkeypatch.setattr(store, "append_decision", append)
+    report = run_repair_round(store, project, readers=(
+        RepairReader("one", FakeEngine("mineru", "鸦")),
+        RepairReader("two", FakeEngine("paddleocr", "鸦")),
+    ), crops_dir=tmp_path / "repair")
+    assert report.progressed
+    assert store.latest_decision(project, 0, 0).selected_text == "鸦"
+    assert store.list_scoped_run_ids(project, 0, "pair:0")[:2] == original_runs
+
+
+def test_human_decision_refuses_page_change_at_write_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.pipeline.adjudication import record_human_decision
+
+    store, project = _disputed_page(tmp_path)
+    page = store.list_pages(project)[0]
+    append = store.append_decision
+
+    def backfill_before_write(*args, **kwargs):
+        store.rehash_page_asset(page.id)
+        return append(*args, **kwargs)
+
+    monkeypatch.setattr(store, "append_decision", backfill_before_write)
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        record_human_decision(store, project, 0, 0, "鸦")
+    assert store.latest_decision(project, 0, 0) is None
+    monkeypatch.setattr(store, "append_decision", append)
+    record_human_decision(store, project, 0, 0, "鸦")
+    assert store.latest_decision(project, 0, 0).selected_text == "鸦"

@@ -2277,6 +2277,23 @@ class SQLiteStore:
                 candidates=candidates,
             )
 
+    def verification_page_record(self, project_id: int, verification_id: int) -> PageRecord:
+        """Resolve a verification's page within the requested project."""
+        with self._connection() as connection:
+            row = connection.execute(
+                """
+                SELECT p.id, p.project_id, p.page_index, p.source_image, p.width, p.height,
+                       p.page_asset_sha256, p.page_asset_byte_size,
+                       p.page_asset_parameters_json, p.page_asset_version
+                FROM verification_runs v JOIN pages p ON p.id = v.page_id
+                WHERE v.id = ? AND p.project_id = ?
+                """,
+                (verification_id, project_id),
+            ).fetchone()
+        if row is None:
+            raise ValueError("verification does not belong to the requested project")
+        return _page_record(row)
+
     def verification_page_index(self, verification_id: int) -> int:
         with self._connection() as connection:
             row = connection.execute(
@@ -2571,6 +2588,8 @@ class SQLiteStore:
         evidence_refs: tuple[str, ...],
         risk_score: float | None = None,
         risk_reasons: tuple[str, ...] = (),
+        expected_page: PageRecord | None = None,
+        expected_verification_id: int | None = None,
     ) -> int:
         """Append an accepted decision, with the risk it was accepted under.
 
@@ -2582,7 +2601,22 @@ class SQLiteStore:
         if risk_score is not None and not 0.0 <= risk_score <= 1.0:
             raise ValueError("risk score must be between 0 and 1")
         with self._connection() as connection:
+            if expected_page is not None or expected_verification_id is not None:
+                connection.execute("BEGIN IMMEDIATE")
+            if expected_page is not None:
+                self._require_current_page(connection, project_id, expected_page)
+                if expected_page.page_index != page_index:
+                    raise ValueError("page record does not match decision page index")
             page_id = self._page_id(connection, project_id, page_index)
+            if expected_verification_id is not None:
+                verification = connection.execute(
+                    """SELECT v.page_id FROM verification_runs v
+                       JOIN alignments a ON a.verification_run_id=v.id
+                       WHERE v.id=? AND a.pair_index=?""",
+                    (expected_verification_id, pair_index),
+                ).fetchone()
+                if verification is None or verification["page_id"] != page_id:
+                    raise ValueError("verification does not match decision page or pair")
             cursor = connection.execute(
                 """
                 INSERT INTO decisions(
