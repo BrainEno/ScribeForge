@@ -3,13 +3,14 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import math
 import os
 import sqlite3
 import tempfile
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
@@ -19,6 +20,11 @@ from scribeforge.domain.alignment import (
     ConflictKind,
     LineAlignment,
     PageAlignment,
+)
+from scribeforge.domain.group_alignment import (
+    GroupProposals,
+    ProposedGroup,
+    propose_group_alignment,
 )
 from scribeforge.domain.jobs import JobRecord, JobStage, JobState
 from scribeforge.domain.ocr import (
@@ -57,6 +63,17 @@ def _measure_page_asset(path: Path) -> tuple[str, int]:
             digest.update(chunk)
             size += len(chunk)
     return digest.hexdigest(), size
+
+
+def _group_evidence_digest(
+    project_id: int, page_id: int, primary_id: int, secondary_id: int,
+    direction: str, algorithm: str, payload: str,
+    primary: PageOCRResult, secondary: PageOCRResult,
+) -> str:
+    data = [project_id, page_id, primary_id, secondary_id, direction, algorithm,
+            payload, asdict(primary), asdict(secondary)]
+    encoded = json.dumps(data, ensure_ascii=False, sort_keys=True, allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 class JobAlreadyRunningError(RuntimeError):
@@ -224,8 +241,17 @@ class CropInputEvidence:
     scale: int
 
 
+@dataclass(frozen=True, slots=True)
+class StoredGroupProposals:
+    id: int
+    primary_run_id: int
+    secondary_run_id: int
+    proposals: GroupProposals
+    algorithm_version: str
+
+
 class SQLiteStore:
-    SCHEMA_VERSION = 14
+    SCHEMA_VERSION = 15
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -410,6 +436,19 @@ class SQLiteStore:
                     CHECK((ocr_run_id IS NULL) != (vlm_review_id IS NULL))
                 )""")
                 connection.execute("PRAGMA user_version = 14")
+            if version < 15:
+                connection.execute("""CREATE TABLE IF NOT EXISTS group_proposal_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE RESTRICT,
+                    primary_run_id INTEGER NOT NULL REFERENCES engine_runs(id) ON DELETE RESTRICT,
+                    secondary_run_id INTEGER NOT NULL REFERENCES engine_runs(id) ON DELETE RESTRICT,
+                    direction TEXT NOT NULL,
+                    algorithm_version TEXT NOT NULL,
+                    groups_json TEXT NOT NULL,
+                    evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )""")
+                connection.execute("PRAGMA user_version = 15")
 
     @staticmethod
     def _create_v11(connection: sqlite3.Connection) -> None:
@@ -2032,6 +2071,116 @@ class SQLiteStore:
                 raise ValueError("review candidate page does not match alignment")
             if not 0 <= candidate.pair_index < len(alignment.pairs):
                 raise ValueError("review candidate pair index is out of range")
+
+    def record_group_proposals(
+        self, project_id: int, primary_run_id: int, secondary_run_id: int, *,
+        direction: PageDirection,
+    ) -> int:
+        """Persist research-only proposals computed from locked, stored OCR runs.
+
+        These rows are not verification runs and cannot authorize decisions.
+        """
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._require_project(connection, project_id)
+            primary = self._engine_evidence(connection, primary_run_id)
+            secondary = self._engine_evidence(connection, secondary_run_id)
+            if primary["page_id"] != secondary["page_id"]:
+                raise ValueError("OCR runs must describe the same page")
+            page_id = int(primary["page_id"])
+            page = connection.execute("SELECT project_id FROM pages WHERE id=?", (page_id,)).fetchone()
+            if page is None or int(page["project_id"]) != project_id:
+                raise ValueError("OCR runs do not belong to the project")
+            if primary_run_id == secondary_run_id:
+                raise ValueError("group proposals require two distinct OCR runs")
+            scopes = connection.execute(
+                "SELECT id, scope FROM engine_runs WHERE id IN (?, ?)",
+                (primary_run_id, secondary_run_id),
+            ).fetchall()
+            if len(scopes) != 2 or any(row["scope"] is not None for row in scopes):
+                raise ValueError("group proposals require whole-page OCR runs")
+            # BEGIN IMMEDIATE prevents cooperating SQLite writes until the input
+            # snapshots have been read and the append has committed.
+            first = self.load_ocr_run(primary_run_id)
+            second = self.load_ocr_run(secondary_run_id)
+            result = propose_group_alignment(first, second, direction=direction)
+            data = [{"primary": list(group.primary_indexes), "secondary": list(group.secondary_indexes),
+                     "status": group.status, "score": group.score} for group in result.groups]
+            payload = json.dumps(data, ensure_ascii=False, allow_nan=False)
+            algorithm = "experimental-group-v1"
+            digest = _group_evidence_digest(project_id, page_id, primary_run_id, secondary_run_id,
+                                            direction.value, algorithm, payload, first, second)
+            cursor = connection.execute(
+                """INSERT INTO group_proposal_runs(page_id, primary_run_id, secondary_run_id,
+                   direction, algorithm_version, groups_json, evidence_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (page_id, primary_run_id, secondary_run_id, direction.value, algorithm, payload, digest),
+            )
+            return self._last_id(cursor)
+
+    def load_group_proposals(self, project_id: int, proposal_id: int) -> StoredGroupProposals:
+        """Load research-only proposals; malformed or incomplete evidence fails closed."""
+        with self._connection() as connection:
+            connection.execute("BEGIN")
+            row = connection.execute(
+                """SELECT g.*, p.project_id, p.page_index, a.page_id AS a_page, b.page_id AS b_page,
+                          a.scope AS a_scope, b.scope AS b_scope
+                   FROM group_proposal_runs g JOIN pages p ON p.id=g.page_id
+                   JOIN engine_runs a ON a.id=g.primary_run_id
+                   JOIN engine_runs b ON b.id=g.secondary_run_id WHERE g.id=?""", (proposal_id,)
+            ).fetchone()
+            if row is None or int(row["project_id"]) != project_id:
+                raise KeyError(f"unknown group proposal for project {project_id}: {proposal_id}")
+            try:
+                if (row["a_page"] != row["page_id"] or row["b_page"] != row["page_id"] or
+                        row["a_scope"] is not None or row["b_scope"] is not None or
+                        row["primary_run_id"] == row["secondary_run_id"] or
+                        row["algorithm_version"] != "experimental-group-v1"):
+                    raise ValueError("group proposal source mismatch")
+                direction = PageDirection(row["direction"])
+                primary_id, secondary_id = int(row["primary_run_id"]), int(row["secondary_run_id"])
+                digest = _group_evidence_digest(
+                    project_id, int(row["page_id"]), primary_id, secondary_id,
+                    direction.value, str(row["algorithm_version"]), str(row["groups_json"]),
+                    self.load_ocr_run(primary_id), self.load_ocr_run(secondary_id),
+                )
+                if digest != row["evidence_sha256"]:
+                    raise ValueError("group proposal evidence digest mismatch")
+                decoded = json.loads(row["groups_json"])
+                if not isinstance(decoded, list):
+                    raise TypeError("invalid group proposal payload")
+                counts = [int(connection.execute("SELECT COUNT(*) FROM ocr_lines WHERE run_id=?", (run,)).fetchone()[0])
+                          for run in (row["primary_run_id"], row["secondary_run_id"])]
+                seen: list[list[int]] = [[], []]
+                groups: list[ProposedGroup] = []
+                for item in decoded:
+                    if not isinstance(item, dict) or set(item) != {"primary", "secondary", "status", "score"}:
+                        raise ValueError("invalid group proposal item")
+                    parts = [item["primary"], item["secondary"]]
+                    if any(not isinstance(part, list) or any(type(index) is not int for index in part)
+                           for part in parts):
+                        raise ValueError("invalid group proposal indices")
+                    status, score = item["status"], item["score"]
+                    shape = tuple(len(part) for part in parts)
+                    if status == "proposed":
+                        if (shape not in {(1, 1), (1, 2), (2, 1)} or isinstance(score, bool) or
+                                not isinstance(score, (int, float)) or not math.isfinite(score) or
+                                not 0 <= score <= 1):
+                            raise ValueError("invalid group proposal score or shape")
+                    elif status not in {"ambiguous", "unmatched"} or shape not in {(1, 0), (0, 1)} or score is not None:
+                        raise ValueError("invalid group proposal status or shape")
+                    for side in range(2):
+                        if any(index < 0 or index >= counts[side] for index in parts[side]):
+                            raise ValueError("group proposal index out of range")
+                        seen[side].extend(parts[side])
+                    groups.append(ProposedGroup(tuple(parts[0]), tuple(parts[1]), status, score))
+                if any(sorted(seen[i]) != list(range(counts[i])) for i in range(2)):
+                    raise ValueError("incomplete or duplicate group proposal evidence")
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+                raise ValueError(f"invalid group proposal evidence: {exc}") from exc
+            return StoredGroupProposals(
+                int(row["id"]), int(row["primary_run_id"]), int(row["secondary_run_id"]),
+                GroupProposals(int(row["page_index"]), direction, tuple(groups)), str(row["algorithm_version"]),
+            )
 
     def record_verification(
         self,

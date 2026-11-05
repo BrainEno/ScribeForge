@@ -48,10 +48,11 @@ One-to-many line splits, merged lines, rotated text, fully structured ambiguity,
 and missing block evidence remain unsupported. The line matcher is still greedy:
 near-tied line candidates can be silently assigned. This partial mitigation does
 not satisfy issue #79 or the group precision/recall acceptance criteria. Existing
-1:1 pair indexes and decisions are not rewritten, and no schema migration is
-introduced; future 1:N support needs an explicit schema and end-to-end review,
-acceptance, repair and export design. The fixed thresholds require validation on
-representative labeled scans before being treated as reliable layout rules.
+1:1 pair indexes and decisions are not rewritten. Schema v15 adds an isolated
+research-only proposal ledger; actual 1:N verification still needs an explicit
+schema and end-to-end review, acceptance, repair and export design. The fixed
+thresholds require validation on representative labeled scans before being
+treated as reliable layout rules.
 
 For P and S lines, Cp and Cs groups, and B total block-to-line memberships,
 column ranking costs O(Cp*Cs log Cs + Cp*Cp log Cp) worst case, block indexing
@@ -65,9 +66,10 @@ layout evidence rather than assuming that a direction-only sort is sufficient.
 
 `domain.group_alignment.propose_group_alignment` is a standalone, review-only
 experiment. It does **not** create verification evidence or affect review,
-acceptance, persistence, repair, export, CLI or Flutter. Never treat its output as
-a decision. It preserves all input indexes, proposing only 1:1, 1:2 and 2:1
-contiguous groups, with a maximum of 250,000 sequence-alignment cells. It sorts
+acceptance, repair, export, CLI or Flutter. Never treat its output as a decision.
+An explicit storage API may append research-only proposals to a separate v15
+ledger; this is not a verification run and cannot authorize a decision. It
+preserves all input indexes, proposing only 1:1, 1:2 and 2:1 contiguous groups, with a maximum of 250,000 sequence-alignment cells. It sorts
 lines by the existing direction-aware reading key, uses bounded dynamic
 programming with skip transitions, and requires adjacent split fragments,
 two-axis box overlap, text similarity and compatible explicit block roles.
@@ -84,8 +86,8 @@ The hard cell cap refuses oversized input rather than silently truncating it.
 Geometric thresholds and the whole-path margin are uncalibrated; this does not
 prove uniqueness outside the candidate graph, and the existing reading-order key
 does not model arbitrary complex layouts. The prototype is tested on small deterministic synthetic fixtures only,
-not on real OCR. It is not a solution for #79 until schema migration, evidence
-validation, every consumer and a representative labeled evaluation are in place.
+not on real OCR. It is not a solution for #79 until production group evidence,
+every consumer and a representative labeled evaluation are in place.
 
 The hand-labeled `tests/fixtures/group_alignment_truth.json` contains six small
 synthetic cases. Its test reports 8/8 predicted/reference groups (precision,
@@ -93,3 +95,18 @@ recall and F1 1.0), zero inversions among matched reference groups, zero labeled
 cross-region edges, three ambiguous singleton lines, three 1:2 groups and one
 2:1 group. These are fixture-specific counts, not a performance claim about real
 books, unrepresented layouts, missing matches, or production OCR.
+
+### Research-only ledger (schema v15)
+
+`record_group_proposals` computes proposals from two distinct stored whole-page
+OCR runs on the same project/page under a SQLite write transaction; the separate
+append-only row records the run IDs, direction, experimental algorithm version,
+all group indexes, statuses, scores, and a SHA-256 over the serialized results
+and stored OCR data. `load_group_proposals` verifies this digest, source/run
+binding, shapes, ranges and one-time coverage of every source index. Invalid
+rows are refused without repair. This digest is a consistency check, not a
+signature or proof that OCR was read from the original page; a writer who can
+alter both data and digest is outside its threat model. It is not yet included
+in project audit or backup semantic validation. Upgrading v14 adds only this
+table and does not rewrite existing verification, alignment or decision rows.
+Group rows are not usable as production pairs or decision evidence.

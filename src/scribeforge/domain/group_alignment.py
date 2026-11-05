@@ -1,7 +1,7 @@
 """Experimental, review-only multi-line alignment proposals.
 
-This module does not feed accepted decisions, persistence, or export. Its output
-must not be treated as a verification or as authority to accept OCR text.
+This module does not feed accepted decisions or export. Optional research-only
+storage is separate from verification. Proposals must not authorize OCR text.
 """
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ def _candidate(primary: PageOCRResult, secondary: PageOCRResult,
 
 def propose_group_alignment(primary: PageOCRResult, secondary: PageOCRResult, *,
                             direction: PageDirection) -> GroupProposals:
-    """Propose bounded 1:1, 1:2, 2:1 groups; never approve or persist them.
+    """Propose bounded 1:1, 1:2, 2:1 groups; never approve them.
 
     At most three group transitions are examined per cell. Sorting competing
     local candidates costs O(P*S*log(P+S)); memory is O(P*S), with additional

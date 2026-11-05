@@ -275,3 +275,15 @@ SHA-256，再流式生成私有临时副本；副本的实际摘要必须与项�
 它不是同权限恶意程序的沙箱，也不证明文件来源可信。原始文件在快照完成之后若被
 移动或替换，当前导入仍使用已验证副本，并不会自动恢复原文件；可用 `audit`
 检查原始路径及其摘要。
+
+### Schema v15: research-only group proposals
+
+`group_proposal_runs` is an isolated, append-only experiment that points to two
+whole-page OCR runs and preserves group line indexes and their experimental
+status, direction and algorithm version. The storage API validates page/project
+binding, locks against SQLite writers during computation, and checks a digest
+of the saved proposal and OCR records on load. This is not a verification or a
+decision, and no existing pair index is reassigned. Existing v14 rows are not
+rewritten. A matching digest is not independent proof of source image identity
+or a defense against a writer who can alter both records and digest. Project
+audit and backup semantic validation do not yet inspect this research ledger.
