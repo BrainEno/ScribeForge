@@ -234,7 +234,7 @@ def process_page(
             verification_frame(store, project_id, page, verification_id)
             crop_inputs = {plan.pair_index: crop_evidence(crop_paths[plan.pair_index], plan,
                            verified_frame, verification_id) for plan in plans}
-            state = SQLiteVLMReviewState(store, verification_id)
+            state = SQLiteVLMReviewState(store, verification_id, expected_page=page)
             review_pending_candidates(record.candidates, crop_paths, reviewer, state,
                                       crop_inputs=crop_inputs)
             verification_frame(store, project_id, page, verification_id)

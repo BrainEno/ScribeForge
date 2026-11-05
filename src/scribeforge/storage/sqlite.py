@@ -2327,6 +2327,7 @@ class SQLiteStore:
         crop_path: str,
         crop_sha256: str,
         crop_input: CropInputEvidence | None = None,
+        expected_page: PageRecord | None = None,
     ) -> int:
         if crop_input is not None and (crop_input.verification_id != verification_id or
                 crop_input.pair_index != reading.pair_index or crop_input.crop_path != crop_path or
@@ -2337,6 +2338,16 @@ class SQLiteStore:
         if not crop_sha256.strip():
             raise ValueError("VLM review crop SHA-256 is required")
         with self._connection() as connection:
+            if expected_page is not None:
+                connection.execute("BEGIN IMMEDIATE")
+                self._require_current_page(connection, expected_page.project_id, expected_page)
+                if expected_page.page_index != reading.page_index:
+                    raise ValueError("page record does not match VLM reading page index")
+                verification = connection.execute(
+                    "SELECT page_id FROM verification_runs WHERE id = ?", (verification_id,)
+                ).fetchone()
+                if verification is None or verification["page_id"] != expected_page.id:
+                    raise ValueError("page record does not match VLM verification page")
             candidate = self._review_candidate_for_reading(connection, verification_id, reading)
             cursor = connection.execute(
                 """
