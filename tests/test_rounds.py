@@ -584,3 +584,53 @@ def test_human_decision_refuses_page_change_at_write_boundary(
     monkeypatch.setattr(store, "append_decision", append)
     record_human_decision(store, project, 0, 0, "鸦")
     assert store.latest_decision(project, 0, 0).selected_text == "鸦"
+
+
+def test_repair_does_not_supersede_concurrent_human_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.pipeline.adjudication import record_human_decision
+
+    store, project = _disputed_page(tmp_path)
+    other = SQLiteStore(tmp_path / "project.sqlite3")
+    append = store.append_decision
+
+    def concurrent_human(**kwargs):
+        record_human_decision(other, project, 0, 0, "人定文本")
+        return append(**kwargs)
+
+    monkeypatch.setattr(store, "append_decision", concurrent_human)
+    report = run_repair_round(store, project, readers=(
+        RepairReader("one", FakeEngine("mineru", "鸦")),
+        RepairReader("two", FakeEngine("paddleocr", "鸦")),
+    ), crops_dir=tmp_path / "repair")
+    decisions = store.list_decisions(project, 0, 0)
+    assert [(d.actor, d.selected_text) for d in decisions] == [("human", "人定文本")]
+    assert not report.progressed
+    assert not report.skipped and not report.resolved and not report.remaining
+    assert [(ref.page_index, ref.pair_index) for ref in report.already_decided] == [(0, 0)]
+    from scribeforge.cli import _rounds_json
+
+    summary = _rounds_json((report,))[0]
+    assert summary["already_decided"] == 1
+    assert summary["skipped"] == 0
+    assert len(store.list_scoped_run_ids(project, 0, "pair:0")) == 2
+
+
+def test_repair_reports_concurrent_human_decision_even_without_consensus(tmp_path: Path) -> None:
+    from scribeforge.pipeline.adjudication import record_human_decision
+
+    store, project = _disputed_page(tmp_path)
+    other = SQLiteStore(tmp_path / "project.sqlite3")
+
+    class HumanDuringRead(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            record_human_decision(other, project, 0, 0, "人工确认")
+            return super().analyze_page(image_path, page_index)
+
+    report = run_repair_round(store, project, readers=(
+        RepairReader("other", HumanDuringRead("third", "不同")),
+    ), crops_dir=tmp_path / "repair")
+    assert not report.remaining and not report.resolved
+    assert [(ref.page_index, ref.pair_index) for ref in report.already_decided] == [(0, 0)]
+    assert store.latest_decision(project, 0, 0).selected_text == "人工确认"

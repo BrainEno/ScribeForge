@@ -62,6 +62,10 @@ class JobAlreadyRunningError(RuntimeError):
     """A process cannot claim work while another process owns the project lock."""
 
 
+class DecisionAlreadyExists(RuntimeError):
+    """A machine decision lost a race to an existing decision."""
+
+
 class JobOwnershipError(RuntimeError):
     """Only the store that claimed a job may complete or fail that job."""
 
@@ -2590,18 +2594,21 @@ class SQLiteStore:
         risk_reasons: tuple[str, ...] = (),
         expected_page: PageRecord | None = None,
         expected_verification_id: int | None = None,
+        require_undecided: bool = False,
     ) -> int:
         """Append an accepted decision, with the risk it was accepted under.
 
         ``risk_score`` is stored on the row rather than recomputed at read time: an
         audit must see what the decision was made on, not what today's heuristics
-        would say about the same evidence.
+        would say about the same evidence. ``require_undecided`` atomically refuses
+        to append if any decision already exists for this page and pair; explicit
+        human corrections can omit it to preserve the append-only revision history.
         """
 
         if risk_score is not None and not 0.0 <= risk_score <= 1.0:
             raise ValueError("risk score must be between 0 and 1")
         with self._connection() as connection:
-            if expected_page is not None or expected_verification_id is not None:
+            if expected_page is not None or expected_verification_id is not None or require_undecided:
                 connection.execute("BEGIN IMMEDIATE")
             if expected_page is not None:
                 self._require_current_page(connection, project_id, expected_page)
@@ -2617,6 +2624,11 @@ class SQLiteStore:
                 ).fetchone()
                 if verification is None or verification["page_id"] != page_id:
                     raise ValueError("verification does not match decision page or pair")
+            if require_undecided and connection.execute(
+                "SELECT 1 FROM decisions WHERE page_id = ? AND pair_index = ? LIMIT 1",
+                (page_id, pair_index),
+            ).fetchone() is not None:
+                raise DecisionAlreadyExists("a decision already exists for this page and pair")
             cursor = connection.execute(
                 """
                 INSERT INTO decisions(
