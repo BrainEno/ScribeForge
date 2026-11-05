@@ -60,3 +60,27 @@ storage. Text comparison adds input-text-dependent SequenceMatcher costs. This
 is bounded per page but is not a linear-time or large-scale performance claim.
 Complex column hierarchies also need explicit
 layout evidence rather than assuming that a direction-only sort is sufficient.
+
+## Experimental group proposals (not used by the pipeline)
+
+`domain.group_alignment.propose_group_alignment` is a standalone, review-only
+experiment. It does **not** create verification evidence or affect review,
+acceptance, persistence, repair, export, CLI or Flutter. Never treat its output as
+a decision. It preserves all input indexes, proposing only 1:1, 1:2 and 2:1
+contiguous groups, with a maximum of 250,000 sequence-alignment cells. It sorts
+lines by the existing direction-aware reading key, uses bounded dynamic
+programming with skip transitions, and requires adjacent split fragments,
+two-axis box overlap, text similarity and compatible explicit block roles.
+Locally near-equal candidate scores are exposed as `ambiguous` singleton
+evidence, rather than silently selected. Missing block labels are not inferred;
+all matches, including those with missing labels, remain untrusted proposals.
+
+Worst-case space is O(P*S); candidate construction is O(P*S) with at most
+three transitions per cell and text-comparison cost, while local ambiguity
+ranking is O(P*S*log(P+S)); block indexing depends on total block memberships.
+The hard cell cap refuses oversized input rather than silently truncating it.
+Geometric thresholds are uncalibrated; local ambiguity is not a proof of global
+uniqueness, and the existing reading-order key does not model arbitrary complex
+layouts. The prototype is tested on small deterministic synthetic fixtures only,
+not on real OCR. It is not a solution for #79 until schema migration, evidence
+validation, every consumer and a representative labeled evaluation are in place.
