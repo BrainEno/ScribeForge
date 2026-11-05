@@ -104,7 +104,10 @@ OCR runs and VLM review inserts also check the page snapshot in their write
 transaction. Automatic, repair and human decision inserts also recheck the page
 snapshot and bind the cited verification to the same project, page and pair in the
 write transaction. For human decisions this snapshot is obtained during submission,
-not when the review UI was first displayed. Earlier successful runs are preserved
+not when the review UI was first displayed. Machine acceptance atomically skips a
+pair if any decision was recorded before its write, including a concurrent human
+correction; a human can still append a later correction without deleting history.
+Earlier successful runs are preserved
 if a later read fails. Reload the page after an evidence update before retrying, and restore a verified backup
 or re-import if the underlying raster no longer matches existing evidence. A preprocessing file published
 just before a concurrent row change can remain unreferenced; it is not overwritten.

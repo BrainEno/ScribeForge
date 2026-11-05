@@ -11,7 +11,13 @@ from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
 from scribeforge.domain.ocr import BoundingBox, PageOCRResult
 from scribeforge.domain.page_asset import file_sha256
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
-from scribeforge.storage.sqlite import PageRecord, SQLiteStore, VerificationRecord, VLMReviewRecord
+from scribeforge.storage.sqlite import (
+    DecisionAlreadyExists,
+    PageRecord,
+    SQLiteStore,
+    VerificationRecord,
+    VLMReviewRecord,
+)
 
 
 class _Unset:
@@ -219,20 +225,25 @@ def adjudicate_verification(
             unresolved.append(pair_index)
             continue
 
-        store.append_decision(
-            project_id=project_id,
-            page_index=page_index,
-            pair_index=pair_index,
-            selected_text=selected_text,
-            actor=actor.value,
-            evidence_refs=_evidence_refs(record, reading),
-            expected_page=expected_page,
-            expected_verification_id=verification_id,
-            risk_score=None if risk is None else risk.score,
-            risk_reasons=tuple(reason.value for reason in risk.reasons)
-            if risk is not None
-            else (),
-        )
+        try:
+            store.append_decision(
+                project_id=project_id,
+                page_index=page_index,
+                pair_index=pair_index,
+                selected_text=selected_text,
+                actor=actor.value,
+                evidence_refs=_evidence_refs(record, reading),
+                expected_page=expected_page,
+                expected_verification_id=verification_id,
+                require_undecided=True,
+                risk_score=None if risk is None else risk.score,
+                risk_reasons=tuple(reason.value for reason in risk.reasons)
+                if risk is not None
+                else (),
+            )
+        except DecisionAlreadyExists:
+            resolved.append(pair_index)
+            continue
         resolved.append(pair_index)
         recorded += 1
 

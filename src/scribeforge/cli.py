@@ -987,7 +987,8 @@ def _print_rounds(out: TextIO, rounds: Sequence[RoundReport]) -> None:
             f"resolved {len(report.resolved)}, "
             f"still ambiguous {len(report.still_open)}, "
             f"out of attempts {len(report.skipped)}, "
-            f"deferred {len(report.deferred)}",
+            f"deferred {len(report.deferred)}, "
+            f"decided elsewhere {len(report.already_decided)}",
             file=out,
         )
 
@@ -1016,6 +1017,7 @@ def _rounds_json(rounds: Sequence[RoundReport]) -> list[dict[str, object]]:
             "still_open": len(report.still_open),
             "skipped": len(report.skipped),
             "deferred": len(report.deferred),
+            "already_decided": len(report.already_decided),
         }
         for report in rounds
     ]

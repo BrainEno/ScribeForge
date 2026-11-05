@@ -402,3 +402,69 @@ def test_blocked_decision_records_the_risk_that_blocked_it(tmp_path: Path) -> No
     assert decision.actor == "human"
     assert decision.selected_text == "鸚"
     assert review_queue(store, project_id) == ()
+
+
+@pytest.mark.parametrize("machine_actor", ["automatic", "vlm"])
+def test_adjudication_does_not_supersede_concurrent_human_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, machine_actor: str
+) -> None:
+    store, project, verification, _, _ = _two_engine_page(tmp_path)
+    target = 1
+    if machine_actor == "vlm":
+        target = 0
+        store.record_vlm_review(verification, VLMReading(0, 0, "vlm", "1", "鸦", False),
+                                crop_path="crop.png", crop_sha256="a" * 64)
+    other = SQLiteStore(tmp_path / "project.sqlite3")
+    append = store.append_decision
+
+    def concurrent_human(**kwargs):
+        if kwargs["pair_index"] == target:
+            record_human_decision(other, project, 0, target, "人定文本")
+        return append(**kwargs)
+
+    monkeypatch.setattr(store, "append_decision", concurrent_human)
+    result = adjudicate_verification(store, project, verification)
+    decisions = store.list_decisions(project, 0, target)
+    assert [(d.actor, d.selected_text) for d in decisions] == [("human", "人定文本")]
+    assert target in result.resolved
+    assert result.recorded == (1 if machine_actor == "vlm" else 0)
+
+
+def test_concurrent_adjudications_do_not_duplicate_machine_decisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    first, project, verification, _, _ = _two_engine_page(tmp_path)
+    second = SQLiteStore(tmp_path / "project.sqlite3")
+    barrier = Barrier(2, timeout=10)
+    for store in (first, second):
+        original = store.append_decision
+
+        def wait_for_other(*, _original=original, **kwargs):
+            barrier.wait()
+            return _original(**kwargs)
+
+        monkeypatch.setattr(store, "append_decision", wait_for_other)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(adjudicate_verification, store, project, verification)
+                   for store in (first, second)]
+        results = [future.result(timeout=20) for future in futures]
+    assert sorted(result.recorded for result in results) == [0, 1]
+    decisions = first.list_decisions(project, 0, 1)
+    assert [(d.actor, d.selected_text) for d in decisions] == [("automatic", "乙")]
+
+
+def test_human_decision_still_supersedes_existing_machine_decision(tmp_path: Path) -> None:
+    store, project, verification, _, _ = _two_engine_page(tmp_path)
+    result = adjudicate_verification(store, project, verification)
+    assert result.recorded == 1
+    prior = store.list_decisions(project, 0, 1)
+    record_human_decision(store, project, 0, 1, "人工订正")
+    decisions = store.list_decisions(project, 0, 1)
+    assert decisions[0] == prior[0]
+    assert [(d.actor, d.selected_text) for d in decisions] == [
+        ("automatic", "乙"), ("human", "人工订正")
+    ]
+    assert store.latest_decision(project, 0, 1).selected_text == "人工订正"

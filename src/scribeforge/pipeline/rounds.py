@@ -51,6 +51,7 @@ from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.vlm_review import ReviewEvidence
 from scribeforge.storage.sqlite import (
     CropInputEvidence,
+    DecisionAlreadyExists,
     PageRecord,
     SQLiteStore,
     VerificationRecord,
@@ -163,6 +164,7 @@ class RoundReport:
     still_open: tuple[PairRef, ...] = ()
     skipped: tuple[PairRef, ...] = ()
     deferred: tuple[PairRef, ...] = ()
+    already_decided: tuple[PairRef, ...] = ()
 
     @property
     def progressed(self) -> bool:
@@ -398,11 +400,15 @@ def run_repair_round(
     resolved: list[PairRef] = []
     still_open: list[PairRef] = []
     skipped: list[PairRef] = []
+    already_decided: list[PairRef] = []
 
     for ref in candidates:
         page = pages.get(ref.page_index)
         if page is None:
             skipped.append(ref)
+            continue
+        if store.latest_decision(project_id, ref.page_index, ref.pair_index) is not None:
+            already_decided.append(ref)
             continue
         scope = region_scope(ref.pair_index)
         attempts = len(store.list_scoped_run_ids(project_id, ref.page_index, scope))
@@ -513,6 +519,9 @@ def run_repair_round(
                     "source:vlm",
                 )
 
+        if store.latest_decision(project_id, ref.page_index, ref.pair_index) is not None:
+            already_decided.append(ref)
+            continue
         verdict: Consensus = consensus(readings, prefer=order)
         if not verdict.settled or verdict.text is None:
             still_open.append(ref)
@@ -547,18 +556,23 @@ def run_repair_round(
             if _VLM_LABEL in verdict.supporters
             else DecisionActor.AUTOMATIC
         )
-        store.append_decision(
-            project_id=project_id,
-            page_index=ref.page_index,
-            pair_index=ref.pair_index,
-            selected_text=verdict.text,
-            actor=actor.value,
-            evidence_refs=tuple(evidence),
-            risk_score=risk.score,
-            risk_reasons=tuple(reason.value for reason in risk.reasons),
-            expected_page=page,
-            expected_verification_id=verification_id,
-        )
+        try:
+            store.append_decision(
+                project_id=project_id,
+                page_index=ref.page_index,
+                pair_index=ref.pair_index,
+                selected_text=verdict.text,
+                actor=actor.value,
+                evidence_refs=tuple(evidence),
+                risk_score=risk.score,
+                risk_reasons=tuple(reason.value for reason in risk.reasons),
+                expected_page=page,
+                expected_verification_id=verification_id,
+                require_undecided=True,
+            )
+        except DecisionAlreadyExists:
+            already_decided.append(ref)
+            continue
         resolved.append(ref)
 
     return RoundReport(
@@ -568,6 +582,7 @@ def run_repair_round(
         still_open=tuple(still_open),
         skipped=tuple(skipped),
         deferred=tuple(deferred),
+        already_decided=tuple(already_decided),
     )
 
 
@@ -596,14 +611,14 @@ def repair_book(
             round_index=round_index,
             include_page_furniture=include_page_furniture,
         )
-        if not report.examined and not report.skipped:
+        if not report.examined and not report.skipped and not report.already_decided:
             # Nothing left to read and nothing left to report: the book is
             # settled, or has no pairs at all. An empty round is not evidence.
             break
         reports.append(report)
         if not report.examined:
-            # Every remaining pair has exhausted its attempts; they need a person
-            # now, and the report that says so is the last one.
+            # No work was read: only exhausted or concurrently decided pairs
+            # remain in this snapshot. Do not emit an identical next round.
             break
     return tuple(reports)
 
