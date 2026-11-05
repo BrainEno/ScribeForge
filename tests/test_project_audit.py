@@ -195,3 +195,58 @@ def test_project_audit_warns_when_store_contains_multiple_projects(tmp_path: Pat
     finding = next(item for item in report.findings if item.code == "multiple_projects")
     assert finding.severity == "warning"
     assert report.project_count == 2
+
+
+@pytest.mark.parametrize("column,value", [
+    ("page_asset_sha256", None),
+    ("page_asset_sha256", "invalid"),
+    ("page_asset_byte_size", None),
+    ("page_asset_parameters_json", None),
+    ("page_asset_parameters_json", "broken"),
+    ("page_asset_parameters_json", "[]"),
+    ("page_asset_version", None),
+])
+def test_audit_reports_invalid_page_asset_evidence_without_crashing(
+    tmp_path: Path, column: str, value: object
+) -> None:
+    root, _ = _store_with_source(tmp_path)
+    with sqlite3.connect(root / "project.sqlite3") as db:
+        db.execute(f"UPDATE pages SET {column}=?", (value,))
+    report = audit_project_store(root)
+    findings = [f for f in report.findings if f.code == "page_asset_evidence_invalid"]
+    assert report.database_readable
+    assert len(findings) == 1
+    assert findings[0].severity == "error"
+    assert not any(f.code == "page_asset_evidence_missing" for f in report.findings)
+
+
+def test_invalid_page_evidence_blocks_backup_without_replacing_old_archive(tmp_path: Path) -> None:
+    from scribeforge.project_backup import ProjectBackupError, create_project_backup
+
+    root, _ = _store_with_source(tmp_path)
+    with sqlite3.connect(root / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_byte_size=NULL")
+    destination = tmp_path / "backup.zip"
+    destination.write_bytes(b"existing backup")
+    with pytest.raises(ProjectBackupError, match="page_asset_evidence_invalid"):
+        create_project_backup(root, destination, overwrite=True)
+    assert destination.read_bytes() == b"existing backup"
+
+
+def test_audit_reports_recorded_size_mismatch(tmp_path: Path) -> None:
+    root, _ = _store_with_source(tmp_path)
+    with sqlite3.connect(root / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_byte_size=page_asset_byte_size+1")
+    report = audit_project_store(root)
+    assert any(f.code == "page_asset_size_mismatch" and f.severity == "error"
+               for f in report.findings)
+
+
+def test_audit_reports_partial_evidence_even_if_raster_is_missing(tmp_path: Path) -> None:
+    root, _ = _store_with_source(tmp_path)
+    with sqlite3.connect(root / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_byte_size=NULL")
+    (root / "assets" / "page-000001.png").unlink()
+    report = audit_project_store(root)
+    codes = {finding.code for finding in report.findings}
+    assert {"page_asset_evidence_invalid", "page_asset_missing"} <= codes

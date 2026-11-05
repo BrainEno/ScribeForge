@@ -30,7 +30,6 @@ from scribeforge.adapters.image_preprocess import apply_preprocess
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.page_asset import (
     PageAssetError,
-    PageAssetEvidence,
     file_sha256,
     verify_page_asset,
     verify_recorded_bytes,
@@ -123,15 +122,7 @@ def preprocess_page(
     """
 
     store.require_current_page(project_id, page)
-    source_evidence = (
-        PageAssetEvidence(
-            sha256=page.page_asset_sha256,
-            byte_size=page.page_asset_byte_size,
-            version=page.page_asset_version or 1,
-        )
-        if page.page_asset_sha256 is not None and page.page_asset_byte_size is not None
-        else None
-    )
+    source_evidence = page.asset_evidence()
     if source_evidence is not None:
         verify_page_asset(Path(page.source_image), source_evidence, what="preprocessing source image")
 

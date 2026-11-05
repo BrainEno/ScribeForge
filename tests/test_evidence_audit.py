@@ -484,7 +484,8 @@ def test_verify_backup_works_offline_and_reports_stable_warning_paths(
 
     root, _, pid, _ = prepared(tmp_path)
     with closing(sqlite3.connect(root / "project.sqlite3")) as db, db:
-        db.execute("UPDATE pages SET page_asset_sha256=NULL WHERE project_id=?", (pid,))
+        db.execute("UPDATE pages SET page_asset_sha256=NULL, page_asset_byte_size=NULL, "
+                   "page_asset_parameters_json=NULL, page_asset_version=NULL WHERE project_id=?", (pid,))
     archive = tmp_path / "legacy.zip"
     create_project_backup(root, archive)
     shutil.rmtree(root)

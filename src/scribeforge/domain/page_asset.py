@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -106,6 +107,29 @@ class PageAssetEvidence:
         return dict(self.render_parameters)
 
 
+def parse_page_asset_evidence(
+    sha256: object, byte_size: object, parameters_json: object, version: object,
+) -> PageAssetEvidence | None:
+    """Parse stored evidence; only four NULLs mean an unknown legacy raster."""
+    fields = (sha256, byte_size, parameters_json, version)
+    if all(value is None for value in fields):
+        return None
+    if (
+        not isinstance(sha256, str)
+        or type(byte_size) is not int
+        or not isinstance(parameters_json, str)
+        or type(version) is not int
+    ):
+        raise PageAssetError("page asset recorded evidence is incomplete or invalid")
+    try:
+        parameters = json.loads(parameters_json)
+        if not isinstance(parameters, dict):
+            raise TypeError("render parameters must be an object")
+        return PageAssetEvidence(sha256, byte_size, parameters, version)
+    except (ValueError, TypeError) as exc:
+        raise PageAssetError("page asset recorded evidence is incomplete or invalid") from exc
+
+
 def verify_page_asset(
     path: Path,
     evidence: PageAssetEvidence | None,
@@ -134,6 +158,12 @@ def verify_page_asset(
             f"(recorded {evidence.sha256[:12]}…, found {actual[:12]}…); "
             "restore it from a backup or re-import the project"
         )
+    try:
+        actual_size = path.stat().st_size
+    except OSError as exc:
+        raise PageAssetError(f"{what} at {path} is unreadable: {exc}") from exc
+    if actual_size != evidence.byte_size:
+        raise PageAssetError(f"{what} size does not match recorded page asset evidence")
     return actual
 
 
@@ -151,6 +181,8 @@ def verify_recorded_bytes(
             f"{what} no longer matches the raster this project recorded "
             f"(recorded {evidence.sha256[:12]}…, found {actual[:12]}…)"
         )
+    if len(data) != evidence.byte_size:
+        raise PageAssetError(f"{what} size does not match recorded page asset evidence")
 
 
 def reencode_image(

@@ -33,6 +33,7 @@ from scribeforge.domain.page_asset import (
     PAGE_ASSET_VERSION,
     PageAssetError,
     PageAssetEvidence,
+    parse_page_asset_evidence,
 )
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.domain.structure import (
@@ -131,11 +132,17 @@ class PageRecord:
     width: int
     height: int
     #: Evidence about the rendered page image (schema v11+). Nullable so projects
-    #: imported before v11 keep opening; a NULL digest means "evidence missing".
+    #: imported before v11 keep opening; all four NULLs mean "evidence missing".
     page_asset_sha256: str | None = None
     page_asset_byte_size: int | None = None
     page_asset_parameters_json: str | None = None
     page_asset_version: int | None = None
+
+    def asset_evidence(self) -> PageAssetEvidence | None:
+        return parse_page_asset_evidence(
+            self.page_asset_sha256, self.page_asset_byte_size,
+            self.page_asset_parameters_json, self.page_asset_version,
+        )
 
 
 def _page_record(row: sqlite3.Row) -> PageRecord:
@@ -1008,6 +1015,10 @@ class SQLiteStore:
             return None
         if require_missing and found["page_asset_sha256"] is not None:
             raise PageAssetError(f"page {page_id} evidence changed during rehash; retry after audit")
+        existing = parse_page_asset_evidence(
+            found["page_asset_sha256"], found["page_asset_byte_size"],
+            found["page_asset_parameters_json"], found["page_asset_version"],
+        )
         path = Path(str(found["source_image"])).expanduser()
         if not path.is_file():
             return None
@@ -1020,30 +1031,15 @@ class SQLiteStore:
             render_parameters={},
             version=PAGE_ASSET_VERSION,
         )
-        if found["page_asset_sha256"] is not None:
-            if found["page_asset_sha256"] != actual:
+        if existing is not None:
+            if existing.sha256 != actual:
                 raise PageAssetError(
                     f"page {page_id} does not match its recorded digest; "
                     "restore it from a verified backup instead of rehashing"
                 )
-            if (
-                found["page_asset_byte_size"] != byte_size
-                or found["page_asset_parameters_json"] is None
-                or found["page_asset_version"] is None
-            ):
+            if existing.byte_size != byte_size:
                 raise PageAssetError(f"page {page_id} recorded evidence is incomplete or inconsistent")
-            try:
-                parameters = json.loads(found["page_asset_parameters_json"])
-                if not isinstance(parameters, dict):
-                    raise TypeError("render parameters must be an object")
-                return PageAssetEvidence(
-                    sha256=actual,
-                    byte_size=byte_size,
-                    render_parameters=parameters,
-                    version=found["page_asset_version"],
-                )
-            except (ValueError, TypeError) as exc:
-                raise PageAssetError(f"page {page_id} has invalid recorded evidence") from exc
+            return existing
         if _measure_page_asset(path) != (actual, byte_size):
             raise PageAssetError(f"page {page_id} raster changed during rehash; retry after audit")
         with self._connection() as connection:
@@ -1052,7 +1048,9 @@ class SQLiteStore:
                 UPDATE pages
                 SET page_asset_sha256 = ?, page_asset_byte_size = ?,
                     page_asset_parameters_json = ?, page_asset_version = ?
-                WHERE id = ? AND page_asset_sha256 IS NULL AND source_image = ?
+                WHERE id = ? AND page_asset_sha256 IS NULL
+                  AND page_asset_byte_size IS NULL AND page_asset_parameters_json IS NULL
+                  AND page_asset_version IS NULL AND source_image = ?
                 """,
                 (
                     actual,
@@ -1089,12 +1087,10 @@ class SQLiteStore:
             ).fetchall()
         for row in rows:
             page_id = int(row["id"])
-            path = Path(str(row["source_image"])).expanduser()
-            if not path.is_file():
-                missing += 1
-                continue
             evidence = self.rehash_page_asset(page_id, require_missing=True)
-            if evidence is not None:
+            if evidence is None:
+                missing += 1
+            else:
                 rehashed += 1
         return rehashed, missing
 

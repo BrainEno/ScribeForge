@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
-from scribeforge.domain.page_asset import PageAssetEvidence
+from scribeforge.domain.page_asset import PageAssetError, parse_page_asset_evidence
 from scribeforge.evidence_audit import audit_model_evidence
 
 
@@ -199,52 +198,36 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
         page_path = Path(str(page["source_image"])).expanduser()
         page_label = f"project {project_id} page {page_index + 1}"
 
+        invalid_evidence = False
+        try:
+            evidence = parse_page_asset_evidence(
+                page["page_asset_sha256"], page["page_asset_byte_size"],
+                page["page_asset_parameters_json"], page["page_asset_version"],
+            )
+        except PageAssetError as exc:
+            findings.append(
+                AuditFinding(
+                    "page_asset_evidence_invalid", "error",
+                    f"{page_label}: {exc}.", str(page_path),
+                )
+            )
+            evidence = None
+            invalid_evidence = True
+
         if not page_path.is_file():
             findings.append(
                 AuditFinding(
-                    "page_asset_missing",
-                    "error",
-                    (
-                        f"Source image for {page_label} is missing."
-                    ),
-                    str(page_path),
+                    "page_asset_missing", "error",
+                    f"Source image for {page_label} is missing.", str(page_path),
                 )
             )
             continue
-
-        evidence = None
-        if page["page_asset_sha256"] is not None:
-            try:
-                parameters = (
-                    json.loads(page["page_asset_parameters_json"])
-                    if page["page_asset_parameters_json"]
-                    else {}
-                )
-            except json.JSONDecodeError:
-                parameters = {}
-            evidence = PageAssetEvidence(
-                sha256=str(page["page_asset_sha256"]),
-                byte_size=int(page["page_asset_byte_size"])
-                if page["page_asset_byte_size"] is not None
-                else 0,
-                render_parameters=parameters,
-                version=int(page["page_asset_version"])
-                if page["page_asset_version"] is not None
-                else 1,
-            )
-            if evidence.byte_size <= 0:
-                findings.append(
-                    AuditFinding(
-                        "page_asset_evidence_invalid",
-                        "error",
-                        f"{page_label}: recorded page asset evidence has no usable size.",
-                        str(page_path),
-                    )
-                )
-                continue
+        if invalid_evidence:
+            continue
 
         try:
             actual = _file_sha256(page_path)
+            actual_size = page_path.stat().st_size
         except OSError as exc:
             findings.append(
                 AuditFinding(
@@ -266,6 +249,14 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
                         f"SHA-256 (recorded {evidence.sha256[:12]}…, "
                         f"found {actual[:12]}…). Do not use it as evidence."
                     ),
+                    str(page_path),
+                )
+            )
+        elif evidence is not None and actual_size != evidence.byte_size:
+            findings.append(
+                AuditFinding(
+                    "page_asset_size_mismatch", "error",
+                    f"{page_label}: raster size differs from recorded page asset evidence.",
                     str(page_path),
                 )
             )

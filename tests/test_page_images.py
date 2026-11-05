@@ -664,3 +664,34 @@ def test_assembly_keeps_legacy_page_without_digest_exportable(tmp_path: Path) ->
     image = assemble_verified_content(store, project_id).images[0]
     assert image.data == raster.read_bytes()
     assert image.sha256 == hashlib.sha256(image.data).hexdigest()
+
+
+@pytest.mark.parametrize("missing_column", ["page_asset_sha256", "page_asset_byte_size", "page_asset_parameters_json", "page_asset_version"])
+def test_export_image_rejects_partial_evidence_even_when_pixels_are_unchanged(
+    tmp_path: Path, missing_column: str
+) -> None:
+    import sqlite3
+
+    store, project_id = _store(tmp_path)
+    raster = _png(tmp_path / "cover.png", "black")
+    _add_page(store, project_id, 0, (), raster=raster)
+    _confirm(store, project_id, 0, "non_text")
+    store.rehash_page_asset(store.list_pages(project_id)[0].id)
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute(f"UPDATE pages SET {missing_column}=NULL")
+    with pytest.raises(PageImageError, match="(?i)(page|asset).*(incomplete|invalid)"):
+        assemble_verified_content(store, project_id)
+
+
+def test_export_rejects_image_with_inconsistent_recorded_size(tmp_path: Path) -> None:
+    import sqlite3
+
+    store, project_id = _store(tmp_path)
+    raster = _png(tmp_path / "cover.png", "black")
+    _add_page(store, project_id, 0, (), raster=raster)
+    _confirm(store, project_id, 0, "non_text")
+    store.rehash_page_asset(store.list_pages(project_id)[0].id)
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_byte_size=page_asset_byte_size+1")
+    with pytest.raises(PageImageError, match="(?i)(size|length)"):
+        assemble_verified_content(store, project_id)
