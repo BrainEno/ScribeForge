@@ -6,6 +6,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
+from scribeforge.decision_bindings import ambiguous_latest_decisions
 from scribeforge.domain.page_asset import PageAssetError, parse_page_asset_evidence
 from scribeforge.evidence_audit import audit_model_evidence
 
@@ -79,6 +80,7 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
         database_uri = f"{database.as_uri()}?mode=ro"
         with closing(sqlite3.connect(database_uri, uri=True)) as connection:
             connection.row_factory = sqlite3.Row
+            connection.execute("BEGIN")
             integrity_rows = connection.execute("PRAGMA integrity_check").fetchall()
             integrity_results = [str(row[0]) for row in integrity_rows]
             integrity = "; ".join(integrity_results) if integrity_results else "no result"
@@ -120,6 +122,7 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
                 ORDER BY project_id, page_index
                 """
             ).fetchall()
+            _audit_decision_bindings(connection, findings)
             audit_model_evidence(
                 connection,
                 lambda code, severity, message, path: findings.append(
@@ -285,6 +288,33 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
         findings,
     )
 
+
+
+def _audit_decision_bindings(
+    connection: sqlite3.Connection, findings: list[AuditFinding]
+) -> None:
+    tables = {str(row[0]) for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )}
+    if not {"verification_runs", "alignments", "decisions"}.issubset(tables):
+        return
+    pages = connection.execute(
+        """SELECT p.id, p.project_id, p.page_index, MAX(v.id) AS latest
+           FROM pages AS p JOIN verification_runs AS v ON v.page_id = p.id
+           GROUP BY p.id, p.project_id, p.page_index
+           HAVING COUNT(*) > 1
+           ORDER BY p.project_id, p.page_index"""
+    ).fetchall()
+    for page in pages:
+        latest = int(page["latest"])
+        for decision in ambiguous_latest_decisions(connection, int(page["id"]), latest):
+            findings.append(AuditFinding(
+                "decision_verification_ambiguous", "warning",
+                f"project {page['project_id']} page {int(page['page_index']) + 1} "
+                f"pair {decision['pair_index']}: decision {decision['id']} cannot be "
+                f"safely applied to latest verification {latest}; preserve the history "
+                "and reprocess in a new project.",
+            ))
 
 def _report(
     root: Path,
