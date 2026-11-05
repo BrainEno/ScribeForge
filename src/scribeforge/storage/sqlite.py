@@ -2023,9 +2023,16 @@ class SQLiteStore:
         candidates: tuple[ReviewCandidate, ...],
     ) -> int:
         with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             primary = self._engine_evidence(connection, primary_run_id)
             secondary = self._engine_evidence(connection, secondary_run_id)
             self._validate_verification(primary, secondary, alignment, risks, candidates)
+            if connection.execute(
+                "SELECT 1 FROM decisions WHERE page_id = ? LIMIT 1", (primary["page_id"],)
+            ).fetchone() is not None:
+                raise ValueError(
+                    "verification cannot be replaced after decisions exist; create a new project"
+                )
             cursor = connection.execute(
                 """
                 INSERT INTO verification_runs(
@@ -2624,6 +2631,11 @@ class SQLiteStore:
                 ).fetchone()
                 if verification is None or verification["page_id"] != page_id:
                     raise ValueError("verification does not match decision page or pair")
+                latest = connection.execute(
+                    "SELECT MAX(id) FROM verification_runs WHERE page_id = ?", (page_id,)
+                ).fetchone()[0]
+                if latest != expected_verification_id:
+                    raise ValueError("verification changed; reload the latest page verification")
             if require_undecided and connection.execute(
                 "SELECT 1 FROM decisions WHERE page_id = ? AND pair_index = ? LIMIT 1",
                 (page_id, pair_index),

@@ -634,3 +634,29 @@ def test_repair_reports_concurrent_human_decision_even_without_consensus(tmp_pat
     assert not report.remaining and not report.resolved
     assert [(ref.page_index, ref.pair_index) for ref in report.already_decided] == [(0, 0)]
     assert store.latest_decision(project, 0, 0).selected_text == "人工确认"
+
+
+def test_new_verification_during_repair_decision_refuses_old_pair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, project = _disputed_page(tmp_path)
+    original = store.latest_verification_id(project, 0)
+    old = store.load_verification(original)
+    other = SQLiteStore(tmp_path / "project.sqlite3")
+    append = store.append_decision
+    new_ids: list[int] = []
+
+    def new_verification(**kwargs):
+        new_ids.append(other.record_verification(old.primary_run_id, old.secondary_run_id,
+                       old.alignment, old.risks, old.candidates))
+        return append(**kwargs)
+
+    monkeypatch.setattr(store, "append_decision", new_verification)
+    with pytest.raises(ValueError, match="(?i)verification.*(latest|newer|changed)"):
+        run_repair_round(store, project, readers=(
+            RepairReader("one", FakeEngine("mineru", "鸦")),
+            RepairReader("two", FakeEngine("paddleocr", "鸦")),
+        ), crops_dir=tmp_path / "repair")
+    assert store.latest_decision(project, 0, 0) is None
+    assert store.latest_verification_id(project, 0) == new_ids[0]
+    assert len(store.list_scoped_run_ids(project, 0, "pair:0")) == 2

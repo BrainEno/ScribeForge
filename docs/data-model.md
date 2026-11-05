@@ -107,6 +107,11 @@ write transaction. For human decisions this snapshot is obtained during submissi
 not when the review UI was first displayed. Machine acceptance atomically skips a
 pair if any decision was recorded before its write, including a concurrent human
 correction; a human can still append a later correction without deleting history.
+A decision must target the latest verification, checked atomically with its write.
+A new verification for a page that already has any decisions is refused; create a
+new project instead of silently applying old pair decisions to a new alignment.
+This is a forward guard: historical databases that already contain later
+verifications and earlier decisions are not automatically repaired or re-attributed.
 Earlier successful runs are preserved
 if a later read fails. Reload the page after an evidence update before retrying, and restore a verified backup
 or re-import if the underlying raster no longer matches existing evidence. A preprocessing file published
