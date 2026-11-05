@@ -372,3 +372,31 @@ def test_audit_observes_one_database_snapshot_when_a_decision_arrives(
     monkeypatch.setattr(project_audit, "_audit_decision_bindings", original)
     second = audit_project_store(root)
     assert any(f.code == "decision_verification_ambiguous" for f in second.findings)
+
+
+def test_single_batch_uncited_decision_is_audited_as_unknown_and_preserved(tmp_path: Path) -> None:
+    from scribeforge.domain.alignment import LineAlignment, PageAlignment
+    from scribeforge.domain.ocr import BoundingBox, OCRLine, PageOCRResult
+    from scribeforge.domain.risk import PairRisk
+    from scribeforge.project_backup import create_project_backup, verify_project_backup
+
+    root, _ = _store_with_source(tmp_path)
+    store = SQLiteStore(root / "project.sqlite3")
+    project = store.list_projects()[0].id
+    line = OCRLine("甲", BoundingBox(0.1, 0.1, 0.5, 0.05))
+    a = store.record_ocr(project, PageOCRResult(0, "a", "1", (line,)))
+    b = store.record_ocr(project, PageOCRResult(0, "b", "1", (line,)))
+    verification = store.record_verification(a, b, PageAlignment(
+        0, "a", "b", (LineAlignment(0, 0, 1.0, 0.0, ()),)
+    ), (PairRisk(0, 0.0, ()),), ())
+    decision = store.append_decision(project_id=project, page_index=0, pair_index=0,
+                                     selected_text="甲", actor="human", evidence_refs=())
+    report = audit_project_store(root)
+    finding = next(item for item in report.findings if item.code == "decision_verification_unknown")
+    assert finding.severity == "warning" and f"decision {decision}" in finding.message
+    assert store.latest_verification_id(project, 0) == verification
+    archive = tmp_path / "legacy.zip"
+    create_project_backup(root, archive)
+    assert any(f["code"] == "decision_verification_unknown"
+               for f in verify_project_backup(archive)["audit_warnings"])
+    assert store.list_decisions(project, 0, 0)[0].evidence_refs == ()

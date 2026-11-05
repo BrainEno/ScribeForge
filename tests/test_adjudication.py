@@ -687,3 +687,48 @@ def test_human_cannot_append_on_ambiguous_history(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="ambiguous verification batch"):
         record_human_decision(store, project, 0, 1, "重新审阅")
     assert len(store.list_decisions(project, 0, 1)) == 1
+
+
+@pytest.mark.parametrize("refs", [(), ("verification_run:999",), ("verification_run:bad",),
+                                    ("verification_run:999", "verification_run:1")])
+def test_guarded_decision_requires_exact_verification_citation(
+    tmp_path: Path, refs: tuple[str, ...]
+) -> None:
+    store, project, verification, _, _ = _two_engine_page(tmp_path)
+    with pytest.raises(ValueError, match="(?i)verification.*(citation|reference)"):
+        store.append_decision(project_id=project, page_index=0, pair_index=0,
+                              selected_text="鸦", actor="human", evidence_refs=refs,
+                              expected_verification_id=verification)
+    assert store.list_decisions(project, 0, 0) == ()
+    store.append_decision(project_id=project, page_index=0, pair_index=0,
+                          selected_text="鸦", actor="human",
+                          evidence_refs=(f"verification_run:{verification}",),
+                          expected_verification_id=verification)
+    assert len(store.list_decisions(project, 0, 0)) == 1
+
+
+@pytest.mark.parametrize("kind", ["wrong", "conflicting", "orphan", "malformed"])
+def test_single_batch_explicitly_invalid_decision_cannot_be_used(tmp_path: Path, kind: str) -> None:
+    import sqlite3
+
+    from scribeforge.pipeline.assembly import assemble_verified_content
+    from scribeforge.project_audit import audit_project_store
+
+    store, project, only, _, _ = _two_engine_page(tmp_path)
+    store.append_decision(project_id=project, page_index=0, pair_index=0,
+                          selected_text="鸦", actor="human",
+                          evidence_refs=(f"verification_run:{only}",))
+    refs = (f"verification_run:{only}",) if kind == "orphan" else ("verification_run:999",)
+    if kind == "conflicting":
+        refs = (f"verification_run:{only}", "verification_run:999")
+    pair = 9 if kind == "orphan" else 1
+    decision = store.append_decision(project_id=project, page_index=0, pair_index=pair,
+                                     selected_text="乙", actor="human", evidence_refs=refs)
+    if kind == "malformed":
+        with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+            db.execute("UPDATE decisions SET evidence_refs_json='{' WHERE id=?", (decision,))
+    with pytest.raises(ValueError, match="ambiguous verification batch"):
+        assemble_verified_content(store, project, include_page_furniture=True)
+    report = audit_project_store(tmp_path)
+    assert any(f.code == "decision_verification_ambiguous" and f"decision {decision}" in f.message
+               for f in report.findings)

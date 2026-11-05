@@ -6,13 +6,13 @@ import json
 import sqlite3
 
 
-def ambiguous_latest_decisions(
-    connection: sqlite3.Connection, page_id: int, verification_id: int
-) -> tuple[sqlite3.Row, ...]:
+def inspect_latest_decisions(
+    connection: sqlite3.Connection, page_id: int, verification_id: int, *, multiple_runs: bool
+) -> tuple[tuple[sqlite3.Row, str], ...]:
     """Return latest decisions that cannot safely be applied to this run.
 
-    The caller must already have determined that the page has multiple runs.
-    Rows are returned so audit and active-context selection use identical rules.
+    Missing citations in a single run are unknown, not inferred. All other
+    invalid bindings are ambiguous. Audit and selection share these rules.
     """
     decisions = connection.execute(
         """
@@ -28,7 +28,7 @@ def ambiguous_latest_decisions(
         """,
         (verification_id, page_id),
     ).fetchall()
-    ambiguous: list[sqlite3.Row] = []
+    findings: list[tuple[sqlite3.Row, str]] = []
     for decision in decisions:
         try:
             decoded = json.loads(str(decision["evidence_refs_json"]))
@@ -36,7 +36,12 @@ def ambiguous_latest_decisions(
                 raise TypeError("stored JSON list is invalid")
             refs = [str(ref) for ref in decoded if str(ref).startswith("verification_run:")]
         except (ValueError, TypeError):
-            refs = []
-        if decision["alignment_id"] is None or refs != [f"verification_run:{verification_id}"]:
-            ambiguous.append(decision)
-    return tuple(ambiguous)
+            findings.append((decision, "ambiguous"))
+            continue
+        if decision["alignment_id"] is None:
+            findings.append((decision, "ambiguous"))
+        elif not refs and not multiple_runs:
+            findings.append((decision, "unknown"))
+        elif refs != [f"verification_run:{verification_id}"]:
+            findings.append((decision, "ambiguous"))
+    return tuple(findings)

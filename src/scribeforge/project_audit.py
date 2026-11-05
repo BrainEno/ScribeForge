@@ -6,7 +6,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
-from scribeforge.decision_bindings import ambiguous_latest_decisions
+from scribeforge.decision_bindings import inspect_latest_decisions
 from scribeforge.domain.page_asset import PageAssetError, parse_page_asset_evidence
 from scribeforge.evidence_audit import audit_model_evidence
 
@@ -299,21 +299,26 @@ def _audit_decision_bindings(
     if not {"verification_runs", "alignments", "decisions"}.issubset(tables):
         return
     pages = connection.execute(
-        """SELECT p.id, p.project_id, p.page_index, MAX(v.id) AS latest
+        """SELECT p.id, p.project_id, p.page_index, MAX(v.id) AS latest, COUNT(*) AS run_count
            FROM pages AS p JOIN verification_runs AS v ON v.page_id = p.id
            GROUP BY p.id, p.project_id, p.page_index
-           HAVING COUNT(*) > 1
            ORDER BY p.project_id, p.page_index"""
     ).fetchall()
     for page in pages:
         latest = int(page["latest"])
-        for decision in ambiguous_latest_decisions(connection, int(page["id"]), latest):
+        for decision, status in inspect_latest_decisions(
+            connection, int(page["id"]), latest, multiple_runs=int(page["run_count"]) > 1
+        ):
+            message = (
+                "has no verification citation; provenance is unknown"
+                if status == "unknown" else
+                f"cannot be safely applied to latest verification {latest}; preserve the "
+                "history and reprocess in a new project"
+            )
             findings.append(AuditFinding(
-                "decision_verification_ambiguous", "warning",
+                f"decision_verification_{status}", "warning",
                 f"project {page['project_id']} page {int(page['page_index']) + 1} "
-                f"pair {decision['pair_index']}: decision {decision['id']} cannot be "
-                f"safely applied to latest verification {latest}; preserve the history "
-                "and reprocess in a new project.",
+                f"pair {decision['pair_index']}: decision {decision['id']} {message}.",
             ))
 
 def _report(
