@@ -770,3 +770,112 @@ def test_wrong_recorded_page_size_blocks_processing_without_mutation(
                             assets_dir=tmp_path / "preprocessed")
     assert not primary.images
     assert not store.list_jobs(project)
+
+
+def test_repair_reader_rejects_page_evidence_changed_during_read(
+    tmp_path: Path,
+) -> None:
+    store, project, page = setup_page(tmp_path)
+    result = process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                          secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops",
+                          preprocess=PreprocessSettings())
+    old_frame = store.load_ocr_frame(result.primary_run_id)
+    assert old_frame is not None and old_frame.kind == "preprocessed"
+    source = Path(page.source_image)
+    original = source.read_bytes()
+
+    class ChangingPage(Engine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            reading = super().analyze_page(image_path, page_index)
+            Image.new("RGB", (200, 200), "red").save(source)
+            store.rehash_page_asset(page.id)
+            return reading
+
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        run_repair_round(store, project, readers=(RepairReader("c", ChangingPage("c", "丙")),),
+                         crops_dir=tmp_path / "repair")
+    assert store.list_scoped_run_ids(project, 0, "pair:0") == ()
+    assert store.latest_decision(project, 0, 0) is None
+    assert store.load_ocr_frame(result.primary_run_id) == old_frame
+    assert source.read_bytes() != original
+
+
+def test_vlm_rejects_page_evidence_changed_during_review(tmp_path: Path) -> None:
+    from scribeforge.domain.jobs import JobStage, JobState
+    from scribeforge.domain.vlm import VLMReading
+
+    store, project, page = setup_page(tmp_path)
+    source = Path(page.source_image)
+    original = source.read_bytes()
+
+    class ChangingReviewer:
+        def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
+            Image.new("RGB", (200, 200), "red").save(source)
+            store.rehash_page_asset(page.id)
+            return VLMReading(page_index, pair_index, "vlm", "1", "甲", False)
+
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                     secondary_engine=Engine("b", "乙"), reviewer=ChangingReviewer(),
+                     crops_dir=tmp_path / "crops", preprocess=PreprocessSettings())
+    verification_id = store.latest_verification_id(project, 0)
+    assert not store.list_vlm_reviews(verification_id)
+    assert store.latest_decision(project, 0, 0) is None
+    job = next(job for job in store.list_jobs(project) if job.stage is JobStage.VLM_REVIEW)
+    assert job.state is JobState.FAILED
+    assert source.read_bytes() != original
+
+
+def test_repair_vlm_rejects_page_evidence_changed_during_review(tmp_path: Path) -> None:
+    from scribeforge.domain.vlm import VLMReading
+
+    store, project, page = setup_page(tmp_path)
+    outcome = process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                           secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops",
+                           preprocess=PreprocessSettings())
+    source = Path(page.source_image)
+
+    class ChangingReviewer:
+        def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
+            Image.new("RGB", (200, 200), "red").save(source)
+            store.rehash_page_asset(page.id)
+            return VLMReading(page_index, pair_index, "vlm", "1", "甲", False)
+
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        run_repair_round(store, project, readers=(RepairReader("c", Engine("c", "丙")),),
+                         reviewer=ChangingReviewer(), crops_dir=tmp_path / "repair")
+    assert len(store.list_scoped_run_ids(project, 0, "pair:0")) == 1
+    assert not store.list_vlm_reviews(outcome.verification_id)
+    assert store.latest_decision(project, 0, 0) is None
+
+
+def test_vlm_page_snapshot_conflict_can_retry_with_fresh_page(tmp_path: Path) -> None:
+    from scribeforge.domain.jobs import JobStage, JobState
+    from scribeforge.domain.vlm import VLMReading
+
+    store, project, page = setup_page(tmp_path)
+    original = Path(page.source_image).read_bytes()
+
+    class BackfillingReviewer:
+        def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
+            store.rehash_page_asset(page.id)
+            return VLMReading(page_index, pair_index, "vlm", "1", "甲", False)
+
+    class ValidReviewer:
+        def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
+            return VLMReading(page_index, pair_index, "vlm", "1", "甲", False)
+
+    kwargs = {"primary_engine": Engine("a", "甲"), "secondary_engine": Engine("b", "乙"),
+              "crops_dir": tmp_path / "crops", "preprocess": PreprocessSettings()}
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        process_page(store, project, page, reviewer=BackfillingReviewer(), **kwargs)
+    verification_id = store.latest_verification_id(project, 0)
+    assert not store.list_vlm_reviews(verification_id)
+    fresh = store.list_pages(project)[0]
+    assert fresh.page_asset_sha256 == hashlib.sha256(original).hexdigest()
+    outcome = process_page(store, project, fresh, reviewer=ValidReviewer(), **kwargs)
+    assert outcome.verification_id == verification_id
+    assert len(store.list_vlm_reviews(verification_id)) == 1
+    job = next(j for j in store.list_jobs(project) if j.stage is JobStage.VLM_REVIEW)
+    assert job.state is JobState.SUCCEEDED and job.attempts == 2
+    assert Path(page.source_image).read_bytes() == original

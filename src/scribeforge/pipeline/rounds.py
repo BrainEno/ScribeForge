@@ -49,7 +49,12 @@ from scribeforge.pipeline.adjudication import project_furniture, review_detail
 from scribeforge.pipeline.crop_evidence import crop_evidence, isolated_crop
 from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.vlm_review import ReviewEvidence
-from scribeforge.storage.sqlite import CropInputEvidence, SQLiteStore, VerificationRecord
+from scribeforge.storage.sqlite import (
+    CropInputEvidence,
+    PageRecord,
+    SQLiteStore,
+    VerificationRecord,
+)
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
 
 #: Prefix of the scope an engine run gets when it read one line of a page.
@@ -333,6 +338,7 @@ def _vision_reading(
     crop_path: str,
     has_candidate: bool,
     crop_input: CropInputEvidence,
+    expected_page: PageRecord,
 ) -> tuple[Reading, str] | None:
     """Ask the vision model to read the enlarged crop, and persist its answer.
 
@@ -344,7 +350,7 @@ def _vision_reading(
         # The store can only attach a VLM reading to a persisted review
         # candidate; a model answer that cannot be stored must not be cited.
         return None
-    state = SQLiteVLMReviewState(store, verification_id)
+    state = SQLiteVLMReviewState(store, verification_id, expected_page=expected_page)
     with isolated_crop(crop_input) as private_path:
         reading = reviewer.transcribe_crop(
             private_path, page_index=page_index, pair_index=pair_index
@@ -454,7 +460,9 @@ def run_repair_round(
             verification_frame(store, project_id, page, verification_id)
             if result.engine != reader.engine.name or result.page_index != ref.page_index:
                 raise ValueError("repair reader returned mismatched engine or page identity")
-            run_id = store.record_ocr(project_id, result, scope=scope, crop_input=crop_input)
+            run_id = store.record_ocr(
+                project_id, result, scope=scope, crop_input=crop_input, expected_page=page
+            )
             confidences = [
                 line.lowest_confidence
                 for line in result.lines
@@ -489,6 +497,7 @@ def run_repair_round(
                 pair_index=ref.pair_index,
                 crop_path=crop_path,
                 crop_input=crop_input,
+                expected_page=page,
                 has_candidate=any(
                     candidate.pair_index == ref.pair_index
                     for candidate in record.candidates

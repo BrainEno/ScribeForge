@@ -99,8 +99,11 @@ writer from changing the raster after measurement.
 Page processing and preprocessing require the supplied page record to match the
 current project row, including source path, dimensions and asset evidence. New
 OCR and preprocessing records recheck that snapshot in the same SQLite write
-transaction as persistence; a stale or cross-project record is rejected. Reload
-the page after an evidence update before retrying. A preprocessing file published
+transaction as persistence; a stale or cross-project record is rejected. Repair
+OCR runs and VLM review inserts also check the page snapshot in their write
+transaction. Earlier successful runs are preserved if a later read fails. Reload
+the page after an evidence update before retrying, and restore a verified backup
+or re-import if the underlying raster no longer matches existing evidence. A preprocessing file published
 just before a concurrent row change can remain unreferenced; it is not overwritten.
 These checks do not lock out external filesystem writers, and direct lower-level
 storage calls that omit the expected page snapshot do not get this protection.

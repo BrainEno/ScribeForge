@@ -4,13 +4,16 @@ from hashlib import sha256
 from pathlib import Path
 
 from scribeforge.pipeline.vlm_review import ReviewEvidence
-from scribeforge.storage.sqlite import SQLiteStore
+from scribeforge.storage.sqlite import PageRecord, SQLiteStore
 
 
 class SQLiteVLMReviewState:
-    def __init__(self, store: SQLiteStore, verification_id: int) -> None:
+    def __init__(
+        self, store: SQLiteStore, verification_id: int, *, expected_page: PageRecord | None = None
+    ) -> None:
         self._store = store
         self._verification_id = verification_id
+        self._expected_page = expected_page
 
     def completed_pairs(self, page_index: int) -> frozenset[int]:
         persisted_page = self._store.verification_page_index(self._verification_id)
@@ -27,4 +30,5 @@ class SQLiteVLMReviewState:
             crop_path=evidence.crop_path,
             crop_sha256=crop_sha256,
             crop_input=evidence.crop_input,
+            expected_page=self._expected_page,
         )
