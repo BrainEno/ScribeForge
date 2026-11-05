@@ -110,8 +110,16 @@ correction; a human can still append a later correction without deleting history
 A decision must target the latest verification, checked atomically with its write.
 A new verification for a page that already has any decisions is refused; create a
 new project instead of silently applying old pair decisions to a new alignment.
-This is a forward guard: historical databases that already contain later
-verifications and earlier decisions are not automatically repaired or re-attributed.
+For historical pages with multiple verification runs, selecting the active run
+fails closed if the latest decision for any pair does not cite exactly that run,
+contains conflicting run references, or refers to a pair absent from it. Assembly,
+review, and repair consequently stop instead of reinterpreting the old decision.
+Older revisions are retained and can be inspected with raw history APIs. No
+migration or attribution is guessed; preserve the original project and create a
+new project for reprocessing. For compatibility, a single-verification legacy
+page may still contain uncited decisions: their provenance has not been proven.
+The check relies on stored citations, not protection against forged low-level
+writes, and does not make separate reads an atomic project-wide snapshot.
 Earlier successful runs are preserved
 if a later read fails. Reload the page after an evidence update before retrying, and restore a verified backup
 or re-import if the underlying raster no longer matches existing evidence. A preprocessing file published

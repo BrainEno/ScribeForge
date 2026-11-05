@@ -1242,24 +1242,58 @@ class SQLiteStore:
             }
 
     def latest_verification_id(self, project_id: int, page_index: int) -> int:
-        """Resolve the newest persisted verification run for one page."""
+        """Resolve the latest run, refusing ambiguous historical multi-batch decisions.
 
+        Raw verification and decision history remain available through their
+        dedicated methods; this guard applies when selecting the active context.
+        """
         with self._connection() as connection:
+            # The run and decisions must be examined in the same read snapshot.
+            connection.execute("BEGIN")
             self._require_project(connection, project_id)
             row = connection.execute(
                 """
-                SELECT verification_runs.id
-                FROM verification_runs
-                JOIN pages ON pages.id = verification_runs.page_id
+                SELECT v.id, v.page_id,
+                       (SELECT COUNT(*) FROM verification_runs AS all_runs
+                        WHERE all_runs.page_id = v.page_id) AS run_count
+                FROM verification_runs AS v
+                JOIN pages ON pages.id = v.page_id
                 WHERE pages.project_id = ? AND pages.page_index = ?
-                ORDER BY verification_runs.id DESC
-                LIMIT 1
+                ORDER BY v.id DESC LIMIT 1
                 """,
                 (project_id, page_index),
             ).fetchone()
             if row is None:
                 raise KeyError(f"unknown verification run for page {page_index}")
-            return int(row["id"])
+            verification_id = int(row["id"])
+            if int(row["run_count"]) > 1:
+                decisions = connection.execute(
+                    """
+                    SELECT d.pair_index, d.evidence_refs_json, a.id AS alignment_id
+                    FROM decisions AS d
+                    LEFT JOIN alignments AS a
+                      ON a.verification_run_id = ? AND a.pair_index = d.pair_index
+                    WHERE d.page_id = ? AND d.id = (
+                        SELECT MAX(newer.id) FROM decisions AS newer
+                        WHERE newer.page_id = d.page_id AND newer.pair_index = d.pair_index
+                    )
+                    """,
+                    (verification_id, row["page_id"]),
+                ).fetchall()
+                for decision in decisions:
+                    try:
+                        refs = self._json_strings(decision["evidence_refs_json"])
+                        verification_refs = [ref for ref in refs if ref.startswith("verification_run:")]
+                    except (ValueError, TypeError):
+                        verification_refs = []
+                    if (decision["alignment_id"] is None or
+                            verification_refs != [f"verification_run:{verification_id}"]):
+                        raise ValueError(
+                            f"ambiguous verification batch for decision on project {project_id}, "
+                            f"page {page_index}, pair {decision['pair_index']}; "
+                            "preserve the history and create a new project for reprocessing"
+                        )
+            return verification_id
 
     @staticmethod
     def _page_id(connection: sqlite3.Connection, project_id: int, page_index: int) -> int:
