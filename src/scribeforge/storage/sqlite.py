@@ -1918,115 +1918,121 @@ class SQLiteStore:
 
     def load_ocr_run(self, run_id: int) -> PageOCRResult:
         with self._connection() as connection:
-            run = connection.execute(
-                """
-                SELECT engine_runs.engine, engine_runs.engine_version,
-                       engine_runs.direction, pages.page_index
-                FROM engine_runs
-                JOIN pages ON pages.id = engine_runs.page_id
-                WHERE engine_runs.id = ?
-                """,
-                (run_id,),
-            ).fetchone()
-            if run is None:
-                raise KeyError(f"unknown OCR run: {run_id}")
+            connection.execute("BEGIN")
+            return self._load_ocr_run(connection, run_id)
 
-            line_rows = connection.execute(
-                """
-                SELECT id, line_index, text, x, y, width, height, confidence,
-                       tokens_reported
-                FROM ocr_lines
-                WHERE run_id = ?
-                ORDER BY line_index
-                """,
-                (run_id,),
-            ).fetchall()
-            lines: list[OCRLine] = []
-            for line_row in line_rows:
-                token_rows = connection.execute(
-                    """
-                    SELECT text, confidence, x, y, width, height
-                    FROM ocr_tokens
-                    WHERE line_id = ?
-                    ORDER BY token_index
-                    """,
-                    (int(line_row["id"]),),
-                ).fetchall()
-                token_evidence: tuple[OCRToken, ...] | None = tuple(
-                    OCRToken(
-                        text=str(token_row["text"]),
-                        confidence=(
-                            None
-                            if token_row["confidence"] is None
-                            else float(token_row["confidence"])
-                        ),
-                        box=BoundingBox(
-                            float(token_row["x"]),
-                            float(token_row["y"]),
-                            float(token_row["width"]),
-                            float(token_row["height"]),
-                        ),
-                    )
-                    for token_row in token_rows
-                )
-                if not bool(line_row["tokens_reported"]) and not token_evidence:
-                    token_evidence = None
-                lines.append(
-                    OCRLine(
-                        text=str(line_row["text"]),
-                        box=BoundingBox(
-                            float(line_row["x"]),
-                            float(line_row["y"]),
-                            float(line_row["width"]),
-                            float(line_row["height"]),
-                        ),
-                        tokens=token_evidence,
-                        confidence=(
-                            None
-                            if line_row["confidence"] is None
-                            else float(line_row["confidence"])
-                        ),
-                    )
-                )
+    @staticmethod
+    def _load_ocr_run(connection: sqlite3.Connection, run_id: int) -> PageOCRResult:
+        run = connection.execute(
+            """
+            SELECT engine_runs.engine, engine_runs.engine_version,
+                   engine_runs.direction, pages.page_index
+            FROM engine_runs
+            JOIN pages ON pages.id = engine_runs.page_id
+            WHERE engine_runs.id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+        if run is None:
+            raise KeyError(f"unknown OCR run: {run_id}")
 
-            block_rows = connection.execute(
+        line_rows = connection.execute(
+            """
+            SELECT id, line_index, text, x, y, width, height, confidence,
+                   tokens_reported
+            FROM ocr_lines
+            WHERE run_id = ?
+            ORDER BY line_index
+            """,
+            (run_id,),
+        ).fetchall()
+        lines: list[OCRLine] = []
+        for line_row in line_rows:
+            token_rows = connection.execute(
                 """
-                SELECT block_type, x, y, width, height, line_start, line_end
-                FROM ocr_blocks
-                WHERE run_id = ?
-                ORDER BY block_index
+                SELECT text, confidence, x, y, width, height
+                FROM ocr_tokens
+                WHERE line_id = ?
+                ORDER BY token_index
                 """,
-                (run_id,),
+                (int(line_row["id"]),),
             ).fetchall()
-            blocks = tuple(
-                OCRBlock(
-                    block_type=BlockType(str(block_row["block_type"])),
-                    box=BoundingBox(
-                        float(block_row["x"]),
-                        float(block_row["y"]),
-                        float(block_row["width"]),
-                        float(block_row["height"]),
+            token_evidence: tuple[OCRToken, ...] | None = tuple(
+                OCRToken(
+                    text=str(token_row["text"]),
+                    confidence=(
+                        None
+                        if token_row["confidence"] is None
+                        else float(token_row["confidence"])
                     ),
-                    line_start=int(block_row["line_start"]),
-                    line_end=int(block_row["line_end"]),
+                    box=BoundingBox(
+                        float(token_row["x"]),
+                        float(token_row["y"]),
+                        float(token_row["width"]),
+                        float(token_row["height"]),
+                    ),
                 )
-                for block_row in block_rows
+                for token_row in token_rows
+            )
+            if not bool(line_row["tokens_reported"]) and not token_evidence:
+                token_evidence = None
+            lines.append(
+                OCRLine(
+                    text=str(line_row["text"]),
+                    box=BoundingBox(
+                        float(line_row["x"]),
+                        float(line_row["y"]),
+                        float(line_row["width"]),
+                        float(line_row["height"]),
+                    ),
+                    tokens=token_evidence,
+                    confidence=(
+                        None
+                        if line_row["confidence"] is None
+                        else float(line_row["confidence"])
+                    ),
+                )
             )
 
-            direction = run["direction"]
-            return PageOCRResult(
-                page_index=int(run["page_index"]),
-                engine=str(run["engine"]),
-                engine_version=str(run["engine_version"]),
-                lines=tuple(lines),
-                blocks=blocks,
-                direction=(
-                    PageDirection.HORIZONTAL_LR
-                    if direction is None
-                    else PageDirection(str(direction))
+        block_rows = connection.execute(
+            """
+            SELECT block_type, x, y, width, height, line_start, line_end
+            FROM ocr_blocks
+            WHERE run_id = ?
+            ORDER BY block_index
+            """,
+            (run_id,),
+        ).fetchall()
+        blocks = tuple(
+            OCRBlock(
+                block_type=BlockType(str(block_row["block_type"])),
+                box=BoundingBox(
+                    float(block_row["x"]),
+                    float(block_row["y"]),
+                    float(block_row["width"]),
+                    float(block_row["height"]),
                 ),
-                direction_declared=direction is not None,
+                line_start=int(block_row["line_start"]),
+                line_end=int(block_row["line_end"]),
             )
+            for block_row in block_rows
+        )
+
+        direction = run["direction"]
+        return PageOCRResult(
+            page_index=int(run["page_index"]),
+            engine=str(run["engine"]),
+            engine_version=str(run["engine_version"]),
+            lines=tuple(lines),
+            blocks=blocks,
+            direction=(
+                PageDirection.HORIZONTAL_LR
+                if direction is None
+                else PageDirection(str(direction))
+            ),
+            direction_declared=direction is not None,
+        )
+
 
     @staticmethod
     def _engine_evidence(
@@ -2101,8 +2107,10 @@ class SQLiteStore:
                 raise ValueError("group proposals require whole-page OCR runs")
             # BEGIN IMMEDIATE prevents cooperating SQLite writes until the input
             # snapshots have been read and the append has committed.
-            first = self.load_ocr_run(primary_run_id)
-            second = self.load_ocr_run(secondary_run_id)
+            self._validate_group_source_indices(connection, primary_run_id)
+            self._validate_group_source_indices(connection, secondary_run_id)
+            first = self._load_ocr_run(connection, primary_run_id)
+            second = self._load_ocr_run(connection, secondary_run_id)
             result = propose_group_alignment(first, second, direction=direction)
             data = [{"primary": list(group.primary_indexes), "secondary": list(group.secondary_indexes),
                      "status": group.status, "score": group.score} for group in result.groups]
@@ -2118,69 +2126,97 @@ class SQLiteStore:
             return self._last_id(cursor)
 
     def load_group_proposals(self, project_id: int, proposal_id: int) -> StoredGroupProposals:
-        """Load research-only proposals; malformed or incomplete evidence fails closed."""
+        """Load research-only proposals against one consistent SQLite snapshot."""
         with self._connection() as connection:
             connection.execute("BEGIN")
-            row = connection.execute(
-                """SELECT g.*, p.project_id, p.page_index, a.page_id AS a_page, b.page_id AS b_page,
-                          a.scope AS a_scope, b.scope AS b_scope
-                   FROM group_proposal_runs g JOIN pages p ON p.id=g.page_id
-                   JOIN engine_runs a ON a.id=g.primary_run_id
-                   JOIN engine_runs b ON b.id=g.secondary_run_id WHERE g.id=?""", (proposal_id,)
-            ).fetchone()
-            if row is None or int(row["project_id"]) != project_id:
-                raise KeyError(f"unknown group proposal for project {project_id}: {proposal_id}")
-            try:
-                if (row["a_page"] != row["page_id"] or row["b_page"] != row["page_id"] or
-                        row["a_scope"] is not None or row["b_scope"] is not None or
-                        row["primary_run_id"] == row["secondary_run_id"] or
-                        row["algorithm_version"] != "experimental-group-v1"):
-                    raise ValueError("group proposal source mismatch")
-                direction = PageDirection(row["direction"])
-                primary_id, secondary_id = int(row["primary_run_id"]), int(row["secondary_run_id"])
-                digest = _group_evidence_digest(
-                    project_id, int(row["page_id"]), primary_id, secondary_id,
-                    direction.value, str(row["algorithm_version"]), str(row["groups_json"]),
-                    self.load_ocr_run(primary_id), self.load_ocr_run(secondary_id),
-                )
-                if digest != row["evidence_sha256"]:
-                    raise ValueError("group proposal evidence digest mismatch")
-                decoded = json.loads(row["groups_json"])
-                if not isinstance(decoded, list):
-                    raise TypeError("invalid group proposal payload")
-                counts = [int(connection.execute("SELECT COUNT(*) FROM ocr_lines WHERE run_id=?", (run,)).fetchone()[0])
-                          for run in (row["primary_run_id"], row["secondary_run_id"])]
-                seen: list[list[int]] = [[], []]
-                groups: list[ProposedGroup] = []
-                for item in decoded:
-                    if not isinstance(item, dict) or set(item) != {"primary", "secondary", "status", "score"}:
-                        raise ValueError("invalid group proposal item")
-                    parts = [item["primary"], item["secondary"]]
-                    if any(not isinstance(part, list) or any(type(index) is not int for index in part)
-                           for part in parts):
-                        raise ValueError("invalid group proposal indices")
-                    status, score = item["status"], item["score"]
-                    shape = tuple(len(part) for part in parts)
-                    if status == "proposed":
-                        if (shape not in {(1, 1), (1, 2), (2, 1)} or isinstance(score, bool) or
-                                not isinstance(score, (int, float)) or not math.isfinite(score) or
-                                not 0 <= score <= 1):
-                            raise ValueError("invalid group proposal score or shape")
-                    elif status not in {"ambiguous", "unmatched"} or shape not in {(1, 0), (0, 1)} or score is not None:
-                        raise ValueError("invalid group proposal status or shape")
-                    for side in range(2):
-                        if any(index < 0 or index >= counts[side] for index in parts[side]):
-                            raise ValueError("group proposal index out of range")
-                        seen[side].extend(parts[side])
-                    groups.append(ProposedGroup(tuple(parts[0]), tuple(parts[1]), status, score))
-                if any(sorted(seen[i]) != list(range(counts[i])) for i in range(2)):
-                    raise ValueError("incomplete or duplicate group proposal evidence")
-            except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-                raise ValueError(f"invalid group proposal evidence: {exc}") from exc
-            return StoredGroupProposals(
-                int(row["id"]), int(row["primary_run_id"]), int(row["secondary_run_id"]),
-                GroupProposals(int(row["page_index"]), direction, tuple(groups)), str(row["algorithm_version"]),
+            return self._load_group_proposals(connection, project_id, proposal_id)
+
+    @staticmethod
+    def _validate_group_source_indices(connection: sqlite3.Connection, run_id: int) -> None:
+        lines = connection.execute(
+            "SELECT id, line_index FROM ocr_lines WHERE run_id=? ORDER BY line_index", (run_id,)
+        ).fetchall()
+        if [row["line_index"] for row in lines] != list(range(len(lines))):
+            raise ValueError("group proposal source line indices are not contiguous")
+        for line in lines:
+            tokens = connection.execute(
+                "SELECT token_index FROM ocr_tokens WHERE line_id=? ORDER BY token_index", (line["id"],)
+            ).fetchall()
+            if [row["token_index"] for row in tokens] != list(range(len(tokens))):
+                raise ValueError("group proposal source token indices are not contiguous")
+        blocks = connection.execute(
+            "SELECT block_index FROM ocr_blocks WHERE run_id=? ORDER BY block_index", (run_id,)
+        ).fetchall()
+        if [row["block_index"] for row in blocks] != list(range(len(blocks))):
+            raise ValueError("group proposal source block indices are not contiguous")
+
+    @staticmethod
+    def _load_group_proposals(
+        connection: sqlite3.Connection, project_id: int, proposal_id: int,
+    ) -> StoredGroupProposals:
+        row = connection.execute(
+            """SELECT g.*, p.project_id, p.page_index, a.page_id AS a_page, b.page_id AS b_page,
+                      a.scope AS a_scope, b.scope AS b_scope
+               FROM group_proposal_runs g JOIN pages p ON p.id=g.page_id
+               JOIN engine_runs a ON a.id=g.primary_run_id
+               JOIN engine_runs b ON b.id=g.secondary_run_id WHERE g.id=?""", (proposal_id,)
+        ).fetchone()
+        if row is None or int(row["project_id"]) != project_id:
+            raise KeyError(f"unknown group proposal for project {project_id}: {proposal_id}")
+        try:
+            if (row["a_page"] != row["page_id"] or row["b_page"] != row["page_id"] or
+                    row["a_scope"] is not None or row["b_scope"] is not None or
+                    row["primary_run_id"] == row["secondary_run_id"] or
+                    row["algorithm_version"] != "experimental-group-v1"):
+                raise ValueError("group proposal source mismatch")
+            direction = PageDirection(row["direction"])
+            SQLiteStore._validate_group_source_indices(connection, int(row["primary_run_id"]))
+            SQLiteStore._validate_group_source_indices(connection, int(row["secondary_run_id"]))
+            primary_id, secondary_id = int(row["primary_run_id"]), int(row["secondary_run_id"])
+            digest = _group_evidence_digest(
+                project_id, int(row["page_id"]), primary_id, secondary_id,
+                direction.value, str(row["algorithm_version"]), str(row["groups_json"]),
+                SQLiteStore._load_ocr_run(connection, primary_id), SQLiteStore._load_ocr_run(connection, secondary_id),
             )
+            if digest != row["evidence_sha256"]:
+                raise ValueError("group proposal evidence digest mismatch")
+            decoded = json.loads(row["groups_json"])
+            if not isinstance(decoded, list):
+                raise TypeError("invalid group proposal payload")
+            counts = [int(connection.execute("SELECT COUNT(*) FROM ocr_lines WHERE run_id=?", (run,)).fetchone()[0])
+                      for run in (row["primary_run_id"], row["secondary_run_id"])]
+            seen: list[list[int]] = [[], []]
+            groups: list[ProposedGroup] = []
+            for item in decoded:
+                if not isinstance(item, dict) or set(item) != {"primary", "secondary", "status", "score"}:
+                    raise ValueError("invalid group proposal item")
+                parts = [item["primary"], item["secondary"]]
+                if any(not isinstance(part, list) or any(type(index) is not int for index in part)
+                       for part in parts):
+                    raise ValueError("invalid group proposal indices")
+                status, score = item["status"], item["score"]
+                shape = tuple(len(part) for part in parts)
+                if status == "proposed":
+                    if (shape not in {(1, 1), (1, 2), (2, 1)} or isinstance(score, bool) or
+                            not isinstance(score, (int, float)) or not math.isfinite(score) or
+                            not 0 <= score <= 1):
+                        raise ValueError("invalid group proposal score or shape")
+                elif status not in {"ambiguous", "unmatched"} or shape not in {(1, 0), (0, 1)} or score is not None:
+                    raise ValueError("invalid group proposal status or shape")
+                for side in range(2):
+                    if any(index < 0 or index >= counts[side] for index in parts[side]):
+                        raise ValueError("group proposal index out of range")
+                    seen[side].extend(parts[side])
+                groups.append(ProposedGroup(tuple(parts[0]), tuple(parts[1]), status, score))
+            if any(sorted(seen[i]) != list(range(counts[i])) for i in range(2)):
+                raise ValueError("incomplete or duplicate group proposal evidence")
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid group proposal evidence: {exc}") from exc
+        return StoredGroupProposals(
+            int(row["id"]), int(row["primary_run_id"]), int(row["secondary_run_id"]),
+            GroupProposals(int(row["page_index"]), direction, tuple(groups)), str(row["algorithm_version"]),
+        )
+
 
     def record_verification(
         self,

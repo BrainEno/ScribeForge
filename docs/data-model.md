@@ -286,4 +286,6 @@ of the saved proposal and OCR records on load. This is not a verification or a
 decision, and no existing pair index is reassigned. Existing v14 rows are not
 rewritten. A matching digest is not independent proof of source image identity
 or a defense against a writer who can alter both records and digest. Project
-audit and backup semantic validation do not yet inspect this research ledger.
+audit validates the ledger and source indices in its read-only SQLite snapshot;
+backup creation, verification and restore reject invalid proposals. The digest
+does not bind input frame records and cannot prove frame identity.

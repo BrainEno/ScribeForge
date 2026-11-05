@@ -106,7 +106,11 @@ and stored OCR data. `load_group_proposals` verifies this digest, source/run
 binding, shapes, ranges and one-time coverage of every source index. Invalid
 rows are refused without repair. This digest is a consistency check, not a
 signature or proof that OCR was read from the original page; a writer who can
-alter both data and digest is outside its threat model. It is not yet included
-in project audit or backup semantic validation. Upgrading v14 adds only this
-table and does not rewrite existing verification, alignment or decision rows.
+alter both data and digest is outside its threat model. Project audit checks
+these rows in its read-only SQLite snapshot; backup creation, verification and
+restore reject invalid rows via that audit. The checks also refuse noncontiguous
+source line, token or block indices, rather than silently renumbering them. The
+digest does not bind input frame records, and unknown input frames remain unknown.
+Upgrading v14 adds only this table and does not rewrite existing verification,
+alignment or decision rows.
 Group rows are not usable as production pairs or decision evidence.
