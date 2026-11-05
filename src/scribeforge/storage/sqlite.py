@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
-from scribeforge.decision_bindings import ambiguous_latest_decisions
+from scribeforge.decision_bindings import inspect_latest_decisions
 from scribeforge.domain.alignment import (
     AlignmentConflict,
     ConflictKind,
@@ -1243,7 +1243,7 @@ class SQLiteStore:
             }
 
     def latest_verification_id(self, project_id: int, page_index: int) -> int:
-        """Resolve the latest run, refusing ambiguous historical multi-batch decisions.
+        """Resolve the latest run, refusing ambiguous historical decisions.
 
         Raw verification and decision history remain available through their
         dedicated methods; this guard applies when selecting the active context.
@@ -1267,10 +1267,12 @@ class SQLiteStore:
             if row is None:
                 raise KeyError(f"unknown verification run for page {page_index}")
             verification_id = int(row["id"])
-            if int(row["run_count"]) > 1:
-                decisions = ambiguous_latest_decisions(connection, int(row["page_id"]), verification_id)
-                if decisions:
-                    decision = decisions[0]
+            findings = inspect_latest_decisions(
+                connection, int(row["page_id"]), verification_id,
+                multiple_runs=int(row["run_count"]) > 1,
+            )
+            for decision, status in findings:
+                if status == "ambiguous":
                     raise ValueError(
                         f"ambiguous verification batch for decision on project {project_id}, "
                         f"page {page_index}, pair {decision['pair_index']}; "
@@ -2653,6 +2655,9 @@ class SQLiteStore:
                 ).fetchone()[0]
                 if latest != expected_verification_id:
                     raise ValueError("verification changed; reload the latest page verification")
+                refs = [ref for ref in evidence_refs if ref.startswith("verification_run:")]
+                if refs != [f"verification_run:{expected_verification_id}"]:
+                    raise ValueError("verification citation does not match the expected verification")
             if require_undecided and connection.execute(
                 "SELECT 1 FROM decisions WHERE page_id = ? AND pair_index = ? LIMIT 1",
                 (page_id, pair_index),

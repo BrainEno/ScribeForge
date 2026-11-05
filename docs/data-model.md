@@ -107,7 +107,8 @@ write transaction. For human decisions this snapshot is obtained during submissi
 not when the review UI was first displayed. Machine acceptance atomically skips a
 pair if any decision was recorded before its write, including a concurrent human
 correction; a human can still append a later correction without deleting history.
-A decision must target the latest verification, checked atomically with its write.
+A guarded decision must target the latest verification and cite it exactly once,
+checked atomically with its write.
 A new verification for a page that already has any decisions is refused; create a
 new project instead of silently applying old pair decisions to a new alignment.
 For historical pages with multiple verification runs, selecting the active run
@@ -116,8 +117,10 @@ contains conflicting run references, or refers to a pair absent from it. Assembl
 review, and repair consequently stop instead of reinterpreting the old decision.
 Older revisions are retained and can be inspected with raw history APIs. No
 migration or attribution is guessed; preserve the original project and create a
-new project for reprocessing. For compatibility, a single-verification legacy
-page may still contain uncited decisions: their provenance has not been proven.
+new project for reprocessing. A single-verification page also fails closed for
+conflicting or malformed citations and nonexistent pairs. For compatibility,
+uncited decisions on such a page remain usable, but their provenance has not
+been proven; audit reports `decision_verification_unknown` as a warning.
 The check relies on stored citations, not protection against forged low-level
 writes, and does not make separate reads an atomic project-wide snapshot.
 The read-only project audit uses the same rule to report each ambiguous latest
