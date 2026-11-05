@@ -11,7 +11,7 @@ from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
 from scribeforge.domain.ocr import BoundingBox, PageOCRResult
 from scribeforge.domain.page_asset import file_sha256
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
-from scribeforge.storage.sqlite import SQLiteStore, VerificationRecord, VLMReviewRecord
+from scribeforge.storage.sqlite import PageRecord, SQLiteStore, VerificationRecord, VLMReviewRecord
 
 
 class _Unset:
@@ -161,6 +161,7 @@ def adjudicate_verification(
     verification_id: int,
     *,
     policy: AcceptancePolicy = DEFAULT_POLICY,
+    expected_page: PageRecord | None = None,
 ) -> AdjudicationResult:
     """Resolve a verification run's pairs into the append-only decision layer.
 
@@ -171,6 +172,10 @@ def adjudicate_verification(
     stay unresolved for human review.
     """
 
+    verification_page = store.verification_page_record(project_id, verification_id)
+    if expected_page is not None and expected_page != verification_page:
+        raise ValueError("page record does not match the current verification page")
+    expected_page = verification_page
     record = store.load_verification(verification_id)
     page_index = record.alignment.page_index
     primary = store.load_ocr_run(record.primary_run_id)
@@ -221,6 +226,8 @@ def adjudicate_verification(
             selected_text=selected_text,
             actor=actor.value,
             evidence_refs=_evidence_refs(record, reading),
+            expected_page=expected_page,
+            expected_verification_id=verification_id,
             risk_score=None if risk is None else risk.score,
             risk_reasons=tuple(reason.value for reason in risk.reasons)
             if risk is not None
@@ -407,6 +414,9 @@ def record_human_decision(
     """
 
     context = _pair_context(store, project_id, page_index, pair_index)
+    expected_page = store.verification_page_record(project_id, context.record.id)
+    if expected_page.page_index != page_index:
+        raise ValueError("verification does not match decision page")
     return store.append_decision(
         project_id=project_id,
         page_index=page_index,
@@ -414,6 +424,8 @@ def record_human_decision(
         selected_text=text,
         actor=DecisionActor.HUMAN.value,
         evidence_refs=_evidence_refs(context.record, context.reading),
+        expected_page=expected_page,
+        expected_verification_id=context.record.id,
     )
 
 

@@ -101,8 +101,11 @@ current project row, including source path, dimensions and asset evidence. New
 OCR and preprocessing records recheck that snapshot in the same SQLite write
 transaction as persistence; a stale or cross-project record is rejected. Repair
 OCR runs and VLM review inserts also check the page snapshot in their write
-transaction. Earlier successful runs are preserved if a later read fails. Reload
-the page after an evidence update before retrying, and restore a verified backup
+transaction. Automatic, repair and human decision inserts also recheck the page
+snapshot and bind the cited verification to the same project, page and pair in the
+write transaction. For human decisions this snapshot is obtained during submission,
+not when the review UI was first displayed. Earlier successful runs are preserved
+if a later read fails. Reload the page after an evidence update before retrying, and restore a verified backup
 or re-import if the underlying raster no longer matches existing evidence. A preprocessing file published
 just before a concurrent row change can remain unreferenced; it is not overwritten.
 These checks do not lock out external filesystem writers, and direct lower-level

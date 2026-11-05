@@ -249,7 +249,7 @@ def process_page(
         )
 
     validate_vlm_evidence()
-    adjudication = adjudicate_verification(store, project_id, verification_id)
+    adjudication = adjudicate_verification(store, project_id, verification_id, expected_page=page)
 
     return PageOutcome(
         page_index=page_index,

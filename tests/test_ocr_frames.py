@@ -879,3 +879,68 @@ def test_vlm_page_snapshot_conflict_can_retry_with_fresh_page(tmp_path: Path) ->
     job = next(j for j in store.list_jobs(project) if j.stage is JobStage.VLM_REVIEW)
     assert job.state is JobState.SUCCEEDED and job.attempts == 2
     assert Path(page.source_image).read_bytes() == original
+
+
+def test_adjudication_refuses_verification_from_another_project(tmp_path: Path) -> None:
+    from scribeforge.pipeline.adjudication import adjudicate_verification
+
+    store, project, page = setup_page(tmp_path)
+    outcome = process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                           secondary_engine=Engine("b", "甲"), crops_dir=tmp_path / "crops")
+    other = store.create_project("other", "other.pdf", "different")
+    other_path = tmp_path / "other.png"
+    Image.new("RGB", (200, 200), "red").save(other_path)
+    store.add_page(other, 0, str(other_path), 200, 200)
+    with pytest.raises(ValueError, match="(?i)(verification|project|page).*(match|belong)"):
+        adjudicate_verification(store, other, outcome.verification_id)
+    assert store.latest_decision(other, 0, 0) is None
+    assert store.latest_decision(project, 0, 0).selected_text == "甲"
+
+
+def test_automatic_decision_refuses_page_change_at_write_boundary_and_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, project, page = setup_page(tmp_path)
+    before = Path(page.source_image).read_bytes()
+    append = store.append_decision
+
+    def backfill_before_write(*args, **kwargs):
+        store.rehash_page_asset(page.id)
+        return append(*args, **kwargs)
+
+    monkeypatch.setattr(store, "append_decision", backfill_before_write)
+    kwargs = {"primary_engine": Engine("a", "甲"), "secondary_engine": Engine("b", "甲"),
+              "crops_dir": tmp_path / "crops"}
+    with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
+        process_page(store, project, page, **kwargs)
+    assert store.latest_decision(project, 0, 0) is None
+    primary_id = store.latest_engine_run(project, 0, "a")
+    verification_id = store.latest_verification_id(project, 0)
+    monkeypatch.setattr(store, "append_decision", append)
+    fresh = store.list_pages(project)[0]
+    outcome = process_page(store, project, fresh, **kwargs)
+    assert outcome.primary_run_id == primary_id
+    assert outcome.verification_id == verification_id
+    assert store.latest_decision(project, 0, 0).selected_text == "甲"
+    assert Path(page.source_image).read_bytes() == before
+
+
+def test_guarded_decision_rejects_wrong_verification_page_or_pair(tmp_path: Path) -> None:
+    store, project, page = setup_page(tmp_path)
+    outcome = process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                           secondary_engine=Engine("b", "甲"), crops_dir=tmp_path / "crops")
+    other = store.create_project("other", "other.pdf", "different")
+    other_image = tmp_path / "other.png"
+    Image.new("RGB", (200, 200), "red").save(other_image)
+    store.add_page(other, 0, str(other_image), 200, 200)
+    other_page = store.list_pages(other)[0]
+    with pytest.raises(ValueError, match="verification.*(page|pair)"):
+        store.append_decision(project_id=other, page_index=0, pair_index=0,
+                              selected_text="甲", actor="automatic", evidence_refs=(),
+                              expected_page=other_page, expected_verification_id=outcome.verification_id)
+    assert store.latest_decision(other, 0, 0) is None
+    with pytest.raises(ValueError, match="verification.*(page|pair)"):
+        store.append_decision(project_id=project, page_index=0, pair_index=9,
+                              selected_text="甲", actor="automatic", evidence_refs=(),
+                              expected_page=page, expected_verification_id=outcome.verification_id)
+    assert store.latest_decision(project, 0, 9) is None
