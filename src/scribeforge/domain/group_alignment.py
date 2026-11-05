@@ -104,8 +104,8 @@ def propose_group_alignment(primary: PageOCRResult, secondary: PageOCRResult, *,
 
     At most three group transitions are examined per cell. Sorting competing
     local candidates costs O(P*S*log(P+S)); memory is O(P*S), with additional
-    block-indexing and text-comparison costs. Tied local alternatives are reported
-    as ambiguous singleton evidence rather than selecting one. A hard cell limit
+    block-indexing and text-comparison costs. Local and whole-path near ties are
+    reported as ambiguous singleton evidence rather than selecting one. A hard cell limit
     fails closed. These are proposals, not accepted text or a validated layout.
     """
     if primary.page_index != secondary.page_index:
@@ -142,25 +142,64 @@ def propose_group_alignment(primary: PageOCRResult, secondary: PageOCRResult, *,
                     break
                 ambiguous_p.update(range(i, i+p))
                 ambiguous_s.update(range(j, j+s))
-    costs = [[0.0] * (m + 1) for _ in range(n + 1)]
-    steps: dict[tuple[int, int], tuple[int, int]] = {}
-    for i in range(n, -1, -1):
-        for j in range(m, -1, -1):
-            if i == n and j == m:
-                continue
-            options2: list[tuple[float, int, int]] = []
-            if i < n:
-                options2.append((costs[i+1][j], 1, 0))
-            if j < m:
-                options2.append((costs[i][j+1], 0, 1))
-            for p, s in ((1, 1), (1, 2), (2, 1)):
-                score = candidates.get((i, j, p, s))
-                if score is not None and not (set(range(i, i+p)) & ambiguous_p or
-                                               set(range(j, j+s)) & ambiguous_s):
-                    options2.append((score + costs[i+p][j+s], p, s))
-            value, p, s = max(options2, key=lambda option: (option[0], option[1]+option[2], option[1]))
-            costs[i][j] = value
-            steps[(i, j)] = (p, s)
+    def transitions(i: int, j: int) -> list[tuple[float, int, int]]:
+        options: list[tuple[float, int, int]] = []
+        if i < n:
+            options.append((0.0, 1, 0))
+        if j < m:
+            options.append((0.0, 0, 1))
+        for p, q in ((1, 1), (1, 2), (2, 1)):
+            score = candidates.get((i, j, p, q))
+            if score is not None and not (set(range(i, i+p)) & ambiguous_p or
+                                           set(range(j, j+q)) & ambiguous_s):
+                options.append((score, p, q))
+        return options
+
+    def solve() -> tuple[list[list[float]], dict[tuple[int, int], tuple[int, int]]]:
+        costs = [[0.0] * (m + 1) for _ in range(n + 1)]
+        steps: dict[tuple[int, int], tuple[int, int]] = {}
+        for i in range(n, -1, -1):
+            for j in range(m, -1, -1):
+                if i == n and j == m:
+                    continue
+                options = [(score + costs[i+p][j+q], p, q)
+                           for score, p, q in transitions(i, j)]
+                value, p, q = max(options, key=lambda option: (option[0], option[1]+option[2], option[1]))
+                costs[i][j] = value
+                steps[(i, j)] = (p, q)
+        return costs, steps
+
+    costs, steps = solve()
+    # Check whole-path alternatives, not only local candidate scores. Forward and
+    # backward optima establish whether each transition belongs to a path within
+    # the ambiguity margin of the optimum; different assignments for the same
+    # line make its competing groups unsafe to choose automatically.
+    forward = [[float("-inf")] * (m + 1) for _ in range(n + 1)]
+    forward[0][0] = 0.0
+    for i in range(n + 1):
+        for j in range(m + 1):
+            for score, p, q in transitions(i, j):
+                forward[i+p][j+q] = max(forward[i+p][j+q], forward[i][j] + score)
+    alternatives: dict[tuple[str, int], set[tuple[int, int, int, int] | None]] = {}
+    for i in range(n + 1):
+        for j in range(m + 1):
+            for score, p, q in transitions(i, j):
+                if forward[i][j] + score + costs[i+p][j+q] < costs[0][0] - _TIE_MARGIN:
+                    continue
+                transition_key = (i, j, p, q) if p and q else None
+                for item in [("p", k) for k in range(i, i+p)] + [("s", k) for k in range(j, j+q)]:
+                    alternatives.setdefault(item, set()).add(transition_key)
+    for (side, index), choices in alternatives.items():
+        if len(choices) <= 1:
+            continue
+        (ambiguous_p if side == "p" else ambiguous_s).add(index)
+        for choice in choices:
+            if choice is not None:
+                i, j, p, q = choice
+                ambiguous_p.update(range(i, i+p))
+                ambiguous_s.update(range(j, j+q))
+    if ambiguous_p or ambiguous_s:
+        costs, steps = solve()
     groups: list[ProposedGroup] = []
     i = j = 0
     while i < n or j < m:

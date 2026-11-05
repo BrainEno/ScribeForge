@@ -146,3 +146,22 @@ def test_split_fragments_in_distinct_blocks_are_not_combined() -> None:
     ))
     result = propose_group_alignment(primary, secondary, direction=PageDirection.HORIZONTAL_LR)
     assert not any(len(g.secondary_indexes) == 2 for g in result.groups)
+
+
+def test_globally_tied_paths_are_exposed_even_when_local_scores_differ(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scribeforge.domain import group_alignment
+
+    primary = page("a", [("p0", (0.1, 0.1, 0.1, 0.05)), ("p1", (0.2, 0.1, 0.1, 0.05))])
+    secondary = page("b", [("s0", (0.1, 0.1, 0.1, 0.05)), ("s1", (0.2, 0.1, 0.1, 0.05)),
+                            ("s2", (0.3, 0.1, 0.1, 0.05))])
+    scores = {((0,), (0,)): 0.81, ((0,), (0, 1)): 0.94,
+              ((1,), (1, 2)): 0.89, ((1,), (2,)): 0.76}
+    def candidate(_p, _s, left, right, _direction, _pb, _sb):
+        return scores.get((left, right))
+    monkeypatch.setattr(group_alignment, "_candidate", candidate)
+    result = group_alignment.propose_group_alignment(primary, secondary, direction=PageDirection.HORIZONTAL_LR)
+    assert not any(group.status == "proposed" for group in result.groups)
+    assert {i for group in result.groups if group.status == "ambiguous" for i in group.primary_indexes} == {0, 1}
+    assert {i for group in result.groups if group.status == "ambiguous" for i in group.secondary_indexes} == {0, 1, 2}

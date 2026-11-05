@@ -71,16 +71,25 @@ contiguous groups, with a maximum of 250,000 sequence-alignment cells. It sorts
 lines by the existing direction-aware reading key, uses bounded dynamic
 programming with skip transitions, and requires adjacent split fragments,
 two-axis box overlap, text similarity and compatible explicit block roles.
-Locally near-equal candidate scores are exposed as `ambiguous` singleton
-evidence, rather than silently selected. Missing block labels are not inferred;
+Locally near-equal candidate scores and near-equal whole-path scores are exposed
+as `ambiguous` singleton evidence, rather than silently selected. Whole-path
+ambiguity uses forward and backward dynamic-programming scores and a 0.03 margin;
+it is relative to this bounded candidate graph, not proof of layout correctness. Missing block labels are not inferred;
 all matches, including those with missing labels, remain untrusted proposals.
 
 Worst-case space is O(P*S); candidate construction is O(P*S) with at most
 three transitions per cell and text-comparison cost, while local ambiguity
 ranking is O(P*S*log(P+S)); block indexing depends on total block memberships.
 The hard cell cap refuses oversized input rather than silently truncating it.
-Geometric thresholds are uncalibrated; local ambiguity is not a proof of global
-uniqueness, and the existing reading-order key does not model arbitrary complex
-layouts. The prototype is tested on small deterministic synthetic fixtures only,
+Geometric thresholds and the whole-path margin are uncalibrated; this does not
+prove uniqueness outside the candidate graph, and the existing reading-order key
+does not model arbitrary complex layouts. The prototype is tested on small deterministic synthetic fixtures only,
 not on real OCR. It is not a solution for #79 until schema migration, evidence
 validation, every consumer and a representative labeled evaluation are in place.
+
+The hand-labeled `tests/fixtures/group_alignment_truth.json` contains six small
+synthetic cases. Its test reports 8/8 predicted/reference groups (precision,
+recall and F1 1.0), zero inversions among matched reference groups, zero labeled
+cross-region edges, three ambiguous singleton lines, three 1:2 groups and one
+2:1 group. These are fixture-specific counts, not a performance claim about real
+books, unrepresented layouts, missing matches, or production OCR.
