@@ -701,3 +701,72 @@ def test_guarded_storage_rejects_result_for_a_different_page(tmp_path: Path) -> 
     with sqlite3.connect(tmp_path / "project.sqlite3") as db:
         assert db.execute("SELECT count(*) FROM engine_runs").fetchone()[0] == 0
         assert db.execute("SELECT count(*) FROM page_preprocess").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("entrypoint", ["process", "preprocess"])
+@pytest.mark.parametrize("missing_column", ["page_asset_sha256", "page_asset_byte_size", "page_asset_parameters_json", "page_asset_version"])
+def test_incomplete_page_asset_evidence_blocks_processing(
+    tmp_path: Path, entrypoint: str, missing_column: str
+) -> None:
+    from scribeforge.pipeline.preprocessing import preprocess_page
+
+    store, project, page = setup_page(tmp_path)
+    assert store.rehash_page_asset(page.id) is not None
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute(f"UPDATE pages SET {missing_column}=NULL WHERE id=?", (page.id,))
+    page = store.list_pages(project)[0]
+    before = Path(page.source_image).read_bytes()
+    primary, secondary = Engine("a", "甲"), Engine("b", "乙")
+    with pytest.raises(ValueError, match="(?i)(page|asset).*(incomplete|invalid)"):
+        if entrypoint == "process":
+            process_page(store, project, page, primary_engine=primary,
+                         secondary_engine=secondary, crops_dir=tmp_path / "crops")
+        else:
+            preprocess_page(store, project, page, PreprocessSettings(),
+                            assets_dir=tmp_path / "preprocessed")
+    assert not primary.images and not secondary.images
+    assert not store.list_jobs(project)
+    assert Path(page.source_image).read_bytes() == before
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        assert db.execute("SELECT count(*) FROM engine_runs").fetchone()[0] == 0
+
+
+def test_incomplete_page_asset_evidence_blocks_repair(tmp_path: Path) -> None:
+    store, project, page = setup_page(tmp_path)
+    assert store.rehash_page_asset(page.id) is not None
+    page = store.list_pages(project)[0]
+    process_page(store, project, page, primary_engine=Engine("a", "甲"),
+                 secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops",
+                 preprocess=PreprocessSettings())
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_byte_size=NULL WHERE id=?", (page.id,))
+    repair = Engine("c", "丙")
+    with pytest.raises(ValueError, match="(?i)(page|asset).*(incomplete|invalid)"):
+        run_repair_round(store, project, readers=(RepairReader("c", repair),),
+                         crops_dir=tmp_path / "repair")
+    assert not repair.images
+    assert not (tmp_path / "repair").exists()
+
+
+@pytest.mark.parametrize("entrypoint", ["process", "preprocess"])
+def test_wrong_recorded_page_size_blocks_processing_without_mutation(
+    tmp_path: Path, entrypoint: str
+) -> None:
+    from scribeforge.pipeline.preprocessing import preprocess_page
+
+    store, project, page = setup_page(tmp_path)
+    store.rehash_page_asset(page.id)
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_byte_size=page_asset_byte_size+1 WHERE id=?",
+                   (page.id,))
+    page = store.list_pages(project)[0]
+    primary = Engine("a", "甲")
+    with pytest.raises(ValueError, match="(?i)size"):
+        if entrypoint == "process":
+            process_page(store, project, page, primary_engine=primary,
+                         secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+        else:
+            preprocess_page(store, project, page, PreprocessSettings(),
+                            assets_dir=tmp_path / "preprocessed")
+    assert not primary.images
+    assert not store.list_jobs(project)

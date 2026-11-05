@@ -344,3 +344,83 @@ def test_rehash_does_not_invent_incomplete_recorded_metadata(
     with pytest.raises(PageAssetError, match="recorded evidence"):
         store.rehash_page_asset(page_id)
     assert store.list_pages(pid)[0] == before
+
+
+@pytest.mark.parametrize("column,value", [
+    ("page_asset_byte_size", 17),
+    ("page_asset_parameters_json", '{"dpi": 300}'),
+    ("page_asset_version", 2),
+])
+def test_rehash_does_not_overwrite_partial_evidence_without_digest(
+    tmp_path: Path, column: str, value: object
+) -> None:
+    import sqlite3
+    from contextlib import closing
+
+    from scribeforge.storage.sqlite import SQLiteStore
+
+    database = tmp_path / "project.sqlite3"
+    store = SQLiteStore(database)
+    store.initialize()
+    project = store.create_project("book", "book.pdf", "hash")
+    image = tmp_path / "page.png"
+    image.write_bytes(b"legacy raster")
+    page_id = store.add_page(project, 0, str(image), 10, 20)
+    with closing(sqlite3.connect(database)) as db, db:
+        db.execute(f"UPDATE pages SET {column}=? WHERE id=?", (value, page_id))
+    before = store.list_pages(project)[0]
+    with pytest.raises(PageAssetError, match="(?i)(incomplete|invalid)"):
+        store.rehash_page_asset(page_id)
+    assert store.list_pages(project)[0] == before
+    with pytest.raises(PageAssetError, match="(?i)(incomplete|invalid)"):
+        store.rehash_missing_page_assets()
+    assert store.list_pages(project)[0] == before
+    assert image.read_bytes() == b"legacy raster"
+
+
+def test_rehash_does_not_overwrite_partial_evidence_created_while_hashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+    from contextlib import closing
+
+    from scribeforge.storage import sqlite as storage
+    from scribeforge.storage.sqlite import SQLiteStore
+
+    database = tmp_path / "project.sqlite3"
+    store = SQLiteStore(database)
+    store.initialize()
+    project = store.create_project("book", "book.pdf", "hash")
+    image = tmp_path / "page.png"
+    image.write_bytes(b"legacy raster")
+    page_id = store.add_page(project, 0, str(image), 10, 20)
+    measure = storage._measure_page_asset
+    changed = False
+
+    def concurrent_partial(path: Path) -> tuple[str, int]:
+        nonlocal changed
+        result = measure(path)
+        if not changed:
+            with closing(sqlite3.connect(database)) as db, db:
+                db.execute("UPDATE pages SET page_asset_parameters_json=? WHERE id=?",
+                           ('{"dpi": 300}', page_id))
+            changed = True
+        return result
+
+    monkeypatch.setattr(storage, "_measure_page_asset", concurrent_partial)
+    with pytest.raises(PageAssetError, match="(?i)(changed|incomplete|invalid)"):
+        store.rehash_page_asset(page_id)
+    page = store.list_pages(project)[0]
+    assert page.page_asset_sha256 is None
+    assert page.page_asset_parameters_json == '{"dpi": 300}'
+
+
+def test_verify_page_asset_rejects_recorded_size_mismatch(tmp_path: Path) -> None:
+    path = tmp_path / "page.png"
+    data = b"raster"
+    path.write_bytes(data)
+    evidence = PageAssetEvidence(sha256=hashlib.sha256(data).hexdigest(), byte_size=len(data) + 1)
+    with pytest.raises(PageAssetError, match="(?i)(size|length)"):
+        verify_page_asset(path, evidence, what="page image")
+    with pytest.raises(PageAssetError, match="(?i)(size|length)"):
+        verify_recorded_bytes(data, evidence, what="page image")

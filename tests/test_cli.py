@@ -3544,3 +3544,49 @@ def test_export_refuses_replaced_recorded_cover_preserving_existing_output(
     assert run(["export", "--store", str(root), "--out", str(output)]) == 0
     with zipfile.ZipFile(output) as archive:
         assert archive.read("OEBPS/images/page-000001.png") == original
+
+
+def test_rehash_pages_rejects_partial_evidence_without_digest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sqlite3
+
+    root = tmp_path / "store"
+    store = SQLiteStore(root / "project.sqlite3")
+    store.initialize()
+    pid = store.create_project("book", "book.pdf", "hash")
+    path = tmp_path / "page.png"
+    path.write_bytes(b"legacy raster")
+    store.add_page(pid, 0, str(path), 10, 20)
+    with sqlite3.connect(root / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_parameters_json=?", ('{"dpi": 300}',))
+    before = store.list_pages(pid)[0]
+    assert run(["rehash-pages", "--store", str(root), "--json"]) == 2
+    captured = capsys.readouterr()
+    assert "incomplete" in captured.err
+    assert captured.out == ""
+    assert store.list_pages(pid)[0] == before
+    assert path.read_bytes() == b"legacy raster"
+
+
+def test_audit_cli_reports_partial_page_evidence_as_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sqlite3
+
+    from scribeforge.domain.page_asset import PageAssetEvidence
+
+    root = tmp_path / "store"
+    store = SQLiteStore(root / "project.sqlite3")
+    store.initialize()
+    pid = store.create_project("book", "book.pdf", "hash")
+    image = tmp_path / "page.png"
+    image.write_bytes(b"page")
+    store.add_page(pid, 0, str(image), 10, 20,
+                   page_asset=PageAssetEvidence.from_bytes(b"page"))
+    with sqlite3.connect(root / "project.sqlite3") as db:
+        db.execute("UPDATE pages SET page_asset_byte_size=NULL")
+    assert run(["audit", "--store", str(root), "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert any(item["code"] == "page_asset_evidence_invalid" and item["severity"] == "error"
+               for item in report["findings"])

@@ -43,7 +43,7 @@ from scribeforge.domain.consensus import Consensus, Reading, consensus
 from scribeforge.domain.crops import plan_region_read
 from scribeforge.domain.decisions import DecisionActor
 from scribeforge.domain.ocr import OCREngine
-from scribeforge.domain.page_asset import PageAssetEvidence, verify_page_asset
+from scribeforge.domain.page_asset import verify_page_asset
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import project_furniture, review_detail
 from scribeforge.pipeline.crop_evidence import crop_evidence, isolated_crop
@@ -412,15 +412,10 @@ def run_repair_round(
             skipped.append(ref)
             continue
 
-        if page.page_asset_sha256 is not None and page.page_asset_byte_size is not None:
+        page_evidence = page.asset_evidence()
+        if page_evidence is not None:
             verify_page_asset(
-                Path(page.source_image),
-                PageAssetEvidence(
-                    sha256=page.page_asset_sha256,
-                    byte_size=page.page_asset_byte_size,
-                    version=page.page_asset_version or 1,
-                ),
-                what=f"page {ref.page_index} source image",
+                Path(page.source_image), page_evidence, what=f"page {ref.page_index} source image"
             )
         verification_id = store.latest_verification_id(project_id, ref.page_index)
         frame, frame_path = verification_frame(store, project_id, page, verification_id)

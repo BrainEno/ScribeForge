@@ -26,6 +26,7 @@ from scribeforge.domain.content import (
 )
 from scribeforge.domain.furniture import detect_page_furniture
 from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
+from scribeforge.domain.page_asset import PageAssetError
 from scribeforge.domain.paragraphs import LineRole
 from scribeforge.domain.structure import BookStructure, PageRole
 from scribeforge.storage.sqlite import PageConfirmation, PageRecord, SQLiteStore, VerificationRecord
@@ -370,11 +371,17 @@ def _load_image(
             f"{path} is empty"
         )
     actual_sha256 = hashlib.sha256(data).hexdigest()
-    if source.page_asset_sha256 is not None and actual_sha256 != source.page_asset_sha256:
+    try:
+        evidence = source.asset_evidence()
+    except PageAssetError as exc:
+        raise PageImageError(str(exc)) from exc
+    if evidence is not None and actual_sha256 != evidence.sha256:
         raise PageImageError(
             f"page {page.page_index} image does not match the recorded page raster digest; "
             "restore it from a verified backup or re-import the project"
         )
+    if evidence is not None and len(data) != evidence.byte_size:
+        raise PageImageError(f"page {page.page_index} image size does not match recorded evidence")
     label = page.printed_label or str(page.page_index + 1)
     alt = "封面" if role is PageImageRole.COVER else f"第 {label} 页的插图"
     return VerifiedImage(

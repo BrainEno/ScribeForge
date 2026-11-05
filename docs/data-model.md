@@ -83,9 +83,12 @@ Version 9 databases migrate forward to 10 without deleting any evidence.
 columns — `page_asset_sha256`, `page_asset_byte_size`,
 `page_asset_parameters_json`, `page_asset_version` — populated at import time from
 the rendered page's bytes and render parameters (DPI, renderer, source format).
-They are nullable so projects imported before v11 keep opening; a NULL digest means
-"evidence from before v11" and is reported by the audit, not treated as an error.
-`scribeforge rehash-pages` records the current raster for those pages without
+They are nullable so projects imported before v11 keep opening. Only when all four
+fields are NULL is the raster treated as having unknown legacy evidence; a partial
+or malformed record is an integrity error, not a legacy page. Audit reports it
+without repairing it, and processing, repair, image export and backup refuse it.
+A recorded byte size must also match the actual raster. `scribeforge rehash-pages`
+records the current raster for fully missing evidence without
 overwriting an existing digest. This is a new observation, not proof that the
 legacy raster is the one originally imported; establish that provenance separately
 before backfilling. The command checks for changes during measurement and refuses
