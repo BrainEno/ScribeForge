@@ -468,3 +468,116 @@ def test_human_decision_still_supersedes_existing_machine_decision(tmp_path: Pat
         ("automatic", "乙"), ("human", "人工订正")
     ]
     assert store.latest_decision(project, 0, 1).selected_text == "人工订正"
+
+
+def _repeat_verification(store: SQLiteStore, verification_id: int) -> int:
+    old = store.load_verification(verification_id)
+    return store.record_verification(old.primary_run_id, old.secondary_run_id,
+                                     old.alignment, old.risks, old.candidates)
+
+
+def test_reverification_refuses_to_reinterpret_existing_decisions(tmp_path: Path) -> None:
+    store, project, verification, _, _ = _two_engine_page(tmp_path)
+    assert adjudicate_verification(store, project, verification).recorded == 1
+    existing = store.list_decisions(project, 0, 1)
+    with pytest.raises(ValueError, match="(?i)(verification|decision).*(decision|project|reimport)"):
+        _repeat_verification(store, verification)
+    assert store.latest_verification_id(project, 0) == verification
+    assert store.list_decisions(project, 0, 1) == existing
+
+
+def test_adjudication_refuses_an_old_verification_after_newer_one(tmp_path: Path) -> None:
+    store, project, old, _, _ = _two_engine_page(tmp_path)
+    new = _repeat_verification(store, old)
+    assert new != old
+    with pytest.raises(ValueError, match="(?i)verification.*(latest|newer|changed)"):
+        adjudicate_verification(store, project, old)
+    assert store.latest_decision(project, 0, 1) is None
+    result = adjudicate_verification(store, project, new)
+    assert result.recorded == 1
+    assert f"verification_run:{new}" in store.latest_decision(project, 0, 1).evidence_refs
+
+
+@pytest.mark.parametrize("actor", ["automatic", "human"])
+def test_new_verification_during_decision_write_requires_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, actor: str
+) -> None:
+    store, project, old, _, _ = _two_engine_page(tmp_path)
+    append = store.append_decision
+    other = SQLiteStore(tmp_path / "project.sqlite3")
+    new_ids: list[int] = []
+
+    def add_verification(**kwargs):
+        new_ids.append(_repeat_verification(other, old))
+        return append(**kwargs)
+
+    monkeypatch.setattr(store, "append_decision", add_verification)
+    target = 1 if actor == "automatic" else 0
+    with pytest.raises(ValueError, match="(?i)verification.*(latest|newer|changed)"):
+        if actor == "automatic":
+            adjudicate_verification(store, project, old)
+        else:
+            record_human_decision(store, project, 0, target, "人工文本")
+    assert store.latest_decision(project, 0, target) is None
+    assert store.latest_verification_id(project, 0) == new_ids[0]
+    monkeypatch.setattr(store, "append_decision", append)
+    if actor == "automatic":
+        adjudicate_verification(store, project, new_ids[0])
+    else:
+        record_human_decision(store, project, 0, target, "人工文本")
+    assert f"verification_run:{new_ids[0]}" in store.latest_decision(project, 0, target).evidence_refs
+
+
+def test_concurrent_new_verification_and_decision_are_serialized(tmp_path: Path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    store, project, old, _, _ = _two_engine_page(tmp_path)
+    page = store.list_pages(project)[0]
+    other = SQLiteStore(tmp_path / "project.sqlite3")
+    barrier = Barrier(2, timeout=10)
+
+    def add_new() -> tuple[str, int | str]:
+        barrier.wait()
+        try:
+            return "verification", _repeat_verification(other, old)
+        except ValueError as exc:
+            return "rejected_verification", str(exc)
+
+    def decide() -> tuple[str, int | str]:
+        barrier.wait()
+        try:
+            return "decision", store.append_decision(
+                project_id=project, page_index=0, pair_index=1, selected_text="乙",
+                actor="automatic", evidence_refs=(f"verification_run:{old}",),
+                expected_page=page, expected_verification_id=old, require_undecided=True,
+            )
+        except ValueError as exc:
+            return "rejected_decision", str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        new_task = pool.submit(add_new)
+        decision_task = pool.submit(decide)
+        new_result = new_task.result(timeout=20)
+        decision_result = decision_task.result(timeout=20)
+    assert (new_result[0], decision_result[0]) in {
+        ("verification", "rejected_decision"), ("rejected_verification", "decision")
+    }
+    if new_result[0] == "verification":
+        assert store.latest_verification_id(project, 0) == new_result[1]
+        assert store.latest_decision(project, 0, 1) is None
+    else:
+        assert store.latest_verification_id(project, 0) == old
+        assert store.latest_decision(project, 0, 1).selected_text == "乙"
+
+
+def test_decisions_on_other_pages_do_not_block_new_verification(tmp_path: Path) -> None:
+    store, project, first, _, _ = _two_engine_page(tmp_path)
+    assert adjudicate_verification(store, project, first).recorded == 1
+    store.add_page(project, 1, "pages/1.png", 100, 200)
+    primary = store.record_ocr(project, PageOCRResult(1, "primary", "1", (_line("甲", 0.1),)))
+    secondary = store.record_ocr(project, PageOCRResult(1, "secondary", "1", (_line("甲", 0.1),)))
+    alignment = PageAlignment(1, "primary", "secondary", (LineAlignment(0, 0, 1.0, 0.0, ()),))
+    second = store.record_verification(primary, secondary, alignment, (PairRisk(0, 0.0, ()),), ())
+    assert store.latest_verification_id(project, 1) == second
+    assert store.latest_decision(project, 0, 1).selected_text == "乙"

@@ -182,6 +182,8 @@ def adjudicate_verification(
     if expected_page is not None and expected_page != verification_page:
         raise ValueError("page record does not match the current verification page")
     expected_page = verification_page
+    if store.latest_verification_id(project_id, verification_page.page_index) != verification_id:
+        raise ValueError("verification is not the latest for this page")
     record = store.load_verification(verification_id)
     page_index = record.alignment.page_index
     primary = store.load_ocr_run(record.primary_run_id)
