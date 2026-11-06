@@ -423,15 +423,19 @@ void main() {
     await tester.tap(find.text('开始处理'));
     await pumpUntil(
       tester,
-      () => find.text('首次 OCR 运行时配置').evaluate().isNotEmpty,
-      description: 'the initialization guide instead of a module error',
+      () => find.text('配置完成').evaluate().isNotEmpty,
+      description: 'automatic initialization instead of a module error',
     );
 
     expect(
       harness.cli.calls.where((arguments) => arguments.first == 'process'),
       isEmpty,
     );
-    expect(find.text('开始安装全部后端'), findsOneWidget);
+    expect(
+      harness.cli.calls.where((arguments) => arguments.first == 'setup'),
+      hasLength(1),
+    );
+    expect(find.text('配置完成'), findsOneWidget);
   });
 
   testWidgets('a missing core guides to settings without invoking process', (
@@ -614,7 +618,7 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
   final Queue<int> _processResults;
   final Queue<int> _exportResults;
   final List<Map<String, Object?>> reviewItems;
-  final bool runtimeReady;
+  bool runtimeReady;
   final Object? runtimeError;
   final String processError;
   bool _holdNextProcess;
@@ -665,6 +669,15 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
                 },
             },
           }),
+        );
+        return 0;
+      case 'setup':
+        runtimeReady = true;
+        onOutput(
+          '{"schema_version":1,"type":"result","action":"install",'
+          '"success":true,"message":null,"backends":{'
+          '"mineru":{"state":"ready","failed_step":null},'
+          '"paddleocr":{"state":"ready","failed_step":null}}}',
         );
         return 0;
       case 'process':

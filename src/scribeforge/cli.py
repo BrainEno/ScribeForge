@@ -20,7 +20,7 @@ from scribeforge.adapters.candidate_epub import build_candidate_epub
 from scribeforge.adapters.docx import write_docx
 from scribeforge.adapters.epub import write_epub
 from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReviewer
-from scribeforge.adapters.runtime_workers import build_runtime_engine
+from scribeforge.adapters.runtime_workers import build_runtime_engine, worker_source_root
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.adapters.subprocess_ocr import DEFAULT_WORKER_TIMEOUT_SECONDS
 from scribeforge.benchmark.corpus import (
@@ -2591,7 +2591,7 @@ def default_benchmark_engine_factory(
 
 
 def _worker_script(name: str) -> Path:
-    return Path(__file__).resolve().parent / "workers" / name
+    return worker_source_root() / "scribeforge" / "workers" / name
 
 
 if __name__ == "__main__":

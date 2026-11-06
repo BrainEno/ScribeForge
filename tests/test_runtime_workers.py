@@ -53,6 +53,7 @@ def test_frozen_backend_uses_external_worker_source_bundle(
     worker = worker_root / "scribeforge" / "workers" / "paddle_worker.py"
     worker.parent.mkdir(parents=True)
     worker.write_text("# packaged worker", encoding="utf-8")
+    (worker.parent / "protocol.py").write_text("# worker contract", encoding="utf-8")
     monkeypatch.setattr(runtime_workers.sys, "frozen", True, raising=False)
     monkeypatch.setattr(runtime_workers.sys, "executable", str(application))
     monkeypatch.setattr(runtime_workers.sys, "_MEIPASS", str(bundle), raising=False)

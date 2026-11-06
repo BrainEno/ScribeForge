@@ -1,0 +1,103 @@
+name: Windows Desktop Package
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-desktop.yml"
+      - "packaging/**"
+      - "clients/flutter_desktop/**"
+      - "src/scribeforge/**"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Build the frozen backend
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pyinstaller==6.16.0
+          python -m PyInstaller --noconfirm --clean packaging/scribeforge_backend.spec
+
+      - name: Smoke-test the frozen backend without Python on PATH
+        shell: pwsh
+        run: |
+          $backend = (Resolve-Path "dist/backend/scribeforge.exe").Path
+          & $backend --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Frozen backend --help failed" }
+          $originalPath = $env:PATH
+          $env:PATH = "$env:SystemRoot\System32"
+          $report = & $backend runtime-status --json | Out-String
+          $exitCode = $LASTEXITCODE
+          $env:PATH = $originalPath
+          if ($exitCode -ne 0) { throw "Frozen runtime-status failed: $report" }
+          $status = $report | ConvertFrom-Json
+          if ($status.schema_version -ne 1) { throw "Invalid runtime status" }
+          $workerRoot = "dist/backend/_internal/worker-src/scribeforge/workers"
+          if (-not (Test-Path "$workerRoot/paddle_worker.py")) { throw "Paddle Worker source is missing" }
+          if (-not (Test-Path "$workerRoot/mineru_worker.py")) { throw "MinerU Worker source is missing" }
+          $env:PYTHONPATH = (Resolve-Path "dist/backend/_internal/worker-src").Path
+          python -c "from scribeforge.workers import mineru_worker, paddle_worker; print('external Worker imports passed')"
+          Remove-Item Env:PYTHONPATH
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+
+      - name: Build the Flutter Windows release
+        shell: pwsh
+        working-directory: clients/flutter_desktop
+        run: |
+          flutter create --platforms=windows --project-name scribeforge_desktop .
+          flutter pub get
+          flutter test test/backend_resolver_test.dart test/backend_diagnostics_test.dart
+          flutter build windows --release
+
+      - name: Assemble the self-contained desktop folder
+        shell: pwsh
+        run: |
+          $release = "clients/flutter_desktop/build/windows/x64/runner/Release"
+          Copy-Item -Recurse -Force "dist/backend" "$release/backend"
+          & "$release/backend/scribeforge.exe" runtime-status --json | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Packaged backend smoke test failed" }
+          New-Item -ItemType Directory -Force "dist/portable" | Out-Null
+          Compress-Archive -Path "$release/*" -DestinationPath "dist/portable/ScribeForge-windows-x64.zip" -Force
+
+      - name: Build the per-user installer
+        shell: pwsh
+        run: |
+          choco install innosetup --version=6.4.3 --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=0.1.0" "packaging/windows/ScribeForge.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+
+      - name: Record artifact checksums
+        shell: pwsh
+        run: |
+          Get-FileHash "dist/portable/ScribeForge-windows-x64.zip", "dist/installer/ScribeForge-Setup-x64.exe" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $($_.Path)" } |
+            Out-File -Encoding utf8 "dist/SHA256SUMS.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScribeForge-windows-x64-unsigned
+          path: |
+            dist/portable/ScribeForge-windows-x64.zip
+            dist/installer/ScribeForge-Setup-x64.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

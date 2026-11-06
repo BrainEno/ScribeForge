@@ -7,6 +7,7 @@ void main() {
   Future<void> showSetupDialog(
     WidgetTester tester, {
     required RuntimeSetupRunner runSetup,
+    bool autoStart = false,
   }) async {
     tester.view.physicalSize = const Size(1280, 1000);
     tester.view.devicePixelRatio = 1;
@@ -20,7 +21,10 @@ void main() {
               onPressed: () => showDialog<bool>(
                 context: context,
                 barrierDismissible: false,
-                builder: (_) => RuntimeSetupDialog(runSetup: runSetup),
+                builder: (_) => RuntimeSetupDialog(
+                  runSetup: runSetup,
+                  autoStart: autoStart,
+                ),
               ),
               child: const Text('打开配置'),
             ),
@@ -79,6 +83,33 @@ void main() {
     expect(find.text('配置完成'), findsOneWidget);
     expect(find.text('就绪'), findsNWidgets(2));
     expect(find.text('只修复 MinerU'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('autoStart begins initialization without a second click', (
+    tester,
+  ) async {
+    var calls = 0;
+    await showSetupDialog(
+      tester,
+      autoStart: true,
+      runSetup: ({required backend, required onMessage, required onDiagnostic}) async {
+        calls++;
+        expect(backend, isNull);
+        onMessage(
+          RuntimeSetupMessage.fromJsonLine(
+            '{"schema_version":1,"type":"result","action":"install",'
+            '"success":true,"message":null,"backends":{'
+            '"mineru":{"state":"ready","failed_step":null},'
+            '"paddleocr":{"state":"ready","failed_step":null}}}',
+          ),
+        );
+        return 0;
+      },
+    );
+
+    expect(calls, 1);
+    expect(find.text('配置完成'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
