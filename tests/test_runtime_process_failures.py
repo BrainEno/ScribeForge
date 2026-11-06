@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import sys
@@ -130,6 +131,7 @@ def test_windows_tree_cleanup_uses_taskkill_and_kills_survivor(
     assert child.returncode == -9
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group fallback")
 def test_posix_tree_cleanup_falls_back_when_process_group_disappears(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

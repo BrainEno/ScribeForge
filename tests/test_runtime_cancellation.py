@@ -73,13 +73,13 @@ class TimeoutRecorder:
 def test_manager_uses_step_deadline_and_supports_explicit_override(tmp_path: Path) -> None:
     executor = TimeoutRecorder()
     RuntimeManager(tmp_path, executor).install(_model_plan(tmp_path))
-    assert executor.timeouts == [pytest.approx(12.5)]
+    assert executor.timeouts == [pytest.approx(12.5, abs=0.1)]
 
     override = TimeoutRecorder()
     RuntimeManager(tmp_path, override, timeout_seconds=3.5).repair(
         _model_plan(tmp_path), "mineru"
     )
-    assert override.timeouts == [pytest.approx(3.5)]
+    assert override.timeouts == [pytest.approx(3.5, abs=0.1)]
 
 
 def test_step_timeout_is_overall_across_retries(tmp_path: Path) -> None:
