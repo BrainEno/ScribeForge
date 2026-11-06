@@ -52,42 +52,51 @@ void main() {
     expect(resolution.origin, DesktopBackendOrigin.bundled);
   });
 
-  test('an explicit developer override wins without being silently replaced', () async {
-    final resolution = await DesktopBackendResolver(
-      applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
-      operatingSystem: 'linux',
-      fileExists: (_) async => true,
-    ).resolve('/work/venv/bin/scribeforge');
+  test(
+    'an explicit developer override wins without being silently replaced',
+    () async {
+      final resolution = await DesktopBackendResolver(
+        applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
+        operatingSystem: 'linux',
+        fileExists: (_) async => true,
+      ).resolve('/work/venv/bin/scribeforge');
 
-    expect(resolution.executable, '/work/venv/bin/scribeforge');
-    expect(resolution.origin, DesktopBackendOrigin.custom);
-    expect(resolution.usesBundledBackend, isFalse);
-  });
+      expect(resolution.executable, '/work/venv/bin/scribeforge');
+      expect(resolution.origin, DesktopBackendOrigin.custom);
+      expect(resolution.usesBundledBackend, isFalse);
+    },
+  );
 
-  test('falls back to PATH only for development when no bundle exists', () async {
-    final resolution = await DesktopBackendResolver(
-      applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
-      operatingSystem: 'linux',
-      fileExists: (_) async => false,
-    ).resolve('scribeforge');
+  test(
+    'falls back to PATH only for development when no bundle exists',
+    () async {
+      final resolution = await DesktopBackendResolver(
+        applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
+        operatingSystem: 'linux',
+        fileExists: (_) async => false,
+      ).resolve('scribeforge');
 
-    expect(resolution.executable, 'scribeforge');
-    expect(resolution.origin, DesktopBackendOrigin.developmentPath);
-    expect(resolution.usesBundledBackend, isFalse);
-  });
+      expect(resolution.executable, 'scribeforge');
+      expect(resolution.origin, DesktopBackendOrigin.developmentPath);
+      expect(resolution.usesBundledBackend, isFalse);
+    },
+  );
 
-  test('resolves the Windows executable name inside the backend folder', () async {
-    String? inspectedPath;
-    final resolution = await DesktopBackendResolver(
-      applicationExecutablePath: r'C:\ScribeForge\scribeforge_desktop.exe',
-      operatingSystem: 'windows',
-      fileExists: (path) async {
-        inspectedPath = path;
-        return true;
-      },
-    ).resolve('scribeforge');
+  test(
+    'resolves the Windows executable name inside the backend folder',
+    () async {
+      String? inspectedPath;
+      final resolution = await DesktopBackendResolver(
+        applicationExecutablePath: r'C:\ScribeForge\scribeforge_desktop.exe',
+        operatingSystem: 'windows',
+        fileExists: (path) async {
+          inspectedPath = path;
+          return true;
+        },
+      ).resolve('scribeforge');
 
-    expect(inspectedPath, endsWith(r'backend\scribeforge.exe'));
-    expect(resolution.origin, DesktopBackendOrigin.bundled);
-  });
+      expect(inspectedPath, endsWith(r'backend\scribeforge.exe'));
+      expect(resolution.origin, DesktopBackendOrigin.bundled);
+    },
+  );
 }

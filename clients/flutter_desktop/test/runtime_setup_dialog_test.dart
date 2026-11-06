@@ -93,19 +93,24 @@ void main() {
     await showSetupDialog(
       tester,
       autoStart: true,
-      runSetup: ({required backend, required onMessage, required onDiagnostic}) async {
-        calls++;
-        expect(backend, isNull);
-        onMessage(
-          RuntimeSetupMessage.fromJsonLine(
-            '{"schema_version":1,"type":"result","action":"install",'
-            '"success":true,"message":null,"backends":{'
-            '"mineru":{"state":"ready","failed_step":null},'
-            '"paddleocr":{"state":"ready","failed_step":null}}}',
-          ),
-        );
-        return 0;
-      },
+      runSetup:
+          ({
+            required backend,
+            required onMessage,
+            required onDiagnostic,
+          }) async {
+            calls++;
+            expect(backend, isNull);
+            onMessage(
+              RuntimeSetupMessage.fromJsonLine(
+                '{"schema_version":1,"type":"result","action":"install",'
+                '"success":true,"message":null,"backends":{'
+                '"mineru":{"state":"ready","failed_step":null},'
+                '"paddleocr":{"state":"ready","failed_step":null}}}',
+              ),
+            );
+            return 0;
+          },
     );
 
     expect(calls, 1);

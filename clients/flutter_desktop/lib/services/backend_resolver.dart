@@ -68,17 +68,11 @@ class DesktopBackendResolver {
   List<String> _bundledCandidates() {
     final os = operatingSystem ?? Platform.operatingSystem;
     final separator = os == 'windows' ? r'\' : '/';
-    final executableName = os == 'windows'
-        ? 'scribeforge.exe'
-        : 'scribeforge';
+    final executableName = os == 'windows' ? 'scribeforge.exe' : 'scribeforge';
     final application =
         applicationExecutablePath ?? Platform.resolvedExecutable;
     final applicationDirectory = _dirname(application, separator);
-    final backendDirectory = _join(
-      applicationDirectory,
-      'backend',
-      separator,
-    );
+    final backendDirectory = _join(applicationDirectory, 'backend', separator);
     return <String>[
       _join(backendDirectory, executableName, separator),
       if (os == 'macos')

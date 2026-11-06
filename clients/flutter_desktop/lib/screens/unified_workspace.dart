@@ -167,8 +167,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     super.initState();
     _settingsStore = widget.settingsStore ?? DesktopSettingsStore();
     _cliExecutor = widget.cliExecutor ?? ProcessScribeForgeCliExecutor();
-    _backendResolver =
-        widget.backendResolver ?? const DesktopBackendResolver();
+    _backendResolver = widget.backendResolver ?? const DesktopBackendResolver();
     _filePicker = widget.filePicker ?? const PluginDesktopFilePicker();
     _fileSystem = widget.fileSystem ?? const IoWorkspaceFileSystem();
     _loadSettings();
@@ -2062,8 +2061,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               children: <Widget>[
                 FilledButton.icon(
                   key: const ValueKey('initialize-runtime-button'),
-                  onPressed:
-                      _backendConnected && !_runtimeLoading && !_busy
+                  onPressed: _backendConnected && !_runtimeLoading && !_busy
                       ? _showInitialization
                       : null,
                   icon: const Icon(Icons.download),
