@@ -2,18 +2,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/services/backend_resolver.dart';
 
 void main() {
-  test('prefers the side-by-side backend over a developer PATH install', () async {
-    const bundled = '/opt/ScribeForge/backend/scribeforge';
-    final resolution = await DesktopBackendResolver(
-      applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
-      operatingSystem: 'linux',
-      fileExists: (path) async => path == bundled,
-    ).resolve('scribeforge');
+  test(
+    'prefers the side-by-side backend over a developer PATH install',
+    () async {
+      const bundled = '/opt/ScribeForge/backend/scribeforge';
+      final resolution = await DesktopBackendResolver(
+        applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
+        operatingSystem: 'linux',
+        fileExists: (path) async => path == bundled,
+      ).resolve('scribeforge');
 
-    expect(resolution.executable, bundled);
-    expect(resolution.origin, DesktopBackendOrigin.bundled);
-    expect(resolution.usesBundledBackend, isTrue);
-  });
+      expect(resolution.executable, bundled);
+      expect(resolution.origin, DesktopBackendOrigin.bundled);
+      expect(resolution.usesBundledBackend, isTrue);
+    },
+  );
 
   test('uses the macOS app Resources backend when present', () async {
     const bundled =
