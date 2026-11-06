@@ -92,8 +92,12 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          choco install innosetup --version=6.4.3 --no-progress -y
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=0.1.0" "packaging/windows/ScribeForge.iss"
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --version=6.4.3 --no-progress -y
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          & $iscc "/DMyAppVersion=0.1.0" "packaging/windows/ScribeForge.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
       - name: Record artifact checksums
