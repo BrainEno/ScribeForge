@@ -93,66 +93,84 @@ void main() {
   });
 
   testWidgets(
-      'compares generated candidates, saves separate page evaluations, and jumps to differences',
-      (tester) async {
-    await pumpScreen(tester);
+    'compares generated candidates, saves separate page evaluations, and jumps to differences',
+    (tester) async {
+      await pumpScreen(tester);
 
-    await tester.tap(find.text('生成 OCR 候选 EPUB'));
-    await pumpUntil(
-      tester,
-      find.text('第 1 页 / 3'),
-      description: 'the first source page comparison',
-    );
+      await tester.tap(find.text('生成 OCR 候选 EPUB'));
+      await pumpUntil(
+        tester,
+        find.text('第 1 页 / 3'),
+        description: 'the first source page comparison',
+      );
 
-    expect(find.text('Shared opening line', findRichText: true), findsWidgets);
-    expect(find.textContaining('A/B 评测不会核准 OCR 内容'), findsOneWidget);
-    expect(
-      cli.calls.single,
-      ScribeForgeCli.exportCandidateArguments(
-        storePath: storePath,
-        outputDirectory: outputDirectory,
-      ),
-    );
+      expect(
+        find.text('Shared opening line', findRichText: true),
+        findsWidgets,
+      );
+      expect(find.textContaining('A/B 评测不会核准 OCR 内容'), findsOneWidget);
+      expect(
+        cli.calls.single,
+        ScribeForgeCli.exportCandidateArguments(
+          storePath: storePath,
+          outputDirectory: outputDirectory,
+        ),
+      );
 
-    await tester.tap(find.byTooltip('下一处差异'));
-    await tester.pump();
-    expect(find.text('第 2 页 / 3'), findsOneWidget);
-    expect(find.text('Candidate A reading', findRichText: true), findsOneWidget);
-    expect(find.text('Candidate B reading', findRichText: true), findsOneWidget);
+      await tester.tap(find.byTooltip('下一处差异'));
+      await tester.pump();
+      expect(find.text('第 2 页 / 3'), findsOneWidget);
+      expect(
+        find.text('Candidate A reading', findRichText: true),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Candidate B reading', findRichText: true),
+        findsOneWidget,
+      );
 
-    await tester.tap(find.text('候选 A 更好'));
-    await pumpUntil(
-      tester,
-      find.text('第 3 页 / 3'),
-      description: 'automatic advance to the next unassessed page',
-    );
+      await tester.tap(find.text('候选 A 更好'));
+      await pumpUntil(
+        tester,
+        find.text('第 3 页 / 3'),
+        description: 'automatic advance to the next unassessed page',
+      );
 
-    expect(comparisonStore.savedPageDecisions, <int, String>{1: 'a'});
-    expect(comparisonStore.saveCount, 1);
-    expect(comparisonStore.savedExpectedSourceSha256,
-        List<String>.filled(64, 'c').join());
-    expect(comparisonStore.savedExpectedCandidateASha256,
-        comparisonStore.candidates.values.first.sha256);
-    expect(comparisonStore.savedExpectedCandidateBSha256,
-        comparisonStore.candidates.values.elementAt(1).sha256);
+      expect(comparisonStore.savedPageDecisions, <int, String>{1: 'a'});
+      expect(comparisonStore.saveCount, 1);
+      expect(
+        comparisonStore.savedExpectedSourceSha256,
+        List<String>.filled(64, 'c').join(),
+      );
+      expect(
+        comparisonStore.savedExpectedCandidateASha256,
+        comparisonStore.candidates.values.first.sha256,
+      );
+      expect(
+        comparisonStore.savedExpectedCandidateBSha256,
+        comparisonStore.candidates.values.elementAt(1).sha256,
+      );
 
-    await tester.tap(find.text('候选 B 更好'));
-    await pumpUntil(
-      tester,
-      find.text('第 1 页 / 3'),
-      description: 'wraparound to the first page after the second explicit rating',
-    );
-    expect(comparisonStore.savedPageDecisions, <int, String>{1: 'a', 2: 'b'});
-    expect(comparisonStore.saveCount, 2);
-    expect(comparisonStore.savedSourcePdfPath, sourcePath);
-    expect(cli.calls.map((arguments) => arguments.first), <String>[
-      'export-candidates',
-    ]);
-    expect(filePicker.pickFileCalls, 0);
-  });
+      await tester.tap(find.text('候选 B 更好'));
+      await pumpUntil(
+        tester,
+        find.text('第 1 页 / 3'),
+        description:
+            'wraparound to the first page after the second explicit rating',
+      );
+      expect(comparisonStore.savedPageDecisions, <int, String>{1: 'a', 2: 'b'});
+      expect(comparisonStore.saveCount, 2);
+      expect(comparisonStore.savedSourcePdfPath, sourcePath);
+      expect(cli.calls.map((arguments) => arguments.first), <String>[
+        'export-candidates',
+      ]);
+      expect(filePicker.pickFileCalls, 0);
+    },
+  );
 
-  testWidgets('persists whole-book evaluation and notes in the sidecar',
-      (tester) async {
+  testWidgets('persists whole-book evaluation and notes in the sidecar', (
+    tester,
+  ) async {
     await pumpScreen(tester);
 
     await tester.tap(find.text('生成 OCR 候选 EPUB'));
@@ -178,12 +196,16 @@ void main() {
     );
 
     expect(comparisonStore.savedOverallWinner, 'a');
-    expect(comparisonStore.savedNotes, 'Preserves punctuation on the title page.');
+    expect(
+      comparisonStore.savedNotes,
+      'Preserves punctuation on the title page.',
+    );
     expect(comparisonStore.savedPageDecisions, isEmpty);
   });
 
-  testWidgets('supports tie and deferred ratings without accepting OCR text',
-      (tester) async {
+  testWidgets('supports tie and deferred ratings without accepting OCR text', (
+    tester,
+  ) async {
     await pumpScreen(tester);
 
     await tester.tap(find.text('生成 OCR 候选 EPUB'));
@@ -217,62 +239,68 @@ void main() {
     ]);
   });
 
-  testWidgets('restores only evaluations bound to the current source and candidates',
-      (tester) async {
-    final candidateAPath = comparisonStore.candidates.keys.first;
-    final candidateBPath = comparisonStore.candidates.keys.elementAt(1);
-    final candidateA = comparisonStore.candidates[candidateAPath]!;
-    final candidateB = comparisonStore.candidates[candidateBPath]!;
-    comparisonStore.evaluation = <String, dynamic>{
-      'source_pdf': <String, String>{
-        'path': sourcePath,
-        'sha256': List<String>.filled(64, 'c').join(),
-      },
-      'candidate_a': <String, String>{
-        'path': candidateAPath,
-        'sha256': candidateA.sha256,
-      },
-      'candidate_b': <String, String>{
-        'path': candidateBPath,
-        'sha256': candidateB.sha256,
-      },
-      'page_decisions': <String, String>{'1': 'b'},
-      'overall_winner': 'a',
-      'notes': 'Existing comparison notes',
-    };
-    await pumpScreen(tester);
+  testWidgets(
+    'restores only evaluations bound to the current source and candidates',
+    (tester) async {
+      final candidateAPath = comparisonStore.candidates.keys.first;
+      final candidateBPath = comparisonStore.candidates.keys.elementAt(1);
+      final candidateA = comparisonStore.candidates[candidateAPath]!;
+      final candidateB = comparisonStore.candidates[candidateBPath]!;
+      comparisonStore.evaluation = <String, dynamic>{
+        'source_pdf': <String, String>{
+          'path': sourcePath,
+          'sha256': List<String>.filled(64, 'c').join(),
+        },
+        'candidate_a': <String, String>{
+          'path': candidateAPath,
+          'sha256': candidateA.sha256,
+        },
+        'candidate_b': <String, String>{
+          'path': candidateBPath,
+          'sha256': candidateB.sha256,
+        },
+        'page_decisions': <String, String>{'1': 'b'},
+        'overall_winner': 'a',
+        'notes': 'Existing comparison notes',
+      };
+      await pumpScreen(tester);
 
-    await tester.tap(find.text('生成 OCR 候选 EPUB'));
-    await pumpUntil(
-      tester,
-      find.text('第 1 页 / 3'),
-      description: 'the first source page comparison',
-    );
-    await tester.tap(find.byTooltip('下一处差异'));
-    await tester.pump();
+      await tester.tap(find.text('生成 OCR 候选 EPUB'));
+      await pumpUntil(
+        tester,
+        find.text('第 1 页 / 3'),
+        description: 'the first source page comparison',
+      );
+      await tester.tap(find.byTooltip('下一处差异'));
+      await tester.pump();
 
-    expect(find.text('本页：候选 B 更好'), findsOneWidget);
-    expect(find.text('Existing comparison notes'), findsOneWidget);
-    expect(find.text('候选 A 更优'), findsOneWidget);
+      expect(find.text('本页：候选 B 更好'), findsOneWidget);
+      expect(find.text('Existing comparison notes'), findsOneWidget);
+      expect(find.text('候选 A 更优'), findsOneWidget);
 
-    await tester.pumpWidget(const SizedBox.shrink());
-    (comparisonStore.evaluation!['candidate_a'] as Map<String, dynamic>)
-        ['sha256'] = List<String>.filled(64, '0').join();
-    await pumpScreen(tester);
-    await tester.tap(find.text('生成 OCR 候选 EPUB'));
-    await pumpUntil(
-      tester,
-      find.text('第 1 页 / 3'),
-      description: 'the comparison with a changed candidate fingerprint',
-    );
-    await tester.tap(find.byTooltip('下一处差异'));
-    await tester.pump();
-    expect(find.text('本页：候选 B 更好'), findsNothing);
-    expect(find.text('Existing comparison notes'), findsNothing);
-  });
+      await tester.pumpWidget(const SizedBox.shrink());
+      (comparisonStore.evaluation!['candidate_a']
+          as Map<String, dynamic>)['sha256'] = List<String>.filled(
+        64,
+        '0',
+      ).join();
+      await pumpScreen(tester);
+      await tester.tap(find.text('生成 OCR 候选 EPUB'));
+      await pumpUntil(
+        tester,
+        find.text('第 1 页 / 3'),
+        description: 'the comparison with a changed candidate fingerprint',
+      );
+      await tester.tap(find.byTooltip('下一处差异'));
+      await tester.pump();
+      expect(find.text('本页：候选 B 更好'), findsNothing);
+      expect(find.text('Existing comparison notes'), findsNothing);
+    },
+  );
 
-  testWidgets('manually loads two EPUB candidates without invoking the CLI',
-      (tester) async {
+  testWidgets('manually loads two EPUB candidates without invoking the CLI', (
+    tester,
+  ) async {
     final paths = comparisonStore.candidates.keys.toList(growable: false);
     filePicker.selections.addAll(paths);
     await pumpScreen(tester);
@@ -294,8 +322,9 @@ void main() {
     expect(cli.calls, isEmpty);
   });
 
-  testWidgets('candidate export failures remain visible and can be retried',
-      (tester) async {
+  testWidgets('candidate export failures remain visible and can be retried', (
+    tester,
+  ) async {
     cli.results.addAll(<int>[2, 0]);
     await pumpScreen(tester);
 
@@ -326,23 +355,22 @@ EpubCandidate _candidate(
   required String title,
   required String engine,
   required List<String> pageTexts,
-}) =>
-    EpubCandidate(
-      path: path,
-      title: title,
-      creator: engine,
-      pages: List<EpubPage>.generate(
-        pageTexts.length,
-        (index) => EpubPage(
-          spineIndex: index,
-          sourcePageIndex: index,
-          title: 'Page ${index + 1}',
-          text: pageTexts[index],
-        ),
-      ),
-      isSourcePageAligned: true,
-      sha256: List<String>.filled(64, engine == 'mineru' ? 'a' : 'b').join(),
-    );
+}) => EpubCandidate(
+  path: path,
+  title: title,
+  creator: engine,
+  pages: List<EpubPage>.generate(
+    pageTexts.length,
+    (index) => EpubPage(
+      spineIndex: index,
+      sourcePageIndex: index,
+      title: 'Page ${index + 1}',
+      text: pageTexts[index],
+    ),
+  ),
+  isSourcePageAligned: true,
+  sha256: List<String>.filled(64, engine == 'mineru' ? 'a' : 'b').join(),
+);
 
 class _FakeCliExecutor implements ScribeForgeCliExecutor {
   final Queue<int> results = Queue<int>();
@@ -386,7 +414,8 @@ class _FakeCandidateComparisonStore implements CandidateComparisonStore {
   @override
   Future<EpubCandidate> loadCandidate(String path) async {
     final candidate = candidates[path];
-    if (candidate == null) throw FormatException('Missing fake candidate: $path');
+    if (candidate == null)
+      throw FormatException('Missing fake candidate: $path');
     return candidate;
   }
 

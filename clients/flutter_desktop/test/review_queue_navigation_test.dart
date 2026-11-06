@@ -13,10 +13,7 @@ void main() {
     test('quick page jump selects the first queued pair on that page', () {
       const pageNumbers = <int>[2, 5, 5, 9];
 
-      expect(
-        ReviewQueueNavigation.indexForPage(pageNumbers, pageNumber: 5),
-        1,
-      );
+      expect(ReviewQueueNavigation.indexForPage(pageNumbers, pageNumber: 5), 1);
       expect(
         ReviewQueueNavigation.indexForPage(pageNumbers, pageNumber: 1),
         isNull,

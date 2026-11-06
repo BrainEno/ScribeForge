@@ -5,7 +5,8 @@ import 'settings_store.dart';
 
 class ScribeForgeCli {
   static const String defaultExecutable = 'scribeforge';
-  static const String cancelControlMessage = '{"schema_version":1,"type":"cancel"}';
+  static const String cancelControlMessage =
+      '{"schema_version":1,"type":"cancel"}';
 
   static String defaultStorePath(String pdfPath) =>
       _siblingPath(pdfPath, '.scribeforge');
@@ -16,21 +17,28 @@ class ScribeForgeCli {
   static String candidateEpubPath(String outputDirectory, String engine) =>
       joinPath(outputDirectory, 'candidate-$engine.epub');
 
-  static List<String> statusArguments({required String storePath}) =>
-      <String>['status', '--store', storePath, '--json'];
+  static List<String> statusArguments({required String storePath}) => <String>[
+    'status',
+    '--store',
+    storePath,
+    '--json',
+  ];
 
-  static List<String> auditArguments({required String storePath}) =>
-      <String>['audit', '--store', storePath, '--json'];
+  static List<String> auditArguments({required String storePath}) => <String>[
+    'audit',
+    '--store',
+    storePath,
+    '--json',
+  ];
 
-  static List<String> runtimeStatusArguments({String? runtimeRoot}) =>
-      <String>[
-        'runtime-status',
-        if (runtimeRoot != null && runtimeRoot.trim().isNotEmpty) ...[
-          '--runtime-root',
-          runtimeRoot.trim(),
-        ],
-        '--json',
-      ];
+  static List<String> runtimeStatusArguments({String? runtimeRoot}) => <String>[
+    'runtime-status',
+    if (runtimeRoot != null && runtimeRoot.trim().isNotEmpty) ...[
+      '--runtime-root',
+      runtimeRoot.trim(),
+    ],
+    '--json',
+  ];
 
   static List<String> setupArguments({String? runtimeRoot, String? backend}) =>
       <String>[
@@ -49,14 +57,13 @@ class ScribeForgeCli {
   static List<String> reviewArguments({
     required String storePath,
     bool includePageFurniture = false,
-  }) =>
-      <String>[
-        'review',
-        '--store',
-        storePath,
-        if (includePageFurniture) '--include-page-furniture',
-        '--json',
-      ];
+  }) => <String>[
+    'review',
+    '--store',
+    storePath,
+    if (includePageFurniture) '--include-page-furniture',
+    '--json',
+  ];
 
   static List<String> resolveArguments({
     required String storePath,
@@ -110,16 +117,15 @@ class ScribeForgeCli {
     required String storePath,
     required String outputPath,
     bool overwrite = false,
-  }) =>
-      <String>[
-        'backup',
-        '--store',
-        storePath,
-        '--out',
-        outputPath,
-        if (overwrite) '--overwrite',
-        '--json',
-      ];
+  }) => <String>[
+    'backup',
+    '--store',
+    storePath,
+    '--out',
+    outputPath,
+    if (overwrite) '--overwrite',
+    '--json',
+  ];
 
   static List<String> exportArguments({
     required String storePath,
@@ -129,23 +135,22 @@ class ScribeForgeCli {
     String? author,
     String? modified,
     bool includePageFurniture = false,
-  }) =>
-      <String>[
-        'export',
-        '--store',
-        storePath,
-        '--out',
-        outputPath,
-        if (includePageFurniture) '--include-page-furniture',
-        '--language',
-        language,
-        '--title',
-        title,
-        if (author != null && author.trim().isNotEmpty) '--author',
-        if (author != null && author.trim().isNotEmpty) author.trim(),
-        if (modified != null && modified.trim().isNotEmpty) '--modified',
-        if (modified != null && modified.trim().isNotEmpty) modified.trim(),
-      ];
+  }) => <String>[
+    'export',
+    '--store',
+    storePath,
+    '--out',
+    outputPath,
+    if (includePageFurniture) '--include-page-furniture',
+    '--language',
+    language,
+    '--title',
+    title,
+    if (author != null && author.trim().isNotEmpty) '--author',
+    if (author != null && author.trim().isNotEmpty) author.trim(),
+    if (modified != null && modified.trim().isNotEmpty) '--modified',
+    if (modified != null && modified.trim().isNotEmpty) modified.trim(),
+  ];
 
   static List<String> verifyBackupArguments({required String backupPath}) =>
       <String>['verify-backup', '--backup', backupPath, '--json'];
@@ -153,27 +158,19 @@ class ScribeForgeCli {
   static List<String> restoreBackupArguments({
     required String backupPath,
     required String targetPath,
-  }) =>
-      <String>[
-        'restore',
-        '--backup',
-        backupPath,
-        '--to',
-        targetPath,
-        '--json',
-      ];
+  }) => <String>[
+    'restore',
+    '--backup',
+    backupPath,
+    '--to',
+    targetPath,
+    '--json',
+  ];
 
   static List<String> relinkSourceArguments({
     required String storePath,
     required String sourcePath,
-  }) =>
-      <String>[
-        'relink-source',
-        '--store',
-        storePath,
-        '--source',
-        sourcePath,
-      ];
+  }) => <String>['relink-source', '--store', storePath, '--source', sourcePath];
 
   static List<String> processArguments({
     required String pdfPath,
@@ -192,14 +189,13 @@ class ScribeForgeCli {
   static List<String> vlmCheckArguments({
     required String imagePath,
     required DesktopVlmSettings vlmSettings,
-  }) =>
-      <String>[
-        'vlm-check',
-        '--image',
-        imagePath,
-        ..._vlmArguments(vlmSettings),
-        '--json',
-      ];
+  }) => <String>[
+    'vlm-check',
+    '--image',
+    imagePath,
+    ..._vlmArguments(vlmSettings),
+    '--json',
+  ];
 
   static List<String> _vlmArguments(DesktopVlmSettings settings) {
     if (!settings.isConfigured) {
@@ -226,14 +222,13 @@ class ScribeForgeCli {
   static List<String> exportCandidateArguments({
     required String storePath,
     required String outputDirectory,
-  }) =>
-      <String>[
-        'export-candidates',
-        '--store',
-        storePath,
-        '--out-dir',
-        outputDirectory,
-      ];
+  }) => <String>[
+    'export-candidates',
+    '--store',
+    storePath,
+    '--out-dir',
+    outputDirectory,
+  ];
 
   static String joinPath(String parent, String child) {
     final normalized = '$parent/$child'.replaceAll(r'\', '/');

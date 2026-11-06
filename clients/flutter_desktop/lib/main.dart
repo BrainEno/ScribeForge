@@ -15,9 +15,9 @@ class ScribeForgeDesktopApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-        title: 'ScribeForge Desktop',
-        debugShowCheckedModeBanner: false,
-        theme: ScribeTheme.light,
-        home: const UnifiedWorkspace(),
-      );
+    title: 'ScribeForge Desktop',
+    debugShowCheckedModeBanner: false,
+    theme: ScribeTheme.light,
+    home: const UnifiedWorkspace(),
+  );
 }

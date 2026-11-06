@@ -28,7 +28,9 @@ class FailedJobSummary {
     final pageIndex = json['page_index'];
     final attempts = json['attempts'];
     final lastError = json['last_error'];
-    if (stage is! String || (pageIndex != null && pageIndex is! int) || attempts is! int) {
+    if (stage is! String ||
+        (pageIndex != null && pageIndex is! int) ||
+        attempts is! int) {
       throw const FormatException('Invalid failed-job status record.');
     }
     return FailedJobSummary(
@@ -58,7 +60,9 @@ class ActiveJobSummary {
     final stage = json['stage'];
     final pageIndex = json['page_index'];
     final attempts = json['attempts'];
-    if (stage is! String || (pageIndex != null && pageIndex is! int) || attempts is! int) {
+    if (stage is! String ||
+        (pageIndex != null && pageIndex is! int) ||
+        attempts is! int) {
       throw const FormatException('Invalid active-job status record.');
     }
     return ActiveJobSummary(
@@ -100,14 +104,16 @@ class ProjectStatusSnapshot {
   final List<FailedJobSummary> failedJobDetails;
   final List<ActiveJobSummary> activeJobs;
 
-  ActiveJobSummary? get currentJob => activeJobs.isEmpty ? null : activeJobs.first;
+  ActiveJobSummary? get currentJob =>
+      activeJobs.isEmpty ? null : activeJobs.first;
 
   double get ocrProgress {
     if (pagesTotal <= 0) return 0;
     return (pagesWithBothOcrSuccess / pagesTotal).clamp(0.0, 1.0).toDouble();
   }
 
-  String get progressLabel => '$pagesWithBothOcrSuccess / $pagesTotal pages have both OCR results';
+  String get progressLabel =>
+      '$pagesWithBothOcrSuccess / $pagesTotal pages have both OCR results';
 
   String get jobsLabel =>
       '$succeededJobs succeeded · $pendingJobs pending · $runningJobs running · $failedJobs failed';
@@ -121,11 +127,15 @@ class ProjectStatusSnapshot {
   static List<ProjectStatusSnapshot> listFromJsonText(String raw) {
     final decoded = jsonDecode(raw);
     if (decoded is! Map<String, dynamic> || decoded['schema_version'] != 1) {
-      throw const FormatException('Unsupported ScribeForge status JSON schema.');
+      throw const FormatException(
+        'Unsupported ScribeForge status JSON schema.',
+      );
     }
     final rawProjects = decoded['projects'];
     if (rawProjects is! List) {
-      throw const FormatException('Status JSON is missing the projects collection.');
+      throw const FormatException(
+        'Status JSON is missing the projects collection.',
+      );
     }
     return rawProjects
         .whereType<Map>()
@@ -178,12 +188,18 @@ class ProjectStatusSnapshot {
 
     final failedDetails = rawFailedJobs
         .whereType<Map>()
-        .map((item) => FailedJobSummary.fromJson(Map<String, dynamic>.from(item)))
+        .map(
+          (item) => FailedJobSummary.fromJson(Map<String, dynamic>.from(item)),
+        )
         .toList(growable: false);
-    final activeJobDetails = (rawActiveJobs is List ? rawActiveJobs : const <Object?>[])
-        .whereType<Map>()
-        .map((item) => ActiveJobSummary.fromJson(Map<String, dynamic>.from(item)))
-        .toList(growable: false);
+    final activeJobDetails =
+        (rawActiveJobs is List ? rawActiveJobs : const <Object?>[])
+            .whereType<Map>()
+            .map(
+              (item) =>
+                  ActiveJobSummary.fromJson(Map<String, dynamic>.from(item)),
+            )
+            .toList(growable: false);
     return ProjectStatusSnapshot(
       projectId: id,
       title: title,

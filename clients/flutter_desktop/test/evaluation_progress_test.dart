@@ -19,12 +19,7 @@ void main() {
     });
 
     test('jumps to the next unresolved page, including deferred pages', () {
-      const decisions = <int, String>{
-        0: 'a',
-        1: 'b',
-        2: 'review',
-        3: 'tie',
-      };
+      const decisions = <int, String>{0: 'a', 1: 'b', 2: 'review', 3: 'tie'};
 
       expect(
         EvaluationProgress.nextPendingPage(
@@ -37,11 +32,7 @@ void main() {
     });
 
     test('wraps to an earlier pending page after reaching the end', () {
-      const decisions = <int, String>{
-        0: 'review',
-        1: 'a',
-        2: 'tie',
-      };
+      const decisions = <int, String>{0: 'review', 1: 'a', 2: 'tie'};
 
       expect(
         EvaluationProgress.nextPendingPage(
@@ -54,11 +45,7 @@ void main() {
     });
 
     test('returns null when every page is final or there are no pages', () {
-      const decisions = <int, String>{
-        0: 'a',
-        1: 'b',
-        2: 'tie',
-      };
+      const decisions = <int, String>{0: 'a', 1: 'b', 2: 'tie'};
 
       expect(EvaluationProgress.pendingCount(3, decisions), 0);
       expect(

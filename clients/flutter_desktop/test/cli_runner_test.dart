@@ -5,12 +5,14 @@ import 'package:scribeforge_desktop/services/settings_store.dart';
 void main() {
   group('ScribeForgeCli path and argument helpers', () {
     test('requests structured JSON for runtime status', () {
+      expect(ScribeForgeCli.runtimeStatusArguments(), <String>[
+        'runtime-status',
+        '--json',
+      ]);
       expect(
-        ScribeForgeCli.runtimeStatusArguments(),
-        <String>['runtime-status', '--json'],
-      );
-      expect(
-        ScribeForgeCli.runtimeStatusArguments(runtimeRoot: '/tmp/ScribeForge runtime'),
+        ScribeForgeCli.runtimeStatusArguments(
+          runtimeRoot: '/tmp/ScribeForge runtime',
+        ),
         <String>[
           'runtime-status',
           '--runtime-root',
@@ -20,26 +22,26 @@ void main() {
       );
     });
 
-    test('requests streamed JSON progress and optional single-backend repair', () {
-      expect(
-        ScribeForgeCli.setupArguments(),
-        <String>['setup', '--json'],
-      );
-      expect(
-        ScribeForgeCli.setupArguments(
-          runtimeRoot: '/tmp/ScribeForge runtime',
-          backend: 'paddleocr',
-        ),
-        <String>[
-          'setup',
-          '--runtime-root',
-          '/tmp/ScribeForge runtime',
-          '--backend',
-          'paddleocr',
-          '--json',
-        ],
-      );
-    });
+    test(
+      'requests streamed JSON progress and optional single-backend repair',
+      () {
+        expect(ScribeForgeCli.setupArguments(), <String>['setup', '--json']);
+        expect(
+          ScribeForgeCli.setupArguments(
+            runtimeRoot: '/tmp/ScribeForge runtime',
+            backend: 'paddleocr',
+          ),
+          <String>[
+            'setup',
+            '--runtime-root',
+            '/tmp/ScribeForge runtime',
+            '--backend',
+            'paddleocr',
+            '--json',
+          ],
+        );
+      },
+    );
 
     test('requests structured JSON for project status', () {
       expect(
@@ -48,47 +50,50 @@ void main() {
       );
     });
 
-    test('requests structured review evidence and resolves the selected project', () {
-      expect(
-        ScribeForgeCli.reviewArguments(storePath: '/tmp/My Book.scribeforge'),
-        <String>['review', '--store', '/tmp/My Book.scribeforge', '--json'],
-      );
-      expect(
-        ScribeForgeCli.reviewArguments(
-          storePath: '/tmp/My Book.scribeforge',
-          includePageFurniture: true,
-        ),
-        <String>[
-          'review',
-          '--store',
-          '/tmp/My Book.scribeforge',
-          '--include-page-furniture',
-          '--json',
-        ],
-      );
-      expect(
-        ScribeForgeCli.resolveArguments(
-          storePath: '/tmp/My Book.scribeforge',
-          projectId: 42,
-          page: 3,
-          pair: 1,
-          text: 'accepted literal text',
-        ),
-        <String>[
-          'resolve',
-          '--store',
-          '/tmp/My Book.scribeforge',
-          '--project-id',
-          '42',
-          '--page',
-          '3',
-          '--pair',
-          '1',
-          '--text',
-          'accepted literal text',
-        ],
-      );
-    });
+    test(
+      'requests structured review evidence and resolves the selected project',
+      () {
+        expect(
+          ScribeForgeCli.reviewArguments(storePath: '/tmp/My Book.scribeforge'),
+          <String>['review', '--store', '/tmp/My Book.scribeforge', '--json'],
+        );
+        expect(
+          ScribeForgeCli.reviewArguments(
+            storePath: '/tmp/My Book.scribeforge',
+            includePageFurniture: true,
+          ),
+          <String>[
+            'review',
+            '--store',
+            '/tmp/My Book.scribeforge',
+            '--include-page-furniture',
+            '--json',
+          ],
+        );
+        expect(
+          ScribeForgeCli.resolveArguments(
+            storePath: '/tmp/My Book.scribeforge',
+            projectId: 42,
+            page: 3,
+            pair: 1,
+            text: 'accepted literal text',
+          ),
+          <String>[
+            'resolve',
+            '--store',
+            '/tmp/My Book.scribeforge',
+            '--project-id',
+            '42',
+            '--page',
+            '3',
+            '--pair',
+            '1',
+            '--text',
+            'accepted literal text',
+          ],
+        );
+      },
+    );
 
     test('requests a JSON project audit for the selected store', () {
       expect(
@@ -140,56 +145,59 @@ void main() {
       );
     });
 
-    test('builds verified EPUB/DOCX export arguments and optional metadata safely', () {
-      expect(
-        ScribeForgeCli.exportArguments(
-          storePath: '/tmp/My Book.scribeforge',
-          outputPath: '/tmp/Verified Book.epub',
-          title: 'Verified Book',
-          author: 'A. Writer',
-          language: 'zh-Hant',
-          modified: '2026-10-22T00:00:00Z',
-          includePageFurniture: true,
-        ),
-        <String>[
-          'export',
-          '--store',
-          '/tmp/My Book.scribeforge',
-          '--out',
-          '/tmp/Verified Book.epub',
-          '--include-page-furniture',
-          '--language',
-          'zh-Hant',
-          '--title',
-          'Verified Book',
-          '--author',
-          'A. Writer',
-          '--modified',
-          '2026-10-22T00:00:00Z',
-        ],
-      );
-      expect(
-        ScribeForgeCli.exportArguments(
-          storePath: '/tmp/My Book.scribeforge',
-          outputPath: '/tmp/Book.docx',
-          title: 'Book',
-          language: 'und',
-          author: '  ',
-          modified: '',
-        ),
-        <String>[
-          'export',
-          '--store',
-          '/tmp/My Book.scribeforge',
-          '--out',
-          '/tmp/Book.docx',
-          '--language',
-          'und',
-          '--title',
-          'Book',
-        ],
-      );
-    });
+    test(
+      'builds verified EPUB/DOCX export arguments and optional metadata safely',
+      () {
+        expect(
+          ScribeForgeCli.exportArguments(
+            storePath: '/tmp/My Book.scribeforge',
+            outputPath: '/tmp/Verified Book.epub',
+            title: 'Verified Book',
+            author: 'A. Writer',
+            language: 'zh-Hant',
+            modified: '2026-10-22T00:00:00Z',
+            includePageFurniture: true,
+          ),
+          <String>[
+            'export',
+            '--store',
+            '/tmp/My Book.scribeforge',
+            '--out',
+            '/tmp/Verified Book.epub',
+            '--include-page-furniture',
+            '--language',
+            'zh-Hant',
+            '--title',
+            'Verified Book',
+            '--author',
+            'A. Writer',
+            '--modified',
+            '2026-10-22T00:00:00Z',
+          ],
+        );
+        expect(
+          ScribeForgeCli.exportArguments(
+            storePath: '/tmp/My Book.scribeforge',
+            outputPath: '/tmp/Book.docx',
+            title: 'Book',
+            language: 'und',
+            author: '  ',
+            modified: '',
+          ),
+          <String>[
+            'export',
+            '--store',
+            '/tmp/My Book.scribeforge',
+            '--out',
+            '/tmp/Book.docx',
+            '--language',
+            'und',
+            '--title',
+            'Book',
+          ],
+        );
+      },
+    );
 
     test('keeps store and source paths as separate relink arguments', () {
       expect(

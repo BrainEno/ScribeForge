@@ -5,7 +5,8 @@ import 'package:scribeforge_desktop/widgets/review_alignment_evidence.dart';
 
 void main() {
   ReviewQueueItem parseItem(String structuralFields) {
-    final payload = '''
+    final payload =
+        '''
     {"schema_version":1,"projects":[{"id":1,"title":"Book","items":[{
       "page_index":0,"pair_index":0,"score":1.0,
       "reasons":["alignment_ambiguity"],
@@ -34,9 +35,10 @@ void main() {
     );
   }
 
-  testWidgets('shows structural status, original lines and scored alternatives',
-      (tester) async {
-    final item = parseItem(''',
+  testWidgets(
+    'shows structural status, original lines and scored alternatives',
+    (tester) async {
+      final item = parseItem(''',
       "primary_line_indexes":[0,1],"secondary_line_indexes":[2],
       "alignment_status":"ambiguous",
       "ambiguity":{"reason":"column_mapping","score_margin":0.04,
@@ -48,24 +50,30 @@ void main() {
         ]}
     ''');
 
-    await showEvidence(tester, item);
+      await showEvidence(tester, item);
 
-    expect(find.text('对齐状态：结构歧义'), findsOneWidget);
-    expect(find.text('原始行索引（0-based）：OCR 1 [0, 1] → OCR 2 [2]'), findsOneWidget);
-    expect(find.text('多行组合：2 → 1'), findsOneWidget);
-    expect(find.textContaining('VLM 或机器共识不能绕过'), findsOneWidget);
-    expect(
-      find.text('候选 1：OCR 1 [0, 1] → OCR 2 [2] · 分数 4.100 · 文本相似度 96.0%'),
-      findsOneWidget,
-    );
-    expect(
-      find.text('候选 2：OCR 1 [0] → OCR 2 [2] · 分数 4.060 · 文本相似度 71.0%'),
-      findsOneWidget,
-    );
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.text('对齐状态：结构歧义'), findsOneWidget);
+      expect(
+        find.text('原始行索引（0-based）：OCR 1 [0, 1] → OCR 2 [2]'),
+        findsOneWidget,
+      );
+      expect(find.text('多行组合：2 → 1'), findsOneWidget);
+      expect(find.textContaining('VLM 或机器共识不能绕过'), findsOneWidget);
+      expect(
+        find.text('候选 1：OCR 1 [0, 1] → OCR 2 [2] · 分数 4.100 · 文本相似度 96.0%'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('候选 2：OCR 1 [0] → OCR 2 [2] · 分数 4.060 · 文本相似度 71.0%'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
-  testWidgets('distinguishes an ordinary matched text disagreement', (tester) async {
+  testWidgets('distinguishes an ordinary matched text disagreement', (
+    tester,
+  ) async {
     final item = parseItem(''',
       "primary_line_indexes":[4],"secondary_line_indexes":[7],
       "alignment_status":"matched","ambiguity":null
@@ -79,7 +87,9 @@ void main() {
     expect(find.textContaining('VLM 或机器共识不能绕过'), findsNothing);
   });
 
-  testWidgets('does not invent line indexes for a legacy payload', (tester) async {
+  testWidgets('does not invent line indexes for a legacy payload', (
+    tester,
+  ) async {
     final item = parseItem('');
 
     await showEvidence(tester, item);

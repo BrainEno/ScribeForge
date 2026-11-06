@@ -18,7 +18,8 @@ class DesktopVlmSettings {
   final double timeoutSeconds;
   final bool allowRemote;
 
-  bool get isConfigured => endpoint.trim().isNotEmpty && model.trim().isNotEmpty;
+  bool get isConfigured =>
+      endpoint.trim().isNotEmpty && model.trim().isNotEmpty;
 
   factory DesktopVlmSettings.fromJson(Object? value) {
     if (value is! Map) return const DesktopVlmSettings();
@@ -31,21 +32,22 @@ class DesktopVlmSettings {
       enabled: json['enabled'] == true,
       endpoint: _stringValue(json['endpoint']),
       model: _stringValue(json['model']),
-      apiKeyEnvironmentVariable:
-          _stringValue(json['api_key_environment_variable']),
+      apiKeyEnvironmentVariable: _stringValue(
+        json['api_key_environment_variable'],
+      ),
       timeoutSeconds: timeout,
       allowRemote: json['allow_remote'] == true,
     );
   }
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'enabled': enabled,
-        'endpoint': endpoint.trim(),
-        'model': model.trim(),
-        'api_key_environment_variable': apiKeyEnvironmentVariable.trim(),
-        'timeout_seconds': timeoutSeconds,
-        'allow_remote': allowRemote,
-      };
+    'enabled': enabled,
+    'endpoint': endpoint.trim(),
+    'model': model.trim(),
+    'api_key_environment_variable': apiKeyEnvironmentVariable.trim(),
+    'timeout_seconds': timeoutSeconds,
+    'allow_remote': allowRemote,
+  };
 
   static String _stringValue(Object? value) =>
       value is String ? value.trim() : '';

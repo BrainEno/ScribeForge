@@ -35,7 +35,9 @@ class ProcessScribeForgeCliExecutor implements ScribeForgeCliExecutor {
     final cancelable = arguments.contains('--cancelable');
     if (cancelable) {
       if (_cancelableProcess != null) {
-        throw StateError('A cancelable ScribeForge CLI process is already running.');
+        throw StateError(
+          'A cancelable ScribeForge CLI process is already running.',
+        );
       }
       _cancelRequested = false;
       _cancelSent = false;

@@ -21,53 +21,53 @@ class ScribePageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 640;
-          final heading = Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(ScribeRadii.card),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  icon,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: ScribeSpacing.x4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(title, style: Theme.of(context).textTheme.headlineSmall),
-                    const SizedBox(height: ScribeSpacing.x1),
-                    Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-                  ],
-                ),
-              ),
-              if (trailing != null && !compact) ...<Widget>[
-                const SizedBox(width: ScribeSpacing.x4),
-                trailing!,
+    builder: (context, constraints) {
+      final compact = constraints.maxWidth < 640;
+      final heading = Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(ScribeRadii.card),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              icon,
+              color: Theme.of(context).colorScheme.primary,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: ScribeSpacing.x4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: ScribeSpacing.x1),
+                Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
               ],
-            ],
-          );
-          if (trailing == null || !compact) return heading;
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              heading,
-              const SizedBox(height: ScribeSpacing.x3),
-              Align(alignment: AlignmentDirectional.centerEnd, child: trailing),
-            ],
-          );
-        },
+            ),
+          ),
+          if (trailing != null && !compact) ...<Widget>[
+            const SizedBox(width: ScribeSpacing.x4),
+            trailing!,
+          ],
+        ],
       );
+      if (trailing == null || !compact) return heading;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          heading,
+          const SizedBox(height: ScribeSpacing.x3),
+          Align(alignment: AlignmentDirectional.centerEnd, child: trailing),
+        ],
+      );
+    },
+  );
 }
 
 /// A calm, low-elevation grouping for one related task or decision.
@@ -148,14 +148,26 @@ class ScribeStatusBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final (foreground, background, defaultIcon) = switch (kind) {
-      ScribeStatusKind.info =>
-        (ScribePalette.info, ScribePalette.infoSurface, Icons.info_outline),
-      ScribeStatusKind.success =>
-        (ScribePalette.success, ScribePalette.successSurface, Icons.check_circle_outline),
-      ScribeStatusKind.warning =>
-        (ScribePalette.amber, ScribePalette.amberSurface, Icons.warning_amber_outlined),
-      ScribeStatusKind.error =>
-        (colorScheme.error, colorScheme.errorContainer, Icons.error_outline),
+      ScribeStatusKind.info => (
+        ScribePalette.info,
+        ScribePalette.infoSurface,
+        Icons.info_outline,
+      ),
+      ScribeStatusKind.success => (
+        ScribePalette.success,
+        ScribePalette.successSurface,
+        Icons.check_circle_outline,
+      ),
+      ScribeStatusKind.warning => (
+        ScribePalette.amber,
+        ScribePalette.amberSurface,
+        Icons.warning_amber_outlined,
+      ),
+      ScribeStatusKind.error => (
+        colorScheme.error,
+        colorScheme.errorContainer,
+        Icons.error_outline,
+      ),
     };
     return Semantics(
       liveRegion: true,
@@ -179,9 +191,9 @@ class ScribeStatusBanner extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: foreground,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: foreground,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   if (message.isNotEmpty) ...<Widget>[
                     const SizedBox(height: ScribeSpacing.x1),

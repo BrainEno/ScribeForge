@@ -52,12 +52,18 @@ class RuntimeSetupMessage {
       case 'progress':
         final backend = _requiredString(json, 'backend');
         if (backend != 'mineru' && backend != 'paddleocr') {
-          throw FormatException('Unknown OCR backend in setup progress: $backend');
+          throw FormatException(
+            'Unknown OCR backend in setup progress: $backend',
+          );
         }
         final completedSteps = _requiredInt(json, 'completed_steps');
         final totalSteps = _requiredInt(json, 'total_steps');
-        if (completedSteps < 0 || totalSteps < 0 || completedSteps > totalSteps) {
-          throw const FormatException('Setup progress step counts are invalid.');
+        if (completedSteps < 0 ||
+            totalSteps < 0 ||
+            completedSteps > totalSteps) {
+          throw const FormatException(
+            'Setup progress step counts are invalid.',
+          );
         }
         return RuntimeSetupMessage._(
           type: RuntimeSetupMessageType.progress,
@@ -74,11 +80,15 @@ class RuntimeSetupMessage {
           throw FormatException('Unknown setup action: $action');
         }
         if (json['success'] is! bool) {
-          throw const FormatException('Setup result must include a success flag.');
+          throw const FormatException(
+            'Setup result must include a success flag.',
+          );
         }
         final rawBackends = json['backends'];
         if (rawBackends is! Map) {
-          throw const FormatException('Setup result must include backend states.');
+          throw const FormatException(
+            'Setup result must include backend states.',
+          );
         }
         final backends = <String, RuntimeSetupBackendResult>{};
         for (final name in const <String>['mineru', 'paddleocr']) {
@@ -95,7 +105,9 @@ class RuntimeSetupMessage {
           action: action,
           success: json['success'] as bool,
           message: json['message'] is String ? json['message'] as String : null,
-          backends: Map<String, RuntimeSetupBackendResult>.unmodifiable(backends),
+          backends: Map<String, RuntimeSetupBackendResult>.unmodifiable(
+            backends,
+          ),
         );
       default:
         throw FormatException('Unknown setup message type: ${json['type']}');
@@ -128,7 +140,9 @@ class RuntimeSetupBackendResult {
     }
     final failedStep = json['failed_step'];
     if (failedStep != null && failedStep is! String) {
-      throw const FormatException('Backend failed_step must be a string or null.');
+      throw const FormatException(
+        'Backend failed_step must be a string or null.',
+      );
     }
     return RuntimeSetupBackendResult(
       state: state,

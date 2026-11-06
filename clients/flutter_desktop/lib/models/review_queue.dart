@@ -10,7 +10,9 @@ List<int> _lineIndexes(Object? raw, String fieldName) {
   final indexes = <int>[];
   for (final value in raw) {
     if (value is! int || value < 0 || indexes.contains(value)) {
-      throw FormatException('Review JSON $fieldName has an invalid line index.');
+      throw FormatException(
+        'Review JSON $fieldName has an invalid line index.',
+      );
     }
     indexes.add(value);
   }
@@ -129,17 +131,23 @@ class ReviewQueueSnapshot {
   static ReviewQueueSnapshot fromJsonText(String raw) {
     final decoded = jsonDecode(raw);
     if (decoded is! Map || decoded['schema_version'] != 1) {
-      throw const FormatException('Unsupported ScribeForge review JSON schema.');
+      throw const FormatException(
+        'Unsupported ScribeForge review JSON schema.',
+      );
     }
     final projects = decoded['projects'];
     if (projects is! List) {
-      throw const FormatException('Review JSON is missing the projects collection.');
+      throw const FormatException(
+        'Review JSON is missing the projects collection.',
+      );
     }
 
     final items = <ReviewQueueItem>[];
     for (final rawProject in projects) {
       if (rawProject is! Map) {
-        throw const FormatException('Review JSON contains an invalid project record.');
+        throw const FormatException(
+          'Review JSON contains an invalid project record.',
+        );
       }
       final project = Map<String, dynamic>.from(rawProject);
       final projectId = project['id'];
@@ -150,7 +158,9 @@ class ReviewQueueSnapshot {
       }
       for (final rawItem in rawItems) {
         if (rawItem is! Map) {
-          throw const FormatException('Review JSON contains an invalid queue item.');
+          throw const FormatException(
+            'Review JSON contains an invalid queue item.',
+          );
         }
         items.add(
           ReviewQueueItem.fromJson(
@@ -161,7 +171,9 @@ class ReviewQueueSnapshot {
         );
       }
     }
-    return ReviewQueueSnapshot(items: List<ReviewQueueItem>.unmodifiable(items));
+    return ReviewQueueSnapshot(
+      items: List<ReviewQueueItem>.unmodifiable(items),
+    );
   }
 }
 
@@ -257,9 +269,15 @@ class ReviewQueueItem {
     );
     final alignmentStatus = json['alignment_status'] ?? 'unknown';
     if (alignmentStatus is! String ||
-        !const <String>{'unknown', 'matched', 'unmatched', 'ambiguous'}
-            .contains(alignmentStatus)) {
-      throw const FormatException('Review JSON has an invalid alignment status.');
+        !const <String>{
+          'unknown',
+          'matched',
+          'unmatched',
+          'ambiguous',
+        }.contains(alignmentStatus)) {
+      throw const FormatException(
+        'Review JSON has an invalid alignment status.',
+      );
     }
     final rawAmbiguity = json['ambiguity'];
     final ambiguity = rawAmbiguity == null

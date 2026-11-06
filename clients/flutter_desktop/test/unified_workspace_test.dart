@@ -20,7 +20,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('shows the library and seven workflow destinations', (tester) async {
+  testWidgets('shows the library and seven workflow destinations', (
+    tester,
+  ) async {
     await showDesktopWorkspace(tester);
 
     final navigationRail = find.byType(NavigationRail);
@@ -44,7 +46,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('shows file import and resumable process controls', (tester) async {
+  testWidgets('shows file import and resumable process controls', (
+    tester,
+  ) async {
     await showDesktopWorkspace(tester);
     await openTab(tester, '处理');
 
@@ -54,7 +58,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('shows evidence review controls and keyboard shortcuts', (tester) async {
+  testWidgets('shows evidence review controls and keyboard shortcuts', (
+    tester,
+  ) async {
     await showDesktopWorkspace(tester);
     await openTab(tester, '复核');
 
@@ -77,20 +83,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('opens candidate comparison from the unified workspace',
-      (tester) async {
+  testWidgets('opens candidate comparison from the unified workspace', (
+    tester,
+  ) async {
     await showDesktopWorkspace(tester);
     await openTab(tester, '候选比较');
 
     expect(find.text('OCR 候选比较'), findsOneWidget);
-    expect(
-      find.text('请先导入书籍或打开项目，再比较 OCR 候选。'),
-      findsOneWidget,
-    );
+    expect(find.text('请先导入书籍或打开项目，再比较 OCR 候选。'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('shows EPUB/DOCX metadata and output folder controls', (tester) async {
+  testWidgets('shows EPUB/DOCX metadata and output folder controls', (
+    tester,
+  ) async {
     await showDesktopWorkspace(tester);
     await openTab(tester, '导出');
 
@@ -108,7 +114,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('provides runtime inspection and setup in settings', (tester) async {
+  testWidgets('provides runtime inspection and setup in settings', (
+    tester,
+  ) async {
     await showDesktopWorkspace(tester);
     await openTab(tester, '设置');
 

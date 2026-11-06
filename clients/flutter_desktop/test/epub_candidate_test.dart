@@ -16,7 +16,9 @@ void main() {
       if (await temp.exists()) await temp.delete(recursive: true);
     });
 
-    Future<String> writeEpub(List<({String name, String content})> files) async {
+    Future<String> writeEpub(
+      List<({String name, String content})> files,
+    ) async {
       final archive = Archive();
       for (final file in files) {
         archive.addFile(ArchiveFile.string(file.name, file.content));
@@ -28,22 +30,24 @@ void main() {
     }
 
     List<({String name, String content})> validEntries() => [
-          (
-            name: 'META-INF/container.xml',
-            content: '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>',
-          ),
-          (
-            name: 'OPS/book.opf',
-            content: '<package><metadata><title>Test</title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>',
-          ),
-          (
-            name: 'OPS/chapter.xhtml',
-            content: '<html><head><title>Chapter</title></head><body><p>Hello</p></body></html>',
-          ),
-        ];
+      (
+        name: 'META-INF/container.xml',
+        content: '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>',
+      ),
+      (
+        name: 'OPS/book.opf',
+        content: '<package><metadata><title>Test</title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>',
+      ),
+      (
+        name: 'OPS/chapter.xhtml',
+        content: '<html><head><title>Chapter</title></head><body><p>Hello</p></body></html>',
+      ),
+    ];
 
     test('loads a valid EPUB and extracts spine text', () async {
-      final candidate = await EpubCandidate.load(await writeEpub(validEntries()));
+      final candidate = await EpubCandidate.load(
+        await writeEpub(validEntries()),
+      );
 
       expect(candidate.title, 'Test');
       expect(candidate.pages, hasLength(1));
@@ -81,58 +85,70 @@ void main() {
 
       await expectLater(
         EpubCandidate.load(path),
-        throwsA(isA<FormatException>().having(
-          (error) => error.message,
-          'message',
-          contains('duplicate archive paths'),
-        )),
-      );
-    });
-
-    test('rejects spine references that do not resolve to readable manifest items', () async {
-      final entries = validEntries();
-      entries[1] = (
-        name: entries[1].name,
-        content: entries[1].content.replaceFirst(
-          '</spine>',
-          '<itemref idref="missing-chapter"/></spine>',
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            contains('duplicate archive paths'),
+          ),
         ),
       );
-      final path = await writeEpub(entries);
-
-      await expectLater(
-        EpubCandidate.load(path),
-        throwsA(isA<FormatException>().having(
-          (error) => error.message,
-          'message',
-          contains('does not reference a readable manifest resource'),
-        )),
-      );
     });
 
-    test('rejects duplicate manifest item IDs instead of silently choosing one', () async {
-      final entries = validEntries();
-      entries[1] = (
-        name: entries[1].name,
-        content: entries[1].content.replaceFirst(
-          '</manifest>',
-          '<item id="chapter" href="other.xhtml" media-type="application/xhtml+xml"/></manifest>',
-        ),
-      );
-      entries.add((
-        name: 'OPS/other.xhtml',
-        content: '<html><body><p>Wrong chapter</p></body></html>',
-      ));
-      final path = await writeEpub(entries);
+    test(
+      'rejects spine references that do not resolve to readable manifest items',
+      () async {
+        final entries = validEntries();
+        entries[1] = (
+          name: entries[1].name,
+          content: entries[1].content.replaceFirst(
+            '</spine>',
+            '<itemref idref="missing-chapter"/></spine>',
+          ),
+        );
+        final path = await writeEpub(entries);
 
-      await expectLater(
-        EpubCandidate.load(path),
-        throwsA(isA<FormatException>().having(
-          (error) => error.message,
-          'message',
-          contains('duplicate manifest item id'),
-        )),
-      );
-    });
+        await expectLater(
+          EpubCandidate.load(path),
+          throwsA(
+            isA<FormatException>().having(
+              (error) => error.message,
+              'message',
+              contains('does not reference a readable manifest resource'),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'rejects duplicate manifest item IDs instead of silently choosing one',
+      () async {
+        final entries = validEntries();
+        entries[1] = (
+          name: entries[1].name,
+          content: entries[1].content.replaceFirst(
+            '</manifest>',
+            '<item id="chapter" href="other.xhtml" media-type="application/xhtml+xml"/></manifest>',
+          ),
+        );
+        entries.add((
+          name: 'OPS/other.xhtml',
+          content: '<html><body><p>Wrong chapter</p></body></html>',
+        ));
+        final path = await writeEpub(entries);
+
+        await expectLater(
+          EpubCandidate.load(path),
+          throwsA(
+            isA<FormatException>().having(
+              (error) => error.message,
+              'message',
+              contains('duplicate manifest item id'),
+            ),
+          ),
+        );
+      },
+    );
   });
 }

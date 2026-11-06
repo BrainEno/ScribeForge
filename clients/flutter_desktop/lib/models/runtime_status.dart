@@ -68,8 +68,9 @@ class RuntimeBackendSnapshot {
   factory RuntimeBackendSnapshot.fromMap(Map<String, dynamic> json) =>
       RuntimeBackendSnapshot(
         state: json['state'] is String ? json['state'] as String : 'unknown',
-        failedStep:
-            json['failed_step'] is String ? json['failed_step'] as String : null,
+        failedStep: json['failed_step'] is String
+            ? json['failed_step'] as String
+            : null,
         environmentPath: json['environment_path'] is String
             ? json['environment_path'] as String
             : '',

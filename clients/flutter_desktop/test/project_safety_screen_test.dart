@@ -62,8 +62,9 @@ void main() {
     fileSystem = _FakeWorkspaceFileSystem();
   });
 
-  testWidgets('audits and creates a non-overwriting project backup',
-      (tester) async {
+  testWidgets('audits and creates a non-overwriting project backup', (
+    tester,
+  ) async {
     cli.enqueue('audit', _FakeResult(0, _healthyAuditReport));
     cli.enqueue('backup', const _FakeResult(0, '@backup-report'));
     filePicker.directories.add('/tmp/archives');
@@ -80,7 +81,9 @@ void main() {
     await tester.pump();
     expect(
       tester
-          .widget<TextField>(find.byKey(const ValueKey('backup-directory-path')))
+          .widget<TextField>(
+            find.byKey(const ValueKey('backup-directory-path')),
+          )
           .controller!
           .text,
       '/tmp/archives',
@@ -111,108 +114,115 @@ void main() {
     expect(backupCall, isNot(contains('--overwrite')));
   });
 
-  testWidgets('verifies a backup before explicit restore to a new project directory',
-      (tester) async {
-    cli.enqueue('verify-backup', _FakeResult(0, _healthyVerificationReport));
-    cli.enqueue('restore', const _FakeResult(0, '@restore-report'));
-    fileSystem.files['/tmp/archives/Study.zip'] = <int>[1, 2, 3, 4];
-    filePicker.files.add('/tmp/archives/Study.zip');
-    filePicker.directories.add('/tmp/restored-projects');
-    String? restoredStorePath;
-    await pumpScreen(
-      tester,
-      onProjectRestored: (path) async {
-        restoredStorePath = path;
-      },
-    );
+  testWidgets(
+    'verifies a backup before explicit restore to a new project directory',
+    (tester) async {
+      cli.enqueue('verify-backup', _FakeResult(0, _healthyVerificationReport));
+      cli.enqueue('restore', const _FakeResult(0, '@restore-report'));
+      fileSystem.files['/tmp/archives/Study.zip'] = <int>[1, 2, 3, 4];
+      filePicker.files.add('/tmp/archives/Study.zip');
+      filePicker.directories.add('/tmp/restored-projects');
+      String? restoredStorePath;
+      await pumpScreen(
+        tester,
+        onProjectRestored: (path) async {
+          restoredStorePath = path;
+        },
+      );
 
-    await tester.tap(find.text('选择备份文件'));
-    await tester.pump();
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const ValueKey('restore-backup-path')))
-          .controller!
-          .text,
-      '/tmp/archives/Study.zip',
-    );
-    await tester.tap(find.text('验证备份'));
-    await pumpUntil(
-      tester,
-      find.text('备份验证通过'),
-      description: 'the archive integrity verification',
-    );
+      await tester.tap(find.text('选择备份文件'));
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const ValueKey('restore-backup-path')),
+            )
+            .controller!
+            .text,
+        '/tmp/archives/Study.zip',
+      );
+      await tester.tap(find.text('验证备份'));
+      await pumpUntil(
+        tester,
+        find.text('备份验证通过'),
+        description: 'the archive integrity verification',
+      );
 
-    await tester.tap(find.text('选择恢复父目录'));
-    await tester.pump();
-    await tester.tap(find.text('恢复到新目录'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('选择恢复父目录'));
+      await tester.pump();
+      await tester.tap(find.text('恢复到新目录'));
+      await tester.pumpAndSettle();
 
-    expect(find.textContaining('不会覆盖现有项目'), findsOneWidget);
-    expect(cli.calls.map((arguments) => arguments.first), <String>[
-      'verify-backup',
-    ]);
-    await tester.tap(find.text('取消'));
-    await tester.pumpAndSettle();
-    expect(cli.calls.map((arguments) => arguments.first), <String>[
-      'verify-backup',
-    ]);
+      expect(find.textContaining('不会覆盖现有项目'), findsOneWidget);
+      expect(cli.calls.map((arguments) => arguments.first), <String>[
+        'verify-backup',
+      ]);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(cli.calls.map((arguments) => arguments.first), <String>[
+        'verify-backup',
+      ]);
 
-    await tester.tap(find.text('恢复到新目录'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('确认恢复'));
-    await pumpUntil(
-      tester,
-      find.text('恢复完成'),
-      description: 'the completed restore',
-    );
+      await tester.tap(find.text('恢复到新目录'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确认恢复'));
+      await pumpUntil(
+        tester,
+        find.text('恢复完成'),
+        description: 'the completed restore',
+      );
 
-    expect(cli.calls.map((arguments) => arguments.first), <String>[
-      'verify-backup',
-      'restore',
-    ]);
-    final restoreCall = cli.calls.last;
-    final targetPath = restoreCall[restoreCall.indexOf('--to') + 1];
-    expect(targetPath, startsWith('/tmp/restored-projects/'));
-    expect(targetPath, contains('restored'));
-    expect(targetPath, isNot(storePath));
-    expect(restoredStorePath, targetPath);
-  });
+      expect(cli.calls.map((arguments) => arguments.first), <String>[
+        'verify-backup',
+        'restore',
+      ]);
+      final restoreCall = cli.calls.last;
+      final targetPath = restoreCall[restoreCall.indexOf('--to') + 1];
+      expect(targetPath, startsWith('/tmp/restored-projects/'));
+      expect(targetPath, contains('restored'));
+      expect(targetPath, isNot(storePath));
+      expect(restoredStorePath, targetPath);
+    },
+  );
 
-  testWidgets('refuses an occupied restore destination before invoking the CLI',
-      (tester) async {
-    cli.enqueue('verify-backup', _FakeResult(0, _healthyVerificationReport));
-    fileSystem.files['/tmp/archives/Study.zip'] = <int>[1, 2, 3, 4];
-    fileSystem.directoryExistsResult = true;
-    filePicker.files.add('/tmp/archives/Study.zip');
-    filePicker.directories.add('/tmp/restored-projects');
-    await pumpScreen(tester);
+  testWidgets(
+    'refuses an occupied restore destination before invoking the CLI',
+    (tester) async {
+      cli.enqueue('verify-backup', _FakeResult(0, _healthyVerificationReport));
+      fileSystem.files['/tmp/archives/Study.zip'] = <int>[1, 2, 3, 4];
+      fileSystem.directoryExistsResult = true;
+      filePicker.files.add('/tmp/archives/Study.zip');
+      filePicker.directories.add('/tmp/restored-projects');
+      await pumpScreen(tester);
 
-    await tester.tap(find.text('选择备份文件'));
-    await tester.pump();
-    await tester.tap(find.text('验证备份'));
-    await pumpUntil(
-      tester,
-      find.text('备份验证通过'),
-      description: 'the archive integrity verification',
-    );
-    await tester.tap(find.text('选择恢复父目录'));
-    await tester.pump();
-    await tester.tap(find.text('恢复到新目录'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('确认恢复'));
-    await pumpUntil(
-      tester,
-      find.textContaining('恢复目标目录已存在'),
-      description: 'the refusal to overwrite an existing restore destination',
-    );
+      await tester.tap(find.text('选择备份文件'));
+      await tester.pump();
+      await tester.tap(find.text('验证备份'));
+      await pumpUntil(
+        tester,
+        find.text('备份验证通过'),
+        description: 'the archive integrity verification',
+      );
+      await tester.tap(find.text('选择恢复父目录'));
+      await tester.pump();
+      await tester.tap(find.text('恢复到新目录'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('确认恢复'));
+      await pumpUntil(
+        tester,
+        find.textContaining('恢复目标目录已存在'),
+        description: 'the refusal to overwrite an existing restore destination',
+      );
 
-    expect(cli.calls.map((arguments) => arguments.first), <String>[
-      'verify-backup',
-    ]);
-  });
+      expect(cli.calls.map((arguments) => arguments.first), <String>[
+        'verify-backup',
+      ]);
+    },
+  );
 
-  testWidgets('shows read-only audit findings when the CLI exits partially',
-      (tester) async {
+  testWidgets('shows read-only audit findings when the CLI exits partially', (
+    tester,
+  ) async {
     cli.enqueue('audit', _FakeResult(1, _warningAuditReport));
     await pumpScreen(tester);
 
@@ -229,8 +239,9 @@ void main() {
     expect(cli.calls.single.first, 'audit');
   });
 
-  testWidgets('shows audit failures and retries without changing the project',
-      (tester) async {
+  testWidgets('shows audit failures and retries without changing the project', (
+    tester,
+  ) async {
     cli.enqueue(
       'audit',
       const _FakeResult(2, '', 'simulated read-only audit failure'),
@@ -255,7 +266,10 @@ void main() {
       'audit',
       'audit',
     ]);
-    expect(cli.calls.every((arguments) => arguments.first != 'restore'), isTrue);
+    expect(
+      cli.calls.every((arguments) => arguments.first != 'restore'),
+      isTrue,
+    );
   });
 }
 
@@ -384,10 +398,7 @@ class _FakeWorkspaceFileSystem implements WorkspaceFileSystem {
   Future<WorkspaceFileMetadata?> stat(String path) async {
     final content = files[path];
     if (content == null) return null;
-    return WorkspaceFileMetadata(
-      size: content.length,
-      modifiedMilliseconds: 0,
-    );
+    return WorkspaceFileMetadata(size: content.length, modifiedMilliseconds: 0);
   }
 
   @override
@@ -408,8 +419,7 @@ class _FakeDesktopFilePicker implements DesktopFilePicker {
   Future<String?> pickFile({
     String? dialogTitle,
     required List<String> allowedExtensions,
-  }) async =>
-      files.isEmpty ? null : files.removeFirst();
+  }) async => files.isEmpty ? null : files.removeFirst();
 
   @override
   Future<String?> getDirectoryPath({String? dialogTitle}) async =>

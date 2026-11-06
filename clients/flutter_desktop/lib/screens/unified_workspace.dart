@@ -105,7 +105,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   int _selectedReviewIndex = 0;
   final _reviewPageJumpController = TextEditingController();
   final _reviewPageJumpFocusNode = FocusNode(debugLabel: 'review-page-jump');
-  final _reviewDecisionFocusNode = FocusNode(debugLabel: 'review-decision-input');
+  final _reviewDecisionFocusNode = FocusNode(
+    debugLabel: 'review-decision-input',
+  );
 
   // 导出表单控制器（需在 dispose 中释放）
   final _exportOutputController = TextEditingController();
@@ -128,8 +130,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   ReviewQueueItem? get _selectedReviewItem =>
       _selectedReviewIndex < 0 || _selectedReviewIndex >= _reviewQueue.length
-          ? null
-          : _reviewQueue[_selectedReviewIndex];
+      ? null
+      : _reviewQueue[_selectedReviewIndex];
 
   static const List<String> _navTitles = <String>[
     '书籍',
@@ -208,7 +210,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final version = ++_statusRequestVersion;
     setState(() => _statusLoading = true);
     try {
-      final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
+      final databasePath = ScribeForgeCli.joinPath(
+        storePath,
+        'project.sqlite3',
+      );
       if (!await _fileSystem.fileExists(databasePath)) {
         if (!mounted || version != _statusRequestVersion) return;
         setState(() {
@@ -234,7 +239,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         return;
       }
 
-      final projects = ProjectStatusSnapshot.listFromJsonText(buffer.toString());
+      final projects = ProjectStatusSnapshot.listFromJsonText(
+        buffer.toString(),
+      );
       var selected = sourcePath == null
           ? null
           : ProjectStatusSnapshot.fromJsonText(
@@ -252,11 +259,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         final sourceHash = pathMatches && sourceExists
             ? await _sourceSha256(sourcePath)
             : null;
-        final hashMatches = sourceHash != null &&
-            selected.sourceHashMatches(sourceHash);
+        final hashMatches =
+            sourceHash != null && selected.sourceHashMatches(sourceHash);
         sourceMatches = projects.length == 1 && pathMatches && hashMatches;
         exportAllowed =
-            projects.length == 1 && pathMatches && (!sourceExists || hashMatches);
+            projects.length == 1 &&
+            pathMatches &&
+            (!sourceExists || hashMatches);
         if (projects.length > 1) {
           mismatchMessage = '项目存储包含多个项目；请打开每本书各自的项目文件夹。';
         } else if (!pathMatches) {
@@ -269,10 +278,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       }
       setState(() {
         _projectStatus = selected;
-        _projectSourceMatches = projects.isEmpty || (selected != null && sourceMatches);
-        _projectCanExport = projects.isEmpty || (selected != null && exportAllowed);
+        _projectSourceMatches =
+            projects.isEmpty || (selected != null && sourceMatches);
+        _projectCanExport =
+            projects.isEmpty || (selected != null && exportAllowed);
         _projectSourceMismatchMessage =
-            projects.isEmpty || (selected != null && sourceMatches) ? null : mismatchMessage;
+            projects.isEmpty || (selected != null && sourceMatches)
+            ? null
+            : mismatchMessage;
         if (selected != null && _exportTitleController.text.trim().isEmpty) {
           _exportTitleController.text = selected.title;
         }
@@ -304,7 +317,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         _sourceHashCacheModifiedMillis == modifiedMillis) {
       return _sourceHashCacheValue;
     }
-    final digest = (await sha256.bind(_fileSystem.openRead(sourcePath)).first).toString();
+    final digest = (await sha256.bind(_fileSystem.openRead(sourcePath)).first)
+        .toString();
     _sourceHashCachePath = sourcePath;
     _sourceHashCacheSize = stat.size;
     _sourceHashCacheModifiedMillis = modifiedMillis;
@@ -328,7 +342,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       if (exitCode == 0) {
         setState(() {
-          _runtimeStatus = RuntimeStatusSnapshot.fromJsonText(buffer.toString());
+          _runtimeStatus = RuntimeStatusSnapshot.fromJsonText(
+            buffer.toString(),
+          );
           _error = null;
         });
       } else {
@@ -380,10 +396,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             ..addAll(snapshot.items);
           final retainedIndex = selectedItem == null
               ? -1
-              : _reviewQueue.indexWhere((item) =>
-                  item.projectId == selectedItem.projectId &&
-                  item.pageIndex == selectedItem.pageIndex &&
-                  item.pairIndex == selectedItem.pairIndex);
+              : _reviewQueue.indexWhere(
+                  (item) =>
+                      item.projectId == selectedItem.projectId &&
+                      item.pageIndex == selectedItem.pageIndex &&
+                      item.pairIndex == selectedItem.pairIndex,
+                );
           _selectedReviewIndex = retainedIndex >= 0
               ? retainedIndex
               : ReviewQueueNavigation.move(
@@ -476,11 +494,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         setState(() => _error = buffer.toString().trim());
         return;
       }
-      final projects = ProjectStatusSnapshot.listFromJsonText(buffer.toString());
+      final projects = ProjectStatusSnapshot.listFromJsonText(
+        buffer.toString(),
+      );
       if (projects.length != 1) {
-        setState(() => _error = projects.isEmpty
-            ? '所选项目文件夹还没有导入书籍。'
-            : '该文件夹包含多个项目；请打开每本书各自的项目文件夹。');
+        setState(
+          () => _error = projects.isEmpty
+              ? '所选项目文件夹还没有导入书籍。'
+              : '该文件夹包含多个项目；请打开每本书各自的项目文件夹。',
+        );
         return;
       }
       setState(() {
@@ -584,8 +606,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _runProcess() async {
     final sourcePath = _pdfPath;
     if (sourcePath == null || _statusLoading || !_projectSourceMatches) return;
-    final storePath = _projectStorePath ??
-        ScribeForgeCli.defaultStorePath(sourcePath);
+    final storePath =
+        _projectStorePath ?? ScribeForgeCli.defaultStorePath(sourcePath);
     setState(() {
       _busy = true;
       _processing = true;
@@ -626,9 +648,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         await _refreshStatus(waitForInFlight: true);
         await _refreshReviewQueue();
         setState(() {
-          _notice = exitCode == 0
-              ? '处理完成'
-              : '处理完成（部分页面失败；请查看页级状态后重试）';
+          _notice = exitCode == 0 ? '处理完成' : '处理完成（部分页面失败；请查看页级状态后重试）';
         });
       } else {
         setState(() => _error = buffer.toString().trim());
@@ -649,7 +669,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     }
   }
 
-  Future<void> _resolveReviewPair(ReviewQueueItem item, String acceptedText) async {
+  Future<void> _resolveReviewPair(
+    ReviewQueueItem item,
+    String acceptedText,
+  ) async {
     if (_projectStorePath == null) return;
     setState(() => _busy = true);
     try {
@@ -670,10 +693,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       if (!mounted) return;
       if (exitCode == 0) {
         setState(() {
-          _reviewQueue.removeWhere((r) =>
-              r.projectId == item.projectId &&
-              r.pageIndex == item.pageIndex &&
-              r.pairIndex == item.pairIndex);
+          _reviewQueue.removeWhere(
+            (r) =>
+                r.projectId == item.projectId &&
+                r.pageIndex == item.pageIndex &&
+                r.pairIndex == item.pairIndex,
+          );
           _selectedReviewIndex = ReviewQueueNavigation.move(
             _selectedReviewIndex,
             itemCount: _reviewQueue.length,
@@ -709,7 +734,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     bool strictAcceptance = false,
     bool includePageFurniture = false,
   }) async {
-    if (_projectStorePath == null || _projectStatus == null || !_projectCanExport) return;
+    if (_projectStorePath == null ||
+        _projectStatus == null ||
+        !_projectCanExport)
+      return;
     setState(() {
       _busy = true;
       _error = null;
@@ -761,8 +789,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     stem = stem.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
     if (stem.isEmpty) stem = 'book';
     final extension = _exportFormatEpub ? 'epub' : 'docx';
-    _exportOutputController.text =
-        ScribeForgeCli.joinPath(directory, '$stem.$extension');
+    _exportOutputController.text = ScribeForgeCli.joinPath(
+      directory,
+      '$stem.$extension',
+    );
   }
 
   Future<void> _pickExportOutput() async {
@@ -867,7 +897,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           if (_busy)
             const Padding(
               padding: EdgeInsets.all(8),
-              child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             ),
           if (_error != null)
             IconButton(
@@ -894,7 +928,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                     _navTitles.length,
                     (index) => NavigationRailDestination(
                       icon: Icon(_navIcons[index]),
-                      selectedIcon: Icon(_navIcons[index], color: Theme.of(context).colorScheme.primary),
+                      selectedIcon: Icon(
+                        _navIcons[index],
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                       label: Text(_navTitles[index]),
                     ),
                   ),
@@ -930,17 +967,30 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       color: _error == null ? Colors.green.shade50 : Colors.amber.shade50,
       child: Row(
         children: <Widget>[
-          Icon(_error == null ? Icons.info : Icons.error_outline,
-              color: _error == null ? Colors.green.shade700 : Colors.amber.shade700, size: 18),
+          Icon(
+            _error == null ? Icons.info : Icons.error_outline,
+            color: _error == null
+                ? Colors.green.shade700
+                : Colors.amber.shade700,
+            size: 18,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               _error ?? _notice!,
-              style: TextStyle(color: _error == null ? Colors.green.shade800 : Colors.amber.shade800, fontSize: 12),
+              style: TextStyle(
+                color: _error == null
+                    ? Colors.green.shade800
+                    : Colors.amber.shade800,
+                fontSize: 12,
+              ),
             ),
           ),
           if (_error != null)
-            IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _error = null)),
+            IconButton(
+              icon: const Icon(Icons.close, size: 16),
+              onPressed: () => setState(() => _error = null),
+            ),
         ],
       ),
     );
@@ -954,10 +1004,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Text('已导入的书籍', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+          const Text(
+            '已导入的书籍',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
-          Text('导入新书，或打开已有项目继续处理、复核和导出。',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          Text(
+            '导入新书，或打开已有项目继续处理、复核和导出。',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
           const SizedBox(height: 16),
           Wrap(
             spacing: 10,
@@ -995,14 +1050,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   String _stageLabel(String stage) => switch (stage) {
-        'import' => '导入页面',
-        'preprocess' => '图像预处理',
-        'primary_ocr' => 'OCR 引擎一',
-        'secondary_ocr' => 'OCR 引擎二',
-        'verify' => '比对与风险评估',
-        'vlm_review' => '视觉模型复核',
-        _ => stage,
-      };
+    'import' => '导入页面',
+    'preprocess' => '图像预处理',
+    'primary_ocr' => 'OCR 引擎一',
+    'secondary_ocr' => 'OCR 引擎二',
+    'verify' => '比对与风险评估',
+    'vlm_review' => '视觉模型复核',
+    _ => stage,
+  };
 
   Widget _buildProjectStatusCard() {
     final status = _projectStatus!;
@@ -1014,13 +1069,24 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           children: <Widget>[
             Row(
               children: <Widget>[
-                Expanded(child: Text(status.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+                Expanded(
+                  child: Text(
+                    status.title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
                 if (!_projectSourceMatches)
                   const Icon(Icons.warning, color: Colors.amber, size: 18),
               ],
             ),
             const SizedBox(height: 4),
-            Text(status.sourceUri, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+            Text(
+              status.sourceUri,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
             const SizedBox(height: 12),
             LinearProgressIndicator(value: status.ocrProgress),
             const SizedBox(height: 6),
@@ -1039,12 +1105,19 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               Text(
                 '当前页面任务：${_stageLabel(status.currentJob!.stage)}'
                 '${status.currentJob!.pageIndex == null ? '' : ' · 第 ${status.currentJob!.pageIndex! + 1} 页'}',
-                style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 12),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontSize: 12,
+                ),
               ),
             ],
             const SizedBox(height: 8),
-            Text('复核队列：${status.reviewQueued} 项待处理', style: const TextStyle(fontSize: 12)),
-            if (!_projectSourceMatches && _projectSourceMismatchMessage != null) ...[
+            Text(
+              '复核队列：${status.reviewQueued} 项待处理',
+              style: const TextStyle(fontSize: 12),
+            ),
+            if (!_projectSourceMatches &&
+                _projectSourceMismatchMessage != null) ...[
               const SizedBox(height: 8),
               Text(
                 _projectSourceMismatchMessage!,
@@ -1058,11 +1131,19 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             ],
             if (status.failedJobDetails.isNotEmpty) ...[
               const SizedBox(height: 8),
-              const Text('失败任务：', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-              ...status.failedJobDetails.map((failed) => Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(failed.description, style: TextStyle(color: Colors.red.shade700, fontSize: 11)),
-              )),
+              const Text(
+                '失败任务：',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+              ),
+              ...status.failedJobDetails.map(
+                (failed) => Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    failed.description,
+                    style: TextStyle(color: Colors.red.shade700, fontSize: 11),
+                  ),
+                ),
+              ),
             ],
           ],
         ),
@@ -1079,10 +1160,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Text('导入并处理书籍', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+          const Text(
+            '导入并处理书籍',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
-          Text('选择扫描书籍的 PDF 或页面图片，运行可恢复的双引擎 OCR 与校对管线。',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          Text(
+            '选择扫描书籍的 PDF 或页面图片，运行可恢复的双引擎 OCR 与校对管线。',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
           const SizedBox(height: 20),
           Row(
             children: <Widget>[
@@ -1113,7 +1199,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             child: ElevatedButton.icon(
               icon: Icon(
                 _processing
-                    ? (_cancelRequested ? Icons.hourglass_empty : Icons.cancel_outlined)
+                    ? (_cancelRequested
+                          ? Icons.hourglass_empty
+                          : Icons.cancel_outlined)
                     : (_busy ? Icons.hourglass_empty : Icons.play_arrow),
               ),
               label: Text(
@@ -1124,11 +1212,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               onPressed: _processing
                   ? (_cancelRequested ? null : _cancelProcessing)
                   : (_busy ||
-                          _statusLoading ||
-                          _pdfPath == null ||
-                          !_projectSourceMatches
-                      ? null
-                      : _runProcess),
+                            _statusLoading ||
+                            _pdfPath == null ||
+                            !_projectSourceMatches
+                        ? null
+                        : _runProcess),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size.fromHeight(48),
                 backgroundColor: _processing ? Colors.red.shade700 : null,
@@ -1144,13 +1232,16 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               _projectStatus?.currentJob == null
                   ? '正在导入页面或准备 OCR 运行时…'
                   : '当前任务：${_stageLabel(_projectStatus!.currentJob!.stage)}'
-                    '${_projectStatus!.currentJob!.pageIndex == null ? '' : ' · 第 ${_projectStatus!.currentJob!.pageIndex! + 1} 页'}',
+                        '${_projectStatus!.currentJob!.pageIndex == null ? '' : ' · 第 ${_projectStatus!.currentJob!.pageIndex! + 1} 页'}',
               style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
             ),
           ],
           if (_pdfPath != null) ...[
             const SizedBox(height: 16),
-            const Text('项目存储目录：', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const Text(
+              '项目存储目录：',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
             const SizedBox(height: 4),
             SelectableText(
               _projectStorePath ?? ScribeForgeCli.defaultStorePath(_pdfPath!),
@@ -1182,7 +1273,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Text('复核队列', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+          const Text(
+            '复核队列',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
           Text(
             '比较 OCR 与视觉模型留下的原始候选和图像证据。只有你明确记录后，人工决策才会写入追加式证据链。',
@@ -1200,9 +1294,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             runSpacing: ScribeSpacing.x2,
             children: <Widget>[
               ElevatedButton.icon(
-                icon: Icon(_reviewLoading ? Icons.hourglass_empty : Icons.refresh),
+                icon: Icon(
+                  _reviewLoading ? Icons.hourglass_empty : Icons.refresh,
+                ),
                 label: Text(_reviewLoading ? '刷新中…' : '刷新队列'),
-                onPressed: _reviewLoading || _projectStorePath == null || _projectStatus == null
+                onPressed:
+                    _reviewLoading ||
+                        _projectStorePath == null ||
+                        _projectStatus == null
                     ? null
                     : _refreshReviewQueue,
               ),
@@ -1233,8 +1332,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           Text(
             '默认隐藏已识别的页眉、页脚与页码；开启后可查看 OCR 证据及分类依据，决策仍需你明确确认。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 12),
           if (_reviewLoading)
@@ -1273,7 +1372,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   Widget _buildReviewNavigationControls() {
     final hasPrevious = _selectedReviewIndex > 0;
-    final hasNext = _selectedReviewIndex >= 0 &&
+    final hasNext =
+        _selectedReviewIndex >= 0 &&
         _selectedReviewIndex < _reviewQueue.length - 1;
     return Row(
       children: <Widget>[
@@ -1355,23 +1455,23 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   String _reasonLabel(String reason) => switch (reason) {
-        'text_disagreement' => '文字不一致',
-        'variant_disagreement' => '异体字差异',
-        'punctuation_disagreement' => '标点差异',
-        'missing_or_extra_line' => '缺行或多行',
-        'low_confidence' => '置信度偏低',
-        'unicode_anomaly' => '字符异常',
-        'spatial_mismatch' => '位置不一致',
-        'alignment_ambiguity' => '结构映射歧义',
-        _ => reason,
-      };
+    'text_disagreement' => '文字不一致',
+    'variant_disagreement' => '异体字差异',
+    'punctuation_disagreement' => '标点差异',
+    'missing_or_extra_line' => '缺行或多行',
+    'low_confidence' => '置信度偏低',
+    'unicode_anomaly' => '字符异常',
+    'spatial_mismatch' => '位置不一致',
+    'alignment_ambiguity' => '结构映射歧义',
+    _ => reason,
+  };
 
   String _furnitureReasonLabel(String reason) => switch (reason) {
-        'engine_block' => 'OCR 布局标记',
-        'repeated_in_margin' => '重复页边行',
-        'page_number' => '连续页码',
-        _ => reason,
-      };
+    'engine_block' => 'OCR 布局标记',
+    'repeated_in_margin' => '重复页边行',
+    'page_number' => '连续页码',
+    _ => reason,
+  };
 
   Widget _buildReviewEvidence(String label, String? text) {
     return Padding(
@@ -1379,7 +1479,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+          Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+          ),
           const SizedBox(height: 2),
           SelectableText(text == null || text.isEmpty ? '（无文本）' : text),
         ],
@@ -1393,7 +1496,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+          Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+          ),
           const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
@@ -1440,132 +1546,161 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               };
               if (candidate != null) {
                 controller.text = candidate;
-                controller.selection =
-                    TextSelection.collapsed(offset: candidate.length);
+                controller.selection = TextSelection.collapsed(
+                  offset: candidate.length,
+                );
               }
               return null;
             },
           ),
           _RecordReviewDecisionIntent:
               CallbackAction<_RecordReviewDecisionIntent>(
-            onInvoke: (_) {
-              if (!_busy) {
-                unawaited(_resolveReviewPair(item, controller.text));
-              }
-              return null;
-            },
-          ),
+                onInvoke: (_) {
+                  if (!_busy) {
+                    unawaited(_resolveReviewPair(item, controller.text));
+                  }
+                  return null;
+                },
+              ),
         },
         child: Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 8,
-              runSpacing: 4,
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  '第 ${item.pageIndex + 1} 页 · 第 ${item.pairIndex + 1} 组',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                ),
-                Chip(
-                  label: Text('风险 ${(item.score * 100).round()}%'),
-                  visualDensity: VisualDensity.compact,
-                ),
-                ...item.reasons.map((reason) => Chip(
-                      label: Text(_reasonLabel(reason)),
-                      visualDensity: VisualDensity.compact,
-                    )),
-                if (item.furnitureReason != null)
-                  Chip(
-                    avatar: const Icon(Icons.auto_stories_outlined, size: 16),
-                    label: Text(
-                      '页边家具 · ${_furnitureReasonLabel(item.furnitureReason!)}',
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    Text(
+                      '第 ${item.pageIndex + 1} 页 · 第 ${item.pairIndex + 1} 组',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
-                    visualDensity: VisualDensity.compact,
+                    Chip(
+                      label: Text('风险 ${(item.score * 100).round()}%'),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    ...item.reasons.map(
+                      (reason) => Chip(
+                        label: Text(_reasonLabel(reason)),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    if (item.furnitureReason != null)
+                      Chip(
+                        avatar: const Icon(
+                          Icons.auto_stories_outlined,
+                          size: 16,
+                        ),
+                        label: Text(
+                          '页边家具 · ${_furnitureReasonLabel(item.furnitureReason!)}',
+                        ),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                  ],
+                ),
+                if (_projectStatus == null ||
+                    _projectStatus!.projectId != item.projectId)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      '${item.projectTitle} · 项目 ${item.projectId}',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 11,
+                      ),
+                    ),
                   ),
+                const Divider(height: 12),
+                ReviewAlignmentEvidence(item: item),
+                if (item.furnitureReason != null)
+                  _buildReviewEvidence(
+                    '页边家具分类依据',
+                    _furnitureReasonLabel(item.furnitureReason!),
+                  ),
+                _buildReviewEvidence('OCR 引擎一候选', item.primaryText),
+                _buildReviewEvidence('OCR 引擎二候选', item.secondaryText),
+                if (item.vlmText != null) ...[
+                  _buildReviewEvidence('VLM 候选（仅供参考）', item.vlmText),
+                  if (item.vlmUncertain)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        '视觉模型标记为不确定；请勿将其视为自动结论。',
+                        style: TextStyle(
+                          color: Colors.orange.shade800,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 4),
+                if (item.cropPath != null)
+                  _buildReviewImage('候选区域裁切', item.cropPath!),
+                _buildReviewImage('原始页面图像', item.sourceImagePath),
+                if (item.coordinateFrame == 'preprocessed' &&
+                    item.ocrFrameImagePath != null)
+                  _buildReviewImage('OCR 坐标帧（预处理图像）', item.ocrFrameImagePath!),
+                if (item.coordinateFrame == 'unknown')
+                  const Text('OCR 坐标帧未知或无法验证；请勿根据坐标推断原图位置。'),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('review-decision-input'),
+                  controller: controller,
+                  focusNode: _reviewDecisionFocusNode,
+                  minLines: 1,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: '人工确认的文字',
+                    hintText: '比较上述证据后，输入你确认的文字',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    if (item.primaryText != null)
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.content_copy, size: 16),
+                        label: const Text('填入 OCR 1'),
+                        onPressed: _busy
+                            ? null
+                            : () => controller.text = item.primaryText!,
+                      ),
+                    if (item.secondaryText != null)
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.content_copy, size: 16),
+                        label: const Text('填入 OCR 2'),
+                        onPressed: _busy
+                            ? null
+                            : () => controller.text = item.secondaryText!,
+                      ),
+                    if (item.vlmText != null)
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.content_copy, size: 16),
+                        label: const Text('填入 VLM 候选'),
+                        onPressed: _busy
+                            ? null
+                            : () => controller.text = item.vlmText!,
+                      ),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.fact_check_outlined),
+                      label: const Text('记录人工决策'),
+                      onPressed: _busy
+                          ? null
+                          : () => _resolveReviewPair(item, controller.text),
+                    ),
+                  ],
+                ),
               ],
             ),
-            if (_projectStatus == null || _projectStatus!.projectId != item.projectId)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text('${item.projectTitle} · 项目 ${item.projectId}',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
-              ),
-            const Divider(height: 12),
-            ReviewAlignmentEvidence(item: item),
-            if (item.furnitureReason != null)
-              _buildReviewEvidence(
-                '页边家具分类依据',
-                _furnitureReasonLabel(item.furnitureReason!),
-              ),
-            _buildReviewEvidence('OCR 引擎一候选', item.primaryText),
-            _buildReviewEvidence('OCR 引擎二候选', item.secondaryText),
-            if (item.vlmText != null) ...[
-              _buildReviewEvidence('VLM 候选（仅供参考）', item.vlmText),
-              if (item.vlmUncertain)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text('视觉模型标记为不确定；请勿将其视为自动结论。',
-                      style: TextStyle(color: Colors.orange.shade800, fontSize: 12)),
-                ),
-            ],
-            const SizedBox(height: 4),
-            if (item.cropPath != null)
-              _buildReviewImage('候选区域裁切', item.cropPath!),
-            _buildReviewImage('原始页面图像', item.sourceImagePath),
-            if (item.coordinateFrame == 'preprocessed' && item.ocrFrameImagePath != null)
-              _buildReviewImage('OCR 坐标帧（预处理图像）', item.ocrFrameImagePath!),
-            if (item.coordinateFrame == 'unknown')
-              const Text('OCR 坐标帧未知或无法验证；请勿根据坐标推断原图位置。'),
-            const SizedBox(height: 12),
-            TextField(
-              key: const ValueKey('review-decision-input'),
-              controller: controller,
-              focusNode: _reviewDecisionFocusNode,
-              minLines: 1,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: '人工确认的文字',
-                hintText: '比较上述证据后，输入你确认的文字',
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: <Widget>[
-                if (item.primaryText != null)
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.content_copy, size: 16),
-                    label: const Text('填入 OCR 1'),
-                    onPressed: _busy ? null : () => controller.text = item.primaryText!,
-                  ),
-                if (item.secondaryText != null)
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.content_copy, size: 16),
-                    label: const Text('填入 OCR 2'),
-                    onPressed: _busy ? null : () => controller.text = item.secondaryText!,
-                  ),
-                if (item.vlmText != null)
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.content_copy, size: 16),
-                    label: const Text('填入 VLM 候选'),
-                    onPressed: _busy ? null : () => controller.text = item.vlmText!,
-                  ),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.fact_check_outlined),
-                  label: const Text('记录人工决策'),
-                  onPressed: _busy ? null : () => _resolveReviewPair(item, controller.text),
-                ),
-              ],
-            ),
-          ],
-        ),
           ),
         ),
       ),
@@ -1576,7 +1711,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   Widget _buildCandidateComparisonPage() {
     final status = _projectStatus;
-    final canGenerateCandidates = !_busy &&
+    final canGenerateCandidates =
+        !_busy &&
         !_statusLoading &&
         _projectStorePath != null &&
         status != null &&
@@ -1611,10 +1747,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Text('导出成品', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+          const Text(
+            '导出成品',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
-          Text('把已验证的文字写出为 EPUB 3 或 DOCX。',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          Text(
+            '把已验证的文字写出为 EPUB 3 或 DOCX。',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
           const SizedBox(height: 20),
           _buildExportForm(),
         ],
@@ -1676,7 +1817,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           value: _exportStrictAcceptance,
           title: const Text('严格接受校验'),
           subtitle: const Text('有待抽查的配对时拒绝导出（退出码 2）'),
-          onChanged: (v) => setState(() => _exportStrictAcceptance = v ?? false),
+          onChanged: (v) =>
+              setState(() => _exportStrictAcceptance = v ?? false),
         ),
         CheckboxListTile(
           value: _exportIncludePageFurniture,
@@ -1692,21 +1834,22 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           child: ElevatedButton.icon(
             icon: Icon(_busy ? Icons.hourglass_empty : Icons.output),
             label: Text(_busy ? '导出中…' : '开始导出'),
-            onPressed: _busy ||
+            onPressed:
+                _busy ||
                     _projectStorePath == null ||
                     _projectStatus == null ||
                     !_projectCanExport ||
                     _exportOutputController.text.isEmpty
                 ? null
                 : () => _runExport(
-                      outputPath: _exportOutputController.text,
-                      language: _exportLanguageController.text,
-                      title: _exportTitleController.text,
-                      author: _exportAuthorController.text,
-                      layoutChapter: _exportLayoutChapter,
-                      strictAcceptance: _exportStrictAcceptance,
-                      includePageFurniture: _exportIncludePageFurniture,
-                    ),
+                    outputPath: _exportOutputController.text,
+                    language: _exportLanguageController.text,
+                    title: _exportTitleController.text,
+                    author: _exportAuthorController.text,
+                    layoutChapter: _exportLayoutChapter,
+                    strictAcceptance: _exportStrictAcceptance,
+                    includePageFurniture: _exportIncludePageFurniture,
+                  ),
           ),
         ),
       ],
@@ -1771,10 +1914,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const Text('设置', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+          const Text(
+            '设置',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
-          Text('配置命令行工具与运行时。首次使用请先运行运行时配置。',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          Text(
+            '配置命令行工具与运行时。首次使用请先运行运行时配置。',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
           const SizedBox(height: 20),
           ListTile(
             title: const Text('命令行工具'),
@@ -1810,7 +1958,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             title: const Text('运行时配置 (setup)'),
             subtitle: const Text('查看后端、阶段与步骤进度，或修复单个后端'),
             trailing: _runtimeLoading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Icon(Icons.play_arrow),
             onTap: _runtimeLoading ? null : _openRuntimeSetup,
           ),
@@ -1823,17 +1975,23 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             Text('uv 可用：${_runtimeStatus!.uvAvailable}'),
             const SizedBox(height: 8),
             Text('后端：', style: const TextStyle(fontWeight: FontWeight.w600)),
-            ..._runtimeStatus!.backends.entries.map((entry) => Padding(
-              padding: const EdgeInsets.only(left: 16, top: 4),
-              child: Text('${entry.key}: ${entry.value.state} ${entry.value.environmentExists ? '' : '(环境未安装)'}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-            )),
+            ..._runtimeStatus!.backends.entries.map(
+              (entry) => Padding(
+                padding: const EdgeInsets.only(left: 16, top: 4),
+                child: Text(
+                  '${entry.key}: ${entry.value.state} ${entry.value.environmentExists ? '' : '(环境未安装)'}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ),
+            ),
           ],
           const Divider(),
           ListTile(
             title: const Text('刷新运行时状态'),
             trailing: const Icon(Icons.refresh),
-            onTap: () { _refreshRuntimeStatus(); },
+            onTap: () {
+              _refreshRuntimeStatus();
+            },
           ),
         ],
       ),
@@ -1849,8 +2007,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         title: Text(title),
         content: TextField(controller: controller, autofocus: true),
         actions: <Widget>[
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-          TextButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('确定')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('确定'),
+          ),
         ],
       ),
     );

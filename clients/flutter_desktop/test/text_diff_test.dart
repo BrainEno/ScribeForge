@@ -15,8 +15,11 @@ void main() {
       expect(rows[1].left, 'wrong word');
       expect(rows[1].right, 'right word');
       expect(rows[2].changed, isFalse);
-      final summary = summarizeDiff(rows, const ['Opening line', 'wrong word', 'Last line'],
-          const ['Opening line', 'right word', 'Last line']);
+      final summary = summarizeDiff(
+        rows,
+        const ['Opening line', 'wrong word', 'Last line'],
+        const ['Opening line', 'right word', 'Last line'],
+      );
       expect(summary.sharedLines, 2);
       expect(summary.changedRows, 1);
     });
