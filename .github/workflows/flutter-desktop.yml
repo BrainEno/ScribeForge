@@ -9,39 +9,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  apply-format:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.47.7"
-          channel: stable
-          cache: true
-      - name: Apply Dart formatter
-        run: dart format .
-        working-directory: clients/flutter_desktop
-      - name: Commit formatter output to the PR branch
-        shell: bash
-        env:
-          TARGET_BRANCH: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -e
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add clients/flutter_desktop
-          if git diff --cached --quiet; then
-            echo "No formatting changes needed"
-            exit 0
-          fi
-          git commit -m "style: apply Dart formatter"
-          git push origin "HEAD:${TARGET_BRANCH}"
-
   flutter-desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -61,19 +28,6 @@ jobs:
         run: flutter pub get
       - name: Format Dart source
         run: dart format --set-exit-if-changed .
-      - name: Show Dart formatting differences as annotations
-        if: failure()
-        shell: bash
-        run: |
-          python - <<'PY'
-          import base64
-          import subprocess
-          diff = subprocess.run(["git", "diff", "--", "."], check=True, capture_output=True, text=True).stdout
-          encoded = base64.b64encode(diff.encode()).decode()
-          chunks = [encoded[index:index + 3000] for index in range(0, len(encoded), 3000)]
-          for index, chunk in enumerate(chunks):
-              print(f"::error title=Dart formatting diff {index:03d}::{index:03d}/{len(chunks):03d}:{chunk}")
-          PY
       - name: Analyze Flutter client
         id: analyze
         shell: bash
