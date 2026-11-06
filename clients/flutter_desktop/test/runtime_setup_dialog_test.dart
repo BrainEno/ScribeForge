@@ -32,35 +32,42 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('shows per-step progress and successful backend states', (tester) async {
+  testWidgets('shows per-step progress and successful backend states', (
+    tester,
+  ) async {
     await showSetupDialog(
       tester,
-      runSetup: ({required backend, required onMessage, required onDiagnostic}) async {
-        expect(backend, isNull);
-        onMessage(
-          RuntimeSetupMessage.fromJsonLine(
-            '{"schema_version":1,"type":"progress","backend":"mineru",'
-            '"phase":"install","state":"step_started","step":"environment",'
-            '"completed_steps":1,"total_steps":4}',
-          ),
-        );
-        onMessage(
-          RuntimeSetupMessage.fromJsonLine(
-            '{"schema_version":1,"type":"progress","backend":"mineru",'
-            '"phase":"complete","state":"ready","step":null,'
-            '"completed_steps":4,"total_steps":4}',
-          ),
-        );
-        onMessage(
-          RuntimeSetupMessage.fromJsonLine(
-            '{"schema_version":1,"type":"result","action":"install",'
-            '"success":true,"message":null,"backends":{'
-            '"mineru":{"state":"ready","failed_step":null},'
-            '"paddleocr":{"state":"ready","failed_step":null}}}',
-          ),
-        );
-        return 0;
-      },
+      runSetup:
+          ({
+            required backend,
+            required onMessage,
+            required onDiagnostic,
+          }) async {
+            expect(backend, isNull);
+            onMessage(
+              RuntimeSetupMessage.fromJsonLine(
+                '{"schema_version":1,"type":"progress","backend":"mineru",'
+                '"phase":"install","state":"step_started","step":"environment",'
+                '"completed_steps":1,"total_steps":4}',
+              ),
+            );
+            onMessage(
+              RuntimeSetupMessage.fromJsonLine(
+                '{"schema_version":1,"type":"progress","backend":"mineru",'
+                '"phase":"complete","state":"ready","step":null,'
+                '"completed_steps":4,"total_steps":4}',
+              ),
+            );
+            onMessage(
+              RuntimeSetupMessage.fromJsonLine(
+                '{"schema_version":1,"type":"result","action":"install",'
+                '"success":true,"message":null,"backends":{'
+                '"mineru":{"state":"ready","failed_step":null},'
+                '"paddleocr":{"state":"ready","failed_step":null}}}',
+              ),
+            );
+            return 0;
+          },
     );
 
     expect(find.text('首次 OCR 运行时配置'), findsOneWidget);
@@ -75,7 +82,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('supports repairing one backend and explains the failed step', (tester) async {
+  testWidgets('supports repairing one backend and explains the failed step', (
+    tester,
+  ) async {
     String? repairedBackend;
     await showSetupDialog(
       tester,

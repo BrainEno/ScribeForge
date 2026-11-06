@@ -62,7 +62,10 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
   bool _restoreRunning = false;
 
   bool get _busy =>
-      _auditRunning || _backupRunning || _verificationRunning || _restoreRunning;
+      _auditRunning ||
+      _backupRunning ||
+      _verificationRunning ||
+      _restoreRunning;
 
   String? get _storePath {
     final value = widget.storePath?.trim();
@@ -129,8 +132,15 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
                           label: Text('恢复工具可用'),
                         )
                       : Chip(
-                          avatar: const Icon(Icons.folder_open_outlined, size: 18),
-                          label: Text(title.isEmpty ? _lastPathSegment(_storePath!) : title),
+                          avatar: const Icon(
+                            Icons.folder_open_outlined,
+                            size: 18,
+                          ),
+                          label: Text(
+                            title.isEmpty
+                                ? _lastPathSegment(_storePath!)
+                                : title,
+                          ),
                         ),
                 ),
                 const SizedBox(height: ScribeSpacing.x6),
@@ -197,11 +207,13 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
     final report = _auditReport;
     final findings = report?['findings'];
     final healthy = report?['healthy'] == true;
-    final hasBlockingFinding = findings is List && findings.any((finding) {
-      if (finding is! Map) return true;
-      final severity = finding['severity'];
-      return severity == 'fatal' || severity == 'error';
-    });
+    final hasBlockingFinding =
+        findings is List &&
+        findings.any((finding) {
+          if (finding is! Map) return true;
+          final severity = finding['severity'];
+          return severity == 'fatal' || severity == 'error';
+        });
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -217,8 +229,8 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
             kind: healthy
                 ? ScribeStatusKind.success
                 : hasBlockingFinding
-                    ? ScribeStatusKind.error
-                    : ScribeStatusKind.warning,
+                ? ScribeStatusKind.error
+                : ScribeStatusKind.warning,
             title: healthy ? '项目完整性正常' : '审计发现需要关注的问题',
             message: _auditSummary(report),
           ),
@@ -259,7 +271,10 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
   Widget _buildFinding(Object? rawFinding) {
     final finding = rawFinding is Map
         ? Map<String, dynamic>.from(rawFinding)
-        : <String, dynamic>{'severity': 'error', 'message': 'Invalid finding record.'};
+        : <String, dynamic>{
+            'severity': 'error',
+            'message': 'Invalid finding record.',
+          };
     final severity = finding['severity']?.toString() ?? 'warning';
     final isBlocking = severity == 'fatal' || severity == 'error';
     return Padding(
@@ -283,7 +298,9 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
                   '${severity.toUpperCase()} · ${finding['code'] ?? 'finding'}',
                   style: Theme.of(context).textTheme.labelMedium,
                 ),
-                Text(finding['message']?.toString() ?? 'No diagnostic message.'),
+                Text(
+                  finding['message']?.toString() ?? 'No diagnostic message.',
+                ),
                 if (finding['path'] is String)
                   SelectableText(
                     finding['path'] as String,
@@ -338,7 +355,8 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: <Widget>[
             FilledButton.icon(
-              onPressed: _busy ||
+              onPressed:
+                  _busy ||
                       _storePath == null ||
                       _backupDirectoryController.text.trim().isEmpty
                   ? null
@@ -369,7 +387,8 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
   Widget _buildRestoreContent() {
     final report = _verificationReport;
     final restoreReport = _restoreReport;
-    final verified = report?['healthy'] == true &&
+    final verified =
+        report?['healthy'] == true &&
         _verifiedBackupPath != null &&
         _verifiedBackupPath == _backupPathController.text;
     return Column(
@@ -440,7 +459,8 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
             const SizedBox(height: ScribeSpacing.x3),
             ScribeStatusBanner(
               kind: ScribeStatusKind.warning,
-              title: '原项目审计记录了 ${(report['audit_warnings'] as List).length} 条提示',
+              title:
+                  '原项目审计记录了 ${(report['audit_warnings'] as List).length} 条提示',
               message: '归档本身已通过校验；以下项目审计提示仍需留意。',
             ),
             ...(report['audit_warnings'] as List).map(_buildFinding),
@@ -468,9 +488,7 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
             kind: restoreReport['healthy'] == true
                 ? ScribeStatusKind.success
                 : ScribeStatusKind.error,
-            title: restoreReport['healthy'] == true
-                ? '恢复完成'
-                : '恢复目标未通过完整性检查',
+            title: restoreReport['healthy'] == true ? '恢复完成' : '恢复目标未通过完整性检查',
             message: _restoreSummary(restoreReport),
           ),
           if (restoreReport['store'] is String)
@@ -483,7 +501,8 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
             const SizedBox(height: ScribeSpacing.x3),
             ScribeStatusBanner(
               kind: ScribeStatusKind.warning,
-              title: '恢复后的审计包含 ${(restoreReport['audit_warnings'] as List).length} 条提示',
+              title:
+                  '恢复后的审计包含 ${(restoreReport['audit_warnings'] as List).length} 条提示',
               message: '恢复成功；这些提示未被自动修复。',
             ),
             ...(restoreReport['audit_warnings'] as List).map(_buildFinding),
@@ -491,9 +510,8 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
           const SizedBox(height: ScribeSpacing.x4),
         ],
         FilledButton.icon(
-          onPressed: _busy ||
-                  !verified ||
-                  _restoreParentController.text.trim().isEmpty
+          onPressed:
+              _busy || !verified || _restoreParentController.text.trim().isEmpty
               ? null
               : _confirmRestore,
           icon: _restoreRunning
@@ -538,7 +556,11 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
         if (constraints.maxWidth < 560) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[field, const SizedBox(height: ScribeSpacing.x2), button],
+            children: <Widget>[
+              field,
+              const SizedBox(height: ScribeSpacing.x2),
+              button,
+            ],
           );
         }
         return Row(
@@ -716,17 +738,16 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
       return;
     }
     final name = _safeName(
-      _lastPathSegment(backupPath).replaceFirst(
-        RegExp(r'\.zip$', caseSensitive: false),
-        '',
-      ),
+      _lastPathSegment(backupPath)
+          .replaceFirst(RegExp(r'\.zip$', caseSensitive: false), ''),
     );
     final targetPath = ScribeForgeCli.joinPath(
       parent,
       '$name-restored-${_timestamp()}',
     );
     final currentStorePath = _storePath;
-    if (currentStorePath != null && _isWithinDirectory(targetPath, currentStorePath)) {
+    if (currentStorePath != null &&
+        _isWithinDirectory(targetPath, currentStorePath)) {
       setState(() {
         _restoreError = '恢复目标不能位于当前项目目录内部；请选择项目目录之外的位置。';
       });
@@ -747,18 +768,14 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
               const SizedBox(height: ScribeSpacing.x4),
               Text(
                 '备份来源',
-                style: Theme.of(dialogContext)
-                    .textTheme
-                    .labelLarge
+                style: Theme.of(dialogContext).textTheme.labelLarge
                     ?.copyWith(fontWeight: FontWeight.w600),
               ),
               SelectableText(backupPath),
               const SizedBox(height: ScribeSpacing.x3),
               Text(
                 '新项目目录',
-                style: Theme.of(dialogContext)
-                    .textTheme
-                    .labelLarge
+                style: Theme.of(dialogContext).textTheme.labelLarge
                     ?.copyWith(fontWeight: FontWeight.w600),
               ),
               SelectableText(targetPath),
@@ -797,15 +814,11 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
     });
     try {
       if (await _fileSystem.directoryExists(targetPath)) {
-        throw const _WorkflowFailure(
-          '恢复目标目录已存在；请重新选择恢复位置以生成一个新目录。',
-        );
+        throw const _WorkflowFailure('恢复目标目录已存在；请重新选择恢复位置以生成一个新目录。');
       }
       final currentFingerprint = await _fingerprint(backupPath);
       if (currentFingerprint != _verifiedBackupFingerprint) {
-        throw const _WorkflowFailure(
-          '备份文件在验证后发生变化；请重新验证后再恢复。',
-        );
+        throw const _WorkflowFailure('备份文件在验证后发生变化；请重新验证后再恢复。');
       }
       final report = await _runJsonCommand(
         ScribeForgeCli.restoreBackupArguments(
@@ -995,8 +1008,11 @@ class _ProjectSafetyScreenState extends State<ProjectSafetyScreen> {
     return candidate == root || candidate.startsWith(prefix);
   }
 
-  String _lastPathSegment(String path) =>
-      path.replaceAll(r'\', '/').split('/').where((part) => part.isNotEmpty).last;
+  String _lastPathSegment(String path) => path
+      .replaceAll(r'\', '/')
+      .split('/')
+      .where((part) => part.isNotEmpty)
+      .last;
 }
 
 class _WorkflowFailure implements Exception {

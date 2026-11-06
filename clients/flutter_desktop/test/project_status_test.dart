@@ -48,7 +48,10 @@ void main() {
     expect(result.runningJobs, 1);
     expect(result.failedJobs, 1);
     expect(result.failedJobDetails.single.location, 'secondary_ocr · page 8');
-    expect(result.failedJobDetails.single.description, contains('worker timed out'));
+    expect(
+      result.failedJobDetails.single.description,
+      contains('worker timed out'),
+    );
   });
 
   test('parses active page and stage details for live processing progress', () {
@@ -69,8 +72,10 @@ void main() {
     expect(result?.activeJobs.single.location, 'secondary_ocr · page 9');
   });
 
-  test('selects matching source when a project store includes several projects', () {
-    const projects = '''
+  test(
+    'selects matching source when a project store includes several projects',
+    () {
+      const projects = '''
     {
       "schema_version": 1,
       "store": "store",
@@ -91,14 +96,15 @@ void main() {
     }
     ''';
 
-    final result = ProjectStatusSnapshot.fromJsonText(
-      projects,
-      sourcePath: '/books/second.pdf',
-    );
+      final result = ProjectStatusSnapshot.fromJsonText(
+        projects,
+        sourcePath: '/books/second.pdf',
+      );
 
-    expect(result?.projectId, 2);
-    expect(result?.title, 'Second');
-  });
+      expect(result?.projectId, 2);
+      expect(result?.title, 'Second');
+    },
+  );
 
   test('returns null for an empty store or ambiguous unmatched projects', () {
     expect(
@@ -134,22 +140,24 @@ void main() {
     );
   });
 
+  test(
+    'identifies source path and SHA-256 mismatches instead of reusing status',
+    () {
+      final projects = ProjectStatusSnapshot.listFromJsonText(payload);
+      final status = projects.single;
 
-  test('identifies source path and SHA-256 mismatches instead of reusing status', () {
-    final projects = ProjectStatusSnapshot.listFromJsonText(payload);
-    final status = projects.single;
-
-    expect(status.sourcePathMatches('/books/other.pdf'), isFalse);
-    expect(status.sourceHashMatches('changed-hash'), isFalse);
-    expect(status.sourceHashMatches('abc'), isTrue);
-    expect(
-      ProjectStatusSnapshot.fromJsonText(
-        payload,
-        sourcePath: '/books/other.pdf',
-      ),
-      isNull,
-    );
-  });
+      expect(status.sourcePathMatches('/books/other.pdf'), isFalse);
+      expect(status.sourceHashMatches('changed-hash'), isFalse);
+      expect(status.sourceHashMatches('abc'), isTrue);
+      expect(
+        ProjectStatusSnapshot.fromJsonText(
+          payload,
+          sourcePath: '/books/other.pdf',
+        ),
+        isNull,
+      );
+    },
+  );
 
   test('rejects an unsupported schema', () {
     expect(

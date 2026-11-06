@@ -167,13 +167,18 @@ def _engine_direction(raw: Any) -> Any:
     return raw.get("text_direction") or raw.get("direction")
 
 
-def _layout_blocks(raw: Any) -> list[dict[str, Any]]:
-    """Report structural blocks when PP-Structure output is present.
+def _layout_blocks(
+    raw: Any, lines: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    """Associate PP-Structure regions with OCR lines only when ownership is clear.
 
-    The plain PP-OCR path returns only recognition polygons and carries no
-    layout labels. In that case this returns an empty list: claiming block
-    evidence that does not exist would let downstream stages drop text they
-    should keep, so absence is reported honestly.
+    Plain PP-OCR has no layout labels and returns no blocks.  When layout exists,
+    a line is assigned only if its centre is inside a region, at least 60% of its
+    box is covered, and exactly one region satisfies both tests.  Overlapping
+    candidates, partial ownership and unassigned lines stay unknown: an empty
+    ``0:0`` range cannot represent that distinction downstream.  Non-contiguous
+    assignments become separate blocks rather than swallowing another region's
+    lines into one fabricated range.
     """
 
     if not isinstance(raw, list) and not isinstance(raw, dict):
@@ -185,8 +190,15 @@ def _layout_blocks(raw: Any) -> list[dict[str, Any]]:
     layout = raw.get("layout_det_res") or raw.get("layout")
     if not isinstance(layout, list):
         return []
+    if lines is None:
+        try:
+            lines = extract_lines(raw)
+        except (TypeError, ValueError):
+            return []
+    if not lines:
+        return []
 
-    blocks: list[dict[str, Any]] = []
+    regions: list[tuple[str, list[float]]] = []
     for region in layout:
         if not isinstance(region, dict):
             continue
@@ -194,13 +206,79 @@ def _layout_blocks(raw: Any) -> list[dict[str, Any]]:
         raw_box = region.get("bbox") or region.get("box")
         if not isinstance(raw_box, list) or len(raw_box) != 4:
             continue
+        # PP-Structure commonly puts image dimensions on the result document,
+        # not on each layout region.  Copy them only for coordinate conversion;
+        # the worker's source JSON is never mutated.
+        conversion_region = region
+        if not (
+            isinstance(region.get("width"), (int, float))
+            and isinstance(region.get("height"), (int, float))
+        ):
+            width = raw.get("width", raw.get("image_width"))
+            height = raw.get("height", raw.get("image_height"))
+            if isinstance(width, (int, float)) and isinstance(height, (int, float)):
+                conversion_region = {**region, "width": width, "height": height}
         try:
-            box = _normalized_box(raw_box, region)
+            box = _normalized_box(raw_box, conversion_region)
         except (TypeError, ValueError):
             continue
-        # PaddleOCR layout regions carry no line range; the block describes a
-        # page area, so it deliberately covers no lines.
-        blocks.append({"type": label, "box": box, "line_start": 0, "line_end": 0})
+        regions.append((label, box))
+    if not regions:
+        return []
+
+    assigned: list[list[int]] = [[] for _ in regions]
+    for line_index, line in enumerate(lines):
+        raw_line_box = line.get("box")
+        if not isinstance(raw_line_box, list) or len(raw_line_box) != 4:
+            continue
+        try:
+            x, y, width, height = (float(value) for value in raw_line_box)
+        except (TypeError, ValueError):
+            continue
+        if width <= 0 or height <= 0:
+            continue
+        centre_x = x + width / 2
+        centre_y = y + height / 2
+        line_area = width * height
+        candidates: list[int] = []
+        for region_index, (_label, box) in enumerate(regions):
+            region_x, region_y, region_width, region_height = box
+            inside = (
+                region_x <= centre_x <= region_x + region_width
+                and region_y <= centre_y <= region_y + region_height
+            )
+            if not inside:
+                continue
+            intersection = max(
+                0.0, min(x + width, region_x + region_width) - max(x, region_x)
+            ) * max(
+                0.0, min(y + height, region_y + region_height) - max(y, region_y)
+            )
+            if intersection / line_area >= 0.60:
+                candidates.append(region_index)
+        if len(candidates) == 1:
+            assigned[candidates[0]].append(line_index)
+
+    blocks: list[dict[str, Any]] = []
+    for (label, box), line_indexes in zip(regions, assigned, strict=True):
+        if not line_indexes:
+            continue
+        run_start = previous = line_indexes[0]
+        for line_index in line_indexes[1:]:
+            if line_index != previous + 1:
+                blocks.append(
+                    {
+                        "type": label,
+                        "box": box,
+                        "line_start": run_start,
+                        "line_end": previous + 1,
+                    }
+                )
+                run_start = line_index
+            previous = line_index
+        blocks.append(
+            {"type": label, "box": box, "line_start": run_start, "line_end": previous + 1}
+        )
     return blocks
 
 
@@ -250,6 +328,7 @@ def main() -> None:
         result_path = output_dir / f"{Path(args.image).stem}_res.json"
         raw = json.loads(result_path.read_text(encoding="utf-8"))
     version = str(raw.get("version", "3.x")) if isinstance(raw, dict) else "3.x"
+    lines = extract_lines(raw, image_size=_image_size(args.image))
     sys.stdout.buffer.write(
         (
             json.dumps(
@@ -257,8 +336,8 @@ def main() -> None:
                     "paddleocr",
                     version,
                     args.page_index,
-                    extract_lines(raw, image_size=_image_size(args.image)),
-                    blocks=_layout_blocks(raw),
+                    lines,
+                    blocks=_layout_blocks(raw, lines),
                     direction=reported_direction(_engine_direction(raw)),
                 ),
                 ensure_ascii=False,

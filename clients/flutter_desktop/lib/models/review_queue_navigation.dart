@@ -6,7 +6,11 @@
 class ReviewQueueNavigation {
   const ReviewQueueNavigation._();
 
-  static int move(int currentIndex, {required int itemCount, required int delta}) {
+  static int move(
+    int currentIndex, {
+    required int itemCount,
+    required int delta,
+  }) {
     if (itemCount <= 0) return -1;
     return (currentIndex + delta).clamp(0, itemCount - 1).toInt();
   }

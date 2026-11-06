@@ -5,23 +5,23 @@ import 'package:scribeforge_desktop/models/epub_candidate.dart';
 void main() {
   group('CandidateComparisonNavigation', () {
     EpubPage page(int index, String text) => EpubPage(
-          spineIndex: index,
-          sourcePageIndex: index,
-          title: 'Page $index',
-          text: text,
-        );
+      spineIndex: index,
+      sourcePageIndex: index,
+      title: 'Page $index',
+      text: text,
+    );
 
     EpubCandidate candidate(List<String> text) => EpubCandidate(
-          path: '/tmp/candidate.epub',
-          title: 'Candidate',
-          creator: null,
-          pages: List<EpubPage>.generate(
-            text.length,
-            (index) => page(index, text[index]),
-          ),
-          isSourcePageAligned: true,
-          sha256: 'test-hash',
-        );
+      path: '/tmp/candidate.epub',
+      title: 'Candidate',
+      creator: null,
+      pages: List<EpubPage>.generate(
+        text.length,
+        (index) => page(index, text[index]),
+      ),
+      isSourcePageAligned: true,
+      sha256: 'test-hash',
+    );
 
     test('compares extracted lines without considering chapter titles', () {
       expect(
@@ -44,14 +44,20 @@ void main() {
         isTrue,
       );
       expect(
-        CandidateComparisonNavigation.pagesDiffer(page(0, 'one'), page(0, 'one\ntwo')),
+        CandidateComparisonNavigation.pagesDiffer(
+          page(0, 'one'),
+          page(0, 'one\ntwo'),
+        ),
         isTrue,
       );
     });
 
     test('treats a page present in only one candidate as a difference', () {
       expect(CandidateComparisonNavigation.pagesDiffer(null, null), isFalse);
-      expect(CandidateComparisonNavigation.pagesDiffer(page(1, 'text'), null), isTrue);
+      expect(
+        CandidateComparisonNavigation.pagesDiffer(page(1, 'text'), null),
+        isTrue,
+      );
     });
 
     test('jumps to the next differing page and wraps around the book', () {

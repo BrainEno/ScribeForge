@@ -44,6 +44,7 @@ from scribeforge.domain.crops import plan_region_read
 from scribeforge.domain.decisions import DecisionActor
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.page_asset import verify_page_asset
+from scribeforge.domain.text_assembly import assemble_group_text
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import project_furniture, review_detail
 from scribeforge.pipeline.crop_evidence import crop_evidence, isolated_crop
@@ -228,15 +229,15 @@ def _gate_refused(
     secondary = store.load_ocr_run(record.secondary_run_id)
     texts = [
         run.lines[index].text
-        for run, index in (
-            (primary, pair.primary_line_index),
-            (secondary, pair.secondary_line_index),
+        for run, indexes in (
+            (primary, pair.primary_line_indexes),
+            (secondary, pair.secondary_line_indexes),
         )
-        if index is not None
+        for index in indexes
     ]
     return bool(
         machine_blockers(
-            text="".join(texts), risk=record.risks[pair_index], policy=DEFAULT_POLICY
+            text=assemble_group_text(texts), risk=record.risks[pair_index], policy=DEFAULT_POLICY
         )
     )
 
@@ -275,11 +276,13 @@ def _open_pairs(
         for pair_index, pair in enumerate(record.alignment.pairs):
             # project_furniture returns primary-run line indexes; never compare a
             # secondary index here or a line-count mismatch can hide body content.
-            primary_line_index = pair.primary_line_index
-            furniture_reason = (
-                page_furniture.get(primary_line_index)
-                if primary_line_index is not None
-                else None
+            furniture_reason = next(
+                (
+                    page_furniture[index]
+                    for index in pair.primary_line_indexes
+                    if index in page_furniture
+                ),
+                None,
             )
             if furniture_reason is not None and not include_page_furniture:
                 continue
@@ -318,11 +321,15 @@ def _engine_readings(
 
     readings: list[Reading] = []
     refs: dict[str, tuple[str, ...]] = {}
-    for label, result, index, run_id in (
-        ("primary", primary, pair.primary_line_index, record.primary_run_id),
-        ("secondary", secondary, pair.secondary_line_index, record.secondary_run_id),
+    for label, result, indexes, run_id in (
+        ("primary", primary, pair.primary_line_indexes, record.primary_run_id),
+        ("secondary", secondary, pair.secondary_line_indexes, record.secondary_run_id),
     ):
-        text = None if index is None else result.lines[index].text
+        text = (
+            None
+            if not indexes
+            else assemble_group_text(result.lines[index].text for index in indexes)
+        )
         source = f"ocr:{result.engine.strip().casefold()}"
         readings.append(Reading(label, text, source=source))
         refs[label] = (f"engine_run:{run_id}", f"source:{source}")
@@ -420,6 +427,10 @@ def run_repair_round(
             continue
 
         detail = review_detail(store, project_id, ref.page_index, ref.pair_index)
+        if detail.ambiguity is not None:
+            # A fresh reading cannot prove which geometric mapping is correct.
+            still_open.append(ref)
+            continue
         if detail.source_box is None:
             skipped.append(ref)
             continue
@@ -481,7 +492,11 @@ def run_repair_round(
             # concatenation rather than whichever line happened to look longest.
             source = f"ocr:{result.engine.strip().casefold()}"
             readings.append(
-                Reading(reader.label, "".join(line.text for line in result.lines), source=source)
+                Reading(
+                    reader.label,
+                    assemble_group_text(line.text for line in result.lines),
+                    source=source,
+                )
             )
             refs[reader.label] = (
                 f"engine_run:{run_id}", f"region_read:{scope}", f"source:{source}"
@@ -637,8 +652,7 @@ def _furniture_pair_keys(
         record = store.load_verification(verification_id)
         page_furniture = furniture.get(page.page_index, {})
         for pair_index, pair in enumerate(record.alignment.pairs):
-            line_index = pair.primary_line_index
-            if line_index is not None and line_index in page_furniture:
+            if any(index in page_furniture for index in pair.primary_line_indexes):
                 keys.add((page.page_index, pair_index))
     return keys
 

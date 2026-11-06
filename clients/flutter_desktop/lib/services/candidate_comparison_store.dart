@@ -53,18 +53,17 @@ class FileCandidateComparisonStore implements CandidateComparisonStore {
     required String expectedSourceSha256,
     required String expectedCandidateASha256,
     required String expectedCandidateBSha256,
-  }) =>
-      EvaluationStore.save(
-        sourcePdfPath: sourcePdfPath,
-        candidateAPath: candidateAPath,
-        candidateBPath: candidateBPath,
-        candidateALabel: candidateALabel,
-        candidateBLabel: candidateBLabel,
-        pageDecisions: pageDecisions,
-        overallWinner: overallWinner,
-        notes: notes,
-        expectedSourceSha256: expectedSourceSha256,
-        expectedCandidateASha256: expectedCandidateASha256,
-        expectedCandidateBSha256: expectedCandidateBSha256,
-      );
+  }) => EvaluationStore.save(
+    sourcePdfPath: sourcePdfPath,
+    candidateAPath: candidateAPath,
+    candidateBPath: candidateBPath,
+    candidateALabel: candidateALabel,
+    candidateBLabel: candidateBLabel,
+    pageDecisions: pageDecisions,
+    overallWinner: overallWinner,
+    notes: notes,
+    expectedSourceSha256: expectedSourceSha256,
+    expectedCandidateASha256: expectedCandidateASha256,
+    expectedCandidateBSha256: expectedCandidateBSha256,
+  );
 }

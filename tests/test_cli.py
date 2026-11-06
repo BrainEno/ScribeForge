@@ -810,6 +810,10 @@ def test_review_json_returns_machine_readable_evidence_and_page_assets(
     assert item["reasons"]
     assert item["primary_text"] == "鸦"
     assert item["secondary_text"] == "雅"
+    assert item["primary_line_indexes"] == [0]
+    assert item["secondary_line_indexes"] == [0]
+    assert item["alignment_status"] == "matched"
+    assert item["ambiguity"] is None
     assert item["vlm_text"] == "maybe"
     assert item["vlm_uncertain"] is True
     assert Path(item["source_image_path"]).is_file()

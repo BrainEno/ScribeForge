@@ -41,21 +41,22 @@ abstract final class ScribeTheme {
   static final ThemeData light = _buildLightTheme();
 
   static ThemeData _buildLightTheme() {
-    final colorScheme = ColorScheme.fromSeed(
-      seedColor: ScribePalette.forest,
-      brightness: Brightness.light,
-      surface: ScribePalette.paper,
-    ).copyWith(
-      primary: ScribePalette.forest,
-      onPrimary: ScribePalette.paper,
-      primaryContainer: ScribePalette.mist,
-      onPrimaryContainer: ScribePalette.ink,
-      surface: ScribePalette.paper,
-      onSurface: ScribePalette.ink,
-      onSurfaceVariant: ScribePalette.mutedInk,
-      outline: ScribePalette.border,
-      error: const Color(0xFFB3261E),
-    );
+    final colorScheme =
+        ColorScheme.fromSeed(
+          seedColor: ScribePalette.forest,
+          brightness: Brightness.light,
+          surface: ScribePalette.paper,
+        ).copyWith(
+          primary: ScribePalette.forest,
+          onPrimary: ScribePalette.paper,
+          primaryContainer: ScribePalette.mist,
+          onPrimaryContainer: ScribePalette.ink,
+          surface: ScribePalette.paper,
+          onSurface: ScribePalette.ink,
+          onSurfaceVariant: ScribePalette.mutedInk,
+          outline: ScribePalette.border,
+          error: const Color(0xFFB3261E),
+        );
 
     return ThemeData(
       useMaterial3: true,

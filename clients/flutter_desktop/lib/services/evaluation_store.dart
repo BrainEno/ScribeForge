@@ -130,7 +130,9 @@ class EvaluationStore {
       sourceFingerprint,
       expectedSourceSha256,
     );
-    final candidateAHash = candidateAPath == null ? null : await fingerprint(candidateAPath);
+    final candidateAHash = candidateAPath == null
+        ? null
+        : await fingerprint(candidateAPath);
     if (candidateAPath != null) {
       _requireExpectedFingerprint(
         'candidate A',
@@ -139,7 +141,9 @@ class EvaluationStore {
         expectedCandidateASha256,
       );
     }
-    final candidateBHash = candidateBPath == null ? null : await fingerprint(candidateBPath);
+    final candidateBHash = candidateBPath == null
+        ? null
+        : await fingerprint(candidateBPath);
     if (candidateBPath != null) {
       _requireExpectedFingerprint(
         'candidate B',
@@ -152,10 +156,7 @@ class EvaluationStore {
     final payload = <String, Object?>{
       'schema_version': 1,
       'updated_at': now.toIso8601String(),
-      'source_pdf': {
-        'path': sourcePdfPath,
-        'sha256': sourceFingerprint,
-      },
+      'source_pdf': {'path': sourcePdfPath, 'sha256': sourceFingerprint},
       'candidate_a': candidateAPath == null
           ? null
           : {

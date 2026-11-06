@@ -29,6 +29,7 @@ from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
 from scribeforge.domain.page_asset import PageAssetError
 from scribeforge.domain.paragraphs import LineRole
 from scribeforge.domain.structure import BookStructure, PageRole
+from scribeforge.domain.text_assembly import assemble_group_text
 from scribeforge.storage.sqlite import PageConfirmation, PageRecord, SQLiteStore, VerificationRecord
 
 
@@ -176,8 +177,8 @@ def assemble_verified_content(
                 risk = record.risks[pair_index] if pair_index < len(record.risks) else None
                 # Diagnose the refusal here, where both readings are in hand, so the
                 # export error can say *why* each pair is still open.
-                primary_text = _pair_text(primary_result, pair.primary_line_index)
-                secondary_text = _pair_text(secondary_result, pair.secondary_line_index)
+                primary_text = _pair_text(primary_result, pair.primary_line_indexes)
+                secondary_text = _pair_text(secondary_result, pair.secondary_line_indexes)
                 unresolved_pairs.append(
                     UnresolvedPair(
                         page.page_index,
@@ -396,8 +397,10 @@ def _load_image(
     )
 
 
-def _pair_text(result: PageOCRResult, index: int | None) -> str | None:
-    return None if index is None else result.lines[index].text
+def _pair_text(result: PageOCRResult, indexes: tuple[int, ...]) -> str | None:
+    if not indexes:
+        return None
+    return assemble_group_text(result.lines[index].text for index in indexes)
 
 
 def _pair_is_empty(
@@ -407,37 +410,29 @@ def _pair_is_empty(
 
     texts = [
         result.lines[index].text
-        for result, index in (
-            (primary, pair.primary_line_index),
-            (secondary, pair.secondary_line_index),
+        for result, indexes in (
+            (primary, pair.primary_line_indexes),
+            (secondary, pair.secondary_line_indexes),
         )
-        if index is not None
+        for index in indexes
     ]
     return bool(texts) and all(not text.strip() for text in texts)
-
-
-def _pair_line(
-    primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment
-) -> tuple[PageOCRResult, int] | None:
-    """Which engine's line represents this pair, and at which index."""
-
-    if pair.primary_line_index is not None:
-        return primary, pair.primary_line_index
-    if pair.secondary_line_index is not None:
-        return secondary, pair.secondary_line_index
-    return None
 
 
 def _pair_box(
     primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment
 ) -> BoundingBox | None:
-    """Box of the line that stands for this pair, for layout reconstruction."""
+    """Union of every cited source box, for layout reconstruction and crops."""
 
-    source = _pair_line(primary, secondary, pair)
-    if source is None:
+    boxes = [primary.lines[index].box for index in pair.primary_line_indexes]
+    boxes.extend(secondary.lines[index].box for index in pair.secondary_line_indexes)
+    if not boxes:
         return None
-    result, index = source
-    return result.lines[index].box
+    left = min(box.x for box in boxes)
+    top = min(box.y for box in boxes)
+    right = max(box.x + box.width for box in boxes)
+    bottom = max(box.y + box.height for box in boxes)
+    return BoundingBox(left, top, right - left, bottom - top)
 
 
 def _pair_role(
@@ -450,19 +445,18 @@ def _pair_role(
     rendered as body text.
     """
 
-    for result, index in (
-        (primary, pair.primary_line_index),
-        (secondary, pair.secondary_line_index),
+    for result, indexes in (
+        (primary, pair.primary_line_indexes),
+        (secondary, pair.secondary_line_indexes),
     ):
-        if index is None:
-            continue
-        block = result.block_of_line(index)
-        if block is None:
-            continue
-        if block.block_type is BlockType.TITLE:
-            return LineRole.HEADING
-        if block.block_type is BlockType.FOOTNOTE:
-            return LineRole.FOOTNOTE
+        for index in indexes:
+            block = result.block_of_line(index)
+            if block is None:
+                continue
+            if block.block_type is BlockType.TITLE:
+                return LineRole.HEADING
+            if block.block_type is BlockType.FOOTNOTE:
+                return LineRole.FOOTNOTE
     return LineRole.BODY
 
 
@@ -517,9 +511,9 @@ def _pair_furniture(
     # Detection indexes come from the primary OCR run. A secondary line index may
     # collide with a different primary line when the engines emit different line
     # counts; comparing it here can silently drop real body text.
-    index = pair.primary_line_index
-    if index is not None and index in page_furniture:
-        return page_furniture[index]
+    for index in pair.primary_line_indexes:
+        if index in page_furniture:
+            return page_furniture[index]
     return None
 
 
@@ -527,9 +521,11 @@ def _pair_source_text(
     store: SQLiteStore, record: VerificationRecord, pair: LineAlignment
 ) -> str:
     primary = store.load_ocr_run(record.primary_run_id)
-    if pair.primary_line_index is not None:
-        return primary.lines[pair.primary_line_index].text
+    if pair.primary_line_indexes:
+        return assemble_group_text(
+            primary.lines[index].text for index in pair.primary_line_indexes
+        )
     secondary = store.load_ocr_run(record.secondary_run_id)
-    if pair.secondary_line_index is not None:
-        return secondary.lines[pair.secondary_line_index].text
-    return ""
+    return assemble_group_text(
+        secondary.lines[index].text for index in pair.secondary_line_indexes
+    )

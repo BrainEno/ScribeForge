@@ -73,42 +73,40 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.memory_outlined),
-            SizedBox(width: 10),
-            Text('Runtime & Models'),
-          ],
-        ),
-        content: SizedBox(
-          width: 610,
-          child: SingleChildScrollView(
-            child: _content(),
-          ),
-        ),
-        actions: [
-          TextButton.icon(
-            onPressed: _loading ? null : _refresh,
-            icon: _loading
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh),
-            label: const Text('Refresh status'),
-          ),
-          OutlinedButton.icon(
-            onPressed: _openSetup,
-            icon: const Icon(Icons.build_outlined),
-            label: const Text('Install / repair…'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      );
+    title: const Row(
+      children: [
+        Icon(Icons.memory_outlined),
+        SizedBox(width: 10),
+        Text('Runtime & Models'),
+      ],
+    ),
+    content: SizedBox(
+      width: 610,
+      child: SingleChildScrollView(child: _content()),
+    ),
+    actions: [
+      TextButton.icon(
+        onPressed: _loading ? null : _refresh,
+        icon: _loading
+            ? const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.refresh),
+        label: const Text('Refresh status'),
+      ),
+      OutlinedButton.icon(
+        onPressed: _openSetup,
+        icon: const Icon(Icons.build_outlined),
+        label: const Text('Install / repair…'),
+      ),
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Close'),
+      ),
+    ],
+  );
 
   Widget _content() {
     final snapshot = _snapshot;
@@ -141,10 +139,13 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _sectionTitle('Hardware'),
-        _detailRow('System', _joinNonEmpty([
-          hardware['os']?.toString(),
-          hardware['architecture']?.toString(),
-        ])),
+        _detailRow(
+          'System',
+          _joinNonEmpty([
+            hardware['os']?.toString(),
+            hardware['architecture']?.toString(),
+          ]),
+        ),
         _detailRow('GPU', _display(hardware['gpu_name'])),
         _detailRow('NVIDIA driver', _display(hardware['nvidia_driver'])),
         _detailRow('VRAM', _memory(hardware['vram_mb'])),
@@ -168,7 +169,10 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
         const SizedBox(height: 12),
         _sectionTitle('Runtime locations'),
         _detailRow('Private runtime root', snapshot.runtimeRoot),
-        _detailRow('uv bootstrap', snapshot.uvAvailable ? 'Available' : 'Not found'),
+        _detailRow(
+          'uv bootstrap',
+          snapshot.uvAvailable ? 'Available' : 'Not found',
+        ),
         _detailRow('Model directory', _path(paths, 'models')),
         _detailRow('Cache directory', _path(paths, 'cache')),
         _detailRow('Tools directory', _path(paths, 'tools')),
@@ -183,39 +187,36 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
   }
 
   Widget _sectionTitle(String title) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(
-          title.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 10,
-            letterSpacing: 1.1,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF718079),
-          ),
-        ),
-      );
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Text(
+      title.toUpperCase(),
+      style: const TextStyle(
+        fontSize: 10,
+        letterSpacing: 1.1,
+        fontWeight: FontWeight.w800,
+        color: Color(0xFF718079),
+      ),
+    ),
+  );
 
   Widget _detailRow(String label, String value) => Padding(
-        padding: const EdgeInsets.only(bottom: 5),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 135,
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF68766F)),
-              ),
-            ),
-            Expanded(
-              child: SelectableText(
-                value,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ],
+    padding: const EdgeInsets.only(bottom: 5),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 135,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF68766F)),
+          ),
         ),
-      );
+        Expanded(
+          child: SelectableText(value, style: const TextStyle(fontSize: 12)),
+        ),
+      ],
+    ),
+  );
 
   Widget _backendTile(String name, RuntimeBackendSnapshot? backend) {
     final reportedState = backend?.state ?? 'unknown';
@@ -229,8 +230,10 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
     final color = switch (state) {
       'ready' => const Color(0xFF237354),
       'failed' => const Color(0xFFAE5425),
-      'installing' || 'models' || 'health' || 'missing-folder' =>
-        const Color(0xFF94601A),
+      'installing' ||
+      'models' ||
+      'health' ||
+      'missing-folder' => const Color(0xFF94601A),
       _ => const Color(0xFF68766F),
     };
     final icon = switch (state) {
@@ -257,13 +260,19 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
               children: [
                 Text(
                   name == 'mineru' ? 'MinerU' : 'PaddleOCR',
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
                 ),
                 Text(
                   backend?.environmentPath ?? 'No environment path reported',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 10, color: Color(0xFF68766F)),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF68766F),
+                  ),
                 ),
                 if (backend != null)
                   Text(
@@ -280,7 +289,10 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
                 if (backend?.failedStep != null)
                   Text(
                     'Failed step: ${backend!.failedStep}',
-                    style: const TextStyle(fontSize: 10, color: Color(0xFFAE5425)),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Color(0xFFAE5425),
+                    ),
                   ),
               ],
             ),
@@ -302,9 +314,8 @@ class _RuntimeModelsDialogState extends State<RuntimeModelsDialog> {
   static String _display(Object? value) =>
       value is String && value.trim().isNotEmpty ? value : 'Not detected';
 
-  static String _memory(Object? value) => value is num
-      ? '${(value / 1024).toStringAsFixed(1)} GiB'
-      : 'Unknown';
+  static String _memory(Object? value) =>
+      value is num ? '${(value / 1024).toStringAsFixed(1)} GiB' : 'Unknown';
 
   static String _joinNonEmpty(List<String?> values) =>
       values.whereType<String>().where((value) => value.isNotEmpty).join(' · ');

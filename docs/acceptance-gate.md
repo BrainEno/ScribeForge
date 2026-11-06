@@ -35,7 +35,7 @@ ScribeForge 的导出只读取“已接受的决策层”。在引入本闸门�
 AcceptancePolicy(
     max_content_risk=0.34,   # content_score 高于此值 → 机器不得接受
     min_confidence=0.30,     # 最差读数的置信度低于此值 → 机器不得接受
-    blocking_reasons={UNICODE_ANOMALY, SPATIAL_MISMATCH},
+    blocking_reasons={UNICODE_ANOMALY, SPATIAL_MISMATCH, ALIGNMENT_AMBIGUITY},
     spot_check_risk=0.25,    # 已接受但达到此值 → 值得抽查
 )
 ```
@@ -44,8 +44,8 @@ AcceptancePolicy(
 复现：
 
 - 文本缺陷：`blank_text`、`unrepresentable_text`
-- 风险原因：`unicode_anomaly`、`spatial_mismatch`（来自 `blocking_reasons`，按
-  `RiskReason` 的声明顺序输出，不随写入顺序变化）
+- 风险原因：`unicode_anomaly`、`spatial_mismatch`、`alignment_ambiguity`（来自
+  `blocking_reasons`，按 `RiskReason` 的声明顺序输出，不随写入顺序变化）
 - 分数与置信度：`high_content_risk`、`low_confidence`
 
 `unrepresentable_text` 覆盖 `U+FFFD` 以及 XML 1.0 无法承载的控制字符（`\t`、`\n`、

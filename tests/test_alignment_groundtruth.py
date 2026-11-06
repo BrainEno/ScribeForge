@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from scribeforge.domain.alignment import ConflictKind, align_pages
+from scribeforge.domain.alignment import align_pages
 from scribeforge.domain.ocr import (
     BoundingBox,
     OCRLine,
@@ -215,11 +215,10 @@ def test_groundtruth_footnote_matching_accuracy() -> None:
 
 
 def test_groundtruth_line_break_matching_accuracy() -> None:
-    """A sentence split across two lines; engines break at different points.
+    """Different two-line break points form one bounded, cited 2:2 group.
 
-    One-to-one alignment cannot merge fragments across different break points,
-    so the boundary mismatch is classified as a conflict (not silently merged)
-    and the pair enters review. This is the #79 limitation being documented.
+    The concatenation is used only to compare this candidate; both original
+    index tuples remain attached to the alignment and neither OCR line changes.
     """
 
     primary = _result(
@@ -239,19 +238,18 @@ def test_groundtruth_line_break_matching_accuracy() -> None:
 
     alignment = align_pages(primary, secondary)
 
-    # Both lines appear in output (none silently dropped); each pair carries
-    # a classified conflict at the break boundary.
-    assert len(alignment.pairs) == 3  # deletion + insertion + matched-with-conflict
-    all_conflicts = alignment.pairs[0].conflicts + alignment.pairs[1].conflicts + alignment.pairs[2].conflicts
-    kinds = {c.kind for c in all_conflicts}
-    assert ConflictKind.DELETION in kinds
-    assert ConflictKind.INSERTION in kinds
+    assert len(alignment.pairs) == 1
+    pair = alignment.pairs[0]
+    assert pair.primary_line_indexes == (0, 1)
+    assert pair.secondary_line_indexes == (0, 1)
+    assert pair.conflicts == ()
 
-    # The pair enters review because the break mismatch raises the risk score.
-    from scribeforge.domain.risk import assess_page, review_candidates
+    # Equal grouped evidence needs no invented review conflict. The source
+    # strings and all four original line references remain unchanged.
     risks = assess_page(alignment, primary, secondary)
     candidates = review_candidates(alignment, risks, primary, secondary)
-    assert len(candidates) >= 1, "break mismatch must enter review queue"
+    assert risks[0].score == 0.0
+    assert candidates == ()
 
 
 # ------------------------------------------------------------------ uncertain -> review

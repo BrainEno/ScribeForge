@@ -1,5 +1,9 @@
 class TextDiffRow {
-  const TextDiffRow({required this.left, required this.right, required this.changed});
+  const TextDiffRow({
+    required this.left,
+    required this.right,
+    required this.changed,
+  });
 
   final String? left;
   final String? right;
@@ -24,7 +28,10 @@ List<TextDiffRow> diffLines(List<String> left, List<String> right) {
     }
 
     final leftMiddle = left.sublist(prefixLength, left.length - suffixLength);
-    final rightMiddle = right.sublist(prefixLength, right.length - suffixLength);
+    final rightMiddle = right.sublist(
+      prefixLength,
+      right.length - suffixLength,
+    );
     if (leftMiddle.length <= 500 && rightMiddle.length <= 500) {
       return List.unmodifiable([
         for (var i = 0; i < prefixLength; i++)
@@ -99,11 +106,13 @@ List<TextDiffRow> diffLines(List<String> left, List<String> right) {
         ? leftHunk.length
         : rightHunk.length;
     for (var offset = 0; offset < hunkLength; offset++) {
-      normalized.add(TextDiffRow(
-        left: offset < leftHunk.length ? leftHunk[offset] : null,
-        right: offset < rightHunk.length ? rightHunk[offset] : null,
-        changed: true,
-      ));
+      normalized.add(
+        TextDiffRow(
+          left: offset < leftHunk.length ? leftHunk[offset] : null,
+          right: offset < rightHunk.length ? rightHunk[offset] : null,
+          changed: true,
+        ),
+      );
     }
   }
   return List.unmodifiable(normalized);
@@ -123,7 +132,11 @@ class TextDiffSummary {
   final int changedRows;
 }
 
-TextDiffSummary summarizeDiff(List<TextDiffRow> rows, List<String> left, List<String> right) {
+TextDiffSummary summarizeDiff(
+  List<TextDiffRow> rows,
+  List<String> left,
+  List<String> right,
+) {
   return TextDiffSummary(
     leftLineCount: left.length,
     rightLineCount: right.length,

@@ -21,55 +21,54 @@ class ReviewKeyboardShortcuts extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Shortcuts(
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
-              _PreviousPageIntent(),
-          SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
-              _NextPageIntent(),
-          SingleActivator(LogicalKeyboardKey.keyD, alt: true):
-              _NextDifferenceIntent(),
-          SingleActivator(LogicalKeyboardKey.keyJ, control: true):
-              _FocusDecisionInputIntent(),
-          SingleActivator(LogicalKeyboardKey.keyG, control: true):
-              _FocusPageJumpIntent(),
-        },
-        child: Actions(
-          actions: <Type, Action<Intent>>{
-            _PreviousPageIntent: CallbackAction<_PreviousPageIntent>(
-              onInvoke: (_) {
-                onPreviousPage();
-                return null;
-              },
-            ),
-            _NextPageIntent: CallbackAction<_NextPageIntent>(
-              onInvoke: (_) {
-                onNextPage();
-                return null;
-              },
-            ),
-            _NextDifferenceIntent: CallbackAction<_NextDifferenceIntent>(
-              onInvoke: (_) {
-                onNextDifference();
-                return null;
-              },
-            ),
-            _FocusDecisionInputIntent:
-                CallbackAction<_FocusDecisionInputIntent>(
-              onInvoke: (_) {
-                onFocusDecisionInput?.call();
-                return null;
-              },
-            ),
-            _FocusPageJumpIntent: CallbackAction<_FocusPageJumpIntent>(
-              onInvoke: (_) {
-                onFocusPageJump?.call();
-                return null;
-              },
-            ),
+    shortcuts: const <ShortcutActivator, Intent>{
+      SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+          _PreviousPageIntent(),
+      SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+          _NextPageIntent(),
+      SingleActivator(LogicalKeyboardKey.keyD, alt: true):
+          _NextDifferenceIntent(),
+      SingleActivator(LogicalKeyboardKey.keyJ, control: true):
+          _FocusDecisionInputIntent(),
+      SingleActivator(LogicalKeyboardKey.keyG, control: true):
+          _FocusPageJumpIntent(),
+    },
+    child: Actions(
+      actions: <Type, Action<Intent>>{
+        _PreviousPageIntent: CallbackAction<_PreviousPageIntent>(
+          onInvoke: (_) {
+            onPreviousPage();
+            return null;
           },
-          child: child,
         ),
-      );
+        _NextPageIntent: CallbackAction<_NextPageIntent>(
+          onInvoke: (_) {
+            onNextPage();
+            return null;
+          },
+        ),
+        _NextDifferenceIntent: CallbackAction<_NextDifferenceIntent>(
+          onInvoke: (_) {
+            onNextDifference();
+            return null;
+          },
+        ),
+        _FocusDecisionInputIntent: CallbackAction<_FocusDecisionInputIntent>(
+          onInvoke: (_) {
+            onFocusDecisionInput?.call();
+            return null;
+          },
+        ),
+        _FocusPageJumpIntent: CallbackAction<_FocusPageJumpIntent>(
+          onInvoke: (_) {
+            onFocusPageJump?.call();
+            return null;
+          },
+        ),
+      },
+      child: child,
+    ),
+  );
 }
 
 class _PreviousPageIntent extends Intent {

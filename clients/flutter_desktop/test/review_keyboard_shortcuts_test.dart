@@ -4,8 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/widgets/review_keyboard_shortcuts.dart';
 
 void main() {
-  testWidgets('Alt+Left, Alt+Right and Alt+D invoke review navigation',
-      (tester) async {
+  testWidgets('Alt+Left, Alt+Right and Alt+D invoke review navigation', (
+    tester,
+  ) async {
     var previousCount = 0;
     var nextCount = 0;
     var differenceCount = 0;
@@ -21,10 +22,7 @@ void main() {
           onFocusDecisionInput: () => focusDecisionCount++,
           onFocusPageJump: () => focusPageJumpCount++,
           child: const Scaffold(
-            body: Focus(
-              autofocus: true,
-              child: Text('Focus target'),
-            ),
+            body: Focus(autofocus: true, child: Text('Focus target')),
           ),
         ),
       ),

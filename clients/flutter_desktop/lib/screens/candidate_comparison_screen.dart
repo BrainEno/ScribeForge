@@ -141,8 +141,9 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
       _notice = null;
     });
     try {
-      final sourceHashBefore =
-          await widget.comparisonStore.fingerprint(sourcePath);
+      final sourceHashBefore = await widget.comparisonStore.fingerprint(
+        sourcePath,
+      );
       if (!mounted || version != _sessionVersion) return;
       final expectedSourceSha256 = widget.expectedSourceSha256;
       if (expectedSourceSha256 != null &&
@@ -151,8 +152,9 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
           'The source PDF no longer matches the project SHA-256; reload or relink it before exporting candidates.',
         );
       }
-      final outputDirectory =
-          ScribeForgeCli.candidateOutputDirectoryForPdf(sourcePath);
+      final outputDirectory = ScribeForgeCli.candidateOutputDirectoryForPdf(
+        sourcePath,
+      );
       final output = StringBuffer();
       final exitCode = await widget.cliExecutor.run(
         executable: widget.cliExecutable,
@@ -171,8 +173,9 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
               : output.toString().trim(),
         );
       }
-      final sourceHashAfter =
-          await widget.comparisonStore.fingerprint(sourcePath);
+      final sourceHashAfter = await widget.comparisonStore.fingerprint(
+        sourcePath,
+      );
       if (!mounted || version != _sessionVersion) return;
       if (sourceHashAfter != sourceHashBefore) {
         throw StateError(
@@ -271,15 +274,18 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
     final sourcePath = widget.sourcePdfPath;
     if (resolvedSourceSha256 == null && sourcePath != null) {
       try {
-        resolvedSourceSha256 =
-            await widget.comparisonStore.fingerprint(sourcePath);
+        resolvedSourceSha256 = await widget.comparisonStore.fingerprint(
+          sourcePath,
+        );
       } catch (error) {
         if (!mounted || version != _sessionVersion) return;
         setState(() => _error = '读取源文件 SHA-256 失败：$error');
         return;
       }
     }
-    if (!mounted || version != _sessionVersion || resolvedSourceSha256 == null) {
+    if (!mounted ||
+        version != _sessionVersion ||
+        resolvedSourceSha256 == null) {
       return;
     }
     setState(() => _sourceSha256 = resolvedSourceSha256);
@@ -301,15 +307,15 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
     if (sourcePath == null) return;
     final version = _sessionVersion;
     try {
-      final document =
-          await widget.comparisonStore.readEvaluation(sourcePath);
+      final document = await widget.comparisonStore.readEvaluation(sourcePath);
       if (!mounted || version != _sessionVersion || document == null) return;
       final source = _asStringMap(document['source_pdf']);
       final savedA = _asStringMap(document['candidate_a']);
       final savedB = _asStringMap(document['candidate_b']);
       final sourceHash = await widget.comparisonStore.fingerprint(sourcePath);
       if (!mounted || version != _sessionVersion) return;
-      final matches = source['path'] == sourcePath &&
+      final matches =
+          source['path'] == sourcePath &&
           source['sha256'] == sourceHash &&
           savedA['path'] == candidateA.path &&
           savedA['sha256'] == candidateA.sha256 &&
@@ -338,13 +344,13 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
       setState(() {
         _sourceSha256 = sourceHash;
         _pageDecisions = restored;
-        _overallWinner = winner is String &&
+        _overallWinner =
+            winner is String &&
                 const <String>{'a', 'b', 'tie', 'review'}.contains(winner)
             ? winner
             : null;
         _notesController.text = notes is String ? notes : '';
-        _savedSidecarPath =
-            '${sourcePath}.scribeforge-review.json';
+        _savedSidecarPath = '${sourcePath}.scribeforge-review.json';
         _notice = '已恢复与当前源文件及候选 SHA-256 匹配的人工评测。';
       });
     } catch (error) {
@@ -353,9 +359,8 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
     }
   }
 
-  Map<String, dynamic> _asStringMap(Object? value) => value is Map
-      ? Map<String, dynamic>.from(value)
-      : <String, dynamic>{};
+  Map<String, dynamic> _asStringMap(Object? value) =>
+      value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 
   Future<void> _recordPageDecision(String decision) async {
     final decisions = Map<int, String>.from(_pageDecisions)
@@ -371,7 +376,10 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
     final sourceSha256 = _sourceSha256;
     final candidateA = _candidateA;
     final candidateB = _candidateB;
-    if (_saving || sourcePath == null || candidateA == null || candidateB == null) {
+    if (_saving ||
+        sourcePath == null ||
+        candidateA == null ||
+        candidateB == null) {
       return;
     }
     if (sourceSha256 == null) {
@@ -503,9 +511,8 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
   }
 
   Widget _buildCandidateActions() {
-    final canGenerate = widget.storePath != null &&
-        widget.canGenerateCandidates &&
-        !_busy;
+    final canGenerate =
+        widget.storePath != null && widget.canGenerateCandidates && !_busy;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -524,9 +531,7 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
         ElevatedButton.icon(
           onPressed: canGenerate ? _generateCandidates : null,
           icon: Icon(_busy ? Icons.hourglass_empty : Icons.compare_arrows),
-          label: Text(
-            _candidateExportFailed ? '重试生成候选' : '生成 OCR 候选 EPUB',
-          ),
+          label: Text(_candidateExportFailed ? '重试生成候选' : '生成 OCR 候选 EPUB'),
         ),
         if (_busy || _saving)
           const SizedBox(
@@ -545,14 +550,14 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
   }
 
   Widget _buildMessage() => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: _error == null ? Colors.green.shade50 : Colors.amber.shade50,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: SelectableText(_error ?? _notice!),
-      );
+    width: double.infinity,
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: _error == null ? Colors.green.shade50 : Colors.amber.shade50,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: SelectableText(_error ?? _notice!),
+  );
 
   Widget _buildCandidatePlaceholder() {
     final candidateA = _candidateA;
@@ -633,27 +638,27 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
   }
 
   Widget _candidateCard(String side, EpubCandidate candidate) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text('候选 $side', style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              Text(candidate.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-              if (candidate.creator != null && candidate.creator!.isNotEmpty)
-                Text(
-                  '引擎：${candidate.creator}',
-                  style: TextStyle(color: Colors.grey.shade700, fontSize: 11),
-                ),
-              Text(
-                'SHA-256 ${candidate.sha256.substring(0, 12)}… · 未验证',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 10),
-              ),
-            ],
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('候选 $side', style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text(candidate.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+          if (candidate.creator != null && candidate.creator!.isNotEmpty)
+            Text(
+              '引擎：${candidate.creator}',
+              style: TextStyle(color: Colors.grey.shade700, fontSize: 11),
+            ),
+          Text(
+            'SHA-256 ${candidate.sha256.substring(0, 12)}… · 未验证',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 10),
           ),
-        ),
-      );
+        ],
+      ),
+    ),
+  );
 
   Widget _buildNavigation(String? pageDecision) {
     final pageCount = _pageCount;
@@ -693,10 +698,7 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
             keyboardType: TextInputType.number,
             textInputAction: TextInputAction.go,
             onSubmitted: _jumpToPage,
-            decoration: const InputDecoration(
-              labelText: '跳转页码',
-              isDense: true,
-            ),
+            decoration: const InputDecoration(labelText: '跳转页码', isDense: true),
           ),
         ),
         OutlinedButton(
@@ -737,29 +739,32 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
   }
 
   Widget _diffCell(String? text, {required bool changed}) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-        decoration: BoxDecoration(
-          color: changed ? Colors.amber.shade50 : Colors.white,
-          borderRadius: BorderRadius.circular(5),
-          border: Border.all(
-            color: changed ? Colors.amber.shade200 : Colors.grey.shade200,
-          ),
-        ),
-        child: SelectableText(
-          text ?? '∅（此处无对应行）',
-          style: TextStyle(
-            color: text == null ? Colors.grey.shade700 : null,
-            fontStyle: text == null ? FontStyle.italic : null,
-          ),
-        ),
-      );
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+    decoration: BoxDecoration(
+      color: changed ? Colors.amber.shade50 : Colors.white,
+      borderRadius: BorderRadius.circular(5),
+      border: Border.all(
+        color: changed ? Colors.amber.shade200 : Colors.grey.shade200,
+      ),
+    ),
+    child: SelectableText(
+      text ?? '∅（此处无对应行）',
+      style: TextStyle(
+        color: text == null ? Colors.grey.shade700 : null,
+        fontStyle: text == null ? FontStyle.italic : null,
+      ),
+    ),
+  );
 
   Widget _buildEvaluationControls(String? pageDecision) {
     final pageCount = _pageCount;
     final canRecord = !_busy && !_saving && _sourceSha256 != null;
     final decided = EvaluationProgress.decidedCount(pageCount, _pageDecisions);
-    final deferred = EvaluationProgress.deferredCount(pageCount, _pageDecisions);
+    final deferred = EvaluationProgress.deferredCount(
+      pageCount,
+      _pageDecisions,
+    );
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -801,12 +806,15 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
                   child: Text(pageDecision == 'b' ? '✓ 候选 B 更好' : '候选 B 更好'),
                 ),
                 OutlinedButton(
-                  onPressed: canRecord ? () => _recordPageDecision('tie') : null,
+                  onPressed: canRecord
+                      ? () => _recordPageDecision('tie')
+                      : null,
                   child: Text(pageDecision == 'tie' ? '✓ 两者相当' : '两者相当'),
                 ),
                 OutlinedButton(
-                  onPressed:
-                      canRecord ? () => _recordPageDecision('review') : null,
+                  onPressed: canRecord
+                      ? () => _recordPageDecision('review')
+                      : null,
                   child: Text(pageDecision == 'review' ? '✓ 稍后再评' : '稍后再评'),
                 ),
               ],
@@ -827,59 +835,60 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
   Widget _buildOverallEvaluation() {
     final canSave = !_busy && !_saving && _sourceSha256 != null;
     return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              const Text('整本书评价', style: TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                initialValue: _overallWinner,
-                decoration: const InputDecoration(labelText: '总体比较结果'),
-                items: const <DropdownMenuItem<String>>[
-                  DropdownMenuItem(value: 'a', child: Text('候选 A 更优')),
-                  DropdownMenuItem(value: 'b', child: Text('候选 B 更优')),
-                  DropdownMenuItem(value: 'tie', child: Text('两者相当')),
-                  DropdownMenuItem(value: 'review', child: Text('暂不判断')),
-                ],
-                onChanged: canSave
-                    ? (value) => setState(() => _overallWinner = value)
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text('整本书评价', style: TextStyle(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: _overallWinner,
+              decoration: const InputDecoration(labelText: '总体比较结果'),
+              items: const <DropdownMenuItem<String>>[
+                DropdownMenuItem(value: 'a', child: Text('候选 A 更优')),
+                DropdownMenuItem(value: 'b', child: Text('候选 B 更优')),
+                DropdownMenuItem(value: 'tie', child: Text('两者相当')),
+                DropdownMenuItem(value: 'review', child: Text('暂不判断')),
+              ],
+              onChanged: canSave
+                  ? (value) => setState(() => _overallWinner = value)
+                  : null,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const ValueKey('candidate-evaluation-notes'),
+              controller: _notesController,
+              enabled: canSave,
+              minLines: 1,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: '评测备注',
+                hintText: '记录候选差异、缺页或版式表现；不会修改 OCR 证据。',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: canSave
+                    ? () => _saveEvaluation(_pageDecisions)
                     : null,
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('保存整本书评价与备注'),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                key: const ValueKey('candidate-evaluation-notes'),
-                controller: _notesController,
-                enabled: canSave,
-                minLines: 1,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: '评测备注',
-                  hintText: '记录候选差异、缺页或版式表现；不会修改 OCR 证据。',
-                ),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: OutlinedButton.icon(
-                  onPressed:
-                      canSave ? () => _saveEvaluation(_pageDecisions) : null,
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('保存整本书评价与备注'),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-      );
+      ),
+    );
   }
 
   String _decisionLabel(String value) => switch (value) {
-        'a' => '候选 A 更好',
-        'b' => '候选 B 更好',
-        'tie' => '两者相当',
-        'review' => '稍后再评',
-        _ => value,
-      };
+    'a' => '候选 A 更好',
+    'b' => '候选 B 更好',
+    'tie' => '两者相当',
+    'review' => '稍后再评',
+    _ => value,
+  };
 }

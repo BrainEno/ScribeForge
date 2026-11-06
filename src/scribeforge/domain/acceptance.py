@@ -78,7 +78,11 @@ class AcceptancePolicy:
     #: two boxes may not even be the same line.
     blocking_reasons: frozenset[RiskReason] = field(
         default_factory=lambda: frozenset(
-            {RiskReason.UNICODE_ANOMALY, RiskReason.SPATIAL_MISMATCH}
+            {
+                RiskReason.UNICODE_ANOMALY,
+                RiskReason.SPATIAL_MISMATCH,
+                RiskReason.ALIGNMENT_AMBIGUITY,
+            }
         )
     )
     #: Machine-accepted pairs at or above this content risk are worth a spot-check.

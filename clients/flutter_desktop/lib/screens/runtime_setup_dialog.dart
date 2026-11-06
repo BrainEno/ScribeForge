@@ -141,8 +141,10 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
   }
 
   String _joinDiagnostic(String? current, String next) {
-    final combined = <String>[if (current != null && current.isNotEmpty) current, next]
-        .join('\n');
+    final combined = <String>[
+      if (current != null && current.isNotEmpty) current,
+      next,
+    ].join('\n');
     return combined.length <= 1800
         ? combined
         : combined.substring(combined.length - 1800);
@@ -236,7 +238,9 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
   String _failedStepLabel(String? failedStep) {
     if (failedStep == null || failedStep.isEmpty) return '未知步骤';
     final separator = failedStep.lastIndexOf(':');
-    final step = separator < 0 ? failedStep : failedStep.substring(separator + 1);
+    final step = separator < 0
+        ? failedStep
+        : failedStep.substring(separator + 1);
     return '${_stepLabel(step)}（$failedStep）';
   }
 
@@ -312,12 +316,18 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                 ],
                 if (_activity.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 16),
-                  const Text('最近进度', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const Text(
+                    '最近进度',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 4),
                   for (final activity in _activity.reversed.take(6))
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Text(activity, style: Theme.of(context).textTheme.bodySmall),
+                      child: Text(
+                        activity,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ),
                 ],
                 if (_diagnostic != null) ...<Widget>[
@@ -353,7 +363,13 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.download),
-          label: Text(_running ? '配置中…' : _attempted ? '重新安装全部后端' : '开始安装全部后端'),
+          label: Text(
+            _running
+                ? '配置中…'
+                : _attempted
+                ? '重新安装全部后端'
+                : '开始安装全部后端',
+          ),
         ),
       ],
     );
@@ -399,7 +415,8 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                 Text(_stateLabel(state), style: TextStyle(color: statusColor)),
               ],
             ),
-            if (snapshot != null && snapshot.environmentPath.isNotEmpty) ...<Widget>[
+            if (snapshot != null &&
+                snapshot.environmentPath.isNotEmpty) ...<Widget>[
               const SizedBox(height: 4),
               SelectableText(
                 '环境目录：${snapshot.environmentPath}',
@@ -420,12 +437,12 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
-            ] else if (_running && isTarget && state == 'installing') ...<Widget>[
+            ] else if (_running &&
+                isTarget &&
+                state == 'installing') ...<Widget>[
               const SizedBox(height: 6),
               Text(
-                _activeBackend == backend
-                    ? '正在准备该后端…'
-                    : '等待开始',
+                _activeBackend == backend ? '正在准备该后端…' : '等待开始',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -439,7 +456,9 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton.icon(
-                onPressed: _running ? null : () => _startSetup(backend: backend),
+                onPressed: _running
+                    ? null
+                    : () => _startSetup(backend: backend),
                 icon: const Icon(Icons.build_outlined),
                 label: Text('只修复 ${_backendLabel(backend)}'),
               ),
@@ -453,8 +472,12 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
   Widget _resultBanner() {
     final success = _result?.success == true && _exitCode == 0;
     final colorScheme = Theme.of(context).colorScheme;
-    final background = success ? Colors.green.shade50 : colorScheme.errorContainer;
-    final foreground = success ? Colors.green.shade900 : colorScheme.onErrorContainer;
+    final background = success
+        ? Colors.green.shade50
+        : colorScheme.errorContainer;
+    final foreground = success
+        ? Colors.green.shade900
+        : colorScheme.onErrorContainer;
     final message = _result?.message;
     return Container(
       width: double.infinity,
@@ -466,8 +489,10 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(success ? Icons.check_circle_outline : Icons.warning_amber_outlined,
-              color: foreground),
+          Icon(
+            success ? Icons.check_circle_outline : Icons.warning_amber_outlined,
+            color: foreground,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -475,7 +500,10 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
               children: <Widget>[
                 Text(
                   success ? '配置完成' : '配置未完成',
-                  style: TextStyle(color: foreground, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: foreground,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 if (message != null && message.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 4),

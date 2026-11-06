@@ -5,12 +5,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from scribeforge.domain.acceptance import DEFAULT_POLICY, AcceptancePolicy
-from scribeforge.domain.alignment import AlignmentConflict, LineAlignment
+from scribeforge.domain.alignment import (
+    AlignmentAmbiguity,
+    AlignmentConflict,
+    AlignmentStatus,
+    LineAlignment,
+)
 from scribeforge.domain.crops import review_crop_file_name
 from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
 from scribeforge.domain.ocr import BoundingBox, PageOCRResult
 from scribeforge.domain.page_asset import file_sha256
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
+from scribeforge.domain.text_assembly import assemble_group_text
 from scribeforge.storage.sqlite import (
     DecisionAlreadyExists,
     PageRecord,
@@ -70,10 +76,18 @@ class ReviewDetail:
     secondary_box: BoundingBox | None = None
     conflicts: tuple[AlignmentConflict, ...] = ()
     furniture_reason: str | None = None
+    primary_line_indexes: tuple[int, ...] = ()
+    secondary_line_indexes: tuple[int, ...] = ()
+    alignment_status: AlignmentStatus = AlignmentStatus.MATCHED
+    ambiguity: AlignmentAmbiguity | None = None
 
 
-def _line_box(result: PageOCRResult, index: int | None) -> BoundingBox | None:
-    return None if index is None else result.lines[index].box
+def _line_box(result: PageOCRResult, indexes: tuple[int, ...]) -> BoundingBox | None:
+    boxes = [result.lines[index].box for index in indexes]
+    merged: BoundingBox | None = None
+    for box in boxes:
+        merged = _merge_boxes(merged, box)
+    return merged
 
 
 def _merge_boxes(
@@ -90,8 +104,10 @@ def _merge_boxes(
     return BoundingBox(left, top, right - left, bottom - top)
 
 
-def _line_text(result: PageOCRResult, index: int | None) -> str | None:
-    return None if index is None else result.lines[index].text
+def _line_text(result: PageOCRResult, indexes: tuple[int, ...]) -> str | None:
+    if not indexes:
+        return None
+    return assemble_group_text(result.lines[index].text for index in indexes)
 
 
 def _latest_readings(
@@ -150,13 +166,13 @@ def _pair_context(
     )
     return _PairContext(
         record=record,
-        primary_text=_line_text(primary, pair.primary_line_index),
-        secondary_text=_line_text(secondary, pair.secondary_line_index),
+        primary_text=_line_text(primary, pair.primary_line_indexes),
+        secondary_text=_line_text(secondary, pair.secondary_line_indexes),
         reading=_latest_readings(store.list_vlm_reviews(verification_id)).get(pair_index),
         candidate=candidate,
         risk=record.risks[pair_index],
-        primary_box=_line_box(primary, pair.primary_line_index),
-        secondary_box=_line_box(secondary, pair.secondary_line_index),
+        primary_box=_line_box(primary, pair.primary_line_indexes),
+        secondary_box=_line_box(secondary, pair.secondary_line_indexes),
         conflicts=pair.conflicts,
     )
 
@@ -201,8 +217,14 @@ def adjudicate_verification(
             resolved.append(pair_index)
             continue
 
-        primary_text = _line_text(primary, pair.primary_line_index)
-        secondary_text = _line_text(secondary, pair.secondary_line_index)
+        primary_text = _line_text(primary, pair.primary_line_indexes)
+        secondary_text = _line_text(secondary, pair.secondary_line_indexes)
+        if pair.is_ambiguous:
+            # Agreement inside an uncommitted alternative is not evidence that
+            # the alignment itself is right. Only a person may settle this pair.
+            blocked.append(pair_index)
+            unresolved.append(pair_index)
+            continue
         if _blank_pair(primary_text, secondary_text):
             # Two readers that both returned an empty line agree on nothing at all.
             # Accepting "" would put an invented empty paragraph in the export and
@@ -304,8 +326,8 @@ def review_queue(
             if store.latest_decision(project_id, page.page_index, pair_index) is not None:
                 continue
             if _blank_pair(
-                _line_text(primary, pair.primary_line_index),
-                _line_text(secondary, pair.secondary_line_index),
+                _line_text(primary, pair.primary_line_indexes),
+                _line_text(secondary, pair.secondary_line_indexes),
             ):
                 continue
             risk = record.risks[pair_index]
@@ -327,9 +349,9 @@ def _pair_furniture_reason(
 ) -> str | None:
     # Furniture indexes are derived from the primary reading. Secondary line
     # indexes are a separate coordinate space and may collide with body indexes.
-    index = pair.primary_line_index
-    if index is not None and index in page_furniture:
-        return page_furniture[index]
+    for index in pair.primary_line_indexes:
+        if index in page_furniture:
+            return page_furniture[index]
     return None
 
 
@@ -376,8 +398,8 @@ def review_detail(
     """
 
     context = _pair_context(store, project_id, page_index, pair_index)
+    pair = context.record.alignment.pairs[pair_index]
     if isinstance(furniture_reason, _Unset):
-        pair = context.record.alignment.pairs[pair_index]
         furniture_reason = _pair_furniture_reason(
             project_furniture(store, project_id).get(page_index, {}), pair
         )
@@ -409,6 +431,10 @@ def review_detail(
         secondary_box=context.secondary_box,
         conflicts=context.conflicts,
         furniture_reason=furniture_reason,
+        primary_line_indexes=pair.primary_line_indexes,
+        secondary_line_indexes=pair.secondary_line_indexes,
+        alignment_status=pair.status,
+        ambiguity=pair.ambiguity,
     )
 
 

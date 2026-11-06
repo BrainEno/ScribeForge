@@ -70,7 +70,9 @@ class EpubCandidate {
     }
     final length = await file.length();
     if (length <= 0 || length > 256 * 1024 * 1024) {
-      throw const FormatException('EPUB file is empty or exceeds the 256 MiB safety limit.');
+      throw const FormatException(
+        'EPUB file is empty or exceeds the 256 MiB safety limit.',
+      );
     }
     final bytes = await file.readAsBytes();
     final archive = ZipDecoder().decodeBytes(bytes);
@@ -87,7 +89,10 @@ class EpubCandidate {
           'EPUB expanded content exceeds the 512 MiB safety limit.',
         );
       }
-      final normalizedName = entry.name.replaceAll(String.fromCharCode(92), '/');
+      final normalizedName = entry.name.replaceAll(
+        String.fromCharCode(92),
+        '/',
+      );
       if (entries.containsKey(normalizedName)) {
         throw FormatException(
           'EPUB contains duplicate archive paths after normalization: $normalizedName',
@@ -117,27 +122,34 @@ class EpubCandidate {
         .firstOrNull;
     final opfPath = rootfile?.getAttribute('full-path');
     if (opfPath == null || opfPath.isEmpty) {
-      throw const FormatException('EPUB container does not point to an OPF package.');
+      throw const FormatException(
+        'EPUB container does not point to an OPF package.',
+      );
     }
     final opf = XmlDocument.parse(readEntry(opfPath));
-    final metadata = _descendants(opf.rootElement).where((e) => e.name.local == 'metadata');
+    final metadata = _descendants(opf.rootElement)
+        .where((e) => e.name.local == 'metadata');
     final metadataElement = metadata.firstOrNull ?? opf.rootElement;
     final title = _descendants(metadataElement)
-            .where((e) => e.name.local == 'title')
-            .map((e) => e.innerText.trim())
-            .firstWhere((value) => value.isNotEmpty, orElse: () => '') ;
+        .where((e) => e.name.local == 'title')
+        .map((e) => e.innerText.trim())
+        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
     final creator = _descendants(metadataElement)
         .where((e) => e.name.local == 'creator')
         .map((e) => e.innerText.trim())
         .firstWhere((value) => value.isNotEmpty, orElse: () => '');
     final manifest = <String, String>{};
     final manifestIds = <String>{};
-    for (final item in _descendants(opf.rootElement).where((e) => e.name.local == 'item')) {
+    for (final item in _descendants(
+      opf.rootElement,
+    ).where((e) => e.name.local == 'item')) {
       final id = item.getAttribute('id');
       final href = item.getAttribute('href');
       final type = item.getAttribute('media-type') ?? '';
       if (id != null && !manifestIds.add(id)) {
-        throw FormatException('EPUB manifest contains duplicate manifest item id: $id');
+        throw FormatException(
+          'EPUB manifest contains duplicate manifest item id: $id',
+        );
       }
       if (id != null &&
           href != null &&
@@ -149,17 +161,24 @@ class EpubCandidate {
     }
     final spineItems = _descendants(opf.rootElement)
         .where((e) => e.name.local == 'spine')
-        .expand((spine) => _descendants(spine).where((e) => e.name.local == 'itemref'))
+        .expand(
+          (spine) =>
+              _descendants(spine).where((e) => e.name.local == 'itemref'),
+        )
         .toList(growable: false);
     if (spineItems.isEmpty) {
-      throw const FormatException('EPUB spine does not contain any readable items.');
+      throw const FormatException(
+        'EPUB spine does not contain any readable items.',
+      );
     }
 
     final pages = <EpubPage>[];
     for (final item in spineItems) {
       final id = item.getAttribute('idref');
       if (id == null || id.trim().isEmpty) {
-        throw const FormatException('EPUB spine contains an itemref without an idref.');
+        throw const FormatException(
+          'EPUB spine contains an itemref without an idref.',
+        );
       }
       final href = manifest[id];
       if (href == null) {
@@ -172,15 +191,20 @@ class EpubCandidate {
       final chapterTitle = _descendants(root)
           .where((e) => e.name.local == 'title')
           .map((e) => e.innerText.trim())
-          .firstWhere((value) => value.isNotEmpty, orElse: () => _basename(href));
+          .firstWhere(
+            (value) => value.isNotEmpty,
+            orElse: () => _basename(href),
+          );
       final content = _extractText(root)
           .split('\n')
           .map((line) => line.replaceAll(RegExp(r'[ \t]+'), ' ').trim())
           .where((line) => line.isNotEmpty)
           .join('\n');
       final filename = _basename(href);
-      final match = RegExp(r'^page-(\d+)\.(?:xhtml|html)$', caseSensitive: false)
-          .firstMatch(filename);
+      final match = RegExp(
+        r'^page-(\d+)\.(?:xhtml|html)$',
+        caseSensitive: false,
+      ).firstMatch(filename);
       final pageNumber = match == null ? null : int.tryParse(match.group(1)!);
       pages.add(
         EpubPage(
@@ -192,9 +216,13 @@ class EpubCandidate {
       );
     }
     if (pages.isEmpty) {
-      throw const FormatException('EPUB spine items do not reference readable XHTML/HTML files.');
+      throw const FormatException(
+        'EPUB spine items do not reference readable XHTML/HTML files.',
+      );
     }
-    final sourcePageAligned = pages.every((page) => page.sourcePageIndex != null);
+    final sourcePageAligned = pages.every(
+      (page) => page.sourcePageIndex != null,
+    );
     return EpubCandidate(
       path: file.absolute.path,
       title: title.isEmpty ? _basename(path) : title,
@@ -227,8 +255,20 @@ String _extractText(XmlNode node) {
   }
   final children = node.children.map(_extractText).join();
   if (const {
-    'p', 'div', 'section', 'article', 'li', 'blockquote', 'h1', 'h2', 'h3',
-    'h4', 'h5', 'h6', 'br', 'tr',
+    'p',
+    'div',
+    'section',
+    'article',
+    'li',
+    'blockquote',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'br',
+    'tr',
   }.contains(tag)) {
     return '\n$children\n';
   }
