@@ -52,6 +52,7 @@ class ScribeForgeCli {
           backend.trim(),
         ],
         '--json',
+        '--cancelable',
       ];
 
   static List<String> reviewArguments({

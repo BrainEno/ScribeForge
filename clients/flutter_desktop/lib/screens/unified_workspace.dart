@@ -928,6 +928,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       builder: (context) => RuntimeSetupDialog(
         runtimeStatus: _runtimeStatus,
         runSetup: _executeSetup,
+        cancelSetup: _cliExecutor.cancel,
         autoStart: autoStart,
       ),
     );

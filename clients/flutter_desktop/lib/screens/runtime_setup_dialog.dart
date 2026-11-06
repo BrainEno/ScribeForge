@@ -9,15 +9,19 @@ typedef RuntimeSetupRunner = Future<int> Function({
   required void Function(String diagnostic) onDiagnostic,
 });
 
+typedef RuntimeSetupCancel = Future<void> Function();
+
 class RuntimeSetupDialog extends StatefulWidget {
   const RuntimeSetupDialog({
     super.key,
     required this.runSetup,
+    this.cancelSetup,
     this.runtimeStatus,
     this.autoStart = false,
   });
 
   final RuntimeSetupRunner runSetup;
+  final RuntimeSetupCancel? cancelSetup;
   final RuntimeStatusSnapshot? runtimeStatus;
   final bool autoStart;
 
@@ -35,6 +39,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
   final List<String> _activity = <String>[];
 
   bool _running = false;
+  bool _cancelling = false;
   bool _attempted = false;
   String? _activeTarget;
   String? _activeBackend;
@@ -56,6 +61,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
     if (_running) return;
     setState(() {
       _running = true;
+      _cancelling = false;
       _attempted = true;
       _activeTarget = backend;
       _activeBackend = backend;
@@ -80,6 +86,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
       if (!mounted) return;
       setState(() {
         _running = false;
+        _cancelling = false;
         _exitCode = exitCode;
         if (_result == null) {
           _diagnostic = _joinDiagnostic(
@@ -97,7 +104,23 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
       if (!mounted) return;
       setState(() {
         _running = false;
+        _cancelling = false;
         _diagnostic = _joinDiagnostic(_diagnostic, '启动或运行配置失败：$error');
+      });
+    }
+  }
+
+  Future<void> _cancelSetup() async {
+    final cancel = widget.cancelSetup;
+    if (!_running || _cancelling || cancel == null) return;
+    setState(() => _cancelling = true);
+    try {
+      await cancel();
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _cancelling = false;
+        _diagnostic = _joinDiagnostic(_diagnostic, '取消配置失败：$error');
       });
     }
   }
@@ -112,8 +135,8 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
         if (message.state == 'ready') {
           _stateOverrides[backend] = 'ready';
           _failedSteps.remove(backend);
-        } else if (message.state == 'failed') {
-          _stateOverrides[backend] = 'failed';
+        } else if (message.state == 'failed' || message.state == 'cancelled') {
+          _stateOverrides[backend] = message.state!;
           _failedSteps[backend] = _qualifiedStep(message);
         } else {
           _stateOverrides[backend] = 'installing';
@@ -191,6 +214,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
   String _stateLabel(String state) => switch (state) {
     'ready' => '就绪',
     'failed' => '失败',
+    'cancelled' => '已取消',
     'installing' => '安装中',
     'models' => '准备模型',
     'health' => '健康检查中',
@@ -240,6 +264,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
       'step_started' => '$backend：开始$step $count'.trim(),
       'step_completed' => '$backend：完成$step $count'.trim(),
       'failed' => '$backend：$phase的${step ?? '当前步骤'}失败',
+      'cancelled' => '$backend：$phase的${step ?? '当前步骤'}已取消',
       'ready' => '$backend：运行时已就绪',
       'started' => '$backend：开始$phase',
       'completed' => '$backend：$phase已完成',
@@ -360,6 +385,12 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
         ),
       ),
       actions: <Widget>[
+        if (_running && widget.cancelSetup != null)
+          TextButton(
+            key: const ValueKey('cancel-runtime-setup-button'),
+            onPressed: _cancelling ? null : _cancelSetup,
+            child: Text(_cancelling ? '正在取消…' : '取消配置'),
+          ),
         TextButton(
           onPressed: _running
               ? null
