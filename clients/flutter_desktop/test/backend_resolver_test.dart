@@ -1,54 +1,31 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/services/backend_resolver.dart';
 
 void main() {
   test('prefers the side-by-side backend over a developer PATH install', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'scribeforge-backend-resolver-',
-    );
-    addTearDown(() => root.delete(recursive: true));
-    final application = File(
-      '${root.path}${Platform.pathSeparator}scribeforge_desktop',
-    );
-    final bundled = File(
-      '${root.path}${Platform.pathSeparator}backend${Platform.pathSeparator}scribeforge',
-    );
-    await bundled.create(recursive: true);
-
+    const bundled = '/opt/ScribeForge/backend/scribeforge';
     final resolution = await DesktopBackendResolver(
-      applicationExecutablePath: application.path,
+      applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
       operatingSystem: 'linux',
+      fileExists: (path) async => path == bundled,
     ).resolve('scribeforge');
 
-    expect(resolution.executable, bundled.path);
+    expect(resolution.executable, bundled);
     expect(resolution.origin, DesktopBackendOrigin.bundled);
     expect(resolution.usesBundledBackend, isTrue);
   });
 
   test('uses the macOS app Resources backend when present', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'scribeforge-macos-backend-',
-    );
-    addTearDown(() => root.delete(recursive: true));
-    final contents = Directory(
-      '${root.path}${Platform.pathSeparator}ScribeForge.app${Platform.pathSeparator}Contents',
-    );
-    final application = File(
-      '${contents.path}${Platform.pathSeparator}MacOS${Platform.pathSeparator}ScribeForge',
-    );
-    final bundled = File(
-      '${contents.path}${Platform.pathSeparator}Resources${Platform.pathSeparator}backend${Platform.pathSeparator}scribeforge',
-    );
-    await bundled.create(recursive: true);
-
+    const bundled =
+        '/Applications/ScribeForge.app/Contents/Resources/backend/scribeforge';
     final resolution = await DesktopBackendResolver(
-      applicationExecutablePath: application.path,
+      applicationExecutablePath:
+          '/Applications/ScribeForge.app/Contents/MacOS/ScribeForge',
       operatingSystem: 'macos',
+      fileExists: (path) async => path == bundled,
     ).resolve('scribeforge');
 
-    expect(resolution.executable, bundled.path);
+    expect(resolution.executable, bundled);
     expect(resolution.origin, DesktopBackendOrigin.bundled);
   });
 
