@@ -1,4 +1,6 @@
 analyzer:
+  exclude:
+    - build/**
   errors:
     unnecessary_null_comparison: ignore
 
