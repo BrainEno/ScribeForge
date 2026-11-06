@@ -14,10 +14,12 @@ class RuntimeSetupDialog extends StatefulWidget {
     super.key,
     required this.runSetup,
     this.runtimeStatus,
+    this.autoStart = false,
   });
 
   final RuntimeSetupRunner runSetup;
   final RuntimeStatusSnapshot? runtimeStatus;
+  final bool autoStart;
 
   @override
   State<RuntimeSetupDialog> createState() => _RuntimeSetupDialogState();
@@ -39,6 +41,16 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
   RuntimeSetupMessage? _result;
   int? _exitCode;
   String? _diagnostic;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _startSetup();
+      });
+    }
+  }
 
   Future<void> _startSetup({String? backend}) async {
     if (_running) return;

@@ -10,6 +10,8 @@ import '../models/review_queue.dart';
 import '../models/review_queue_navigation.dart';
 import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
+import '../services/backend_diagnostics.dart';
+import '../services/backend_resolver.dart';
 import '../services/candidate_comparison_store.dart';
 import '../services/cli_executor.dart';
 import '../services/cli_runner.dart';
@@ -44,9 +46,11 @@ class UnifiedWorkspace extends StatefulWidget {
     this.filePicker,
     this.settingsStore,
     this.fileSystem,
+    this.backendResolver,
   });
 
   final ScribeForgeCliExecutor? cliExecutor;
+  final DesktopBackendResolver? backendResolver;
   final DesktopFilePicker? filePicker;
   final DesktopSettingsStore? settingsStore;
   final WorkspaceFileSystem? fileSystem;
@@ -76,9 +80,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   late final DesktopSettingsStore _settingsStore;
   late final ScribeForgeCliExecutor _cliExecutor;
+  late final DesktopBackendResolver _backendResolver;
   late final DesktopFilePicker _filePicker;
   late final WorkspaceFileSystem _fileSystem;
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
+  DesktopBackendResolution? _backendResolution;
+  bool _backendConnected = false;
+  Object? _backendLaunchError;
+  bool _runtimeSetupActionRequired = false;
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   bool _busy = false;
   bool _processing = false;
@@ -96,7 +105,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   String? _sourceHashCacheValue;
 
   RuntimeStatusSnapshot? _runtimeStatus;
-  bool _runtimeLoading = false;
+  bool _runtimeLoading = true;
 
   // 复核队列（来自 `scribeforge review --json` 的稳定契约）
   final List<ReviewQueueItem> _reviewQueue = [];
@@ -158,6 +167,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     super.initState();
     _settingsStore = widget.settingsStore ?? DesktopSettingsStore();
     _cliExecutor = widget.cliExecutor ?? ProcessScribeForgeCliExecutor();
+    _backendResolver = widget.backendResolver ?? const DesktopBackendResolver();
     _filePicker = widget.filePicker ?? const PluginDesktopFilePicker();
     _fileSystem = widget.fileSystem ?? const IoWorkspaceFileSystem();
     _loadSettings();
@@ -183,14 +193,32 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _loadSettings() async {
     final executable = await _settingsStore.loadCliExecutable();
     final vlmSettings = await _settingsStore.loadVlmSettings();
+    final resolution = await _backendResolver.resolve(executable);
     if (!mounted) return;
     setState(() {
-      _cliExecutable = executable;
+      _cliExecutable = resolution.executable;
+      _backendResolution = resolution;
       _vlmSettings = vlmSettings;
     });
     await _refreshRuntimeStatus();
     await _refreshStatus();
     await _refreshReviewQueue();
+    if (!mounted || !_backendConnected || _ocrRuntimeReady) return;
+    setState(() {
+      _selectedIndex = 6;
+      _notice = '首次使用请先初始化 OCR 环境；安装完成后即可导入并处理 PDF。';
+    });
+  }
+
+  bool get _ocrRuntimeReady {
+    final status = _runtimeStatus;
+    if (status == null) return false;
+    return const <String>['mineru', 'paddleocr'].every((name) {
+      final backend = status.backends[name];
+      return backend != null &&
+          backend.state == 'ready' &&
+          backend.environmentExists;
+    });
   }
 
   // ----------------------------------------------------------------- status
@@ -330,6 +358,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   Future<void> _refreshRuntimeStatus() async {
     setState(() => _runtimeLoading = true);
+    var commandExited = false;
     try {
       final arguments = ScribeForgeCli.runtimeStatusArguments();
       final buffer = StringBuffer();
@@ -339,20 +368,36 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         onOutput: buffer.write,
         onError: (chunk) => buffer.write(chunk),
       );
+      commandExited = true;
       if (!mounted) return;
       if (exitCode == 0) {
+        final status = RuntimeStatusSnapshot.fromJsonText(buffer.toString());
         setState(() {
-          _runtimeStatus = RuntimeStatusSnapshot.fromJsonText(
-            buffer.toString(),
-          );
+          _backendConnected = true;
+          _backendLaunchError = null;
+          _runtimeStatus = status;
+          _runtimeSetupActionRequired = !_ocrRuntimeReady;
           _error = null;
         });
       } else {
-        setState(() => _error = buffer.toString().trim());
+        setState(() {
+          _backendConnected = true;
+          _backendLaunchError = null;
+          _runtimeStatus = null;
+          _runtimeSetupActionRequired = true;
+          _error = buffer.toString().trim();
+        });
       }
     } catch (exc) {
       if (!mounted) return;
-      setState(() => _error = '读取运行时状态失败：$exc');
+      final diagnosis = diagnoseCoreLaunchFailure(exc, _cliExecutable);
+      setState(() {
+        _backendConnected = commandExited;
+        _backendLaunchError = commandExited ? null : exc;
+        _runtimeStatus = null;
+        _runtimeSetupActionRequired = diagnosis.requiresRuntimeSetup;
+        _error = commandExited ? '读取运行时状态失败：$exc' : diagnosis.message;
+      });
     } finally {
       if (mounted) setState(() => _runtimeLoading = false);
     }
@@ -605,7 +650,32 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   Future<void> _runProcess() async {
     final sourcePath = _pdfPath;
-    if (sourcePath == null || _statusLoading || !_projectSourceMatches) return;
+    if (sourcePath == null ||
+        _statusLoading ||
+        _runtimeLoading ||
+        !_projectSourceMatches) {
+      return;
+    }
+    if (!_backendConnected) {
+      setState(() {
+        _selectedIndex = 6;
+        _runtimeSetupActionRequired = true;
+        _error = diagnoseCoreLaunchFailure(
+          _backendLaunchError ?? StateError('backend is unavailable'),
+          _cliExecutable,
+        ).message;
+      });
+      return;
+    }
+    if (!_ocrRuntimeReady) {
+      setState(() {
+        _selectedIndex = 6;
+        _runtimeSetupActionRequired = true;
+        _notice = 'PDF 已保留在当前工作台。请先初始化 OCR 环境，再开始处理。';
+      });
+      await _openRuntimeSetup(autoStart: true);
+      return;
+    }
     final storePath =
         _projectStorePath ?? ScribeForgeCli.defaultStorePath(sourcePath);
     setState(() {
@@ -651,11 +721,19 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           _notice = exitCode == 0 ? '处理完成' : '处理完成（部分页面失败；请查看页级状态后重试）';
         });
       } else {
-        setState(() => _error = buffer.toString().trim());
+        final diagnosis = diagnoseProcessingFailure(buffer.toString());
+        setState(() {
+          _runtimeSetupActionRequired = diagnosis.requiresRuntimeSetup;
+          _error = diagnosis.message;
+        });
       }
     } catch (exc) {
       if (!mounted) return;
-      setState(() => _error = '处理失败：$exc');
+      final diagnosis = diagnoseCoreLaunchFailure(exc, _cliExecutable);
+      setState(() {
+        _runtimeSetupActionRequired = diagnosis.requiresRuntimeSetup;
+        _error = diagnosis.message;
+      });
     } finally {
       _processStatusTimer?.cancel();
       _processStatusTimer = null;
@@ -832,17 +910,35 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     }
   }
 
-  Future<void> _openRuntimeSetup() async {
+  Future<void> _openRuntimeSetup({bool autoStart = false}) async {
+    if (!_backendConnected) {
+      setState(() {
+        _selectedIndex = 6;
+        _runtimeSetupActionRequired = true;
+        _error = diagnoseCoreLaunchFailure(
+          _backendLaunchError ?? StateError('backend is unavailable'),
+          _cliExecutable,
+        ).message;
+      });
+      return;
+    }
     final attempted = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (context) => RuntimeSetupDialog(
         runtimeStatus: _runtimeStatus,
         runSetup: _executeSetup,
+        autoStart: autoStart,
       ),
     );
     if (!mounted || attempted != true) return;
     await _refreshRuntimeStatus();
+    if (!mounted || !_ocrRuntimeReady) return;
+    setState(() {
+      _selectedIndex = _pdfPath == null ? 0 : 1;
+      _notice = '环境已就绪，可以继续导入或处理书籍。';
+      _runtimeSetupActionRequired = false;
+    });
   }
 
   Future<int> _executeSetup({
@@ -959,6 +1055,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     );
   }
 
+  void _showInitialization() {
+    setState(() => _selectedIndex = 6);
+    if (_backendConnected) unawaited(_openRuntimeSetup(autoStart: true));
+  }
+
   Widget _buildNoticeBar() {
     if (_notice == null && _error == null) return const SizedBox.shrink();
     return Container(
@@ -986,6 +1087,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               ),
             ),
           ),
+          if (_runtimeSetupActionRequired)
+            TextButton(
+              onPressed: _busy ? null : _showInitialization,
+              child: const Text('初始化环境'),
+            ),
           if (_error != null)
             IconButton(
               icon: const Icon(Icons.close, size: 16),
@@ -1213,6 +1319,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   ? (_cancelRequested ? null : _cancelProcessing)
                   : (_busy ||
                             _statusLoading ||
+                            _runtimeLoading ||
                             _pdfPath == null ||
                             !_projectSourceMatches
                         ? null
@@ -1908,6 +2015,79 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   // ========================================================= 设置页面
 
+  Widget _buildInitializationCard() {
+    final origin = _backendResolution?.origin;
+    final coreLabel = switch (origin) {
+      DesktopBackendOrigin.bundled => '内置处理核心（无需系统 Python）',
+      DesktopBackendOrigin.custom => '自定义处理核心（开发者配置）',
+      DesktopBackendOrigin.developmentPath => 'PATH 开发模式（需要已安装 CLI）',
+      null => '正在检测处理核心',
+    };
+    return Card(
+      key: const ValueKey('runtime-initialization-card'),
+      margin: EdgeInsets.zero,
+      color: _ocrRuntimeReady ? Colors.green.shade50 : null,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(
+                  _ocrRuntimeReady
+                      ? Icons.check_circle_outline
+                      : Icons.download_for_offline_outlined,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _ocrRuntimeReady ? '处理环境已就绪' : '首次使用：初始化环境',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('核心来源：$coreLabel'),
+            const SizedBox(height: 6),
+            Text(
+              _backendConnected
+                  ? '点击初始化后，会自动准备 uv、私有 Python 3.12、MinerU、PaddleOCR 和模型。不会修改系统 Python；首次安装需要网络与额外磁盘空间。'
+                  : '处理核心未连接。完整桌面安装包会附带该组件；请重新检测，或重新安装完整桌面版。开发者仍可在下方指定 CLI。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                FilledButton.icon(
+                  key: const ValueKey('initialize-runtime-button'),
+                  onPressed: _backendConnected && !_runtimeLoading && !_busy
+                      ? _showInitialization
+                      : null,
+                  icon: const Icon(Icons.download),
+                  label: Text(_ocrRuntimeReady ? '检查或修复环境' : '初始化环境'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _runtimeLoading
+                      ? null
+                      : () => unawaited(_refreshRuntimeStatus()),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新检测'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSettingsPage() {
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -1920,10 +2100,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
           ),
           const SizedBox(height: 8),
           Text(
-            '配置命令行工具与运行时。首次使用请先运行运行时配置。',
+            '首次使用点击“初始化环境”。完整桌面版会自动使用内置核心，无需预装 Python。',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
           const SizedBox(height: 20),
+          _buildInitializationCard(),
+          const SizedBox(height: 12),
           ListTile(
             title: const Text('命令行工具'),
             subtitle: Text(_cliExecutable),
@@ -1933,7 +2115,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                 final value = await _promptString('命令行工具路径', _cliExecutable);
                 if (value != null && value.trim().isNotEmpty) {
                   await _settingsStore.saveCliExecutable(value.trim());
-                  setState(() => _cliExecutable = value.trim());
+                  final resolution = await _backendResolver.resolve(
+                    value.trim(),
+                  );
+                  if (!mounted) return;
+                  setState(() {
+                    _cliExecutable = resolution.executable;
+                    _backendResolution = resolution;
+                  });
                   await _refreshRuntimeStatus();
                   await _refreshStatus();
                   await _refreshReviewQueue();

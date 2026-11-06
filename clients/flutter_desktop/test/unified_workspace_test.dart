@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scribeforge_desktop/main.dart';
+import 'package:scribeforge_desktop/screens/unified_workspace.dart';
+import 'package:scribeforge_desktop/services/backend_resolver.dart';
+import 'package:scribeforge_desktop/services/cli_executor.dart';
+import 'package:scribeforge_desktop/services/settings_store.dart';
 
 void main() {
   Future<void> showDesktopWorkspace(WidgetTester tester) async {
@@ -8,7 +11,17 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(const ScribeForgeDesktopApp());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UnifiedWorkspace(
+          cliExecutor: _FakeCliExecutor(),
+          settingsStore: _MemorySettingsStore(),
+          backendResolver: DesktopBackendResolver(
+            fileExists: (_) async => false,
+          ),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -146,4 +159,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('首次 OCR 运行时配置'), findsNothing);
   });
+}
+
+class _MemorySettingsStore extends DesktopSettingsStore {
+  DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
+
+  @override
+  Future<String> loadCliExecutable() async =>
+      DesktopSettingsStore.defaultCliExecutable;
+
+  @override
+  Future<DesktopVlmSettings> loadVlmSettings() async => _vlmSettings;
+
+  @override
+  Future<void> saveVlmSettings(DesktopVlmSettings settings) async {
+    _vlmSettings = settings;
+  }
+}
+
+class _FakeCliExecutor implements ScribeForgeCliExecutor {
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  Future<int> run({
+    required String executable,
+    required List<String> arguments,
+    required void Function(String chunk) onOutput,
+    required void Function(String chunk) onError,
+  }) async {
+    if (arguments.first == 'runtime-status') {
+      onOutput(
+        '{"schema_version":1,"runtime_root":"/fake/runtime",'
+        '"runtime_root_exists":true,"uv_available":true,'
+        '"hardware":{},"paths":{},"backends":{'
+        '"mineru":{"state":"ready","failed_step":null,'
+        '"environment_path":"/fake/mineru","environment_exists":true},'
+        '"paddleocr":{"state":"ready","failed_step":null,'
+        '"environment_path":"/fake/paddle","environment_exists":true}}}',
+      );
+      return 0;
+    }
+    onError('Unexpected UI-only fake command: ${arguments.first}');
+    return 2;
+  }
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
@@ -16,6 +17,32 @@ class BackendNotReadyError(RuntimeError):
     """Raised when a worker backend is not installed or healthy enough to run."""
 
 
+def worker_source_root() -> Path:
+    """Locate Python sources readable by the separate managed OCR interpreter.
+
+    PyInstaller's module archive is private to the frozen executable. A child
+    Python process cannot import from it, so desktop distributions carry the
+    small Worker package as ordinary source files beside the frozen backend.
+    Development checkouts continue to use ``src`` without generating files.
+    """
+
+    if getattr(sys, "frozen", False):
+        bundle = getattr(sys, "_MEIPASS", None)
+        candidates = []
+        if isinstance(bundle, str) and bundle:
+            candidates.append(Path(bundle) / "worker-src")
+        candidates.append(Path(sys.executable).resolve().parent / "worker-src")
+        for candidate in candidates:
+            if (candidate / "scribeforge" / "workers" / "protocol.py").is_file():
+                return candidate
+        searched = ", ".join(str(candidate) for candidate in candidates)
+        raise BackendNotReadyError(
+            "the desktop backend worker source bundle is missing; "
+            f"reinstall the complete desktop package (searched: {searched})"
+        )
+    return Path(__file__).resolve().parents[2]
+
+
 def worker_command(
     layout: RuntimeLayout,
     backend: str,
@@ -26,12 +53,6 @@ def worker_command(
 
     python = layout.python_executable(backend, os_name)
     return (str(python), str(worker_script))
-
-
-def _project_sources() -> Path:
-    """Return the directory that holds the ``scribeforge`` package."""
-
-    return Path(__file__).resolve().parents[2]
 
 
 def runtime_environment(
@@ -46,7 +67,7 @@ def runtime_environment(
 
     environment = build_runtime_environment(layout)
     existing = os.environ.get("PYTHONPATH")
-    sources = str(_project_sources())
+    sources = str(worker_source_root())
     environment["PYTHONPATH"] = (
         f"{sources}{os.pathsep}{existing}" if existing else sources
     )

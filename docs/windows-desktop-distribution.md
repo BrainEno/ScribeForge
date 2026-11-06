@@ -1,6 +1,6 @@
 # Windows desktop distribution plan
 
-**Status:** proposal; no end-user installer is published yet. This document is a release design, not a claim that the current development build is toolchain-free.
+**Status:** the bundled-backend resolver, frozen-backend build, per-user installer recipe, and Windows packaging workflow are implemented in source. No end-user release is published by this change. A green packaging workflow validates an unsigned CI artifact, not a fresh-VM installation, signing, upgrade, or real OCR model run.
 
 ## Goal
 
@@ -35,10 +35,15 @@ The resulting installer can remove the Flutter/Python *development-toolchain* re
 - Upgrade and uninstall never silently delete projects, runtime models, caches, or user settings. Runtime cleanup, if later offered, must be a separate explicit action.
 - Installer size, model download size, expected disk space, supported Windows versions, and signing status are published before release.
 
-## Open implementation work
+## Implemented build path
 
-1. Add a bundled-CLI resolver to the Flutter settings layer with a user override and clear missing-executable diagnostics.
-2. Create a Windows packaging workflow and checked-in installer recipe; add lockfiles/pins for the build tools.
-3. Verify PyInstaller inclusion of ScribeForge package resources and all Windows native dependencies in a clean VM.
-4. Add a Windows release smoke-test job, installer upgrade/uninstall tests, artifact checksums, and signing once credentials are provisioned in release CI.
-5. Document supported Windows versions and storage/download estimates from measured release artifacts.
+1. Flutter resolves an explicit developer override first, then `backend/scribeforge(.exe)` beside the application (or in `Contents/Resources/backend` on macOS), and only then falls back to PATH for development. Settings identifies the selected source and never presents the PATH fallback as an end-user bundle.
+2. `packaging/scribeforge_backend.spec` freezes the CLI with its native PDF dependencies. It also ships ordinary Worker source under `_internal/worker-src`, because the separate MinerU/PaddleOCR interpreters cannot import PyInstaller's private module archive.
+3. `.github/workflows/windows-desktop.yml` builds the backend, checks `--help` and `runtime-status --json` with Python removed from PATH, verifies external Worker imports, builds Flutter, assembles the portable folder, compiles `packaging/windows/ScribeForge.iss`, and uploads checksums. CI artifacts are unsigned.
+4. The Flutter settings page provides an initialization entry point. Processing is gated on a connected core and ready managed backends, so a missing Worker module becomes a repairable setup action rather than an unexplained yellow-bar exception.
+
+## Remaining release work
+
+1. Test installation, launch, upgrade-in-place, and uninstall in a fresh Windows 11 x64 VM without Python or Flutter; verify project/runtime preservation and native PDF import.
+2. Exercise the complete first-run download on controlled test networks and record artifact size, model download size, disk requirements, and failure/recovery behavior. These are not inferred from unit tests.
+3. Publish signed release assets only after signing credentials and SmartScreen/status documentation are available. Keep CI artifacts clearly marked unsigned.

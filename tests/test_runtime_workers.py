@@ -42,6 +42,56 @@ def test_runtime_environment_merges_model_and_cache_dirs(tmp_path: Path) -> None
     assert environment["PADDLE_HOME"] == "override"
 
 
+def test_frozen_backend_uses_external_worker_source_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.adapters import runtime_workers
+
+    application = tmp_path / "ScribeForge" / "backend" / "scribeforge"
+    bundle = tmp_path / "ScribeForge" / "backend" / "_internal"
+    worker_root = bundle / "worker-src"
+    worker = worker_root / "scribeforge" / "workers" / "paddle_worker.py"
+    worker.parent.mkdir(parents=True)
+    worker.write_text("# packaged worker", encoding="utf-8")
+    (worker.parent / "protocol.py").write_text("# worker contract", encoding="utf-8")
+    monkeypatch.setattr(runtime_workers.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(runtime_workers.sys, "executable", str(application))
+    monkeypatch.setattr(runtime_workers.sys, "_MEIPASS", str(bundle), raising=False)
+
+    assert runtime_workers.worker_source_root() == worker_root
+
+
+def test_frozen_backend_rejects_a_missing_worker_source_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.adapters import runtime_workers
+
+    application = tmp_path / "ScribeForge" / "backend" / "scribeforge"
+    monkeypatch.setattr(runtime_workers.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(runtime_workers.sys, "executable", str(application))
+    monkeypatch.setattr(
+        runtime_workers.sys,
+        "_MEIPASS",
+        str(application.parent / "_internal"),
+        raising=False,
+    )
+
+    with pytest.raises(BackendNotReadyError, match="worker source bundle"):
+        runtime_workers.worker_source_root()
+
+
+def test_cli_worker_script_comes_from_the_distributed_source_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge import cli
+
+    monkeypatch.setattr(cli, "worker_source_root", lambda: tmp_path)
+
+    assert cli._worker_script("mineru_worker.py") == (
+        tmp_path / "scribeforge" / "workers" / "mineru_worker.py"
+    )
+
+
 def test_runtime_environment_exposes_project_sources_to_workers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

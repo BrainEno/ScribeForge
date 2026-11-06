@@ -6,15 +6,23 @@ The shared visual language and reusable widget rules live in the repository-root
 
 ## Requirements
 
+### End-user desktop package
+
+A complete package contains `backend/scribeforge(.exe)` beside the Flutter application (or under `Contents/Resources/backend` on macOS). This frozen backend includes the CLI and native PDF dependencies, so users do **not** install Python or add a Python environment to PATH. On first launch, **设置 → 初始化环境** prepares uv, private Python 3.12 environments, MinerU, PaddleOCR, and their models. That step still requires network access and additional disk space; model weights and a VLM server are not bundled.
+
+### Development
+
 - Flutter 3.47.7 stable (Dart 3.13+).
 - Windows, macOS, or Linux desktop development support.
-- The Python CLI installed from the repository root:
+- For source-only development without a frozen side-by-side backend, install the CLI from the repository root:
 
   ```bash
   python -m pip install -e ".[dev]"
   ```
 
-- OCR backends installed in ScribeForge's private runtime. **Settings → 运行时配置** opens the Flutter-native setup guide, streams per-backend/per-step progress, and can repair either backend independently. The development app does not bundle Python, OCR packages, model weights, or a VLM server.
+  The explicit **设置 → 命令行工具** override remains available for this mode. Without an override or bundle, PATH is a development fallback and is identified as such in Settings.
+
+- OCR backends installed through **Settings → 初始化环境**. The Flutter-native guide streams per-backend/per-step progress and can repair either backend independently. Processing is blocked with a setup action while the core or required backends are unavailable, rather than starting OCR and surfacing a raw missing-module exception.
 
 ## First-time setup and launch
 
@@ -53,7 +61,7 @@ The setup action is a native Flutter dialog rather than the legacy Tk window. It
 
 VLM review is strictly opt-in. With the switch off, the desktop process command contains no VLM endpoint/model options, so review-crop images are not sent to a model. When explicitly enabled, the CLI stores the literal model output, uncertainty flag, crop path and SHA-256, and cites that immutable review record from any resulting machine adjudication. The review UI presents VLM text as evidence only; filling a candidate or navigating never records a human decision. Each human decision still requires the explicit **记录人工决策** action or its documented **Ctrl+Enter** shortcut.
 
-A prebuilt Windows installer is not yet published. The proposed packaging and release gates are documented in [`docs/windows-desktop-distribution.md`](../../docs/windows-desktop-distribution.md); until then, the development setup below still requires Flutter and Python tooling.
+A signed public Windows release is not yet published. The checked-in Windows packaging workflow can produce an unsigned portable ZIP and per-user installer, with frozen-backend smoke checks and checksums. Packaging and remaining fresh-VM release gates are documented in [`docs/windows-desktop-distribution.md`](../../docs/windows-desktop-distribution.md); running from source still requires Flutter and either the Python CLI or a separately built frozen backend.
 
 ## Python CLI contract used by Flutter
 
