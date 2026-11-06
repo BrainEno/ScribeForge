@@ -37,10 +37,9 @@ jobs:
           import subprocess
           diff = subprocess.run(["git", "diff", "--", "."], check=True, capture_output=True, text=True).stdout
           encoded = base64.b64encode(diff.encode()).decode()
-          print(f"::error title=Dart formatting diff base64::{encoded}")
-          for line in diff.splitlines()[:80]:
-              message = line.replace("%", "%25").replace("\r", "%0D")
-              print(f"::error title=Dart formatting difference::{message}")
+          chunks = [encoded[index:index + 3000] for index in range(0, len(encoded), 3000)]
+          for index, chunk in enumerate(chunks):
+              print(f"::error title=Dart formatting diff {index:03d}::{index:03d}/{len(chunks):03d}:{chunk}")
           PY
       - name: Analyze Flutter client
         id: analyze
