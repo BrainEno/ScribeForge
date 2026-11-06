@@ -32,6 +32,9 @@ void main() {
     List<int> exportResults = const <int>[0],
     List<Map<String, Object?>>? reviewItems,
     bool holdProcess = false,
+    bool runtimeReady = true,
+    Object? runtimeError,
+    String processError = 'simulated fatal processing failure',
   }) async {
     late Directory root;
     await tester.runAsync(() async {
@@ -65,6 +68,9 @@ void main() {
       reviewItems:
           reviewItems ?? <Map<String, Object?>>[_reviewItem(0, '鸦', '雅')],
       holdProcess: holdProcess,
+      runtimeReady: runtimeReady,
+      runtimeError: runtimeError,
+      processError: processError,
     );
 
     tester.view.physicalSize = const Size(1440, 1100);
@@ -406,6 +412,70 @@ void main() {
     expect(processCall, contains('--vlm-model'));
     expect(processCall, contains('fixture-vision'));
   });
+
+  testWidgets('an uninitialized runtime opens setup instead of running OCR', (
+    tester,
+  ) async {
+    final harness = await createHarness(tester, runtimeReady: false);
+    await importBook(tester);
+
+    await openTab(tester, '处理');
+    await tester.tap(find.text('开始处理'));
+    await pumpUntil(
+      tester,
+      () => find.text('首次 OCR 运行时配置').evaluate().isNotEmpty,
+      description: 'the initialization guide instead of a module error',
+    );
+
+    expect(
+      harness.cli.calls.where((arguments) => arguments.first == 'process'),
+      isEmpty,
+    );
+    expect(find.text('开始安装全部后端'), findsOneWidget);
+  });
+
+  testWidgets('a missing core guides to settings without invoking process', (
+    tester,
+  ) async {
+    final harness = await createHarness(
+      tester,
+      runtimeError: const ProcessException('scribeforge', <String>[]),
+    );
+    await importBook(tester);
+
+    await openTab(tester, '处理');
+    await tester.tap(find.text('开始处理'));
+    await tester.pump();
+
+    expect(
+      harness.cli.calls.where((arguments) => arguments.first == 'process'),
+      isEmpty,
+    );
+    expect(find.textContaining('处理核心'), findsWidgets);
+    expect(find.text('设置'), findsWidgets);
+  });
+
+  testWidgets('a worker module failure offers environment repair', (
+    tester,
+  ) async {
+    final harness = await createHarness(
+      tester,
+      processResults: <int>[2],
+      processError:
+          "ModuleNotFoundError: No module named 'scribeforge.workers'",
+    );
+    await importBook(tester);
+
+    await tester.tap(find.text('开始处理'));
+    await waitForWorkflowIdle(tester);
+
+    expect(find.textContaining('OCR 运行环境'), findsWidgets);
+    expect(find.textContaining('初始化环境'), findsWidgets);
+    expect(
+      harness.cli.calls.where((arguments) => arguments.first == 'process'),
+      hasLength(1),
+    );
+  });
 }
 
 Map<String, Object?> _reviewItem(
@@ -531,6 +601,9 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
     required List<int> exportResults,
     required this.reviewItems,
     required bool holdProcess,
+    required this.runtimeReady,
+    required this.runtimeError,
+    required this.processError,
   }) : _processResults = Queue<int>.from(processResults),
        _exportResults = Queue<int>.from(exportResults),
        _holdNextProcess = holdProcess;
@@ -541,6 +614,9 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
   final Queue<int> _processResults;
   final Queue<int> _exportResults;
   final List<Map<String, Object?>> reviewItems;
+  final bool runtimeReady;
+  final Object? runtimeError;
+  final String processError;
   bool _holdNextProcess;
   Completer<int>? _pendingProcess;
   int cancelRequests = 0;
@@ -569,6 +645,8 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
     calls.add(args);
     switch (args.first) {
       case 'runtime-status':
+        final error = runtimeError;
+        if (error != null) throw error;
         onOutput(
           jsonEncode(<String, Object?>{
             'schema_version': 1,
@@ -577,7 +655,15 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
             'uv_available': true,
             'hardware': <String, Object?>{},
             'paths': <String, Object?>{},
-            'backends': <String, Object?>{},
+            'backends': <String, Object?>{
+              for (final name in const <String>['mineru', 'paddleocr'])
+                name: <String, Object?>{
+                  'state': runtimeReady ? 'ready' : 'missing',
+                  'failed_step': null,
+                  'environment_path': '/tmp/scribeforge-runtime/$name',
+                  'environment_exists': runtimeReady,
+                },
+            },
           }),
         );
         return 0;
@@ -598,7 +684,7 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
             ? 0
             : _processResults.removeFirst();
         if (result == 2) {
-          onError('simulated fatal processing failure');
+          onError(processError);
           return result;
         }
         fileSystem.addProjectStore(storePath);
