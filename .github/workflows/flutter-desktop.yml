@@ -28,6 +28,17 @@ jobs:
         run: flutter pub get
       - name: Format Dart source
         run: dart format --set-exit-if-changed .
+      - name: Show Dart formatting differences as annotations
+        if: failure()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess
+          diff = subprocess.run(["git", "diff", "--", "."], check=True, capture_output=True, text=True).stdout
+          for line in diff.splitlines()[:80]:
+              message = line.replace("%", "%25").replace("\r", "%0D")
+              print(f"::error title=Dart formatting difference::{message}")
+          PY
       - name: Analyze Flutter client
         id: analyze
         shell: bash
