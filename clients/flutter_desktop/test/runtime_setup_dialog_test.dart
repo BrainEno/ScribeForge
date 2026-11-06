@@ -170,10 +170,11 @@ void main() {
       cancelSetup: () async {
         cancelCalls++;
       },
-      runSetup: ({required backend, required onMessage, required onDiagnostic}) {
-        emitMessage = onMessage;
-        return pending.future;
-      },
+      runSetup:
+          ({required backend, required onMessage, required onDiagnostic}) {
+            emitMessage = onMessage;
+            return pending.future;
+          },
     );
 
     await tester.tap(find.text('开始安装全部后端'));
