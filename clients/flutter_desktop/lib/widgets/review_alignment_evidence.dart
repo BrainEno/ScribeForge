@@ -33,7 +33,8 @@ class ReviewAlignmentEvidence extends StatelessWidget {
   Widget build(BuildContext context) {
     final ambiguity = item.ambiguity;
     final hasIndexes =
-        item.primaryLineIndexes.isNotEmpty || item.secondaryLineIndexes.isNotEmpty;
+        item.primaryLineIndexes.isNotEmpty ||
+        item.secondaryLineIndexes.isNotEmpty;
     return Container(
       key: const ValueKey('review-alignment-evidence'),
       width: double.infinity,
