@@ -17,6 +17,7 @@ import '../services/desktop_file_picker.dart';
 import '../services/settings_store.dart';
 import '../services/workspace_file_system.dart';
 import '../theme/scribe_theme.dart';
+import '../widgets/review_alignment_evidence.dart';
 import '../widgets/review_keyboard_shortcuts.dart';
 import 'candidate_comparison_screen.dart';
 import 'project_safety_screen.dart';
@@ -1361,6 +1362,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         'low_confidence' => '置信度偏低',
         'unicode_anomaly' => '字符异常',
         'spatial_mismatch' => '位置不一致',
+        'alignment_ambiguity' => '结构映射歧义',
         _ => reason,
       };
 
@@ -1495,6 +1497,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
               ),
             const Divider(height: 12),
+            ReviewAlignmentEvidence(item: item),
             if (item.furnitureReason != null)
               _buildReviewEvidence(
                 '页边家具分类依据',

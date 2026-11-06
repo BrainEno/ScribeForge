@@ -44,6 +44,7 @@ from scribeforge.domain.crops import plan_region_read
 from scribeforge.domain.decisions import DecisionActor
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.page_asset import verify_page_asset
+from scribeforge.domain.text_assembly import assemble_group_text
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import project_furniture, review_detail
 from scribeforge.pipeline.crop_evidence import crop_evidence, isolated_crop
@@ -236,7 +237,7 @@ def _gate_refused(
     ]
     return bool(
         machine_blockers(
-            text="".join(texts), risk=record.risks[pair_index], policy=DEFAULT_POLICY
+            text=assemble_group_text(texts), risk=record.risks[pair_index], policy=DEFAULT_POLICY
         )
     )
 
@@ -327,7 +328,7 @@ def _engine_readings(
         text = (
             None
             if not indexes
-            else "".join(result.lines[index].text for index in indexes)
+            else assemble_group_text(result.lines[index].text for index in indexes)
         )
         source = f"ocr:{result.engine.strip().casefold()}"
         readings.append(Reading(label, text, source=source))
@@ -491,7 +492,11 @@ def run_repair_round(
             # concatenation rather than whichever line happened to look longest.
             source = f"ocr:{result.engine.strip().casefold()}"
             readings.append(
-                Reading(reader.label, "".join(line.text for line in result.lines), source=source)
+                Reading(
+                    reader.label,
+                    assemble_group_text(line.text for line in result.lines),
+                    source=source,
+                )
             )
             refs[reader.label] = (
                 f"engine_run:{run_id}", f"region_read:{scope}", f"source:{source}"

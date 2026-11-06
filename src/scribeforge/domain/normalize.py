@@ -587,21 +587,40 @@ def _build_groups() -> Mapping[str, str]:
 VARIANT_GROUPS: Mapping[str, str] = _build_groups()
 
 
+def _nfkc_preserving_whitespace(text: str) -> str:
+    """NFKC-fold non-whitespace runs without collapsing distinct space characters."""
+
+    folded: list[str] = []
+    run: list[str] = []
+    for character in text:
+        if character.isspace() or character == "\ufeff":
+            if run:
+                folded.append(unicodedata.normalize("NFKC", "".join(run)))
+                run.clear()
+            folded.append(character)
+        else:
+            run.append(character)
+    if run:
+        folded.append(unicodedata.normalize("NFKC", "".join(run)))
+    return "".join(folded)
+
+
 def fold_chars(text: str) -> str:
-    """Fold variant characters and apply Unicode NFKC.
+    """Fold variant characters and apply Unicode NFKC outside whitespace.
 
     NFKC handles compatibility forms (full-width latin, CJK compatibility
     ideographs, combined marks) that scans and OCR engines produce freely, without
-    touching meaningfully distinct characters.
+    touching meaningfully distinct characters.  Whitespace runs are boundaries:
+    NFKC would otherwise turn U+3000/U+00A0 into an ASCII space and disguise a
+    spacing-only difference as a glyph-variant agreement.
     """
 
     if not text:
         return ""
-    normalized = unicodedata.normalize("NFKC", text)
+    normalized = _nfkc_preserving_whitespace(text)
     return "".join(VARIANT_GROUPS.get(character, character) for character in normalized)
 
 
-_WHITESPACE = " \t\r\n\u3000\ufeff"
 _PUNCTUATION_FOLD = {
     "，": ",",
     "、": ",",
@@ -628,19 +647,20 @@ _PUNCTUATION_FOLD = {
 
 
 def fold_for_comparison(text: str) -> str:
-    """Aggressively fold a string into a comparison key.
+    """Fold glyph variants and punctuation width into a comparison key.
 
-    Removes whitespace, folds punctuation width and variant forms. Use this only
-    to decide whether two strings *mean the same thing*; never to produce text a
-    reader will see.
+    Whitespace is deliberately preserved.  Deleting it made ``New York`` and
+    ``NewYork`` look like a glyph-variant agreement and could silently export the
+    wrong one.  Source-derived line assembly handles legitimate OCR line breaks
+    *before* this function; orthographic folding must not hide a real spacing
+    difference that remains.  Never use this key as reader-visible text.
     """
 
     folded = fold_chars(text)
     folded = "".join(_PUNCTUATION_FOLD.get(character, character) for character in folded)
     # Case folding matters for the Latin fragments old Chinese books are full of
     # ("IBM", "V."), where engines freely differ on case.
-    folded = folded.casefold()
-    return "".join(character for character in folded if character not in _WHITESPACE)
+    return folded.casefold()
 
 
 def variant_groups_in(texts: Iterable[str]) -> Mapping[str, tuple[str, ...]]:

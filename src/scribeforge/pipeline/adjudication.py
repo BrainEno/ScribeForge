@@ -16,6 +16,7 @@ from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
 from scribeforge.domain.ocr import BoundingBox, PageOCRResult
 from scribeforge.domain.page_asset import file_sha256
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
+from scribeforge.domain.text_assembly import assemble_group_text
 from scribeforge.storage.sqlite import (
     DecisionAlreadyExists,
     PageRecord,
@@ -106,7 +107,7 @@ def _merge_boxes(
 def _line_text(result: PageOCRResult, indexes: tuple[int, ...]) -> str | None:
     if not indexes:
         return None
-    return "".join(result.lines[index].text for index in indexes)
+    return assemble_group_text(result.lines[index].text for index in indexes)
 
 
 def _latest_readings(

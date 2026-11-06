@@ -25,9 +25,11 @@ similarity as sufficient evidence:
 
 Physical columns are clustered by X for both horizontal and vertical writing. Column
 assignment is a monotonic geometric DP with hard X-overlap/centre gates, not `zip()` of
-two column lists. Geometrically unrelated columns cannot pair. If the best two column
-assignments are within `0.05`, that column is left unmatched instead of being assigned
-by list position. Within paired columns, horizontal and vertical lines are both ordered
+two column lists. Geometrically unrelated columns cannot pair. If competing column
+assignments are within `0.05`, their connected region becomes an explicit
+`COLUMN_MAPPING` ambiguity with the candidate index mappings and geometric scores;
+it is not guessed by list position or flattened into unrelated unmatched lines.
+Within paired columns, horizontal and vertical lines are both ordered
 top-to-bottom; final groups use the page's declared/resolved direction, including
 right-to-left vertical column order.
 
@@ -41,8 +43,12 @@ Declared roles are evidence, not labels to infer away:
 - same-role adjacent lines may form a group even when an engine emitted separate
   blocks;
 - `UNKNOWN` and missing block evidence are never promoted to `TEXT` or another guessed
-  role. If only one side has known role evidence, only a spatially valid 1:1 candidate
-  is allowed; an asymmetric multi-line merge is rejected.
+  role. Two wholly unknown sides may form a multi-line candidate using the normal hard
+  geometric gates. If exactly one side has known role evidence, a multi-line candidate
+  is allowed only when that side is uniformly `TEXT`; known titles, headers, footers,
+  footnotes and mixed known/unknown groups do not receive this relaxation. This keeps
+  ordinary PP-OCR (which has no layout labels) compatible with MinerU body-line splits
+  without treating missing evidence as a verified block type.
 
 Consequently a title cannot be silently absorbed into a body group, and a footnote
 cannot be paired with nearby body text merely because the strings are similar. Two
@@ -67,9 +73,28 @@ threshold). A candidate is rejected before text comparison when:
 3. main-axis interval gap exceeds `0.05`;
 4. a multi-line candidate's joined comparison similarity is below `0.70`.
 
-Only the small candidate group's strings are concatenated for comparison. Every member
+Only the small candidate group's strings are assembled for comparison. Every member
 retains its original engine-local line index, and the immutable source OCR lines remain
 separate in storage.
+
+### Source-derived group text
+
+`domain.text_assembly.assemble_group_text()` is the single assembly rule used by group
+scoring/conflicts, risk and review text, adjudication, repair-round readings and final
+accepted-text assembly. It never edits `OCRLine.text` or uses the folded comparison key
+as export text. Existing whitespace is preserved; CJK boundaries receive no invented
+separator; Latin word/letter-digit boundaries receive one space unless existing
+whitespace, a hyphen or an explicit punctuation boundary already joins them. Purely
+numeric runs join without guessing an internal thousands/word separator. This is a
+bounded OCR-line assembly rule, not paragraph reflow or hyphenation correction.
+
+`fold_for_comparison()` preserves whitespace rather than deleting it. Consequently
+`New York` versus `NewYork`, multiple versus single spaces, and CJK strings that differ
+only by spaces cannot become `variant_agreement` and machine-accept silently. Legitimate
+OCR line-break differences are handled by assembly before glyph/punctuation folding;
+traditional/variant-character comparison behavior is unchanged. An uncertain Latin
+word-internal split (for example `inter` + `national` versus `international`) remains a
+text conflict instead of being normalized away.
 
 ## Score and constrained two-best DP
 
@@ -108,12 +133,20 @@ become one `AMBIGUOUS` `LineAlignment` containing:
 - at least two `AlignmentAlternative` records, each with both original index tuples,
   text similarity, cross-axis distance, and transition score.
 
+Near-equal physical column candidates use `AmbiguityReason.COLUMN_MAPPING` and the same
+alternative/member records. Their scores are the geometric column scores, and the
+ambiguous region is the union of the connected competing columns. Every alternative
+must remain inside that region; a missing membership row therefore fails closed during
+loading rather than silently narrowing what a reviewer decided.
+
 `RiskReason.ALIGNMENT_AMBIGUITY` gives the region a review candidate. Adjudication and
 repair rounds refuse to machine-accept it even if the strings in one alternative agree;
 a fresh reading cannot prove which geometric mapping is correct. A person can still
 append a cited human decision. CLI review JSON exposes status, all member indexes, and
-all alternatives. Existing Flutter JSON parsing remains compatible because these are
-additive fields; its current UI does not yet render the alternative list.
+all alternatives. Flutter parses these additive fields and displays alignment status,
+0-based original indexes, 1:N/N:1 membership, and scored candidate mappings. Legacy JSON
+without the fields displays unknown/missing structure rather than inventing indexes from
+the queue pair index.
 
 ## Output order and conflicts
 
@@ -177,20 +210,31 @@ errors, cross-column errors, unresolved ambiguities, and 1:N / N:1 counts. All e
 mappings in the deterministic fixtures must be found exactly. The ambiguity fixture
 must expose both alternatives instead of contributing a forced match.
 
-These are algorithm regression fixtures, not real OCR accuracy measurements. No OCR
-model is downloaded or run by these tests.
+`tests/test_worker_alignment_contract.py` additionally passes raw MinerU middle JSON and
+Paddle recognition/PP-Structure-shaped JSON through the actual worker extraction
+functions, contract-v2 JSON serialization and the production adapter. It covers both
+1:N and N:1 with Paddle layout evidence and with the plain default PP-OCR path, plus
+ambiguous/no layout ownership. `tests/test_text_assembly.py` covers English splits in
+both directions, different break positions, mixed CJK/Latin text, traditional Chinese,
+Japanese, automatic acceptance and exported spaces.
+
+These are algorithm and wire-contract regression fixtures, not real OCR accuracy
+measurements. No OCR model is downloaded or run by these tests; they say nothing about
+recognition accuracy on representative scans.
 
 ## Remaining limits
 
 - Rotated text and arbitrary nested layout trees still require explicit upstream
   layout evidence; this change does not add a layout classifier.
-- Unknown/asymmetric block metadata deliberately prevents multi-line merging, which
-  can leave genuine splits for review.
+- Asymmetric non-body or mixed-role block metadata deliberately prevents multi-line
+  merging, which can leave genuine title/footnote splits for review. Unknown evidence is
+  never promoted to a declared role.
 - Only the best two line paths and close geometric column alternatives are examined;
-  some higher-order ambiguities may remain unmatched rather than receiving every
+  higher-order ambiguity handling remains bounded rather than enumerating every
   imaginable alternative.
-- Joining a bounded group for comparison does not infer spaces or paragraph semantics.
-  Human/editorial text remains a separate decision layer.
+- Group assembly infers only the documented line-boundary separators, not paragraph
+  semantics or whether every Latin split is word-internal. Human/editorial text remains
+  a separate decision layer.
 - Synthetic fixtures prove the stated rules and evidence integrity, not arbitrary scan
   quality or real-engine accuracy. Real representative scans remain necessary before
   claiming production OCR accuracy.

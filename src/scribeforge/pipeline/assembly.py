@@ -29,6 +29,7 @@ from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
 from scribeforge.domain.page_asset import PageAssetError
 from scribeforge.domain.paragraphs import LineRole
 from scribeforge.domain.structure import BookStructure, PageRole
+from scribeforge.domain.text_assembly import assemble_group_text
 from scribeforge.storage.sqlite import PageConfirmation, PageRecord, SQLiteStore, VerificationRecord
 
 
@@ -399,7 +400,7 @@ def _load_image(
 def _pair_text(result: PageOCRResult, indexes: tuple[int, ...]) -> str | None:
     if not indexes:
         return None
-    return "".join(result.lines[index].text for index in indexes)
+    return assemble_group_text(result.lines[index].text for index in indexes)
 
 
 def _pair_is_empty(
@@ -521,6 +522,10 @@ def _pair_source_text(
 ) -> str:
     primary = store.load_ocr_run(record.primary_run_id)
     if pair.primary_line_indexes:
-        return "".join(primary.lines[index].text for index in pair.primary_line_indexes)
+        return assemble_group_text(
+            primary.lines[index].text for index in pair.primary_line_indexes
+        )
     secondary = store.load_ocr_run(record.secondary_run_id)
-    return "".join(secondary.lines[index].text for index in pair.secondary_line_indexes)
+    return assemble_group_text(
+        secondary.lines[index].text for index in pair.secondary_line_indexes
+    )

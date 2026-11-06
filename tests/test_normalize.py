@@ -47,7 +47,7 @@ def test_compatibility_forms_fold_via_nfkc() -> None:
     assert fold_for_comparison("ＡＢＣ１２３") == fold_for_comparison("abc123")
 
 
-def test_fold_for_comparison_removes_whitespace_and_folds_punctuation() -> None:
+def test_fold_for_comparison_preserves_whitespace_and_folds_punctuation() -> None:
     left = "他說：「好」。"
     right = '他说:"好".'
 

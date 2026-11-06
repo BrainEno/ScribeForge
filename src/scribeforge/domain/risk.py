@@ -7,6 +7,7 @@ from enum import Enum
 from scribeforge.domain.alignment import ConflictKind, LineAlignment, PageAlignment
 from scribeforge.domain.normalize import is_variant_only_difference
 from scribeforge.domain.ocr import BoundingBox, OCRLine, PageOCRResult
+from scribeforge.domain.text_assembly import assemble_group_text
 
 
 class RiskReason(str, Enum):
@@ -75,7 +76,7 @@ def _has_unicode_anomaly(text: str) -> bool:
 def _pair_text(pair: LineAlignment, primary: PageOCRResult, secondary: PageOCRResult) -> str:
     left = _lines(primary, pair.primary_line_indexes)
     right = _lines(secondary, pair.secondary_line_indexes)
-    return "".join(line.text for line in (*left, *right))
+    return assemble_group_text(line.text for line in (*left, *right))
 
 
 def assess_page(

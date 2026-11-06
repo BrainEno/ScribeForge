@@ -11,6 +11,7 @@ from scribeforge.domain.direction import resolve_page_direction
 from scribeforge.domain.normalize import similarity_for_comparison
 from scribeforge.domain.ocr import BlockType, BoundingBox, OCRLine, PageDirection, PageOCRResult
 from scribeforge.domain.reading_order import reading_order_key
+from scribeforge.domain.text_assembly import assemble_group_text
 
 #: A hard cap, not merely a performance hint.  Larger groups make both the DP and
 #: the resulting evidence harder to explain; a larger region must be reviewed in
@@ -38,6 +39,7 @@ class AlignmentStatus(str, Enum):
 
 class AmbiguityReason(str, Enum):
     CLOSE_SCORES = "close_scores"
+    COLUMN_MAPPING = "column_mapping"
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +139,14 @@ class LineAlignment:
         if self.status is AlignmentStatus.AMBIGUOUS:
             if not primary or not secondary or self.ambiguity is None:
                 raise ValueError("an ambiguous alignment needs both sides and alternatives")
+            primary_members = set(primary)
+            secondary_members = set(secondary)
+            if any(
+                not set(alternative.primary_line_indexes).issubset(primary_members)
+                or not set(alternative.secondary_line_indexes).issubset(secondary_members)
+                for alternative in self.ambiguity.alternatives
+            ):
+                raise ValueError("ambiguity alternative references a line outside its region")
         elif self.ambiguity is not None:
             raise ValueError("ambiguity evidence requires ambiguous status")
 
@@ -326,7 +336,7 @@ def _group_profile(
     return _GroupProfile(
         indexes=indexes,
         box=_union_boxes(lines),
-        text="".join(line.text for line in lines),
+        text=assemble_group_text(line.text for line in lines),
         roles=frozenset(roles),
         internally_adjacent=_internally_adjacent(lines, max_gap),
     )
@@ -349,7 +359,16 @@ def _group_profiles(
 
 
 def _roles_allow_group(primary: _GroupProfile, secondary: _GroupProfile) -> bool:
-    """Reject role-changing merges and incompatible declared block regions."""
+    """Apply declared block roles without inventing labels for unknown evidence.
+
+    Two wholly unknown sides may form a geometry-constrained multiline candidate.
+    When exactly one side has labels, a multiline candidate is allowed only when
+    that side is uniformly ``TEXT``: ordinary PP-OCR has no layout output, and a
+    blanket asymmetric ban made the default MinerU + PaddleOCR path unable to
+    align any split body line.  A known title/header/footer/footnote never gains
+    this relaxation, mixed known/unknown roles still fail, and all geometric hard
+    gates below remain unchanged.  Unknown lines are not relabelled as text.
+    """
 
     primary_known = primary.roles - {BlockType.UNKNOWN}
     secondary_known = secondary.roles - {BlockType.UNKNOWN}
@@ -360,10 +379,11 @@ def _roles_allow_group(primary: _GroupProfile, secondary: _GroupProfile) -> bool
     if primary_known and secondary_known and primary_known != secondary_known:
         return False
     asymmetric_evidence = bool(primary_known) != bool(secondary_known)
-    return not (
-        asymmetric_evidence
-        and (len(primary.indexes) > 1 or len(secondary.indexes) > 1)
-    )
+    multiline = len(primary.indexes) > 1 or len(secondary.indexes) > 1
+    if not asymmetric_evidence or not multiline:
+        return True
+    known = primary_known or secondary_known
+    return known == {BlockType.TEXT}
 
 
 def _make_candidate(
@@ -738,47 +758,182 @@ def _pair_columns(
     secondary: PageOCRResult,
     primary_columns: list[list[int]],
     secondary_columns: list[list[int]],
-) -> list[tuple[list[int], list[int]]]:
-    """Monotonic geometric assignment of columns, never positional ``zip()``.
+    direction: PageDirection,
+) -> tuple[list[tuple[list[int], list[int]]], tuple[LineAlignment, ...]]:
+    """Monotonic geometric assignment with explicit structural uncertainty.
 
-    Near-identical alternative column assignments are removed before the DP and
-    therefore remain unmatched rather than being guessed from their list order.
+    Near-equal alternatives are excluded from the deterministic column DP, but
+    are no longer flattened into unrelated unmatched lines.  Their connected
+    region becomes one AMBIGUOUS group with the competing mappings, scores and
+    every original line index preserved.
     """
 
     if not primary_columns or not secondary_columns:
-        return []
+        return [], ()
     primary_boxes = [_union_boxes([primary.lines[i] for i in column]) for column in primary_columns]
     secondary_boxes = [
         _union_boxes([secondary.lines[i] for i in column]) for column in secondary_columns
     ]
     scores: dict[tuple[int, int], float] = {}
-    by_primary: list[list[float]] = [[] for _ in primary_columns]
-    by_secondary: list[list[float]] = [[] for _ in secondary_columns]
     for p, primary_box in enumerate(primary_boxes):
         for s, secondary_box in enumerate(secondary_boxes):
             score = _column_score(primary_box, secondary_box)
             if score is None:
                 continue
             scores[p, s] = score
-            by_primary[p].append(score)
-            by_secondary[s].append(score)
-    def has_near_alternative(candidates: list[float]) -> bool:
-        if len(candidates) < 2:
-            return False
-        highest, runner_up = sorted(candidates, reverse=True)[:2]
-        return highest - runner_up <= 0.05
+    near_edges: set[tuple[int, int]] = set()
 
-    ambiguous_primary = {
-        p for p, values in enumerate(by_primary) if has_near_alternative(values)
-    }
-    ambiguous_secondary = {
-        s for s, values in enumerate(by_secondary) if has_near_alternative(values)
-    }
+    def add_near_edges(edges: list[tuple[int, int]]) -> None:
+        if len(edges) < 2:
+            return
+        highest = max(scores[edge] for edge in edges)
+        near_edges.update(edge for edge in edges if highest - scores[edge] <= 0.05)
+
+    for p in range(len(primary_columns)):
+        add_near_edges([(p, s) for s in range(len(secondary_columns)) if (p, s) in scores])
+    for s in range(len(secondary_columns)):
+        add_near_edges([(p, s) for p in range(len(primary_columns)) if (p, s) in scores])
+
+    # A row and a column can participate in overlapping near-equal choices.  A
+    # union-find keeps the whole connected region together instead of emitting
+    # duplicate review pairs that cite the same original OCR line.
+    parent: dict[tuple[str, int], tuple[str, int]] = {}
+    for p, s in near_edges:
+        parent.setdefault(("p", p), ("p", p))
+        parent.setdefault(("s", s), ("s", s))
+
+    def find(node: tuple[str, int]) -> tuple[str, int]:
+        root = node
+        while parent[root] != root:
+            root = parent[root]
+        while parent[node] != node:
+            following = parent[node]
+            parent[node] = root
+            node = following
+        return root
+
+    for p, s in near_edges:
+        primary_root = find(("p", p))
+        secondary_root = find(("s", s))
+        if primary_root != secondary_root:
+            parent[primary_root] = secondary_root
+
+    components: dict[tuple[str, int], list[tuple[int, int]]] = {}
+    for p, s in near_edges:
+        components.setdefault(find(("p", p)), []).append((p, s))
+
+    ambiguous_primary = {p for p, _s in near_edges}
+    ambiguous_secondary = {s for _p, s in near_edges}
+    geometric_scores = scores
     scores = {
         (p, s): score
         for (p, s), score in scores.items()
         if p not in ambiguous_primary and s not in ambiguous_secondary
     }
+
+    structural_ambiguities: list[LineAlignment] = []
+    for edges in components.values():
+        candidates = sorted(set(edges))
+        candidate_evidence: list[AlignmentAlternative] = []
+        candidate_similarities: list[float] = []
+        candidate_distances: list[float] = []
+        for p, s in candidates:
+            primary_indexes = tuple(
+                sorted(
+                    primary_columns[p],
+                    key=lambda index: (
+                        *reading_order_key(primary.lines[index], direction),
+                        index,
+                    ),
+                )
+            )
+            secondary_indexes = tuple(
+                sorted(
+                    secondary_columns[s],
+                    key=lambda index: (
+                        *reading_order_key(secondary.lines[index], direction),
+                        index,
+                    ),
+                )
+            )
+            primary_text = assemble_group_text(
+                primary.lines[index].text for index in primary_indexes
+            )
+            secondary_text = assemble_group_text(
+                secondary.lines[index].text for index in secondary_indexes
+            )
+            primary_box = _union_boxes([primary.lines[index] for index in primary_indexes])
+            secondary_box = _union_boxes(
+                [secondary.lines[index] for index in secondary_indexes]
+            )
+            distance = abs(
+                _box_cross_center(primary_box, direction)
+                - _box_cross_center(secondary_box, direction)
+            )
+            score = geometric_scores[p, s]
+            similarity = similarity_for_comparison(primary_text, secondary_text)
+            candidate_similarities.append(similarity)
+            candidate_distances.append(distance)
+            candidate_evidence.append(
+                AlignmentAlternative(
+                    primary_indexes,
+                    secondary_indexes,
+                    score,
+                    similarity,
+                    distance,
+                )
+            )
+        if len(candidate_evidence) < 2:
+            continue
+        order = sorted(
+            range(len(candidate_evidence)),
+            key=lambda index: (
+                -candidate_evidence[index].score,
+                candidate_evidence[index].primary_line_indexes,
+                candidate_evidence[index].secondary_line_indexes,
+            ),
+        )
+        alternatives = tuple(candidate_evidence[index] for index in order)
+        component_primary = {
+            index
+            for edge in candidates
+            for index in primary_columns[edge[0]]
+        }
+        component_secondary = {
+            index
+            for edge in candidates
+            for index in secondary_columns[edge[1]]
+        }
+        affected_primary = tuple(
+            sorted(
+                component_primary,
+                key=lambda index: (*reading_order_key(primary.lines[index], direction), index),
+            )
+        )
+        affected_secondary = tuple(
+            sorted(
+                component_secondary,
+                key=lambda index: (*reading_order_key(secondary.lines[index], direction), index),
+            )
+        )
+        leader = order[0]
+        structural_ambiguities.append(
+            LineAlignment(
+                affected_primary[0],
+                affected_secondary[0],
+                candidate_similarities[leader],
+                candidate_distances[leader],
+                (),
+                primary_line_indexes=affected_primary,
+                secondary_line_indexes=affected_secondary,
+                status=AlignmentStatus.AMBIGUOUS,
+                ambiguity=AlignmentAmbiguity(
+                    AmbiguityReason.COLUMN_MAPPING,
+                    max(0.0, alternatives[0].score - alternatives[1].score),
+                    alternatives,
+                ),
+            )
+        )
 
     n = len(primary_columns)
     m = len(secondary_columns)
@@ -819,7 +974,7 @@ def _pair_columns(
             pairs.append((primary_columns[i - 1], secondary_columns[j - 1]))
         i, j = previous_i, previous_j
     pairs.reverse()
-    return pairs
+    return pairs, tuple(structural_ambiguities)
 
 
 def _line_alignment(
@@ -829,8 +984,10 @@ def _line_alignment(
 ) -> LineAlignment:
     primary_indexes = candidate.primary_line_indexes
     secondary_indexes = candidate.secondary_line_indexes
-    primary_text = "".join(primary.lines[index].text for index in primary_indexes)
-    secondary_text = "".join(secondary.lines[index].text for index in secondary_indexes)
+    primary_text = assemble_group_text(primary.lines[index].text for index in primary_indexes)
+    secondary_text = assemble_group_text(
+        secondary.lines[index].text for index in secondary_indexes
+    )
     if primary_indexes and secondary_indexes:
         conflicts = _diff_text(primary_text, secondary_text)
     elif primary_indexes:
@@ -903,11 +1060,17 @@ def align_pages(
     page_direction = direction if direction is not None else resolve_page_direction(primary, secondary)
     primary_columns = _group_line_indexes_into_columns(primary.lines, page_direction)
     secondary_columns = _group_line_indexes_into_columns(secondary.lines, page_direction)
-    paired_columns = _pair_columns(primary, secondary, primary_columns, secondary_columns)
+    paired_columns, column_ambiguities = _pair_columns(
+        primary, secondary, primary_columns, secondary_columns, page_direction
+    )
 
-    groups: list[_Candidate | LineAlignment] = []
-    covered_primary: set[int] = set()
-    covered_secondary: set[int] = set()
+    groups: list[_Candidate | LineAlignment] = list(column_ambiguities)
+    covered_primary: set[int] = {
+        index for pair in column_ambiguities for index in pair.primary_line_indexes
+    }
+    covered_secondary: set[int] = {
+        index for pair in column_ambiguities for index in pair.secondary_line_indexes
+    }
     for primary_column, secondary_column in paired_columns:
         primary_order = tuple(
             sorted(
@@ -945,7 +1108,8 @@ def align_pages(
         covered_primary.update(primary_column)
         covered_secondary.update(secondary_column)
 
-    # Unpaired or deliberately ambiguous columns fail closed as unmatched lines.
+    # Unpaired columns remain unmatched; ambiguous columns already carry their
+    # complete region and alternatives above and must not be duplicated here.
     for index in range(len(primary.lines)):
         if index not in covered_primary:
             groups.append(_Candidate((index,), (), _UNMATCHED_SCORE, 0.0, None))

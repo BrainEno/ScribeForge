@@ -395,7 +395,12 @@ def test_paddle_worker_maps_ppstructure_layout_labels() -> None:
         ]
     }
 
-    blocks = paddle_worker._layout_blocks(raw)
+    lines = [
+        {"box": [0.15, 0.12, 0.10, 0.03]},
+        {"box": [0.20, 0.35, 0.20, 0.05]},
+    ]
+    blocks = paddle_worker._layout_blocks(raw, lines)
 
     assert [block["type"] for block in blocks] == ["title", "figure"]
+    assert [(block["line_start"], block["line_end"]) for block in blocks] == [(0, 1), (1, 2)]
     assert blocks[0]["box"] == pytest.approx([0.1, 0.1, 0.4, 0.1])

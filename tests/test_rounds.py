@@ -22,6 +22,28 @@ from scribeforge.pipeline.rounds import (
 from scribeforge.storage.sqlite import SQLiteStore
 
 
+class SplitEnglishEngine:
+    """Deterministic engine returning one logical English line as two OCR lines."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+        return PageOCRResult(
+            page_index,
+            self._name,
+            "1.0",
+            (
+                OCRLine("The quick", BoundingBox(0.1, 0.1, 0.8, 0.02)),
+                OCRLine("brown fox", BoundingBox(0.1, 0.12, 0.8, 0.02)),
+            ),
+        )
+
+
 class FakeEngine:
     """Deterministic engine whose answer can change between calls."""
 
@@ -63,6 +85,42 @@ def _disputed_page(tmp_path: Path) -> tuple[SQLiteStore, int]:
         crops_dir=tmp_path / "crops",
     )
     return store, project_id
+
+
+def test_crop_rereads_use_the_same_english_group_text_as_acceptance(
+    tmp_path: Path,
+) -> None:
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("Book", "book.pdf", "source-hash")
+    image_path = tmp_path / "page-0.png"
+    Image.new("RGB", (100, 150), "white").save(image_path)
+    store.add_page(project_id, 0, str(image_path), 100, 150)
+    process_page(
+        store,
+        project_id,
+        store.list_pages(project_id)[0],
+        primary_engine=SplitEnglishEngine("mineru"),
+        secondary_engine=FakeEngine("paddleocr", "The quick brown cat"),
+        crops_dir=tmp_path / "crops",
+    )
+    assert len(open_pairs(store, project_id)) == 1
+
+    report = run_repair_round(
+        store,
+        project_id,
+        readers=(
+            RepairReader("first-crop", SplitEnglishEngine("first-crop")),
+            RepairReader("second-crop", SplitEnglishEngine("second-crop")),
+        ),
+        crops_dir=tmp_path / "repair",
+    )
+
+    assert report.progressed
+    decision = store.latest_decision(project_id, 0, 0)
+    assert decision is not None
+    assert decision.selected_text == "The quick brown fox"
+    assert decision.actor == "automatic"
 
 
 def test_a_round_settles_a_pair_when_re_reads_corroborate_one_engine(

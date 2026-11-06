@@ -27,7 +27,7 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
       - name: Format Dart source
-        run: dart format lib test
+        run: dart format --set-exit-if-changed .
       - name: Analyze Flutter client
         id: analyze
         shell: bash

@@ -158,7 +158,9 @@ def detect_chapters(
 
 
 def _page_text(result: PageOCRResult) -> str:
-    return "".join(result.lines[index].text for index in result.text_line_indexes)
+    from scribeforge.domain.text_assembly import assemble_group_text
+
+    return assemble_group_text(result.lines[index].text for index in result.text_line_indexes)
 
 
 def measure_ink(
