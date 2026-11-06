@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/screens/unified_workspace.dart';
+import 'package:scribeforge_desktop/services/backend_resolver.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
 import 'package:scribeforge_desktop/services/desktop_file_picker.dart';
 import 'package:scribeforge_desktop/services/settings_store.dart';
@@ -81,6 +82,9 @@ void main() {
       MaterialApp(
         home: UnifiedWorkspace(
           cliExecutor: cli,
+          backendResolver: DesktopBackendResolver(
+            fileExists: (_) async => false,
+          ),
           filePicker: picker,
           settingsStore: _MemorySettingsStore(),
           fileSystem: fileSystem,

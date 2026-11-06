@@ -63,7 +63,8 @@ class DesktopBackendResolver {
   Future<bool> _fileExists(String path) =>
       (fileExists ?? _defaultFileExists)(path);
 
-  static Future<bool> _defaultFileExists(String path) => File(path).exists();
+  static Future<bool> _defaultFileExists(String path) =>
+      Future<bool>.value(File(path).existsSync());
 
   List<String> _bundledCandidates() {
     final os = operatingSystem ?? Platform.operatingSystem;
