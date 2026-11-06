@@ -36,7 +36,13 @@ def test_install_continues_with_paddle_when_mineru_fails(tmp_path: Path) -> None
     events: list[RuntimeEvent] = []
 
     class RecordingExecutor:
-        def run(self, argv: tuple[str, ...], env: dict[str, str] | None = None) -> None:
+        def run(
+            self,
+            argv: tuple[str, ...],
+            env: dict[str, str] | None = None,
+            *,
+            timeout_seconds: float,
+        ) -> None:
             calls.append(argv)
             if "envs/mineru" in " ".join(argv).replace("\\", "/"):
                 raise RuntimeError("synthetic MinerU failure")

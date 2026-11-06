@@ -22,7 +22,7 @@ def parse_nvidia_smi(output: str) -> tuple[str, str, int] | None:
     return parts[0], parts[1], vram_mb
 
 
-def _ram_mb() -> int | None:
+def _ram_mb(*, timeout_seconds: float = 10) -> int | None:
     if os.name == "posix" and hasattr(os, "sysconf"):
         try:
             page_size = int(os.sysconf("SC_PAGE_SIZE"))
@@ -43,7 +43,7 @@ def _ram_mb() -> int | None:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                timeout=10,
+                timeout=timeout_seconds,
             )
             return int(completed.stdout.strip())
         except (OSError, subprocess.SubprocessError, ValueError):
@@ -51,7 +51,9 @@ def _ram_mb() -> int | None:
     return None
 
 
-def _nvidia_profile(command: Sequence[str] | None = None) -> tuple[str, str, int] | None:
+def _nvidia_profile(
+    command: Sequence[str] | None = None, *, timeout_seconds: float = 10
+) -> tuple[str, str, int] | None:
     argv = list(command) if command is not None else [
         "nvidia-smi",
         "--query-gpu=name,driver_version,memory.total",
@@ -64,17 +66,19 @@ def _nvidia_profile(command: Sequence[str] | None = None) -> tuple[str, str, int
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=10,
+            timeout=timeout_seconds,
         )
     except (OSError, subprocess.SubprocessError):
         return None
     return parse_nvidia_smi(completed.stdout)
 
 
-def probe_hardware() -> HardwareProfile:
+def probe_hardware(*, timeout_seconds: float = 10) -> HardwareProfile:
+    if timeout_seconds <= 0:
+        raise ValueError("hardware probe timeout must be positive")
     system = platform.system().lower()
     os_name = "windows" if system == "windows" else "macos" if system == "darwin" else system
-    nvidia = _nvidia_profile()
+    nvidia = _nvidia_profile(timeout_seconds=timeout_seconds)
     if nvidia is None:
         gpu_name = driver = None
         vram_mb = None
@@ -86,5 +90,5 @@ def probe_hardware() -> HardwareProfile:
         gpu_name=gpu_name,
         nvidia_driver=driver,
         vram_mb=vram_mb,
-        ram_mb=_ram_mb(),
+        ram_mb=_ram_mb(timeout_seconds=timeout_seconds),
     )

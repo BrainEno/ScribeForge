@@ -2,23 +2,43 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
+import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from scribeforge.workers.paddle_model_setup import PADDLE_MODELS, verify_paddle_model
 from scribeforge.workers.protocol import (
     canonical_block_label,
     clamp_box,
     normalize_polygon,
     reported_direction,
     result_document,
+    run_engine_command,
 )
 
 
-def build_command(image: str) -> list[str]:
-    return [
+def locked_model_directories() -> dict[str, Path]:
+    """Verify managed model content before every real worker invocation."""
+
+    raw_root = os.environ.get("SCRIBEFORGE_PADDLE_MODELS_ROOT")
+    if raw_root is None or not raw_root.strip():
+        return {}
+    root = Path(raw_root)
+    paths: dict[str, Path] = {}
+    for asset in PADDLE_MODELS:
+        path = root / asset.name
+        verify_paddle_model(asset, path)
+        paths[asset.name] = path
+    return paths
+
+
+def build_command(
+    image: str, *, model_directories: Mapping[str, Path] | None = None
+) -> list[str]:
+    command = [
         "paddleocr",
         "ocr",
         "--input",
@@ -36,6 +56,14 @@ def build_command(image: str) -> list[str]:
         "--return_word_box",
         "true",
     ]
+    if model_directories:
+        detection = model_directories.get("PP-OCRv4_mobile_det")
+        recognition = model_directories.get("PP-OCRv4_mobile_rec")
+        if detection is not None:
+            command.extend(["--text_detection_model_dir", str(detection)])
+        if recognition is not None:
+            command.extend(["--text_recognition_model_dir", str(recognition)])
+    return command
 
 
 def _image_size(path: str) -> tuple[int, int]:
@@ -315,15 +343,15 @@ def main() -> None:
     parser.add_argument("--image", required=True)
     parser.add_argument("--page-index", required=True, type=int)
     args = parser.parse_args()
+    model_directories = locked_model_directories()
     with TemporaryDirectory(prefix="scribeforge-paddle-") as tmp:
         output_dir = Path(tmp)
-        subprocess.run(
-            [*build_command(args.image), "--save_path", str(output_dir)],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+        run_engine_command(
+            (
+                *build_command(args.image, model_directories=model_directories),
+                "--save_path",
+                str(output_dir),
+            )
         )
         result_path = output_dir / f"{Path(args.image).stem}_res.json"
         raw = json.loads(result_path.read_text(encoding="utf-8"))

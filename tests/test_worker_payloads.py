@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scribeforge.workers import mineru_worker, paddle_vl_worker, paddle_worker
+from scribeforge.workers import mineru_worker, paddle_vl_worker, paddle_worker, protocol
 
 
 def test_mineru_extract_lines_reads_middle_json_blocks() -> None:
@@ -102,7 +102,7 @@ def test_mineru_main_emits_worker_contract(monkeypatch, capsys, tmp_path: Path) 
 
     image = tmp_path / "page.png"
     image.write_bytes(b"x")
-    monkeypatch.setattr(mineru_worker.subprocess, "run", fake_run)
+    monkeypatch.setattr(protocol.subprocess, "run", fake_run)
     monkeypatch.setattr(sys, "argv", ["mineru-worker", "--image", str(image), "--page-index", "3"])
 
     mineru_worker.main()
@@ -209,7 +209,7 @@ def test_paddle_main_writes_contract_from_saved_result(monkeypatch, capsys, tmp_
 
     image = tmp_path / "page.png"
     image.write_bytes(b"x")
-    monkeypatch.setattr(paddle_worker.subprocess, "run", fake_run)
+    monkeypatch.setattr(protocol.subprocess, "run", fake_run)
     monkeypatch.setattr(paddle_worker, "_image_size", lambda path: (100, 200))
     monkeypatch.setattr(sys, "argv", ["paddle-worker", "--image", str(image), "--page-index", "5"])
 
@@ -362,7 +362,7 @@ def test_mineru_main_emits_contract_v2(monkeypatch, capsys, tmp_path: Path) -> N
         (output_dir / "page.json").write_text(json.dumps(raw), encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(mineru_worker.subprocess, "run", fake_run)
+    monkeypatch.setattr(protocol.subprocess, "run", fake_run)
     monkeypatch.setattr(sys, "argv", ["mineru-worker", "--image", str(image), "--page-index", "3"])
 
     mineru_worker.main()

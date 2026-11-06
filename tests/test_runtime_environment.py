@@ -24,9 +24,13 @@ def test_planner_prefetches_and_verifies_mineru_standard_models(tmp_path: Path) 
     plan = build_runtime_plan(profile, RuntimeLayout(tmp_path))
     mineru = plan.backend("mineru")
 
-    assert any(step.argv[-4:] == ("models", "download", "--tier", "standard") for step in mineru.model_steps)
-    assert any(step.argv[-4:] == ("models", "verify", "--tier", "standard") for step in mineru.health_checks)
-    assert dict(mineru.environment)["MINERU_HOME"].startswith(str(tmp_path))
+    assert any(step.argv[1:5] == ("models", "download", "--tier", "standard") for step in mineru.model_steps)
+    assert any(step.argv[1:5] == ("models", "verify", "--tier", "standard") for step in mineru.health_checks)
+    mineru_environment = dict(mineru.environment)
+    assert mineru_environment["MINERU_HOME"].startswith(str(tmp_path))
+    assert mineru_environment["MINERU_MODEL_SOURCE"] == "local"
+    assert mineru_environment["MINERU_MODEL_SMALL_BACKEND"] == "onnx"
+    assert mineru_environment["MINERU_MODEL_VLM_ENGINE"] == "llama-cpp"
 
 
 def test_planner_prefetches_paddle_word_box_model_into_private_cache(tmp_path: Path) -> None:
@@ -35,9 +39,13 @@ def test_planner_prefetches_paddle_word_box_model_into_private_cache(tmp_path: P
     paddle = plan.backend("paddleocr")
 
     model_command = " ".join(paddle.model_steps[0].argv)
-    assert "PaddleOCR" in model_command
-    assert "PP-OCRv4" in model_command
-    assert "return_word_box=True" in model_command
+    assert "paddle_model_setup.py" in model_command
+    health_command = paddle.health_checks[0].argv[-1]
+    assert "PaddleOCR" in health_command
+    assert "PP-OCRv4" in health_command
+    assert "return_word_box=True" in health_command
+    assert "text_detection_model_dir" in health_command
+    assert "text_recognition_model_dir" in health_command
     env = dict(paddle.environment)
     assert env["PADDLE_PDX_CACHE_HOME"].startswith(str(tmp_path))
     assert env["PADDLE_HOME"].startswith(str(tmp_path))

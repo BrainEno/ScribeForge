@@ -394,6 +394,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Repair only this OCR backend (requires --json).",
     )
+    setup.add_argument(
+        "--cancelable",
+        action="store_true",
+        help="Read versioned JSON cancellation messages on stdin during setup.",
+    )
+    setup.add_argument(
+        "--step-timeout",
+        type=_positive_seconds,
+        default=None,
+        metavar="SECONDS",
+        help=(
+            "Override the overall deadline for each setup step. By default, "
+            "package installation, model downloads and health checks use "
+            "separate runtime-plan deadlines."
+        ),
+    )
 
     runtime_status = subparsers.add_parser(
         "runtime-status",
@@ -682,7 +698,11 @@ def run(
     args = build_parser().parse_args(list(argv))
     out = sys.stdout if stdout is None else stdout
     if args.command == "setup":
-        return _setup(args, out)
+        setup_token = CancellationToken()
+        if args.cancelable:
+            _start_cancel_control(setup_token)
+        with cancellation_scope(setup_token):
+            return _setup(args, out)
     if args.command == "runtime-status":
         return _runtime_status(args, out)
     if args.command == "vlm-check":
@@ -2376,7 +2396,11 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
         args.runtime_root if args.runtime_root is not None else default_runtime_root()
     )
     action = "repair" if args.backend is not None else "install"
-    workflow = RuntimeSetupWorkflow(runtime_root)
+    workflow = (
+        RuntimeSetupWorkflow(runtime_root)
+        if args.step_timeout is None
+        else RuntimeSetupWorkflow(runtime_root, timeout_seconds=args.step_timeout)
+    )
     result_code = EXIT_OK
     message: str | None = None
 
@@ -2398,6 +2422,9 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
             workflow.install(on_event=emit_progress)
         else:
             workflow.repair(args.backend, on_event=emit_progress)
+    except ProcessingCancelled as exc:
+        result_code = EXIT_CANCELLED
+        message = str(exc).strip() or "OCR runtime setup was cancelled."
     except RuntimeInstallError as exc:
         result_code = EXIT_PARTIAL
         message = str(exc).strip() or "OCR runtime setup did not complete."

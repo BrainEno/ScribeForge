@@ -1,8 +1,22 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from typing import Any
 
 SUPPORTED_SCHEMA_VERSIONS = (1, 2)
+
+
+def run_engine_command(command: list[str] | tuple[str, ...]) -> None:
+    """Forward engine diagnostics without buffering them inside the worker.
+
+    The parent Python launcher owns bounded capture and process-tree cleanup.
+    Engine stdout is routed to stderr so the worker's final JSON remains the
+    only stdout payload.
+    """
+
+    subprocess.run(command, check=True, stdout=sys.stderr, stderr=sys.stderr)
+
 
 #: Canonical structural labels shared by the worker contract and the domain
 #: layer. Workers translate engine-specific labels into these values; anything

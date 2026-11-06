@@ -18,3 +18,19 @@ def test_paddle_command_selects_word_box_capable_pp_ocr_v4() -> None:
     assert command[command.index("--return_word_box") + 1] == "true"
     assert "--model_name" not in command
     assert "api" not in command
+
+
+def test_paddle_command_can_use_only_preverified_local_models(tmp_path) -> None:
+    detection = tmp_path / "det"
+    recognition = tmp_path / "rec"
+
+    command = paddle_command(
+        "page.png",
+        model_directories={
+            "PP-OCRv4_mobile_det": detection,
+            "PP-OCRv4_mobile_rec": recognition,
+        },
+    )
+
+    assert command[command.index("--text_detection_model_dir") + 1] == str(detection)
+    assert command[command.index("--text_recognition_model_dir") + 1] == str(recognition)

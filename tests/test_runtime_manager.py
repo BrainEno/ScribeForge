@@ -11,7 +11,9 @@ class RecordingExecutor:
         self.calls: list[tuple[str, ...]] = []
         self.fail_on = fail_on
 
-    def run(self, argv: tuple[str, ...]) -> None:
+    def run(
+        self, argv: tuple[str, ...], *, timeout_seconds: float
+    ) -> None:
         self.calls.append(argv)
         if self.fail_on == len(self.calls):
             raise RuntimeError("boom")

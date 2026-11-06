@@ -11,7 +11,13 @@ class RecordingExecutor:
         self.calls: list[tuple[tuple[str, ...], dict[str, str]]] = []
         self.fail_on = fail_on
 
-    def run(self, argv: tuple[str, ...], env: dict[str, str]) -> None:
+    def run(
+        self,
+        argv: tuple[str, ...],
+        env: dict[str, str],
+        *,
+        timeout_seconds: float,
+    ) -> None:
         self.calls.append((argv, env))
         if self.fail_on and self.fail_on in argv:
             raise RuntimeError("boom")

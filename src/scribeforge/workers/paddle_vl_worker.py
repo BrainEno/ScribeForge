@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -29,6 +28,7 @@ from scribeforge.workers.protocol import (
     normalize_polygon,
     reported_direction,
     result_document,
+    run_engine_command,
 )
 
 ENGINE_NAME = "paddleocr-vl"
@@ -196,14 +196,7 @@ def main() -> None:
 
     with TemporaryDirectory(prefix="scribeforge-paddle-vl-") as tmp:
         output_dir = Path(tmp)
-        subprocess.run(
-            build_command(args.image, output_dir),
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        run_engine_command(build_command(args.image, output_dir))
         raw = json.loads(_result_path(output_dir).read_text(encoding="utf-8"))
 
     width, height = _page_size(args.image)
