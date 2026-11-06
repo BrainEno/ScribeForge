@@ -105,7 +105,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   String? _sourceHashCacheValue;
 
   RuntimeStatusSnapshot? _runtimeStatus;
-  bool _runtimeLoading = false;
+  bool _runtimeLoading = true;
 
   // 复核队列（来自 `scribeforge review --json` 的稳定契约）
   final List<ReviewQueueItem> _reviewQueue = [];
@@ -650,7 +650,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   Future<void> _runProcess() async {
     final sourcePath = _pdfPath;
-    if (sourcePath == null || _statusLoading || !_projectSourceMatches) return;
+    if (sourcePath == null ||
+        _statusLoading ||
+        _runtimeLoading ||
+        !_projectSourceMatches) {
+      return;
+    }
     if (!_backendConnected) {
       setState(() {
         _selectedIndex = 6;
@@ -1314,6 +1319,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   ? (_cancelRequested ? null : _cancelProcessing)
                   : (_busy ||
                             _statusLoading ||
+                            _runtimeLoading ||
                             _pdfPath == null ||
                             !_projectSourceMatches
                         ? null

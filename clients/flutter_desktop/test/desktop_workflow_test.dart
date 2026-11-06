@@ -89,6 +89,12 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
+    await pumpUntil(
+      tester,
+      () => cli.calls.any((arguments) => arguments.first == 'runtime-status'),
+      description: 'the initial backend health check',
+    );
+    await tester.pump();
     return _Harness(source: source, picker: picker, cli: cli);
   }
 
