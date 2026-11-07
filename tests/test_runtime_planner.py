@@ -18,7 +18,11 @@ def test_windows_nvidia_driver_uses_cu126_paddle_runtime(tmp_path: Path) -> None
 
     paddle = plan.backend("paddleocr")
     assert paddle.acceleration == "nvidia-cu126"
-    assert any("paddlepaddle-gpu==3.2.0" in argument for step in paddle.steps for argument in step.argv)
+    assert any(
+        "paddleocr-nvidia-cu126-py312-universal.txt" in argument
+        for step in paddle.steps
+        for argument in step.argv
+    )
     assert any("stable/cu126" in argument for step in paddle.steps for argument in step.argv)
 
 
@@ -36,7 +40,11 @@ def test_new_nvidia_driver_uses_cu129_paddle_runtime(tmp_path: Path) -> None:
 
     paddle = plan.backend("paddleocr")
     assert paddle.acceleration == "nvidia-cu129"
-    assert any("paddlepaddle-gpu==3.2.0" in argument for step in paddle.steps for argument in step.argv)
+    assert any(
+        "paddleocr-nvidia-cu129-py312-universal.txt" in argument
+        for step in paddle.steps
+        for argument in step.argv
+    )
     assert any("stable/cu129" in argument for step in paddle.steps for argument in step.argv)
 
 
@@ -54,7 +62,11 @@ def test_machine_without_nvidia_uses_cpu_paddle_runtime(tmp_path: Path) -> None:
 
     paddle = plan.backend("paddleocr")
     assert paddle.acceleration == "cpu"
-    assert any("paddlepaddle==3.2.0" in argument for step in paddle.steps for argument in step.argv)
+    assert any(
+        "paddleocr-cpu-py312-universal.txt" in argument
+        for step in paddle.steps
+        for argument in step.argv
+    )
     assert all("paddlepaddle-gpu" not in argument for step in paddle.steps for argument in step.argv)
 
 
@@ -82,3 +94,14 @@ def test_old_nvidia_driver_falls_back_to_cpu_instead_of_guessing_gpu_wheel(tmp_p
     plan = build_runtime_plan(profile, RuntimeLayout(tmp_path))
 
     assert plan.backend("paddleocr").acceleration == "cpu"
+
+
+def test_all_backend_environments_are_relocatable_and_transactional(tmp_path: Path) -> None:
+    profile = HardwareProfile("linux", "x86_64", None, None, None, 16384)
+
+    plan = build_runtime_plan(profile, RuntimeLayout(tmp_path))
+
+    for backend in plan.backends:
+        assert backend.transactional_environment
+        environment = next(step for step in backend.steps if step.name == "environment")
+        assert "--relocatable" in environment.argv

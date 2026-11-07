@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -59,6 +60,38 @@ def test_subprocess_executor_merges_environment_and_preserves_failure_detail(
 
     assert caught.value.returncode == 7
     assert caught.value.stderr == "bounded diagnostic"
+
+
+def test_subprocess_executor_drops_external_uv_source_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "environment.json"
+    script = tmp_path / "environment.py"
+    script.write_text(
+        "import json,os,pathlib\n"
+        f"pathlib.Path({str(output)!r}).write_text(json.dumps({{"
+        "key: os.environ.get(key) for key in "
+        "('UV_INDEX', 'UV_EXTRA_INDEX_URL', 'UV_INDEX_STRATEGY', 'UV_CACHE_DIR')"
+        "}))",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("UV_INDEX", "https://untrusted.invalid/simple")
+    monkeypatch.setenv("UV_EXTRA_INDEX_URL", "https://untrusted.invalid/extra")
+    monkeypatch.setenv("UV_INDEX_STRATEGY", "unsafe-best-match")
+
+    SubprocessExecutor().run(
+        (sys.executable, str(script)),
+        {"UV_CACHE_DIR": str(tmp_path / "managed-cache")},
+        timeout_seconds=2,
+    )
+
+    environment = json.loads(output.read_text(encoding="utf-8"))
+    assert environment == {
+        "UV_INDEX": None,
+        "UV_EXTRA_INDEX_URL": None,
+        "UV_INDEX_STRATEGY": None,
+        "UV_CACHE_DIR": str(tmp_path / "managed-cache"),
+    }
 
 
 def test_install_command_timeout_kills_its_process_tree(tmp_path: Path) -> None:

@@ -30,11 +30,13 @@ The current lifecycle is:
 
 1. detect hardware;
 2. resolve or install the hash-locked `uv` bootstrap tool;
-3. create private MinerU and PaddleOCR environments;
-4. install compatible packages;
+3. create each private backend environment at a unique staging path with uv's
+   relocatable scripts;
+4. install only from the backend's complete universal, hash-locked requirements;
 5. prefetch required OCR models;
-6. verify model integrity and runtime startup;
-7. mark the backend `ready` only after health checks pass.
+6. verify model integrity and runtime startup using the staging executables;
+7. atomically publish the staging environment, restore any previous environment
+   if publication fails, and mark the backend `ready` only after health checks pass.
 
 Progress is emitted as structured runtime events to the setup UI. Failures persist
 the phase and step that failed so the UI can offer **Repair**. Cancellation is
@@ -78,8 +80,11 @@ represented as an instantly killable child process.
 
 A failed or cancelled backend can be repaired without deleting project data.
 Previously persisted OCR pages, evidence, and human decisions are not rewritten
-by runtime setup or cancellation. No claim is made that a partially installed
-virtual environment is rolled back; see the supply-chain limitations below.
+by runtime setup or cancellation. Package installation, model preparation, and
+health checks all run before environment publication. A failure removes the
+staging directory and preserves the previous usable environment; a publication
+failure moves that previous directory back into place. Model downloads have
+their own independent staging and rollback, described below.
 
 ## Private storage
 
@@ -110,8 +115,8 @@ All managed data stays under the ScribeForge runtime root:
 Environment variables route MinerU and PaddleX model storage, Hugging Face /
 ModelScope downloads, Paddle framework data, `uv` cache, and managed Python
 installations into these directories. Managed Paddle workers additionally receive
-`SCRIBEFORGE_PADDLE_MODELS_ROOT`; they re-verify the locked weight before invoking
-the engine and pass explicit detection/recognition model directories.
+`SCRIBEFORGE_PADDLE_MODELS_ROOT`; they re-verify every locked model file before
+invoking the engine and pass explicit detection/recognition model directories.
 
 ## Bootstrap and package identities
 
@@ -133,14 +138,29 @@ global Python environment.
 | `uv-aarch64-unknown-linux-gnu.tar.gz` | `71279f8d3c67241e807b9d8db872d1bf541579fb9f08b7d1eb1682196d1e57dc` |
 
 The planner fixes managed Python to 3.12, PaddlePaddle to 3.2.0, MinerU to 4.1.7,
-PaddleOCR / PaddleX to 3.3.0, and optional Surya OCR to 0.14.0. MinerU model
-preparation explicitly selects Hugging Face, ONNX small models, and the llama.cpp
-VLM engine; workers use the matching local source/backend settings instead of an
-implicit auto-selected combination.
+PaddleOCR / PaddleX to 3.3.0, and optional Surya OCR to 0.14.0. These direct pins
+are inputs under `runtime/locks/sources/`, not the installation mechanism. Six
+committed `*-py312-universal.txt` files lock the complete transitive package set
+and SHA-256 for every selectable distribution: MinerU, Surya, and CPU / cu118 /
+cu126 / cu129 PaddleOCR. PaddleOCR-VL reuses the selected PaddleOCR lock. Every
+install uses `uv pip install --require-hashes --no-deps --no-config -r <lock>`
+with an explicit PyPI default index and no `-U`. Inherited `UV_*` source overrides
+are removed from installer subprocesses. uv therefore cannot add an unlocked
+dependency, redirect the reviewed sources through caller configuration, or
+replace the selected CUDA engine in a second install step.
 
-**These direct version pins are not a complete dependency lock.** Transitive
-wheels and platform-specific GPU artifacts are not yet installed with a reviewed,
-hash-complete uv lockfile.
+The locks are generated with uv 0.13.7's universal resolver and `--generate-hashes`.
+Paddle's simple index does not provide upload timestamps, so the compile-time
+`--exclude-newer` cutoff applies only to the PyPI-only MinerU/Surya locks; it is
+not an installation-time integrity mechanism. The trusted Paddle index and PyPI
+use `unsafe-first-match` during compilation because the Paddle index contains
+some package names without the required versions. Installation still requires
+the committed hashes. Run `python scripts/compile_runtime_locks.py --uv uv` after
+reviewing and changing a source pin; `--check` regenerates and compares locks.
+
+MinerU model preparation explicitly selects Hugging Face, ONNX small models, and
+the llama.cpp VLM engine; workers use the matching local source/backend settings
+instead of an implicit auto-selected combination.
 
 ## Paddle model preparation
 
@@ -158,10 +178,23 @@ LFS `inference.pdiparams` payload, not a Git blob OID.
 | `PaddlePaddle/PP-OCRv4_mobile_det` | `3cc09f3a5b424e8e010abc7a4271aea12999c2f7` | 4,692,937 | `54a85087b4d31fa3ea4e4aba100169a1ec3e3274cd3352b9068b3cfccbca7829` |
 | `PaddlePaddle/PP-OCRv4_mobile_rec` | `a2deb05cb05813be2da3365672881aa496d1452b` | 10,766,823 | `948b8d2ca6ad4bd7b64c0ee3fb838a06db87d4cf57137173ce409c995df21012` |
 
+The required non-weight files are locked independently. These SHA-256 values
+were computed from the official raw bytes at the same immutable revisions (not
+from Git blob OIDs):
+
+| Model | File | Bytes | SHA-256 |
+| --- | --- | ---: | --- |
+| det | `config.json` | 2,871 | `25b95390ab0264dc56cd61f88f61e110700eec419bf799e235230a50ff7591a9` |
+| det | `inference.json` | 229,777 | `05feef1acb00aa4cd7362b15f7f501fc4f99d7b1fa73c1c871e0c7b1504b0f5c` |
+| det | `inference.yml` | 903 | `4f5bd0def48e20194d87d4c184a3ae3007a1299de7fed0ef763d3e7e873e77f6` |
+| rec | `config.json` | 128,091 | `26773626e73d17b4a6a6a39d15ee3a7820ddd05c3b71251894dc687e8174e81c` |
+| rec | `inference.json` | 217,718 | `30f78ace76b2cce756abba97eb17f4c79e776d88ad68dd44a787a3db84b407a7` |
+| rec | `inference.yml` | 53,543 | `1207e8ba3d3dad6b99115f7febf515f5ffc0d87ed77366d7a4b4b3f1709c005d` |
+
 For each asset, setup:
 
-1. reuses the private directory only if all required paths exist and the weight
-   size and SHA-256 match;
+1. reuses the private directory only if every required path exists and every
+   locked weight and metadata file matches both byte size and SHA-256;
 2. otherwise downloads that exact Hugging Face revision into a unique staging
    directory;
 3. rejects missing paths, size mismatches, and digest mismatches;
@@ -180,30 +213,28 @@ real OCR inference succeeded.
 1. Select and review an immutable Hugging Face commit for both model behavior and
    license compatibility.
 2. Obtain the LFS SHA-256 and byte size from the official repository API at that
-   same revision. Do not copy a non-LFS tree `oid` into the SHA-256 field.
-3. Update `PADDLE_MODELS`, its source-focused tests, and this table together.
+   same revision. Download each required non-weight file from that revision and
+   compute SHA-256 over its complete raw bytes. Do not copy a non-LFS tree `oid`
+   into the SHA-256 field.
+3. Update every `LockedFile` in `PADDLE_MODELS`, its source-focused tests, and
+   these tables together.
 4. Run the fake-model corruption/rollback tests.
 5. Separately perform an opt-in real download and real PaddleOCR health/inference
    check in a disposable private runtime. Record that result independently from
    unit-test evidence.
 
-### Supply-chain limitations (issue #71 remains open)
+### Remaining supply-chain and validation limits
 
-The implementation above is intentionally not described as a complete solution
-to #71. The remaining gaps are:
+GitHub issues #71 and #77 are closed. Their closure does not mean every model or
+real inference path has the same content lock. In particular:
 
-- Paddle's non-weight files (`config.json`, `inference.json`, `inference.yml`)
-  currently receive required-path checks, not independent SHA-256 verification.
-  A fixed revision alone is not a downloaded-content hash.
 - MinerU, PaddleOCR-VL, and Surya still rely on upstream model preparation and
-  path/startup checks; their model trees are not covered by the Paddle weight
+  path/startup checks; their model trees are not covered by the PP-OCRv4 file
   verifier.
-- A complete, per-platform transitive Python dependency lock with hashes has not
-  been generated and enforced.
-- Model-directory publication is transactional, and uv executable replacement is
-  atomic, but virtual-environment package installation is not staged as a
-  transaction. A failed package install can leave a partial environment; Repair
-  is required.
+- Fake-model corruption and rollback tests, universal lock inspection, and the
+  small real uv relocation test do not prove full backend installation, real
+  PP-OCRv4 downloads, OCR output, or accuracy. Those remain separate opt-in
+  validation tasks.
 
 ## Install and repair
 

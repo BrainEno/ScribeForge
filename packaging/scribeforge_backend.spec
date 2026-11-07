@@ -10,6 +10,10 @@ pdfium_datas, pdfium_binaries, pdfium_hidden_imports = collect_all("pypdfium2")
 worker_datas = [
     (str(SOURCE / "scribeforge" / "__init__.py"), "worker-src/scribeforge"),
     (str(SOURCE / "scribeforge" / "workers"), "worker-src/scribeforge/workers"),
+    (
+        str(SOURCE / "scribeforge" / "runtime" / "locks"),
+        "worker-src/scribeforge/runtime/locks",
+    ),
 ]
 
 analysis = Analysis(

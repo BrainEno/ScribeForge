@@ -14,6 +14,15 @@ class ModelIntegrityError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class LockedFile:
+    """Expected content for one file at a pinned repository revision."""
+
+    path: str
+    sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class ModelAsset:
     name: str
     repository: str
@@ -22,6 +31,7 @@ class ModelAsset:
     weight_sha256: str
     weight_bytes: int
     required_paths: tuple[str, ...]
+    metadata_files: tuple[LockedFile, ...] = ()
 
 
 PADDLE_MODELS = (
@@ -38,6 +48,23 @@ PADDLE_MODELS = (
             "inference.yml",
             "inference.pdiparams",
         ),
+        metadata_files=(
+            LockedFile(
+                "config.json",
+                "25b95390ab0264dc56cd61f88f61e110700eec419bf799e235230a50ff7591a9",
+                2_871,
+            ),
+            LockedFile(
+                "inference.json",
+                "05feef1acb00aa4cd7362b15f7f501fc4f99d7b1fa73c1c871e0c7b1504b0f5c",
+                229_777,
+            ),
+            LockedFile(
+                "inference.yml",
+                "4f5bd0def48e20194d87d4c184a3ae3007a1299de7fed0ef763d3e7e873e77f6",
+                903,
+            ),
+        ),
     ),
     ModelAsset(
         name="PP-OCRv4_mobile_rec",
@@ -51,6 +78,23 @@ PADDLE_MODELS = (
             "inference.json",
             "inference.yml",
             "inference.pdiparams",
+        ),
+        metadata_files=(
+            LockedFile(
+                "config.json",
+                "26773626e73d17b4a6a6a39d15ee3a7820ddd05c3b71251894dc687e8174e81c",
+                128_091,
+            ),
+            LockedFile(
+                "inference.json",
+                "30f78ace76b2cce756abba97eb17f4c79e776d88ad68dd44a787a3db84b407a7",
+                217_718,
+            ),
+            LockedFile(
+                "inference.yml",
+                "1207e8ba3d3dad6b99115f7febf515f5ffc0d87ed77366d7a4b4b3f1709c005d",
+                53_543,
+            ),
         ),
     ),
 )
@@ -68,6 +112,14 @@ def _download_snapshot(repository: str, revision: str, destination: Path) -> Non
     )
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _integrity_problem(asset: ModelAsset, root: Path) -> str | None:
     for relative in asset.required_paths:
         if not (root / relative).is_file():
@@ -78,12 +130,17 @@ def _integrity_problem(asset: ModelAsset, root: Path) -> str | None:
             f"weight size mismatch for {asset.name}: expected "
             f"{asset.weight_bytes}, got {weight.stat().st_size}"
         )
-    digest = hashlib.sha256()
-    with weight.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    if digest.hexdigest() != asset.weight_sha256:
+    if _sha256(weight) != asset.weight_sha256:
         return f"weight SHA-256 mismatch for {asset.name}"
+    for locked in asset.metadata_files:
+        path = root / locked.path
+        if path.stat().st_size != locked.size_bytes:
+            return (
+                f"{locked.path} size mismatch for {asset.name}: expected "
+                f"{locked.size_bytes}, got {path.stat().st_size}"
+            )
+        if _sha256(path) != locked.sha256:
+            return f"{locked.path} SHA-256 mismatch for {asset.name}"
     return None
 
 

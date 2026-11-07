@@ -78,6 +78,8 @@ class RuntimeBackendPlan:
     #: wants the default two engines must not pay for them. ``repair`` still
     #: resolves them by name, which is how they are installed on demand.
     optional: bool = False
+    #: Build and health-check in a sibling directory before replacing a usable env.
+    transactional_environment: bool = False
 
 
 @dataclass(frozen=True, slots=True)

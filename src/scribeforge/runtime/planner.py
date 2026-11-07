@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 from scribeforge.adapters.runtime_workers import worker_source_root
 from scribeforge.runtime.environment import build_runtime_environment, paddle_model_root
@@ -35,7 +36,7 @@ def _driver_at_least(driver: str | None, minimum: tuple[int, ...]) -> bool:
     return actual >= expected
 
 
-def _paddle_acceleration(profile: HardwareProfile) -> tuple[str, str, str]:
+def _paddle_acceleration(profile: HardwareProfile) -> tuple[str, str]:
     """Pick the PaddlePaddle wheel that can actually run on this machine.
 
     The CUDA 12.6 build aborts with ``Unsupported GPU architecture`` on Blackwell
@@ -46,25 +47,21 @@ def _paddle_acceleration(profile: HardwareProfile) -> tuple[str, str, str]:
         if _driver_at_least(profile.nvidia_driver, (570, 0)):
             return (
                 "nvidia-cu129",
-                "paddlepaddle-gpu==3.2.0",
                 "https://www.paddlepaddle.org.cn/packages/stable/cu129/",
             )
         if _driver_at_least(profile.nvidia_driver, (550, 54, 14)):
             return (
                 "nvidia-cu126",
-                "paddlepaddle-gpu==3.2.0",
                 "https://www.paddlepaddle.org.cn/packages/stable/cu126/",
             )
         minimum = (452, 39) if profile.os_name == "windows" else (450, 80, 2)
         if _driver_at_least(profile.nvidia_driver, minimum):
             return (
                 "nvidia-cu118",
-                "paddlepaddle-gpu==3.2.0",
                 "https://www.paddlepaddle.org.cn/packages/stable/cu118/",
             )
     return (
         "cpu",
-        "paddlepaddle==3.2.0",
         "https://www.paddlepaddle.org.cn/packages/stable/cpu/",
     )
 
@@ -77,9 +74,48 @@ def _venv_steps(
         InstallStep("python", (uv_executable, "python", "install", "3.12"), attempts=3),
         InstallStep(
             "environment",
-            (uv_executable, "venv", "--python", "3.12", str(environment)),
+            (
+                uv_executable,
+                "venv",
+                "--relocatable",
+                "--python",
+                "3.12",
+                str(environment),
+            ),
         ),
     )
+
+
+def _locked_install_step(
+    uv_executable: str,
+    python: Path,
+    lock_name: str,
+    *,
+    index: str | None = None,
+) -> InstallStep:
+    lock = worker_source_root() / "scribeforge" / "runtime" / "locks" / lock_name
+    argv: tuple[str, ...] = (
+        uv_executable,
+        "pip",
+        "install",
+        "--require-hashes",
+        "--no-deps",
+        "--no-config",
+        "--default-index",
+        "https://pypi.org/simple",
+        "--python",
+        str(python),
+        "-r",
+        str(lock),
+    )
+    if index is not None:
+        argv += (
+            "--extra-index-url",
+            index,
+            "--index-strategy",
+            "unsafe-first-match",
+        )
+    return InstallStep("install", argv, attempts=3)
 
 
 def _environment_items(layout: RuntimeLayout) -> tuple[tuple[str, str], ...]:
@@ -103,18 +139,10 @@ def build_runtime_plan(
         acceleration="compatible-local",
         steps=mineru_prefix
         + (
-            InstallStep(
-                "install",
-                (
-                    uv_executable,
-                    "pip",
-                    "install",
-                    "--python",
-                    str(mineru_python),
-                    "-U",
-                    "mineru==4.1.7",
-                ),
-                attempts=3,
+            _locked_install_step(
+                uv_executable,
+                mineru_python,
+                "mineru-py312-universal.txt",
             ),
         ),
         model_steps=(
@@ -156,7 +184,7 @@ def build_runtime_plan(
         environment=runtime_environment,
     )
 
-    acceleration, paddle_package, paddle_index = _paddle_acceleration(profile)
+    acceleration, paddle_index = _paddle_acceleration(profile)
     paddle_python = layout.python_executable("paddleocr", profile.os_name)
     paddle_prefix = _venv_steps("paddleocr", layout, uv_executable)
     paddle_models = paddle_model_root(layout)
@@ -179,34 +207,11 @@ def build_runtime_plan(
         acceleration=acceleration,
         steps=paddle_prefix
         + (
-            InstallStep(
-                "engine",
-                (
-                    uv_executable,
-                    "pip",
-                    "install",
-                    "--python",
-                    str(paddle_python),
-                    "-U",
-                    paddle_package,
-                    "-i",
-                    paddle_index,
-                ),
-                attempts=3,
-            ),
-            InstallStep(
-                "install",
-                (
-                    uv_executable,
-                    "pip",
-                    "install",
-                    "--python",
-                    str(paddle_python),
-                    "-U",
-                    "paddleocr==3.3.0",
-                    "paddlex==3.3.0",
-                ),
-                attempts=3,
+            _locked_install_step(
+                uv_executable,
+                paddle_python,
+                f"paddleocr-{acceleration}-py312-universal.txt",
+                index=paddle_index,
             ),
         ),
         model_steps=(
@@ -244,36 +249,12 @@ def build_runtime_plan(
         acceleration=acceleration,
         steps=vl_prefix
         + (
-            InstallStep(
-                "engine",
-                (
-                    uv_executable,
-                    "pip",
-                    "install",
-                    "--python",
-                    str(vl_python),
-                    "-U",
-                    paddle_package,
-                    "-i",
-                    paddle_index,
-                ),
-                attempts=3,
-            ),
-            InstallStep(
-                "install",
-                (
-                    uv_executable,
-                    "pip",
-                    "install",
-                    "--python",
-                    str(vl_python),
-                    "-U",
-                    # PaddleOCR-VL ships inside the 3.x line, not as a separate
-                    # package. Keep the engine and its model contract together.
-                    "paddleocr==3.3.0",
-                    "paddlex==3.3.0",
-                ),
-                attempts=3,
+            # PaddleOCR-VL ships inside PaddleOCR 3.x and uses the same full lock.
+            _locked_install_step(
+                uv_executable,
+                vl_python,
+                f"paddleocr-{acceleration}-py312-universal.txt",
+                index=paddle_index,
             ),
         ),
         model_steps=(
@@ -300,18 +281,10 @@ def build_runtime_plan(
         acceleration="cpu-or-cuda",
         steps=surya_prefix
         + (
-            InstallStep(
-                "install",
-                (
-                    uv_executable,
-                    "pip",
-                    "install",
-                    "--python",
-                    str(surya_python),
-                    "-U",
-                    "surya-ocr==0.14.0",
-                ),
-                attempts=3,
+            _locked_install_step(
+                uv_executable,
+                surya_python,
+                "surya-py312-universal.txt",
             ),
         ),
         model_steps=(
@@ -346,6 +319,7 @@ def build_runtime_plan(
     def with_phase_deadlines(backend: RuntimeBackendPlan) -> RuntimeBackendPlan:
         return replace(
             backend,
+            transactional_environment=True,
             model_steps=tuple(
                 replace(step, timeout_seconds=DEFAULT_MODEL_STEP_TIMEOUT_SECONDS)
                 for step in backend.model_steps
