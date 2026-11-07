@@ -99,6 +99,9 @@ def test_package_declares_the_export_normalization_policy(policy: str) -> None:
     )
 
     assert normalization.text == policy
+    assert opf.get("prefix") == (
+        "scribeforge: https://github.com/BrainEno/ScribeForge/normalization#"
+    )
 
 
 def test_package_normalization_defaults_to_preserve() -> None:

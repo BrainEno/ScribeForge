@@ -93,7 +93,8 @@ def _package_xml(
     return (
         XML_DECL
         + "\n"
-        + f'<package xmlns="{_OPF_NS}" version="3.0" unique-identifier="book-id">'
+        + f'<package xmlns="{_OPF_NS}" version="3.0" unique-identifier="book-id" '
+        + 'prefix="scribeforge: https://github.com/BrainEno/ScribeForge/normalization#">'
         + f'<metadata xmlns:dc="{_DC_NS}">'
         + f'<dc:identifier id="book-id">{escape(identifier)}</dc:identifier>'
         + f"<dc:title>{escape(book.title)}</dc:title>"
