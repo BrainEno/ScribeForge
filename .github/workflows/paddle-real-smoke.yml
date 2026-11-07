@@ -5,8 +5,13 @@ on:
     paths:
       - ".github/workflows/paddle-real-smoke.yml"
       - "scripts/run_paddle_real_smoke.sh"
+      - "scripts/record_paddle_smoke_evidence.py"
+      - "scripts/paddle_smoke_summary.py"
+      - "scripts/compile_runtime_locks.py"
       - "tests/test_paddle_real_smoke.py"
       - "tests/test_paddle_real_smoke_contract.py"
+      - "tests/test_paddle_smoke_evidence.py"
+      - "tests/test_runtime_lock_compilation.py"
       - "src/scribeforge/adapters/runtime_workers.py"
       - "src/scribeforge/runtime/**"
       - "src/scribeforge/workers/paddle_model_setup.py"

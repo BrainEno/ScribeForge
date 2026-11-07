@@ -15,6 +15,7 @@ def test_real_smoke_uses_managed_worker_python_and_can_record_evidence() -> None
 def test_real_smoke_ci_runs_locked_production_setup_and_uploads_evidence() -> None:
     root = Path(__file__).resolve().parents[1]
     script = root / "scripts" / "run_paddle_real_smoke.sh"
+    evidence_script = root / "scripts" / "record_paddle_smoke_evidence.py"
     workflow = root / ".github" / "workflows" / "paddle-real-smoke.yml"
 
     assert script.is_file()
@@ -23,11 +24,15 @@ def test_real_smoke_ci_runs_locked_production_setup_and_uploads_evidence() -> No
     assert "setup --json --backend paddleocr" in script_text
     assert "SCRIBEFORGE_RUN_PADDLE_SMOKE=1" in script_text
     assert "tests/test_paddle_real_smoke.py" in script_text
-    assert "model-evidence.json" in script_text
-    assert "paddleocr-cpu-py312-universal.txt" in script_text
-    assert "model.weight_path" in script_text
-    assert "model.weight_filename" not in script_text
+    assert "record_paddle_smoke_evidence.py" in script_text
     assert "runner.log" in script_text
+    evidence_text = evidence_script.read_text(encoding="utf-8")
+    assert "model-evidence.json" in evidence_text
+    assert "paddleocr-cpu-py312-universal.txt" in evidence_text
+    assert "paddle_model_root(layout)" in evidence_text
+    assert "model.weight_path" in evidence_text
+    assert "model.weight_filename" not in evidence_text
+    assert "layout.paddle_models_dir" not in evidence_text
 
     workflow_text = workflow.read_text(encoding="utf-8")
     assert "workflow_dispatch:" in workflow_text
