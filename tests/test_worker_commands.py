@@ -32,5 +32,7 @@ def test_paddle_command_can_use_only_preverified_local_models(tmp_path) -> None:
         },
     )
 
+    assert command[command.index("--text_detection_model_name") + 1] == "PP-OCRv4_mobile_det"
     assert command[command.index("--text_detection_model_dir") + 1] == str(detection)
+    assert command[command.index("--text_recognition_model_name") + 1] == "PP-OCRv4_mobile_rec"
     assert command[command.index("--text_recognition_model_dir") + 1] == str(recognition)

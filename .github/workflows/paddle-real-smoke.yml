@@ -1,0 +1,74 @@
+name: Paddle Real Model Smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/paddle-real-smoke.yml"
+      - "scripts/run_paddle_real_smoke.sh"
+      - "scripts/record_paddle_smoke_evidence.py"
+      - "scripts/paddle_smoke_summary.py"
+      - "scripts/compile_runtime_locks.py"
+      - "tests/test_paddle_real_smoke.py"
+      - "tests/test_paddle_real_smoke_contract.py"
+      - "tests/test_paddle_smoke_evidence.py"
+      - "tests/test_runtime_lock_compilation.py"
+      - "src/scribeforge/adapters/runtime_workers.py"
+      - "src/scribeforge/runtime/**"
+      - "src/scribeforge/workers/paddle_model_setup.py"
+      - "src/scribeforge/workers/paddle_worker.py"
+      - "src/scribeforge/workers/protocol.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: paddle-real-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SCRIBEFORGE_RUNTIME_ROOT: /tmp/scribeforge-paddle-real-runtime-${{ github.run_id }}
+      SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE: /tmp/scribeforge-paddle-real-evidence-${{ github.run_id }}
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install smoke-test runner dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Install locked Paddle runtime and run real PP-OCRv4 OCR
+        run: bash scripts/run_paddle_real_smoke.sh
+
+      - name: Publish smoke evidence summary to the PR
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SMOKE_STATUS: ${{ job.status }}
+        run: |
+          python scripts/paddle_smoke_summary.py \
+            "$SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE" "$SMOKE_STATUS" \
+            "$SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE/summary.md"
+          gh pr comment "$PR_NUMBER" \
+            --body-file "$SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE/summary.md"
+
+      - name: Upload real runtime and OCR evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paddle-real-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE }}
+          if-no-files-found: error
+          retention-days: 14

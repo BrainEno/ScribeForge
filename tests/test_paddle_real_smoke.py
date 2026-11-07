@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from scribeforge.adapters.runtime_workers import runtime_environment
+from scribeforge.adapters.runtime_workers import runtime_environment, worker_command
 from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime.paths import default_runtime_root
 
@@ -40,10 +39,12 @@ def test_real_pp_ocrv4_worker_emits_native_word_geometry() -> None:
     layout = RuntimeLayout(runtime_root)
     os_name = "windows" if os.name == "nt" else "linux"
     paddleocr_cli = layout.executable("paddleocr", "paddleocr", os_name)
-    if not paddleocr_cli.is_file():
+    paddle_python = layout.python_executable("paddleocr", os_name)
+    if not paddleocr_cli.is_file() or not paddle_python.is_file():
         pytest.fail(
             "PaddleOCR runtime is not installed at the configured runtime root; "
-            f"expected {paddleocr_cli}. Set SCRIBEFORGE_RUNTIME_ROOT if needed."
+            f"expected {paddleocr_cli} and {paddle_python}. "
+            "Set SCRIBEFORGE_RUNTIME_ROOT if needed."
         )
 
     image_value = os.environ.get("SCRIBEFORGE_PADDLE_SMOKE_IMAGE")
@@ -67,8 +68,7 @@ def test_real_pp_ocrv4_worker_emits_native_word_geometry() -> None:
 
     result = subprocess.run(
         [
-            sys.executable,
-            str(worker),
+            *worker_command(layout, "paddleocr", worker, os_name),
             "--image",
             str(image_path),
             "--page-index",
@@ -86,6 +86,14 @@ def test_real_pp_ocrv4_worker_emits_native_word_geometry() -> None:
     )
 
     document = json.loads(result.stdout)
+    report_value = os.environ.get("SCRIBEFORGE_PADDLE_SMOKE_REPORT")
+    if report_value:
+        report = Path(report_value).expanduser().resolve()
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(
+            json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
     assert document["schema_version"] == 2
     assert document["engine"] == "paddleocr"
     lines = document["lines"]

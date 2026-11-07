@@ -60,9 +60,23 @@ def build_command(
         detection = model_directories.get("PP-OCRv4_mobile_det")
         recognition = model_directories.get("PP-OCRv4_mobile_rec")
         if detection is not None:
-            command.extend(["--text_detection_model_dir", str(detection)])
+            command.extend(
+                [
+                    "--text_detection_model_name",
+                    "PP-OCRv4_mobile_det",
+                    "--text_detection_model_dir",
+                    str(detection),
+                ]
+            )
         if recognition is not None:
-            command.extend(["--text_recognition_model_dir", str(recognition)])
+            command.extend(
+                [
+                    "--text_recognition_model_name",
+                    "PP-OCRv4_mobile_rec",
+                    "--text_recognition_model_dir",
+                    str(recognition),
+                ]
+            )
     return command
 
 
