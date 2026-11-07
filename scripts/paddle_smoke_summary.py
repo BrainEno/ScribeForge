@@ -63,9 +63,11 @@ def build_summary(evidence_dir: Path, status: str) -> str:
 
     if status != "success":
         setup_path = evidence_dir / "setup.jsonl"
-        if setup_path.is_file():
-            setup_tail = setup_path.read_text(encoding="utf-8", errors="replace").splitlines()
-            lines.extend(["### Setup log tail", "", _code_block("\n".join(setup_tail[-80:])), ""])
+        runner_path = evidence_dir / "runner.log"
+        log_path = runner_path if runner_path.is_file() else setup_path
+        if log_path.is_file():
+            log_tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines.extend(["### Runner log tail", "", _code_block("\n".join(log_tail[-80:])), ""])
         junit_path = evidence_dir / "junit.xml"
         if junit_path.is_file():
             root = ET.parse(junit_path).getroot()
@@ -76,7 +78,7 @@ def build_summary(evidence_dir: Path, status: str) -> str:
                 lines.extend(
                     ["### Smoke failure", "", _code_block("\n\n".join(failures)[-12000:]), ""]
                 )
-        if not setup_path.is_file() and not junit_path.is_file():
+        if not log_path.is_file() and not junit_path.is_file():
             lines.extend(
                 [
                     "No setup log or JUnit file was produced; inspect the job step log.",

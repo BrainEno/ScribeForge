@@ -9,6 +9,8 @@ evidence_dir="${SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE:-${TMPDIR:-/tmp}/scribeforge-p
 mkdir -p "$evidence_dir"
 evidence_dir=$(cd "$evidence_dir" && pwd)
 export SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE="$evidence_dir"
+runner_log="$evidence_dir/runner.log"
+exec > >(tee "$runner_log") 2>&1
 
 if [[ -e "$SCRIBEFORGE_RUNTIME_ROOT" && ! -d "$SCRIBEFORGE_RUNTIME_ROOT" ]]; then
     echo "runtime root exists and is not a directory: $SCRIBEFORGE_RUNTIME_ROOT" >&2
@@ -64,7 +66,7 @@ for model in PADDLE_MODELS:
     verify_paddle_model(model, layout.paddle_models_dir)
     files = []
     for relative, expected_sha256 in (
-        (model.weight_filename, model.weight_sha256),
+        (model.weight_path, model.weight_sha256),
         ("config.json", model.config_sha256),
         ("inference.json", model.inference_json_sha256),
         ("inference.yml", model.inference_yml_sha256),

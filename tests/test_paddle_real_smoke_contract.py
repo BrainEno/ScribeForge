@@ -25,6 +25,9 @@ def test_real_smoke_ci_runs_locked_production_setup_and_uploads_evidence() -> No
     assert "tests/test_paddle_real_smoke.py" in script_text
     assert "model-evidence.json" in script_text
     assert "paddleocr-cpu-py312-universal.txt" in script_text
+    assert "model.weight_path" in script_text
+    assert "model.weight_filename" not in script_text
+    assert "runner.log" in script_text
 
     workflow_text = workflow.read_text(encoding="utf-8")
     assert "workflow_dispatch:" in workflow_text
@@ -100,3 +103,26 @@ def test_smoke_summary_preserves_failure_diagnostics(tmp_path: Path) -> None:
     assert "real installer error" in summary
     assert "real PP-OCRv4 smoke passed" not in summary
     assert "accuracy was not evaluated" in summary
+
+
+def test_smoke_summary_prefers_full_runner_failure_log(tmp_path: Path) -> None:
+    (tmp_path / "setup.jsonl").write_text('{"success": true}\n', encoding="utf-8")
+    (tmp_path / "runner.log").write_text(
+        "setup ready\nAttributeError: weight_filename\n", encoding="utf-8"
+    )
+    output = tmp_path / "summary.md"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/paddle_smoke_summary.py",
+            str(tmp_path),
+            "failure",
+            str(output),
+        ],
+        check=True,
+    )
+
+    summary = output.read_text(encoding="utf-8")
+    assert "AttributeError: weight_filename" in summary
+    assert "setup ready" in summary
