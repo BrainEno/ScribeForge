@@ -44,6 +44,7 @@ def compile_lock(uv: str, name: str) -> str:
             ],
             cwd=ROOT,
             check=True,
+            stdout=subprocess.DEVNULL,
         )
         body = output.read_text(encoding="utf-8")
     command = (
