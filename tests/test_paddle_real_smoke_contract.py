@@ -19,7 +19,7 @@ def test_real_smoke_ci_runs_locked_production_setup_and_uploads_evidence() -> No
     workflow = root / ".github" / "workflows" / "paddle-real-smoke.yml"
 
     assert script.is_file()
-    subprocess.run(["bash", "-n", script], check=True)
+    subprocess.run(["bash", "-n", script.as_posix()], check=True)
     script_text = script.read_text(encoding="utf-8")
     assert "setup --json --backend paddleocr" in script_text
     assert "SCRIBEFORGE_RUN_PADDLE_SMOKE=1" in script_text
