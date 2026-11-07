@@ -9,7 +9,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Temporary dispatch-only runner for validating the new real-model workflow
+  # before that workflow exists on the default branch. Removed after validation.
+  paddle-real-smoke-validation:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SCRIBEFORGE_RUNTIME_ROOT: ${{ runner.temp }}/scribeforge-paddle-real-runtime
+      SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE: ${{ runner.temp }}/scribeforge-paddle-real-evidence
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: bash scripts/run_paddle_real_smoke.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paddle-real-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE }}
+          if-no-files-found: error
+
   flutter-desktop:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
