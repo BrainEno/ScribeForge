@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      SCRIBEFORGE_RUNTIME_ROOT: ${{ runner.temp }}/scribeforge-paddle-real-runtime
-      SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE: ${{ runner.temp }}/scribeforge-paddle-real-evidence
+      SCRIBEFORGE_RUNTIME_ROOT: /tmp/scribeforge-paddle-real-runtime-${{ github.run_id }}
+      SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE: /tmp/scribeforge-paddle-real-evidence-${{ github.run_id }}
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
