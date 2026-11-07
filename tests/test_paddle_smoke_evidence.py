@@ -13,8 +13,9 @@ from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.workers.paddle_model_setup import LockedFile, ModelAsset
 
 
+@pytest.mark.parametrize("os_name", ["linux", "windows"])
 def test_record_real_smoke_evidence_uses_production_model_layout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, os_name: str
 ) -> None:
     repository = tmp_path / "repository"
     runtime_root = tmp_path / "runtime"
@@ -58,7 +59,7 @@ def test_record_real_smoke_evidence_uses_production_model_layout(
     (evidence_dir / "synthetic-paddle-smoke.png").write_bytes(b"synthetic image")
 
     def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert argv[0] == str(layout.python_executable("paddleocr", "linux"))
+        assert argv[0] == str(layout.python_executable("paddleocr", os_name))
         assert kwargs["check"] is True
         return subprocess.CompletedProcess(
             argv,
@@ -68,8 +69,11 @@ def test_record_real_smoke_evidence_uses_production_model_layout(
 
     monkeypatch.setattr(evidence_module.subprocess, "run", fake_run)
 
-    report = evidence_module.record_evidence(evidence_dir, runtime_root, repository)
+    report = evidence_module.record_evidence(
+        evidence_dir, runtime_root, repository, os_name=os_name
+    )
 
+    assert report["platform"] == os_name
     assert report["installed_distributions"]["paddleocr"] == "3.3.0"
     assert report["accuracy_evaluation"]["performed"] is False
     assert report["models"][0]["revision"] == "test-revision"

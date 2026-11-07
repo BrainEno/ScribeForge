@@ -19,16 +19,18 @@ def _code_block(text: str) -> str:
 
 
 def build_summary(evidence_dir: Path, status: str) -> str:
-    lines = [
-        "<!-- scribeforge-paddle-real-smoke -->",
-        f"## Real Paddle smoke — status: {status}",
-        "",
-    ]
     model_path = evidence_dir / "model-evidence.json"
     worker_path = evidence_dir / "worker-result.json"
+    evidence = _load_json(model_path) if model_path.is_file() else {}
+    platform = evidence.get("platform")
+    platform_label = f" ({platform})" if isinstance(platform, str) else ""
+    lines = [
+        "<!-- scribeforge-paddle-real-smoke -->",
+        f"## Real Paddle smoke{platform_label} — status: {status}",
+        "",
+    ]
 
     if model_path.is_file():
-        evidence = _load_json(model_path)
         distributions = evidence.get("installed_distributions", {})
         lines.extend(
             [

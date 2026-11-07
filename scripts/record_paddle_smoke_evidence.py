@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,9 +18,13 @@ def record_evidence(
     evidence_dir: Path,
     runtime_root: Path,
     repository_root: Path,
+    *,
+    os_name: str = "linux",
 ) -> dict[str, Any]:
     """Independently hash real model files and record the managed distribution."""
 
+    if os_name not in {"linux", "windows"}:
+        raise ValueError(f"unsupported Paddle smoke platform: {os_name}")
     layout = RuntimeLayout(runtime_root.resolve())
     models_root = paddle_model_root(layout)
     models: list[dict[str, object]] = []
@@ -53,7 +58,7 @@ def record_evidence(
         )
 
     lock_path = repository_root / "src/scribeforge/runtime/locks/paddleocr-cpu-py312-universal.txt"
-    managed_python = layout.python_executable("paddleocr", "linux")
+    managed_python = layout.python_executable("paddleocr", os_name)
     metadata_code = (
         "import json, sys; from importlib.metadata import version; "
         "print(json.dumps({'python': sys.version.split()[0], "
@@ -71,6 +76,7 @@ def record_evidence(
     report: dict[str, Any] = {
         "schema_version": 1,
         "kind": "scribeforge-real-paddle-runtime-evidence",
+        "platform": os_name,
         "accuracy_evaluation": {
             "performed": False,
             "reason": "This smoke validates installation, exact model bytes, native word geometry and the worker protocol, not recognition accuracy.",
@@ -102,8 +108,18 @@ def main() -> int:
     parser.add_argument("evidence_dir", type=Path)
     parser.add_argument("runtime_root", type=Path)
     parser.add_argument("repository_root", type=Path)
+    parser.add_argument(
+        "--os-name",
+        choices=("linux", "windows"),
+        default="windows" if os.name == "nt" else "linux",
+    )
     args = parser.parse_args()
-    record_evidence(args.evidence_dir, args.runtime_root, args.repository_root)
+    record_evidence(
+        args.evidence_dir,
+        args.runtime_root,
+        args.repository_root,
+        os_name=args.os_name,
+    )
     return 0
 
 

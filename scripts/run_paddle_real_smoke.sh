@@ -23,23 +23,7 @@ fi
 mkdir -p "$SCRIBEFORGE_RUNTIME_ROOT"
 
 smoke_image="$evidence_dir/synthetic-paddle-smoke.png"
-python - "$smoke_image" <<'PY'
-from pathlib import Path
-import sys
-
-from PIL import Image, ImageDraw, ImageFont
-
-output = Path(sys.argv[1])
-image = Image.new("RGB", (1600, 500), "white")
-draw = ImageDraw.Draw(image)
-font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-font_large = ImageFont.truetype(font_path, 64)
-font_small = ImageFont.truetype(font_path, 52)
-draw.text((80, 90), "ScribeForge OCR 2026", fill="black", font=font_large)
-draw.text((80, 260), "Native word boxes 0123456789", fill="black", font=font_small)
-image.save(output)
-print(f"synthetic smoke image: {output}")
-PY
+python scripts/create_paddle_smoke_image.py "$smoke_image"
 
 scribeforge setup --json --backend paddleocr \
     --runtime-root "$SCRIBEFORGE_RUNTIME_ROOT" \
