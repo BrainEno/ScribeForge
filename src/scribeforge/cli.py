@@ -19,7 +19,9 @@ from typing import TextIO
 from scribeforge.adapters.candidate_epub import build_candidate_epub
 from scribeforge.adapters.docx import write_docx
 from scribeforge.adapters.epub import write_epub
+from scribeforge.adapters.export_common import write_atomic
 from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReviewer
+from scribeforge.adapters.opencc_text import opencc_simplifier
 from scribeforge.adapters.runtime_workers import build_runtime_engine, worker_source_root
 from scribeforge.adapters.sources import open_page_source
 from scribeforge.adapters.subprocess_ocr import DEFAULT_WORKER_TIMEOUT_SECONDS
@@ -40,6 +42,11 @@ from scribeforge.domain.cancellation import (
     raise_if_cancelled,
 )
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
+from scribeforge.domain.export_normalization import (
+    NormalizationPolicy,
+    derive_normalized_book,
+    normalization_report_json,
+)
 from scribeforge.domain.flow import build_flow
 from scribeforge.domain.jobs import JobStage, JobState
 from scribeforge.domain.ocr import BoundingBox, OCREngine, PageDirection
@@ -611,6 +618,16 @@ def build_parser() -> argparse.ArgumentParser:
             "EPUB document layout: chapter documents with page-break markers "
             "(auto = when the book has a chapter tree), or one document per "
             "scanned page (page = facsimile). DOCX always writes one page at a time."
+        ),
+    )
+    export.add_argument(
+        "--normalization",
+        choices=tuple(policy.value for policy in NormalizationPolicy),
+        default=NormalizationPolicy.PRESERVE.value,
+        help=(
+            "Export-only text derivation (default: preserve). canonical_variants "
+            "uses the explicit variant table; simplified uses OpenCC t2s. Accepted "
+            "OCR decisions are never modified; a JSON change report is always written."
         ),
     )
     export.add_argument(
@@ -1750,6 +1767,20 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         )
         return EXIT_FATAL
 
+    normalization_policy = NormalizationPolicy(args.normalization)
+    if normalization_policy is NormalizationPolicy.SIMPLIFIED:
+        converter, converter_name = opencc_simplifier()
+        derived = derive_normalized_book(
+            book,
+            normalization_policy,
+            converter=converter,
+            converter_name=converter_name,
+        )
+    else:
+        derived = derive_normalized_book(book, normalization_policy)
+    book = derived.book
+    normalization_path = Path(f"{args.out}.normalization.json")
+
     try:
         if suffix == ".epub":
             write_epub(
@@ -1760,6 +1791,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
                 modified=modified,
                 author=author,
                 layout=args.layout,
+                normalization=normalization_policy.value,
             )
         else:
             write_docx(
@@ -1769,7 +1801,17 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
                 language=args.language,
                 modified=modified,
                 author=author,
+                normalization=normalization_policy.value,
             )
+        output_sha256 = hashlib.sha256(args.out.read_bytes()).hexdigest()
+        write_atomic(
+            normalization_path,
+            normalization_report_json(
+                derived.report,
+                output_file=args.out.name,
+                output_sha256=output_sha256,
+            ).encode("utf-8"),
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
@@ -1813,6 +1855,15 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
                 for item in summary.spot_check
             ],
             "dropped_furniture": len(book.dropped_furniture),
+            "normalization": {
+                "policy": derived.report.policy.value,
+                "converter": derived.report.converter,
+                "source_sha256": derived.report.source_sha256,
+                "normalized_sha256": derived.report.normalized_sha256,
+                "change_count": len(derived.report.changes),
+                "output_sha256": output_sha256,
+                "report": str(normalization_path),
+            },
         }
         if written is not None:
             report["layout"] = written.layout
@@ -1822,6 +1873,12 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_OK
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    print(
+        f"normalization: {derived.report.policy.value} "
+        f"({len(derived.report.changes)} change(s)); "
+        f"report: {normalization_path}",
+        file=out,
+    )
     if written is not None:
         print(
             f"layout: {written.layout} — {len(written.documents)} document(s), "

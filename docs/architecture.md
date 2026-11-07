@@ -21,8 +21,9 @@ Model dependencies are expected to conflict. Each backend implements the same co
 
 ## Text layers
 - source OCR: immutable engine output
-- normalized: mechanical Unicode/layout normalization only
+- comparison keys: conservative glyph folding used only for alignment/risk, never reading text
 - verified: evidence-backed accepted transcription
+- normalized export: explicit, reportable derivation from verified text; `preserve` by default
 - editorial: optional future author/user edits
 
 No downstream layer may mutate upstream evidence.

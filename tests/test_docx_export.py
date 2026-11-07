@@ -144,6 +144,23 @@ def test_core_properties_carry_metadata() -> None:
     assert modified.get(f"{{{_CORE['xsi']}}}type") == "dcterms:W3CDTF"
 
 
+@pytest.mark.parametrize("policy", ["preserve", "canonical_variants", "simplified"])
+def test_core_properties_declare_the_export_normalization_policy(policy: str) -> None:
+    core = _parse(_archive(_build(normalization=policy)), "docProps/core.xml")
+
+    assert core.find("dc:description", _CORE).text == (  # type: ignore[union-attr]
+        f"ScribeForge normalization: {policy}"
+    )
+
+
+def test_core_properties_normalization_defaults_to_preserve() -> None:
+    core = _parse(_archive(_build()), "docProps/core.xml")
+
+    assert core.find("dc:description", _CORE).text == (  # type: ignore[union-attr]
+        "ScribeForge normalization: preserve"
+    )
+
+
 def test_build_is_deterministic() -> None:
     assert _build() == _build()
 

@@ -7,6 +7,7 @@ ROOT = Path(SPECPATH).parent
 SOURCE = ROOT / "src"
 
 pdfium_datas, pdfium_binaries, pdfium_hidden_imports = collect_all("pypdfium2")
+opencc_datas, opencc_binaries, opencc_hidden_imports = collect_all("opencc")
 worker_datas = [
     (str(SOURCE / "scribeforge" / "__init__.py"), "worker-src/scribeforge"),
     (str(SOURCE / "scribeforge" / "workers"), "worker-src/scribeforge/workers"),
@@ -19,9 +20,9 @@ worker_datas = [
 analysis = Analysis(
     [str(ROOT / "packaging" / "desktop_backend.py")],
     pathex=[str(SOURCE)],
-    binaries=pdfium_binaries,
-    datas=worker_datas + pdfium_datas,
-    hiddenimports=pdfium_hidden_imports,
+    binaries=pdfium_binaries + opencc_binaries,
+    datas=worker_datas + pdfium_datas + opencc_datas,
+    hiddenimports=pdfium_hidden_imports + opencc_hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

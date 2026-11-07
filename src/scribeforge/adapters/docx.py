@@ -13,6 +13,7 @@ from scribeforge.adapters.export_common import (
     validate_book_text,
     validate_identifier,
     validate_language,
+    validate_normalization_policy,
     write_atomic,
     write_zip_entry,
 )
@@ -78,6 +79,7 @@ def _core_properties_xml(
     language: str,
     modified: str,
     author: str | None,
+    normalization: str,
 ) -> str:
     creator = "" if author is None else f"<dc:creator>{escape(author)}</dc:creator>"
     return (
@@ -89,6 +91,7 @@ def _core_properties_xml(
         + creator
         + f"<dc:identifier>{escape(identifier)}</dc:identifier>"
         + f"<dc:language>{escape(language)}</dc:language>"
+        + f"<dc:description>ScribeForge normalization: {escape(normalization)}</dc:description>"
         + f'<dcterms:modified xsi:type="dcterms:W3CDTF">{modified}</dcterms:modified>'
         + "</cp:coreProperties>\n"
     )
@@ -143,6 +146,7 @@ def build_docx(
     language: str,
     modified: datetime,
     author: str | None = None,
+    normalization: str = "preserve",
 ) -> bytes:
     """Render a verified book as a deterministic WordprocessingML document."""
 
@@ -150,6 +154,7 @@ def build_docx(
         raise ValueError("cannot export a book with no pages")
     validate_identifier(identifier)
     validate_language(language)
+    normalization = validate_normalization_policy(normalization)
     validate_book_text(book, author=author)
     modified_text = format_modified(modified)
 
@@ -173,6 +178,7 @@ def build_docx(
                 language=language,
                 modified=modified_text,
                 author=author,
+                normalization=normalization,
             ),
             zipfile.ZIP_DEFLATED,
         )
@@ -189,6 +195,7 @@ def write_docx(
     language: str,
     modified: datetime,
     author: str | None = None,
+    normalization: str = "preserve",
 ) -> Path:
     """Write a DOCX atomically so an interrupted export never leaves a torn file."""
 
@@ -200,5 +207,6 @@ def write_docx(
             language=language,
             modified=modified,
             author=author,
+            normalization=normalization,
         ),
     )
