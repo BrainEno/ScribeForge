@@ -188,14 +188,14 @@ def build_runtime_plan(
     paddle_python = layout.python_executable("paddleocr", profile.os_name)
     paddle_prefix = _venv_steps("paddleocr", layout, uv_executable)
     paddle_models = paddle_model_root(layout)
-    paddle_model_setup = (
-        worker_source_root() / "scribeforge" / "workers" / "paddle_model_setup.py"
-    )
+    paddle_model_setup = worker_source_root() / "scribeforge" / "workers" / "paddle_model_setup.py"
     paddle_health = (
         "import paddle, paddleocr; "
         "from paddleocr import PaddleOCR; "
         "PaddleOCR(ocr_version='PP-OCRv4', return_word_box=True, "
+        "text_detection_model_name='PP-OCRv4_mobile_det', "
         f"text_detection_model_dir={str(paddle_models / 'PP-OCRv4_mobile_det')!r}, "
+        "text_recognition_model_name='PP-OCRv4_mobile_rec', "
         f"text_recognition_model_dir={str(paddle_models / 'PP-OCRv4_mobile_rec')!r}, "
         "use_doc_orientation_classify=False, use_doc_unwarping=False, "
         "use_textline_orientation=False); "
@@ -238,11 +238,7 @@ def build_runtime_plan(
     # installs one on demand.
     vl_python = layout.python_executable("paddleocr-vl", profile.os_name)
     vl_prefix = _venv_steps("paddleocr-vl", layout, uv_executable)
-    vl_health = (
-        "import paddle; "
-        "from paddleocr import PaddleOCRVL; "
-        "print(paddle.__version__)"
-    )
+    vl_health = "import paddle; from paddleocr import PaddleOCRVL; print(paddle.__version__)"
     paddle_vl = RuntimeBackendPlan(
         name="paddleocr-vl",
         environment_dir=layout.environment_dir("paddleocr-vl"),
@@ -333,7 +329,6 @@ def build_runtime_plan(
     return RuntimePlan(
         root=layout.root,
         backends=tuple(
-            with_phase_deadlines(backend)
-            for backend in (mineru, paddle, paddle_vl, surya)
+            with_phase_deadlines(backend) for backend in (mineru, paddle, paddle_vl, surya)
         ),
     )
