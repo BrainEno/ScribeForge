@@ -44,9 +44,9 @@ def test_probe_hardware_combines_platform_and_gpu_data(monkeypatch) -> None:
     monkeypatch.setattr(
         probe,
         "_nvidia_profile",
-        lambda: ("NVIDIA GeForce RTX 5080", "560.94", 16384),
+        lambda *, timeout_seconds: ("NVIDIA GeForce RTX 5080", "560.94", 16384),
     )
-    monkeypatch.setattr(probe, "_ram_mb", lambda: 20480)
+    monkeypatch.setattr(probe, "_ram_mb", lambda *, timeout_seconds: 20480)
 
     profile = probe.probe_hardware()
 
@@ -61,8 +61,8 @@ def test_probe_hardware_combines_platform_and_gpu_data(monkeypatch) -> None:
 def test_probe_hardware_handles_machine_without_nvidia(monkeypatch) -> None:
     monkeypatch.setattr(probe.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(probe.platform, "machine", lambda: "arm64")
-    monkeypatch.setattr(probe, "_nvidia_profile", lambda: None)
-    monkeypatch.setattr(probe, "_ram_mb", lambda: 32768)
+    monkeypatch.setattr(probe, "_nvidia_profile", lambda *, timeout_seconds: None)
+    monkeypatch.setattr(probe, "_ram_mb", lambda *, timeout_seconds: 32768)
 
     profile = probe.probe_hardware()
 
@@ -70,3 +70,24 @@ def test_probe_hardware_handles_machine_without_nvidia(monkeypatch) -> None:
     assert profile.gpu_name is None
     assert profile.nvidia_driver is None
     assert profile.vram_mb is None
+
+
+def test_probe_hardware_forwards_configurable_deadlines(monkeypatch) -> None:
+    calls: list[tuple[str, float]] = []
+    monkeypatch.setattr(probe.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(probe.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(
+        probe,
+        "_nvidia_profile",
+        lambda *, timeout_seconds: calls.append(("gpu", timeout_seconds)),
+    )
+    monkeypatch.setattr(
+        probe,
+        "_ram_mb",
+        lambda *, timeout_seconds: calls.append(("ram", timeout_seconds)) or 8192,
+    )
+
+    profile = probe.probe_hardware(timeout_seconds=2.5)
+
+    assert calls == [("gpu", 2.5), ("ram", 2.5)]
+    assert profile.ram_mb == 8192

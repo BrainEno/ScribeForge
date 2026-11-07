@@ -8,7 +8,13 @@ class FlakyExecutor:
     def __init__(self) -> None:
         self.calls = 0
 
-    def run(self, argv: tuple[str, ...], env: dict[str, str] | None = None) -> None:
+    def run(
+        self,
+        argv: tuple[str, ...],
+        env: dict[str, str] | None = None,
+        *,
+        timeout_seconds: float,
+    ) -> None:
         self.calls += 1
         if self.calls < 3:
             raise RuntimeError("temporary download failure")

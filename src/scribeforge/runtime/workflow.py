@@ -44,12 +44,14 @@ class RuntimeSetupWorkflow:
         uv_ensurer: UvEnsurer = ensure_uv_executable,
         uv_resolver: UvResolver = resolve_uv_executable,
         executor: CommandExecutor | None = None,
+        timeout_seconds: float | None = None,
     ) -> None:
         self.root = root
         self._hardware_probe = hardware_probe
         self._uv_ensurer = uv_ensurer
         self._uv_resolver = uv_resolver
         self._executor = executor
+        self._timeout_seconds = timeout_seconds
 
     def inspect(self) -> RuntimeOverview:
         profile = self._hardware_probe()
@@ -75,7 +77,12 @@ class RuntimeSetupWorkflow:
         layout = RuntimeLayout(self.root)
         uv = self._uv_ensurer(layout.tools_dir, profile.os_name, profile.architecture)
         plan = build_runtime_plan(profile, layout, uv)
-        RuntimeManager(self.root, executor=self._executor, on_event=on_event).install(plan)
+        RuntimeManager(
+            self.root,
+            executor=self._executor,
+            on_event=on_event,
+            timeout_seconds=self._timeout_seconds,
+        ).install(plan)
 
     def repair(
         self,
@@ -87,6 +94,9 @@ class RuntimeSetupWorkflow:
         layout = RuntimeLayout(self.root)
         uv = self._uv_ensurer(layout.tools_dir, profile.os_name, profile.architecture)
         plan = build_runtime_plan(profile, layout, uv)
-        RuntimeManager(self.root, executor=self._executor, on_event=on_event).repair(
-            plan, backend
-        )
+        RuntimeManager(
+            self.root,
+            executor=self._executor,
+            on_event=on_event,
+            timeout_seconds=self._timeout_seconds,
+        ).repair(plan, backend)

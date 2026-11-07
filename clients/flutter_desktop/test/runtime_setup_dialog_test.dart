@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/models/runtime_setup.dart';
@@ -7,6 +9,7 @@ void main() {
   Future<void> showSetupDialog(
     WidgetTester tester, {
     required RuntimeSetupRunner runSetup,
+    Future<void> Function()? cancelSetup,
     bool autoStart = false,
   }) async {
     tester.view.physicalSize = const Size(1280, 1000);
@@ -23,6 +26,7 @@ void main() {
                 barrierDismissible: false,
                 builder: (_) => RuntimeSetupDialog(
                   runSetup: runSetup,
+                  cancelSetup: cancelSetup,
                   autoStart: autoStart,
                 ),
               ),
@@ -152,6 +156,52 @@ void main() {
     expect(find.textContaining('失败步骤：下载模型'), findsOneWidget);
     expect(find.text('network unavailable'), findsOneWidget);
     expect(find.text('配置未完成'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cancels an active setup and keeps cancelled state retryable', (
+    tester,
+  ) async {
+    final pending = Completer<int>();
+    void Function(RuntimeSetupMessage message)? emitMessage;
+    var cancelCalls = 0;
+    await showSetupDialog(
+      tester,
+      cancelSetup: () async {
+        cancelCalls++;
+      },
+      runSetup:
+          ({required backend, required onMessage, required onDiagnostic}) {
+            emitMessage = onMessage;
+            return pending.future;
+          },
+    );
+
+    await tester.tap(find.text('开始安装全部后端'));
+    await tester.pump();
+    expect(find.text('取消配置'), findsOneWidget);
+
+    await tester.tap(find.text('取消配置'));
+    await tester.pump();
+    expect(cancelCalls, 1);
+    expect(find.text('正在取消…'), findsOneWidget);
+
+    // Complete only after the cancellation request has been observed.
+    // The real executor finishes with 130 after the CLI kills its process tree.
+    emitMessage!(
+      RuntimeSetupMessage.fromJsonLine(
+        '{"schema_version":1,"type":"result","action":"install",'
+        '"success":false,"message":"processing cancelled","backends":{'
+        '"mineru":{"state":"cancelled","failed_step":"models:download"},'
+        '"paddleocr":{"state":"missing","failed_step":null}}}',
+      ),
+    );
+    pending.complete(130);
+    await tester.pumpAndSettle();
+
+    expect(find.text('重新安装全部后端'), findsOneWidget);
+    expect(find.text('已取消'), findsOneWidget);
+    expect(find.text('取消配置'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
+
+DEFAULT_INSTALL_STEP_TIMEOUT_SECONDS = 30 * 60.0
+DEFAULT_MODEL_STEP_TIMEOUT_SECONDS = 2 * 60 * 60.0
+DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS = 5 * 60.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,10 +54,13 @@ class InstallStep:
     name: str
     argv: tuple[str, ...]
     attempts: int = 1
+    timeout_seconds: float = DEFAULT_INSTALL_STEP_TIMEOUT_SECONDS
 
     def __post_init__(self) -> None:
         if self.attempts < 1:
             raise ValueError("attempts must be at least 1")
+        if not math.isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
+            raise ValueError("step timeout must be finite and greater than zero")
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,6 +12,7 @@ from scribeforge.workers.protocol import (
     canonical_block_label,
     reported_direction,
     result_document,
+    run_engine_command,
 )
 
 PARSE_TIER = "basic"
@@ -163,12 +163,7 @@ def main() -> None:
         # The adapter captures this worker's stderr into a bounded, disk-backed
         # log. Inherit that stream so MinerU diagnostics stay bounded instead of
         # accumulating unbounded ``capture_output`` bytes in worker memory.
-        subprocess.run(
-            build_command(args.image, output_dir),
-            check=True,
-            stdout=sys.stderr,
-            stderr=sys.stderr,
-        )
+        run_engine_command(build_command(args.image, output_dir))
         raw = json.loads(_result_path(output_dir, args.image).read_text(encoding="utf-8"))
     lines, blocks = extract_page(raw)
     sys.stdout.buffer.write(

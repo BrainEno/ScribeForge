@@ -1,35 +1,83 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from scribeforge.runtime.models import InstallStep, RuntimeBackendPlan, RuntimePlan
+from scribeforge.domain.cancellation import ProcessingCancelled, raise_if_cancelled
+from scribeforge.runtime.models import (
+    DEFAULT_INSTALL_STEP_TIMEOUT_SECONDS,
+    InstallStep,
+    RuntimeBackendPlan,
+    RuntimePlan,
+)
+from scribeforge.runtime.process import (
+    RuntimeCommandOutputLimitError,
+    RuntimeCommandTimeoutError,
+    run_runtime_process,
+)
+
+__all__ = [
+    "RuntimeCommandOutputLimitError",
+    "RuntimeCommandTimeoutError",
+    "RuntimeEvent",
+    "RuntimeInstallError",
+    "RuntimeManager",
+    "RuntimeStatus",
+    "SubprocessExecutor",
+]
 
 
 class CommandExecutor(Protocol):
-    def run(self, argv: tuple[str, ...], env: dict[str, str] | None = None) -> None: ...
+    def run(
+        self,
+        argv: tuple[str, ...],
+        env: dict[str, str] | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_INSTALL_STEP_TIMEOUT_SECONDS,
+    ) -> None: ...
 
 
 class SubprocessExecutor:
-    def run(self, argv: tuple[str, ...], env: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_output_bytes: int = 4 * 1024 * 1024,
+        max_log_bytes: int = 4 * 1024 * 1024,
+    ) -> None:
+        if max_output_bytes < 1 or max_log_bytes < 1:
+            raise ValueError("runtime command output limits must be positive")
+        self._max_output_bytes = max_output_bytes
+        self._max_log_bytes = max_log_bytes
+
+    def run(
+        self,
+        argv: tuple[str, ...],
+        env: dict[str, str] | None = None,
+        *,
+        timeout_seconds: float = DEFAULT_INSTALL_STEP_TIMEOUT_SECONDS,
+    ) -> None:
         process_env = None
         if env:
             process_env = os.environ.copy()
             process_env.update(env)
-        subprocess.run(
+        return_code, stdout, stderr = run_runtime_process(
             argv,
-            check=True,
-            env=process_env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+            environment=process_env,
+            timeout_seconds=timeout_seconds,
+            max_output_bytes=self._max_output_bytes,
+            max_log_bytes=self._max_log_bytes,
         )
+        if return_code != 0:
+            raise subprocess.CalledProcessError(
+                return_code, argv, output=stdout, stderr=stderr
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,10 +106,17 @@ class RuntimeManager:
         root: Path,
         executor: CommandExecutor | None = None,
         on_event: Callable[[RuntimeEvent], None] | None = None,
+        *,
+        timeout_seconds: float | None = None,
     ) -> None:
+        if timeout_seconds is not None and (
+            not math.isfinite(timeout_seconds) or timeout_seconds <= 0
+        ):
+            raise ValueError("runtime step timeout must be finite and greater than zero")
         self._root = root
         self._executor = executor or SubprocessExecutor()
         self._on_event = on_event
+        self._timeout_seconds = timeout_seconds
         self._state_path = root / "runtime-state.json"
 
     def install(self, plan: RuntimePlan) -> None:
@@ -129,6 +184,20 @@ class RuntimeManager:
                 )
                 try:
                     self._run_step(step, environment)
+                except ProcessingCancelled:
+                    failed_step = step.name if phase == "install" else f"{phase}:{step.name}"
+                    self._set_status(backend.name, RuntimeStatus("cancelled", failed_step))
+                    self._emit(
+                        RuntimeEvent(
+                            backend.name,
+                            phase,
+                            "cancelled",
+                            step.name,
+                            completed,
+                            total,
+                        )
+                    )
+                    raise
                 except Exception as exc:
                     failed_step = step.name if phase == "install" else f"{phase}:{step.name}"
                     self._set_status(backend.name, RuntimeStatus("failed", failed_step))
@@ -170,14 +239,37 @@ class RuntimeManager:
         self._emit(RuntimeEvent(backend.name, "complete", "ready", None, completed, total))
 
     def _run_step(self, step: InstallStep, environment: dict[str, str]) -> None:
+        timeout_seconds = self._timeout_seconds or step.timeout_seconds
+        deadline = time.monotonic() + timeout_seconds
         for attempt in range(1, step.attempts + 1):
+            raise_if_cancelled()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeCommandTimeoutError(
+                    f"runtime step {step.name} exceeded its overall timeout "
+                    f"of {timeout_seconds:g} seconds"
+                )
             try:
                 if environment:
-                    self._executor.run(step.argv, environment)
+                    self._executor.run(
+                        step.argv, environment, timeout_seconds=remaining
+                    )
                 else:
-                    self._executor.run(step.argv)
+                    self._executor.run(step.argv, timeout_seconds=remaining)
+                if time.monotonic() >= deadline:
+                    raise RuntimeCommandTimeoutError(
+                        f"runtime step {step.name} exceeded its overall timeout "
+                        f"of {timeout_seconds:g} seconds"
+                    )
                 return
-            except Exception:
+            except ProcessingCancelled:
+                raise
+            except Exception as exc:
+                if time.monotonic() >= deadline:
+                    raise RuntimeCommandTimeoutError(
+                        f"runtime step {step.name} exceeded its overall timeout "
+                        f"of {timeout_seconds:g} seconds"
+                    ) from exc
                 if attempt == step.attempts:
                     raise
 

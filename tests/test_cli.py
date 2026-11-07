@@ -2088,8 +2088,8 @@ def test_runtime_status_json_reports_managed_backend_state_read_only(
     }
     state_path.write_text(json.dumps(state), encoding="utf-8")
     before = state_path.read_bytes()
-    monkeypatch.setattr(runtime_probe, "_nvidia_profile", lambda: None)
-    monkeypatch.setattr(runtime_probe, "_ram_mb", lambda: 16 * 1024)
+    monkeypatch.setattr(runtime_probe, "_nvidia_profile", lambda *, timeout_seconds: None)
+    monkeypatch.setattr(runtime_probe, "_ram_mb", lambda *, timeout_seconds: 16 * 1024)
 
     code = run(
         [
@@ -2121,8 +2121,8 @@ def test_runtime_status_json_reports_missing_backends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime_root = tmp_path / "runtime-missing"
-    monkeypatch.setattr(runtime_probe, "_nvidia_profile", lambda: None)
-    monkeypatch.setattr(runtime_probe, "_ram_mb", lambda: None)
+    monkeypatch.setattr(runtime_probe, "_nvidia_profile", lambda *, timeout_seconds: None)
+    monkeypatch.setattr(runtime_probe, "_ram_mb", lambda *, timeout_seconds: None)
 
     code = run(
         ["runtime-status", "--runtime-root", str(runtime_root), "--json"]

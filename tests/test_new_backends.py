@@ -7,7 +7,7 @@ import pytest
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import HardwareProfile, RuntimeLayout
 from scribeforge.runtime.planner import build_runtime_plan
-from scribeforge.workers import paddle_vl_worker, surya_worker
+from scribeforge.workers import paddle_vl_worker, protocol, surya_worker
 
 
 def _profile() -> HardwareProfile:
@@ -180,7 +180,13 @@ def test_plain_install_skips_optional_backends(tmp_path: Path) -> None:
         def __init__(self) -> None:
             self.calls: list[tuple[str, ...]] = []
 
-        def run(self, argv: tuple[str, ...], env: dict[str, str] | None = None) -> None:
+        def run(
+            self,
+            argv: tuple[str, ...],
+            env: dict[str, str] | None = None,
+            *,
+            timeout_seconds: float,
+        ) -> None:
             self.calls.append(argv)
 
     plan = build_runtime_plan(_profile(), RuntimeLayout(tmp_path))
@@ -199,7 +205,13 @@ def test_optional_backend_can_be_installed_by_name(tmp_path: Path) -> None:
         def __init__(self) -> None:
             self.calls: list[tuple[str, ...]] = []
 
-        def run(self, argv: tuple[str, ...], env: dict[str, str] | None = None) -> None:
+        def run(
+            self,
+            argv: tuple[str, ...],
+            env: dict[str, str] | None = None,
+            *,
+            timeout_seconds: float,
+        ) -> None:
             self.calls.append(argv)
 
     plan = build_runtime_plan(_profile(), RuntimeLayout(tmp_path))
@@ -281,7 +293,7 @@ def test_paddle_vl_worker_main_emits_a_contract_v2_document(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(paddle_vl_worker.subprocess, "run", fake_run)
+    monkeypatch.setattr(protocol.subprocess, "run", fake_run)
     monkeypatch.setattr(
         "sys.argv", ["paddle_vl_worker.py", "--image", str(page), "--page-index", "0"]
     )
@@ -315,7 +327,7 @@ def test_surya_worker_main_emits_block_only_evidence(
             encoding="utf-8",
         )
 
-    monkeypatch.setattr(surya_worker.subprocess, "run", fake_run)
+    monkeypatch.setattr(protocol.subprocess, "run", fake_run)
     monkeypatch.setattr(
         "sys.argv", ["surya_worker.py", "--image", str(page), "--page-index", "0"]
     )

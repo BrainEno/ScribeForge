@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from scribeforge.runtime.environment import build_runtime_environment
+from dataclasses import replace
+
+from scribeforge.adapters.runtime_workers import worker_source_root
+from scribeforge.runtime.environment import build_runtime_environment, paddle_model_root
 from scribeforge.runtime.models import (
+    DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS,
+    DEFAULT_MODEL_STEP_TIMEOUT_SECONDS,
     HardwareProfile,
     InstallStep,
     RuntimeBackendPlan,
@@ -107,7 +112,7 @@ def build_runtime_plan(
                     "--python",
                     str(mineru_python),
                     "-U",
-                    "mineru>=4.0,<5",
+                    "mineru==4.1.7",
                 ),
                 attempts=3,
             ),
@@ -115,14 +120,36 @@ def build_runtime_plan(
         model_steps=(
             InstallStep(
                 "standard-models",
-                (str(mineru_cli), "models", "download", "--tier", "standard"),
+                (
+                    str(mineru_cli),
+                    "models",
+                    "download",
+                    "--tier",
+                    "standard",
+                    "--source",
+                    "huggingface",
+                    "--small-backend",
+                    "onnx",
+                    "--vlm-engine",
+                    "llama-cpp",
+                ),
                 attempts=3,
             ),
         ),
         health_checks=(
             InstallStep(
                 "model-integrity",
-                (str(mineru_cli), "models", "verify", "--tier", "standard"),
+                (
+                    str(mineru_cli),
+                    "models",
+                    "verify",
+                    "--tier",
+                    "standard",
+                    "--small-backend",
+                    "onnx",
+                    "--vlm-engine",
+                    "llama-cpp",
+                ),
             ),
             InstallStep("runtime-version", (str(mineru_main), "version", "--json")),
         ),
@@ -132,16 +159,16 @@ def build_runtime_plan(
     acceleration, paddle_package, paddle_index = _paddle_acceleration(profile)
     paddle_python = layout.python_executable("paddleocr", profile.os_name)
     paddle_prefix = _venv_steps("paddleocr", layout, uv_executable)
-    paddle_prefetch = (
-        "from paddleocr import PaddleOCR; "
-        "PaddleOCR(ocr_version='PP-OCRv4', return_word_box=True, "
-        "use_doc_orientation_classify=False, use_doc_unwarping=False, "
-        "use_textline_orientation=False)"
+    paddle_models = paddle_model_root(layout)
+    paddle_model_setup = (
+        worker_source_root() / "scribeforge" / "workers" / "paddle_model_setup.py"
     )
     paddle_health = (
         "import paddle, paddleocr; "
         "from paddleocr import PaddleOCR; "
         "PaddleOCR(ocr_version='PP-OCRv4', return_word_box=True, "
+        f"text_detection_model_dir={str(paddle_models / 'PP-OCRv4_mobile_det')!r}, "
+        f"text_recognition_model_dir={str(paddle_models / 'PP-OCRv4_mobile_rec')!r}, "
         "use_doc_orientation_classify=False, use_doc_unwarping=False, "
         "use_textline_orientation=False); "
         "print(paddle.__version__)"
@@ -176,7 +203,8 @@ def build_runtime_plan(
                     "--python",
                     str(paddle_python),
                     "-U",
-                    "paddleocr>=3.3,<4",
+                    "paddleocr==3.3.0",
+                    "paddlex==3.3.0",
                 ),
                 attempts=3,
             ),
@@ -184,7 +212,12 @@ def build_runtime_plan(
         model_steps=(
             InstallStep(
                 "pp-ocrv4-word-box-models",
-                (str(paddle_python), "-c", paddle_prefetch),
+                (
+                    str(paddle_python),
+                    str(paddle_model_setup),
+                    "--models-dir",
+                    str(paddle_models),
+                ),
                 attempts=3,
             ),
         ),
@@ -236,8 +269,9 @@ def build_runtime_plan(
                     str(vl_python),
                     "-U",
                     # PaddleOCR-VL ships inside the 3.x line, not as a separate
-                    # package; the floor is where the VL pipeline landed.
-                    "paddleocr>=3.3,<4",
+                    # package. Keep the engine and its model contract together.
+                    "paddleocr==3.3.0",
+                    "paddlex==3.3.0",
                 ),
                 attempts=3,
             ),
@@ -275,7 +309,7 @@ def build_runtime_plan(
                     "--python",
                     str(surya_python),
                     "-U",
-                    "surya-ocr>=0.14,<0.15",
+                    "surya-ocr==0.14.0",
                 ),
                 attempts=3,
             ),
@@ -309,4 +343,23 @@ def build_runtime_plan(
         optional=True,
     )
 
-    return RuntimePlan(root=layout.root, backends=(mineru, paddle, paddle_vl, surya))
+    def with_phase_deadlines(backend: RuntimeBackendPlan) -> RuntimeBackendPlan:
+        return replace(
+            backend,
+            model_steps=tuple(
+                replace(step, timeout_seconds=DEFAULT_MODEL_STEP_TIMEOUT_SECONDS)
+                for step in backend.model_steps
+            ),
+            health_checks=tuple(
+                replace(step, timeout_seconds=DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS)
+                for step in backend.health_checks
+            ),
+        )
+
+    return RuntimePlan(
+        root=layout.root,
+        backends=tuple(
+            with_phase_deadlines(backend)
+            for backend in (mineru, paddle, paddle_vl, surya)
+        ),
+    )

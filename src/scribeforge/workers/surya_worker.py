@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -31,6 +30,7 @@ from scribeforge.workers.protocol import (
     clamp_box,
     normalize_polygon,
     result_document,
+    run_engine_command,
 )
 
 ENGINE_NAME = "surya"
@@ -160,14 +160,7 @@ def main() -> None:
 
     with TemporaryDirectory(prefix="scribeforge-surya-") as tmp:
         output_path = Path(tmp) / "layout.json"
-        subprocess.run(
-            build_command(args.image, output_path),
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        run_engine_command(build_command(args.image, output_path))
         document = json.loads(output_path.read_text(encoding="utf-8"))
 
     blocks = extract_blocks(document)

@@ -25,7 +25,11 @@ void main() {
     test(
       'requests streamed JSON progress and optional single-backend repair',
       () {
-        expect(ScribeForgeCli.setupArguments(), <String>['setup', '--json']);
+        expect(ScribeForgeCli.setupArguments(), <String>[
+          'setup',
+          '--json',
+          '--cancelable',
+        ]);
         expect(
           ScribeForgeCli.setupArguments(
             runtimeRoot: '/tmp/ScribeForge runtime',
@@ -38,6 +42,7 @@ void main() {
             '--backend',
             'paddleocr',
             '--json',
+            '--cancelable',
           ],
         );
       },
