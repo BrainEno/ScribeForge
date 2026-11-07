@@ -58,6 +58,10 @@ jobs:
           $locks = Get-ChildItem $lockRoot -Filter "*-py312-universal.txt"
           if ($locks.Count -ne 6) { throw "Expected 6 runtime locks, found $($locks.Count)" }
           python -c "from pathlib import Path; locks=list(Path('dist/backend/_internal/worker-src/scribeforge/runtime/locks').glob('*-py312-universal.txt')); assert len(locks)==6; assert all('--hash=sha256:' in p.read_text(encoding='utf-8') for p in locks); print('runtime-locks passed')"
+          $openCcData = "dist/backend/_internal/opencc/clib/share/opencc"
+          foreach ($file in @("t2s.json", "TSCharacters.ocd2")) {
+            if (-not (Test-Path "$openCcData/$file")) { throw "OpenCC conversion data is missing: $file" }
+          }
           $env:PYTHONPATH = (Resolve-Path "dist/backend/_internal/worker-src").Path
           python -c "from scribeforge.workers import mineru_worker, paddle_worker; print('external Worker imports passed')"
           Remove-Item Env:PYTHONPATH

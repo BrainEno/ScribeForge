@@ -11,6 +11,7 @@ dependencies = [
   "Pillow>=12.3,<13",
   "pypdfium2>=4.30,<6",
   "numpy>=1.26,<3",
+  "opencc>=1.4.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -55,5 +56,5 @@ strict = true
 packages = ["scribeforge"]
 
 [[tool.mypy.overrides]]
-module = ["pypdfium2", "pypdfium2.*"]
+module = ["pypdfium2", "pypdfium2.*", "opencc"]
 ignore_missing_imports = true

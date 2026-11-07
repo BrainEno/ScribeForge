@@ -113,7 +113,7 @@ Python 3.10+，项目依赖 Pillow、pypdfium2、NumPy；开发依赖 pytest/pyt
 ### 部分完成、保留并补充（7 项）
 
 - [#90 多引擎技术路线](https://github.com/BrainEno/ScribeForge/issues/90)：`workers/paddle_vl_worker.py`、`workers/surya_worker.py`、`runtime/planner.py` 已有路径，`domain/consensus.py` 有规则；真实三引擎古籍对比、覆盖许可与显存实测未证实。旧的 PP-OCRv6 主引擎设想也须更新，当前契约文档明确 PP-OCRv4。
-- [#88 派生规范化层](https://github.com/BrainEno/ScribeForge/issues/88)：`domain/normalize.py` 已存在，用于异体字比较（`docs/glyph-variants.md`），旧“无任何 normalization 模块”不成立；并不等于支持 OpenCC 简体导出、可审计转换记录及导出层元数据。
+- [#88 派生规范化层](https://github.com/BrainEno/ScribeForge/issues/88)：`domain/normalize.py` 已存在，用于异体字比较（`docs/glyph-variants.md`），旧“无任何 normalization 模块”不成立；并不等于支持 OpenCC 简体导出、可审计转换记录及导出层元数据。后续已完成这部分导出派生，见 `docs/export-normalization.md`；比较折叠仍保持独立。
 - [#86 worker 契约](https://github.com/BrainEno/ScribeForge/issues/86)：`docs/ocr-worker-contract.md` 已有 v2/block/line/token 及兼容；[PR #119](https://github.com/BrainEno/ScribeForge/pull/119)、[#120](https://github.com/BrainEno/ScribeForge/pull/120) 引入原生词框与 opt-in smoke。真实 PP-OCRv4 非空 token 尚未由本次执行；MinerU 无原生 token、行框/块框及裁剪尺寸验收仍需核对。旧“全无块及低置信度永不触发”已过时。
 - [#84 结构保真](https://github.com/BrainEno/ScribeForge/issues/84)：`domain/content.py`、`domain/paragraphs.py`、`adapters/epub.py` 已有段落/章节、图像路径；仍缺含脚注/插图样书的结构保留率、官方 EPUBCheck 和多阅读器结果。#125 跟踪具体 CI 缺陷。
 - [#82 页图摘要](https://github.com/BrainEno/ScribeForge/issues/82)：`pipeline/importing.py:90-103` 写摘要，`project_audit.py:192-219` 检验，`tests/test_project_audit.py:92` 覆盖替换；v11 迁移/rehash 可兼容旧项目。但 `rounds.py:420-422` 的独立重读没有验证该原图，故“阻止作为原始证据使用”尚不能无条件关闭；残余根因由 #124 覆盖。

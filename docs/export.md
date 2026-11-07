@@ -372,6 +372,8 @@ scribeforge export --store store/ --out book.epub --language zh
 scribeforge export --store store/ --out book.epub \
   --title "书名" --author "作者" --modified 2026-10-20T00:00:00Z
 scribeforge export --store store/ --out scans.epub --layout page   # facsimile
+scribeforge export --store store/ --out book.epub --normalization canonical_variants
+scribeforge export --store store/ --out book.docx --normalization simplified
 ```
 
 The format is chosen from the destination extension: `.epub` writes EPUB 3,
@@ -391,7 +393,15 @@ table of contents: 12 chapter(s) from the book's structure
 
 `--json` adds `layout`, `documents`, `paragraphs`, `images` and `cover_image`
 (`page`, `file`, `media_type`, `sha256` of the cover, or `null`) beside the
-acceptance report.
+acceptance report. It also summarizes the selected normalization policy and its
+output-bound change report.
+
+`--normalization` defaults to `preserve`. `canonical_variants` applies only the
+reviewed variant table; `simplified` uses real OpenCC `t2s`. Both create a derived
+reading copy after acceptance, never edit OCR/decisions, label the EPUB/DOCX package
+metadata, and write `<output>.normalization.json`. A preserve report is also written
+with zero changes so re-export cannot leave stale policy evidence. See
+[Export-only text normalization](./export-normalization.md).
 
 `--modified` accepts an ISO 8601 timestamp (a trailing `Z` is accepted); naive
 values are interpreted as UTC. Supplying it makes the build reproducible: the

@@ -15,6 +15,7 @@ from scribeforge.adapters.export_common import (
     validate_book_text,
     validate_identifier,
     validate_language,
+    validate_normalization_policy,
     write_atomic,
     write_zip_bytes,
     write_zip_entry,
@@ -58,6 +59,7 @@ def _package_xml(
     modified: str,
     author: str | None,
     layout: str,
+    normalization: str,
 ) -> str:
     items = [
         (
@@ -91,13 +93,15 @@ def _package_xml(
     return (
         XML_DECL
         + "\n"
-        + f'<package xmlns="{_OPF_NS}" version="3.0" unique-identifier="book-id">'
+        + f'<package xmlns="{_OPF_NS}" version="3.0" unique-identifier="book-id" '
+        + 'prefix="scribeforge: https://github.com/BrainEno/ScribeForge/normalization#">'
         + f'<metadata xmlns:dc="{_DC_NS}">'
         + f'<dc:identifier id="book-id">{escape(identifier)}</dc:identifier>'
         + f"<dc:title>{escape(book.title)}</dc:title>"
         + creator
         + f"<dc:language>{escape(language)}</dc:language>"
         + f'<meta property="dcterms:modified">{modified}</meta>'
+        + f'<meta property="scribeforge:normalization">{escape(normalization)}</meta>'
         + cover_meta
         + "</metadata>"
         + f"<manifest>{''.join(items)}</manifest>"
@@ -267,6 +271,7 @@ def build_epub(
     modified: datetime,
     author: str | None = None,
     layout: str = AUTO_LAYOUT,
+    normalization: str = "preserve",
 ) -> bytes:
     """Render a verified book as a deterministic EPUB 3 archive.
 
@@ -279,6 +284,7 @@ def build_epub(
         raise ValueError("cannot export a book with no pages")
     validate_identifier(identifier)
     validate_language(language)
+    normalization = validate_normalization_policy(normalization)
     validate_book_text(book, author=author)
     modified_text = format_modified(modified)
 
@@ -298,6 +304,7 @@ def build_epub(
                 modified=modified_text,
                 author=author,
                 layout=layout,
+                normalization=normalization,
             ),
             zipfile.ZIP_DEFLATED,
         )
@@ -337,6 +344,7 @@ def write_epub(
     modified: datetime,
     author: str | None = None,
     layout: str = AUTO_LAYOUT,
+    normalization: str = "preserve",
 ) -> Path:
     """Write an EPUB atomically so an interrupted export never leaves a torn file."""
 
@@ -349,5 +357,6 @@ def write_epub(
             modified=modified,
             author=author,
             layout=layout,
+            normalization=normalization,
         ),
     )

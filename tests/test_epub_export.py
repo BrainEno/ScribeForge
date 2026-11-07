@@ -88,6 +88,33 @@ def test_package_metadata_and_spine_follow_page_order() -> None:
     assert manifest["page-1"] == "page-000002.xhtml"
 
 
+@pytest.mark.parametrize("policy", ["preserve", "canonical_variants", "simplified"])
+def test_package_declares_the_export_normalization_policy(policy: str) -> None:
+    archive = _archive(_build(normalization=policy))
+
+    opf = _parse(archive, "OEBPS/content.opf")
+    metadata = opf.findall("o:metadata/o:meta", _OPF_NS)
+    normalization = next(
+        item for item in metadata if item.get("property") == "scribeforge:normalization"
+    )
+
+    assert normalization.text == policy
+    assert opf.get("prefix") == (
+        "scribeforge: https://github.com/BrainEno/ScribeForge/normalization#"
+    )
+
+
+def test_package_normalization_defaults_to_preserve() -> None:
+    opf = _parse(_archive(_build()), "OEBPS/content.opf")
+    normalization = next(
+        item
+        for item in opf.findall("o:metadata/o:meta", _OPF_NS)
+        if item.get("property") == "scribeforge:normalization"
+    )
+
+    assert normalization.text == "preserve"
+
+
 def test_nav_lists_every_page() -> None:
     archive = _archive(_build())
 

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from scribeforge.domain.content import VerifiedBook, VerifiedImage
+from scribeforge.domain.export_normalization import NormalizationPolicy
 
 XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>'
 #: Directory inside an EPUB package that holds the page rasters. Both the writer
@@ -60,6 +61,12 @@ def validate_identifier(identifier: str) -> str:
     if not identifier.strip():
         raise ValueError("export identifier must not be empty")
     return require_xml_text(identifier, context="identifier")
+
+
+def validate_normalization_policy(policy: str) -> str:
+    """Restrict package metadata to the three auditable export policies."""
+
+    return NormalizationPolicy(policy).value
 
 
 def validate_book_text(book: VerifiedBook, *, author: str | None) -> None:

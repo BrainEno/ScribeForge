@@ -111,3 +111,19 @@ def test_frozen_backend_packages_and_smoke_checks_all_runtime_locks() -> None:
     assert '"worker-src/scribeforge/runtime/locks"' in spec
     assert "runtime-locks" in smoke
     assert "py312-universal.txt" in smoke
+
+
+def test_frozen_backend_collects_and_checks_opencc_conversion_data() -> None:
+    root = Path(__file__).resolve().parents[1]
+    spec = (root / "packaging" / "scribeforge_backend.spec").read_text(encoding="utf-8")
+    smoke = (root / ".github" / "workflows" / "windows-desktop.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'collect_all("opencc")' in spec
+    assert "opencc_datas" in spec
+    assert "opencc_binaries" in spec
+    assert "opencc_hidden_imports" in spec
+    assert 'opencc/clib/share/opencc' in smoke
+    assert "t2s.json" in smoke
+    assert "TSCharacters.ocd2" in smoke

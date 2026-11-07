@@ -247,6 +247,24 @@ scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Boo
 需要抽查的机器接受行时拒绝导出，适合要求人工逐行确认的交付场景。详见
 [自动接受闸门](./acceptance-gate.md)。
 
+### 原文导出与可选繁简/异体派生
+
+默认不加 `--normalization` 时就是 `preserve`：导出已接受决定的字面文本，不改繁简、
+不改异体字。需要单独的阅读副本时才显式选择：
+
+```powershell
+# 只转换明确收录的异体字，例如 𠮷→吉、髙→高、峯→峰
+scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Book-canonical.epub" --normalization canonical_variants
+
+# 使用真实 OpenCC t2s 生成简体阅读副本
+scribeforge export --store "D:\Books\My Book.scribeforge" --out "D:\Books\My Book-simplified.docx" --normalization simplified
+```
+
+每次导出都会同时生成 `<输出文件>.normalization.json`，列出策略、原文/派生文本摘要、
+输出文件 SHA-256 和每处改动；`preserve` 也会写零变更报告。转换只发生在最后导出阶段，
+不会回写 OCR 或人工决定。OpenCC 简体不是校勘意见，异体表也未声称覆盖全部古籍字形，
+交付前仍应抽查。详见 [导出派生规范化](./export-normalization.md)。
+
 ### 导出的 EPUB 是"一本书"，不是"一叠扫描页"
 
 有章节树时，导出的 EPUB 默认**一章一个 XHTML 文档**（`--layout auto` 自动如此），

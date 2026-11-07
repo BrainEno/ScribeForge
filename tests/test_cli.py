@@ -1062,6 +1062,138 @@ def test_export_writes_an_epub_from_decided_content(
     assert "<dc:title>book</dc:title>" in opf
 
 
+@pytest.mark.parametrize(
+    ("policy", "accepted", "exported", "rule"),
+    [
+        ("canonical_variants", "𠮷髙峯", "吉高峰", "canonical_variants:v1"),
+        ("simplified", "繁體漢字", "繁体汉字", "opencc:t2s"),
+    ],
+)
+def test_export_normalization_is_auditable_and_never_rewrites_accepted_decisions(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    policy: str,
+    accepted: str,
+    exported: str,
+    rule: str,
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.epub"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    run(
+        [
+            "resolve",
+            "--store",
+            str(store_dir),
+            "--page",
+            "0",
+            "--pair",
+            "0",
+            "--text",
+            accepted,
+        ]
+    )
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--normalization",
+            policy,
+            "--json",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    cli_report = json.loads(captured.out)
+    assert cli_report["normalization"]["policy"] == policy
+    assert cli_report["normalization"]["change_count"] > 0
+    report_path = Path(f"{out_path}.normalization.json")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["policy"] == policy
+    assert all(change["rule"] == rule for change in report["changes"])
+    assert report["output"] == {
+        "file": out_path.name,
+        "sha256": hashlib.sha256(out_path.read_bytes()).hexdigest(),
+    }
+    with zipfile.ZipFile(out_path) as archive:
+        page = archive.read("OEBPS/page-000001.xhtml").decode("utf-8")
+        package = archive.read("OEBPS/content.opf").decode("utf-8")
+    assert f"<p>{exported}</p>" in page
+    assert f'<meta property="scribeforge:normalization">{policy}</meta>' in package
+
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project = store.list_projects()[0]
+    decision = store.latest_decision(project.id, 0, 0)
+    assert decision is not None
+    assert decision.selected_text == accepted
+
+    # Reusing the output path must replace both the derived book and its report;
+    # default preserve still emits the literal accepted text and zero changes.
+    assert run(["export", "--store", str(store_dir), "--out", str(out_path)]) == 0
+    with zipfile.ZipFile(out_path) as archive:
+        preserved_page = archive.read("OEBPS/page-000001.xhtml").decode("utf-8")
+        preserved_package = archive.read("OEBPS/content.opf").decode("utf-8")
+    preserved_report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert f"<p>{accepted}</p>" in preserved_page
+    assert '<meta property="scribeforge:normalization">preserve</meta>' in preserved_package
+    assert preserved_report["policy"] == "preserve"
+    assert preserved_report["changes"] == []
+    assert store.latest_decision(project.id, 0, 0).selected_text == accepted  # type: ignore[union-attr]
+
+
+def test_export_simplified_docx_contains_the_derived_text_and_output_bound_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    out_path = tmp_path / "out.docx"
+    run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
+    run(
+        [
+            "resolve",
+            "--store",
+            str(store_dir),
+            "--page",
+            "0",
+            "--pair",
+            "0",
+            "--text",
+            "繁體漢字",
+        ]
+    )
+    capsys.readouterr()
+
+    code = run(
+        [
+            "export",
+            "--store",
+            str(store_dir),
+            "--out",
+            str(out_path),
+            "--normalization",
+            "simplified",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0, captured.err
+    with zipfile.ZipFile(out_path) as archive:
+        document = archive.read("word/document.xml").decode("utf-8")
+        core = archive.read("docProps/core.xml").decode("utf-8")
+    assert "繁体汉字" in document
+    assert "繁體漢字" not in document
+    assert "ScribeForge normalization: simplified" in core
+    report = json.loads(Path(f"{out_path}.normalization.json").read_text(encoding="utf-8"))
+    assert report["output"]["sha256"] == hashlib.sha256(out_path.read_bytes()).hexdigest()
+
+
 def test_export_candidates_keeps_raw_engine_outputs_separate_from_verified_export(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

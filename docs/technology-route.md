@@ -23,7 +23,7 @@
 | #85 | 预处理层（deskew / deshadow / contrast / 按需 denoise、binarize、crop） | `domain/preprocess.py`、`adapters/image_preprocess.py`、`pipeline/preprocessing.py`、schema v5 | `benchmark/analysis/preprocess_benchmark.py`：真实页面派生 8 种退化，spine-shadow 191.5→228.8 分离度、faded 0.0→228.6、skew 残余 0.00° |
 | #86 | worker 契约 v2（块类型、行级几何、置信度、方向） | `workers/protocol.py`、`domain/ocr.py`、MinerU/Paddle worker | 契约测试 + worker 载荷测试 |
 | #87 | 章节 / 印刷页码 / 页面角色 | `domain/structure.py`、`pipeline/structure.py`、schema v6、EPUB 章节化导航 | 结构测试 55 项 + 导出测试（嵌套 nav、印刷页码标题） |
-| #88 | 繁简/异体规范化（只影响比较） | `domain/normalize.py` | 折叠/风险/裁定三层测试 |
+| #88 | 比较折叠 + 显式导出派生 | `domain/normalize.py`、`domain/export_normalization.py` | 折叠/风险/裁定测试；preserve/OpenCC/变更报告/双格式元数据测试 |
 | #89 | 页眉页脚剔除（块 + 页边重复 + 连续页码） | `domain/furniture.py` | 误删防护测试 + 装配集成测试 |
 
 两个在实施中被实测发现、此前只在纸面上的假设：
