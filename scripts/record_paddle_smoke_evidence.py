@@ -73,6 +73,7 @@ def record_evidence(
             text=True,
         ).stdout
     )
+    canonical_lock = lock_path.read_bytes().replace(b"\r\n", b"\n")
     report: dict[str, Any] = {
         "schema_version": 1,
         "kind": "scribeforge-real-paddle-runtime-evidence",
@@ -84,7 +85,8 @@ def record_evidence(
         "installed_distributions": installed,
         "lock_file": {
             "path": lock_path.relative_to(repository_root).as_posix(),
-            "sha256": hashlib.sha256(lock_path.read_bytes()).hexdigest(),
+            "sha256": hashlib.sha256(canonical_lock).hexdigest(),
+            "sha256_normalization": "CRLF normalized to LF",
         },
         "models": models,
         "synthetic_image_sha256": hashlib.sha256(
