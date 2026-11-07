@@ -119,6 +119,26 @@ def test_pipeline_benchmark_can_score_vlm_adjudicated_conflicts(tmp_path: Path) 
     assert report.cases[0].cer == 0.0
 
 
+def test_pipeline_uses_the_same_wer_and_changed_line_contract(tmp_path: Path) -> None:
+    root, manifest = _corpus(tmp_path, "one two")
+    report = run_pipeline_benchmark(
+        manifest,
+        root,
+        FakeEngine("mineru", "one too"),
+        FakeEngine("paddleocr", "one too"),
+    )
+
+    case = report.cases[0]
+    assert case.wer == 0.5
+    assert case.word_tokenizer == "whitespace-v1"
+    assert (case.missing_lines, case.extra_lines) == (1, 1)
+    assert case.changed_lines == 1
+    assert (case.net_missing_lines, case.net_extra_lines) == (0, 0)
+    assert report.aggregate.mean_wer == 0.5
+    assert report.aggregate.wer_case_count == 1
+    assert report.aggregate.changed_lines == 1
+
+
 def test_pipeline_benchmark_fails_closed_when_a_page_pipeline_fails(
     tmp_path: Path,
 ) -> None:

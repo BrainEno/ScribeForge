@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unicodedata
 from collections.abc import Sequence
+from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 
 def _edit_distance(reference: Sequence[str], hypothesis: Sequence[str]) -> int:
@@ -51,7 +53,26 @@ def character_error_rate(reference: str, hypothesis: str) -> float:
     return _error_rate(tuple(reference), tuple(hypothesis))
 
 
-def word_error_rate(reference: str, hypothesis: str) -> float:
+def word_tokenizer_for_language(language: str) -> str:
+    """Return the versioned word tokenizer, or an explicit N/A marker.
+
+    ``whitespace-v1`` preserves case and punctuation and splits only on Unicode
+    whitespace via :meth:`str.split`. Chinese, Japanese and unknown languages
+    have no implicit word segmenter: emitting a whitespace-based "WER" for them
+    would compare implementation artifacts rather than recognition quality.
+    """
+
+    primary_language = language.strip().lower().replace("_", "-").split("-", 1)[0]
+    if primary_language in {"zh", "cmn", "yue", "lzh", "ja", "und", ""}:
+        return "not-applicable"
+    return "whitespace-v1"
+
+
+def word_error_rate(
+    reference: str, hypothesis: str, *, language: str = "en"
+) -> float | None:
+    if word_tokenizer_for_language(language) == "not-applicable":
+        return None
     return _error_rate(tuple(reference.split()), tuple(hypothesis.split()))
 
 
@@ -95,8 +116,62 @@ def reading_order_errors(
     return inversions
 
 
-def line_error_counts(reference: Sequence[str], hypothesis: Sequence[str]) -> tuple[int, int]:
-    # LCS keeps line order meaningful and separates omissions from hallucinated lines.
+@dataclass(frozen=True, slots=True)
+class LineErrorMetrics:
+    """Ordered text-line differences; no geometric alignment is implied."""
+
+    missing_lines: int
+    extra_lines: int
+    changed_lines: int
+
+    @property
+    def net_missing_lines(self) -> int:
+        return self.missing_lines - self.changed_lines
+
+    @property
+    def net_extra_lines(self) -> int:
+        return self.extra_lines - self.changed_lines
+
+
+def _similar_line_pairs(
+    reference: Sequence[str], hypothesis: Sequence[str]
+) -> list[tuple[int, int]]:
+    """Greedily pair unmatched lines with character similarity of at least 0.5."""
+
+    candidates = [
+        (
+            SequenceMatcher(None, expected, actual, autojunk=False).ratio(),
+            reference_index,
+            hypothesis_index,
+        )
+        for reference_index, expected in enumerate(reference)
+        for hypothesis_index, actual in enumerate(hypothesis)
+    ]
+    used_reference: set[int] = set()
+    used_hypothesis: set[int] = set()
+    pairs: list[tuple[int, int]] = []
+    ordered_candidates = sorted(candidates, key=lambda item: (-item[0], item[1], item[2]))
+    for ratio, reference_index, hypothesis_index in ordered_candidates:
+        if ratio < 0.5:
+            break
+        if reference_index in used_reference or hypothesis_index in used_hypothesis:
+            continue
+        used_reference.add(reference_index)
+        used_hypothesis.add(hypothesis_index)
+        pairs.append((reference_index, hypothesis_index))
+    return pairs
+
+
+def line_error_metrics(
+    reference: Sequence[str], hypothesis: Sequence[str]
+) -> LineErrorMetrics:
+    """Preserve strict LCS counts and add clearly-scoped changed-line evidence.
+
+    Exact LCS unmatched lines are considered for one-to-one pairing by
+    ``SequenceMatcher.ratio >= 0.5``. This is deterministic textual similarity,
+    not spatial alignment and not proof of a physical missing text region.
+    """
+
     rows, cols = len(reference), len(hypothesis)
     table = [[0] * (cols + 1) for _ in range(rows + 1)]
     for i in range(rows):
@@ -105,5 +180,29 @@ def line_error_counts(reference: Sequence[str], hypothesis: Sequence[str]) -> tu
                 table[i + 1][j + 1] = table[i][j] + 1
             else:
                 table[i + 1][j + 1] = max(table[i][j + 1], table[i + 1][j])
-    matched = table[rows][cols]
-    return rows - matched, cols - matched
+
+    unmatched_reference: list[str] = []
+    unmatched_hypothesis: list[str] = []
+    i, j = rows, cols
+    while i or j:
+        if i and j and reference[i - 1] == hypothesis[j - 1] and table[i][j] == table[i - 1][j - 1] + 1:
+            i -= 1
+            j -= 1
+        elif j and (not i or table[i][j - 1] >= table[i - 1][j]):
+            unmatched_hypothesis.append(hypothesis[j - 1])
+            j -= 1
+        else:
+            unmatched_reference.append(reference[i - 1])
+            i -= 1
+
+    changed = len(_similar_line_pairs(unmatched_reference, unmatched_hypothesis))
+    return LineErrorMetrics(
+        missing_lines=len(unmatched_reference),
+        extra_lines=len(unmatched_hypothesis),
+        changed_lines=changed,
+    )
+
+
+def line_error_counts(reference: Sequence[str], hypothesis: Sequence[str]) -> tuple[int, int]:
+    metrics = line_error_metrics(reference, hypothesis)
+    return metrics.missing_lines, metrics.extra_lines

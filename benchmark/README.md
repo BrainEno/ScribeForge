@@ -18,7 +18,14 @@ degraded scans. Add such material (public domain or licensed) before claiming
 ancient-book support — see [`docs/ancient-book-support.md`](../docs/ancient-book-support.md).
 
 
-Required metrics: CER, WER, punctuation accuracy, missing/extra line rate, reading-order errors, wall time, pages/minute, peak RAM/VRAM when measurable.
+Required metrics: CER, WER where applicable, punctuation accuracy, strict LCS missing/extra lines, changed lines, net missing/extra lines, reading-order errors, wall time, pages/minute, peak RAM/VRAM when measurable.
+
+### Metric semantics
+
+- **CER is primary for Chinese and Japanese.** Chinese (`zh*`, `cmn`, `yue`, `lzh`) and Japanese (`ja*`) cases, plus unknown (`und`) language, report WER as `N/A`; ScribeForge does not invent a word segmenter for them. Other languages use the explicit `whitespace-v1` tokenizer: `str.split()` over Unicode whitespace, preserving case, punctuation and hyphenation. WER values produced with another tokenizer are not directly comparable.
+- **Aggregate WER discloses its denominator.** It is the macro average of applicable cases only, rendered with `(applicable / total)` case counts. `None`/N/A values are never coerced to zero. WER can exceed 1.0 when insertions outnumber reference tokens; that alone is not an implementation error.
+- **Strict line counts remain available.** LCS Missing/Extra are ordered, exact whole-line differences. Changed greedily pairs unmatched lines one-to-one when `SequenceMatcher.ratio >= 0.5`; ties are deterministic. Net Missing/Extra subtract Changed from the respective strict LCS count. A one-character line substitution therefore has LCS 1/1, Changed 1 and Net 0/0, while unrelated deletion/insertion lines remain net differences.
+- **Changed is textual evidence, not layout analysis.** It does not use coordinates and cannot prove physical region omission, reading-order correctness or geometric alignment. Complex-layout omission detection and spatial matching remain separate work.
 
 Compare:
 A. MinerU only
@@ -60,7 +67,7 @@ The command:
 1. loads and validates the manifest;
 2. checks every case before starting an engine: manifest image and ground-truth paths must be relative and resolve inside the selected corpus root (absolute paths, parent traversal and symlinks escaping the root are rejected); missing or empty images and missing or blank UTF-8 ground truth are all reported, so a typo cannot silently shrink the corpus;
 3. builds only the requested backends from managed runtimes; an unavailable backend fails loudly instead of degrading evidence;
-4. scores each requested engine for CER, WER, punctuation accuracy, missing/extra lines, per-case duration, and pages/minute;
+4. scores each requested engine with the language-aware metrics above, punctuation accuracy, strict/changed/net line differences, per-case duration, and pages/minute;
 5. with `--include-pipeline`, also processes every case through the production alignment, risk assessment, verification, and conservative decision stages in an isolated temporary SQLite project;
 6. scores only text represented by accepted decisions. Unresolved disagreements are never guessed or silently copied from either engine; accepted/unresolved pair counts appear in both the aggregate and per-case tables. The report includes the corpus path, manifest SHA-256, a corpus-content SHA-256 covering the manifest plus every referenced image and ground-truth file, aggregate rows, and per-case metrics. The runner recomputes the fingerprint after scoring and refuses to write a report if the corpus changed during the run.
 

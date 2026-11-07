@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from scribeforge.benchmark.runner import BenchmarkReport, CaseScore
+from scribeforge.benchmark.runner import AggregateScore, BenchmarkReport, CaseScore
 
 
 def _direction_of(case: CaseScore) -> str:
@@ -26,6 +26,17 @@ def _direction_of(case: CaseScore) -> str:
 
 def _mean(values: Sequence[float], empty: float) -> float:
     return sum(values) / len(values) if values else empty
+
+
+def _case_wer(case: CaseScore) -> str:
+    if case.wer is None:
+        return "N/A"
+    return f"{case.wer:.4f} (`{case.word_tokenizer}`)"
+
+
+def _aggregate_wer(aggregate: AggregateScore) -> str:
+    value = "N/A" if aggregate.mean_wer is None else f"{aggregate.mean_wer:.4f}"
+    return f"{value} ({aggregate.wer_case_count} / {aggregate.case_count})"
 
 
 def _direction_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
@@ -94,21 +105,48 @@ def render_report(
         return "\n".join(lines)
 
     lines += [
+        "## Metric semantics",
+        "",
+        (
+            "- CER is the primary Chinese/Japanese accuracy metric. Chinese, Japanese "
+            "and unknown-language cases report WER as `N/A`; no implicit segmenter is used."
+        ),
+        (
+            "- Applicable WER uses a declared tokenizer. `whitespace-v1` preserves case "
+            "and punctuation and splits only on Unicode whitespace; WER from other "
+            "tokenizers is not directly comparable."
+        ),
+        (
+            "- Mean WER is a macro average over applicable cases only; `(n / N)` shows "
+            "the applicable/total case counts. WER can exceed 1.0 when edit insertions "
+            "outnumber reference tokens."
+        ),
+        (
+            "- LCS Missing/Extra are strict whole-line, ordered differences. Changed uses "
+            "one-to-one `SequenceMatcher.ratio >= 0.5` text matching among those unmatched "
+            "lines; it is not geometric or physical-region alignment. Net M/E subtracts "
+            "Changed from the corresponding strict LCS count and is not proof of layout loss."
+        ),
+        "",
         "## Variants",
         "",
         (
-            "| Variant | Cases | Mean CER | Mean WER | Punctuation | Missing | Extra "
-            "| Reading-order errors | Accepted pairs | Unresolved pairs | Elapsed s | Pages/min |"
+            "| Variant | Cases | Mean CER | Mean WER (applicable / total) | Punctuation "
+            "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
+            "| Reading-order errors "
+            "| Accepted pairs | Unresolved pairs | Elapsed s | Pages/min |"
         ),
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for report in reports:
         aggregate = report.aggregate
         lines.append(
             f"| {report.engine} | {aggregate.case_count} | "
-            f"{aggregate.mean_cer:.4f} | {aggregate.mean_wer:.4f} | "
+            f"{aggregate.mean_cer:.4f} | {_aggregate_wer(aggregate)} | "
             f"{aggregate.mean_punctuation_accuracy:.4f} | "
             f"{aggregate.missing_lines} | {aggregate.extra_lines} | "
+            f"{aggregate.changed_lines} | {aggregate.net_missing_lines} | "
+            f"{aggregate.net_extra_lines} | "
             f"{aggregate.reading_order_errors} | "
             f"{aggregate.accepted_pairs if aggregate.accepted_pairs is not None else '-'} | "
             f"{aggregate.unresolved_pairs if aggregate.unresolved_pairs is not None else '-'} | "
@@ -125,17 +163,19 @@ def render_report(
             f"### {report.engine}",
             "",
             (
-                "| Case | Language | Tags | CER | WER | Punctuation | Missing | Extra "
+                "| Case | Language | Tags | CER | WER (tokenizer) | Punctuation "
+                "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
                 "| Reading-order errors | Accepted pairs | Unresolved pairs | Seconds |"
             ),
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for case in report.cases:
             tags = ",".join(case.tags) if case.tags else "-"
             lines.append(
                 f"| {case.case_id} | {case.language} | {tags} | {case.cer:.4f} | "
-                f"{case.wer:.4f} | {case.punctuation_accuracy:.4f} | "
-                f"{case.missing_lines} | {case.extra_lines} | "
+                f"{_case_wer(case)} | {case.punctuation_accuracy:.4f} | "
+                f"{case.missing_lines} | {case.extra_lines} | {case.changed_lines} | "
+                f"{case.net_missing_lines} | {case.net_extra_lines} | "
                 f"{case.reading_order_errors} | "
                 f"{case.accepted_pairs if case.accepted_pairs is not None else '-'} | "
                 f"{case.unresolved_pairs if case.unresolved_pairs is not None else '-'} | "
