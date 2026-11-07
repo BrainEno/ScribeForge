@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/paddle-real-smoke.yml"
       - "scripts/run_paddle_real_smoke.sh"
+      - "scripts/create_paddle_smoke_image.py"
       - "scripts/record_paddle_smoke_evidence.py"
       - "scripts/paddle_smoke_summary.py"
       - "scripts/compile_runtime_locks.py"

@@ -1,0 +1,83 @@
+name: Paddle Real Model Smoke Windows
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/paddle-real-smoke-windows.yml"
+      - "scripts/run_paddle_real_smoke_windows.py"
+      - "scripts/create_paddle_smoke_image.py"
+      - "scripts/record_paddle_smoke_evidence.py"
+      - "scripts/paddle_smoke_summary.py"
+      - "scripts/compile_runtime_locks.py"
+      - "tests/test_paddle_real_smoke.py"
+      - "tests/test_paddle_smoke_evidence.py"
+      - "tests/test_paddle_smoke_image.py"
+      - "tests/test_paddle_windows_smoke_runner.py"
+      - "tests/test_paddle_windows_smoke_contract.py"
+      - "tests/test_runtime_lock_compilation.py"
+      - "src/scribeforge/adapters/runtime_workers.py"
+      - "src/scribeforge/runtime/**"
+      - "src/scribeforge/workers/paddle_model_setup.py"
+      - "src/scribeforge/workers/paddle_worker.py"
+      - "src/scribeforge/workers/protocol.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: paddle-real-smoke-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install smoke-test runner dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Install locked Paddle runtime and run real PP-OCRv4 OCR on Windows
+        shell: pwsh
+        env:
+          SCRIBEFORGE_RUNTIME_ROOT: ${{ runner.temp }}/scribeforge-paddle-real-runtime-windows-${{ github.run_id }}
+          SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE: ${{ runner.temp }}/scribeforge-paddle-real-evidence-windows-${{ github.run_id }}
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE" | Out-Null
+          python scripts/run_paddle_real_smoke_windows.py
+
+      - name: Publish Windows smoke evidence summary to the PR
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SMOKE_STATUS: ${{ job.status }}
+          SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE: ${{ runner.temp }}/scribeforge-paddle-real-evidence-windows-${{ github.run_id }}
+        run: |
+          python scripts/paddle_smoke_summary.py `
+            "$env:SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE" "$env:SMOKE_STATUS" `
+            "$env:SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE/summary.md"
+          gh pr comment "$env:PR_NUMBER" `
+            --body-file "$env:SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE/summary.md"
+
+      - name: Upload real Windows runtime and OCR evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paddle-real-smoke-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/scribeforge-paddle-real-evidence-windows-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 14

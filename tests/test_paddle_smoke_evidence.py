@@ -13,8 +13,13 @@ from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.workers.paddle_model_setup import LockedFile, ModelAsset
 
 
+@pytest.mark.parametrize("os_name", ["linux", "windows"])
+@pytest.mark.parametrize("line_ending", [b"\n", b"\r\n"])
 def test_record_real_smoke_evidence_uses_production_model_layout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    os_name: str,
+    line_ending: bytes,
 ) -> None:
     repository = tmp_path / "repository"
     runtime_root = tmp_path / "runtime"
@@ -53,12 +58,13 @@ def test_record_real_smoke_evidence_uses_production_model_layout(
 
     lock = repository / "src/scribeforge/runtime/locks/paddleocr-cpu-py312-universal.txt"
     lock.parent.mkdir(parents=True)
-    lock.write_bytes(b"locked requirements")
+    lock_payload = b"locked requirements\nsecond=1\n".replace(b"\n", line_ending)
+    lock.write_bytes(lock_payload)
     (runtime_root / "runtime-state.json").write_text('{"state": "ready"}\n', encoding="utf-8")
     (evidence_dir / "synthetic-paddle-smoke.png").write_bytes(b"synthetic image")
 
     def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert argv[0] == str(layout.python_executable("paddleocr", "linux"))
+        assert argv[0] == str(layout.python_executable("paddleocr", os_name))
         assert kwargs["check"] is True
         return subprocess.CompletedProcess(
             argv,
@@ -68,14 +74,19 @@ def test_record_real_smoke_evidence_uses_production_model_layout(
 
     monkeypatch.setattr(evidence_module.subprocess, "run", fake_run)
 
-    report = evidence_module.record_evidence(evidence_dir, runtime_root, repository)
+    report = evidence_module.record_evidence(
+        evidence_dir, runtime_root, repository, os_name=os_name
+    )
 
+    assert report["platform"] == os_name
     assert report["installed_distributions"]["paddleocr"] == "3.3.0"
     assert report["accuracy_evaluation"]["performed"] is False
     assert report["models"][0]["revision"] == "test-revision"
     files = {item["path"]: item for item in report["models"][0]["files"]}
     assert set(files) == set(payloads)
     assert files["inference.pdiparams"]["sha256"] == hashlib.sha256(weight).hexdigest()
-    assert report["lock_file"]["sha256"] == hashlib.sha256(b"locked requirements").hexdigest()
+    assert report["lock_file"]["sha256"] == hashlib.sha256(
+        b"locked requirements\nsecond=1\n"
+    ).hexdigest()
     assert json.loads((evidence_dir / "model-evidence.json").read_text()) == report
     assert (evidence_dir / "runtime-state.json").read_text() == '{"state": "ready"}\n'
