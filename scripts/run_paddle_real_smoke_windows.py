@@ -1,3 +1,5 @@
+"""Run locked production setup and real PP-OCRv4 protocol smoke on Windows."""
+
 from __future__ import annotations
 
 import argparse
@@ -11,8 +13,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from scripts.create_paddle_smoke_image import create_smoke_image
-from scripts.record_paddle_smoke_evidence import record_evidence
+if __package__:
+    from scripts.create_paddle_smoke_image import create_smoke_image
+    from scripts.record_paddle_smoke_evidence import record_evidence
+else:
+    from create_paddle_smoke_image import create_smoke_image
+    from record_paddle_smoke_evidence import record_evidence
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 ImageCreator = Callable[[Path], Path]

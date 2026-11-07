@@ -53,7 +53,9 @@ jobs:
         env:
           SCRIBEFORGE_RUNTIME_ROOT: ${{ runner.temp }}/scribeforge-paddle-real-runtime-windows-${{ github.run_id }}
           SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE: ${{ runner.temp }}/scribeforge-paddle-real-evidence-windows-${{ github.run_id }}
-        run: python scripts/run_paddle_real_smoke_windows.py
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE" | Out-Null
+          python scripts/run_paddle_real_smoke_windows.py
 
       - name: Publish Windows smoke evidence summary to the PR
         if: always() && github.event_name == 'pull_request'
