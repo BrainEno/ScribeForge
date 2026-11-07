@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 import subprocess
 import time
+import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -65,7 +67,13 @@ class SubprocessExecutor:
     ) -> None:
         process_env = None
         if env:
-            process_env = os.environ.copy()
+            # Caller shell/index settings must not redirect a reviewed lock to a
+            # different package source. Managed UV_* values are added back below.
+            process_env = {
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith("UV_")
+            }
             process_env.update(env)
         return_code, stdout, stderr = run_runtime_process(
             argv,
@@ -154,6 +162,85 @@ class RuntimeManager:
         )
 
     def _run_backend(self, backend: RuntimeBackendPlan) -> None:
+        staging: Path | None = None
+        active = backend
+        if backend.transactional_environment:
+            staging = backend.environment_dir.with_name(
+                f".{backend.name}.staging-{uuid.uuid4().hex}"
+            )
+            active = self._relocate_backend(backend, staging)
+        try:
+            self._run_backend_steps(active)
+            if staging is not None:
+                self._publish_environment(staging, backend.environment_dir)
+        except (RuntimeInstallError, ProcessingCancelled):
+            raise
+        except Exception as exc:
+            self._set_status(backend.name, RuntimeStatus("failed", "publish"))
+            total = len(backend.steps) + len(backend.model_steps) + len(backend.health_checks)
+            self._emit(
+                RuntimeEvent(
+                    backend.name, "install", "failed", "publish", total, total
+                )
+            )
+            detail = str(exc).strip()
+            suffix = f": {detail}" if detail else ""
+            raise RuntimeInstallError(f"{backend.name}:publish{suffix}") from exc
+        finally:
+            if staging is not None:
+                shutil.rmtree(staging, ignore_errors=True)
+
+        self._set_status(backend.name, RuntimeStatus("ready"))
+        total = len(backend.steps) + len(backend.model_steps) + len(backend.health_checks)
+        self._emit(RuntimeEvent(backend.name, "complete", "ready", None, total, total))
+
+    @staticmethod
+    def _relocate_backend(
+        backend: RuntimeBackendPlan, staging: Path
+    ) -> RuntimeBackendPlan:
+        final_text = str(backend.environment_dir)
+        staging_text = str(staging)
+
+        def relocate_steps(steps: tuple[InstallStep, ...]) -> tuple[InstallStep, ...]:
+            relocated = []
+            for step in steps:
+                argv = []
+                for argument in step.argv:
+                    if argument == final_text:
+                        argument = staging_text
+                    elif argument.startswith((final_text + "/", final_text + "\\")):
+                        argument = staging_text + argument[len(final_text) :]
+                    argv.append(argument)
+                relocated.append(replace(step, argv=tuple(argv)))
+            return tuple(relocated)
+
+        return replace(
+            backend,
+            environment_dir=staging,
+            steps=relocate_steps(backend.steps),
+            model_steps=relocate_steps(backend.model_steps),
+            health_checks=relocate_steps(backend.health_checks),
+        )
+
+    @staticmethod
+    def _publish_environment(staging: Path, final: Path) -> None:
+        if not staging.exists():
+            # Lightweight executor fakes do not create filesystem environments.
+            return
+        previous = final.with_name(f".{final.name}.previous-{uuid.uuid4().hex}")
+        had_previous = final.exists()
+        if had_previous:
+            final.replace(previous)
+        try:
+            staging.replace(final)
+        except Exception:
+            if had_previous and previous.exists() and not final.exists():
+                previous.replace(final)
+            raise
+        if had_previous:
+            shutil.rmtree(previous, ignore_errors=True)
+
+    def _run_backend_steps(self, backend: RuntimeBackendPlan) -> None:
         backend.environment_dir.parent.mkdir(parents=True, exist_ok=True)
         environment = dict(backend.environment)
         phases = (
@@ -234,9 +321,6 @@ class RuntimeManager:
                     )
                 )
             self._emit(RuntimeEvent(backend.name, phase, "completed", None, completed, total))
-
-        self._set_status(backend.name, RuntimeStatus("ready"))
-        self._emit(RuntimeEvent(backend.name, "complete", "ready", None, completed, total))
 
     def _run_step(self, step: InstallStep, environment: dict[str, str]) -> None:
         timeout_seconds = self._timeout_seconds or step.timeout_seconds

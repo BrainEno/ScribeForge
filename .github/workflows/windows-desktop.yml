@@ -54,6 +54,10 @@ jobs:
           $workerRoot = "dist/backend/_internal/worker-src/scribeforge/workers"
           if (-not (Test-Path "$workerRoot/paddle_worker.py")) { throw "Paddle Worker source is missing" }
           if (-not (Test-Path "$workerRoot/mineru_worker.py")) { throw "MinerU Worker source is missing" }
+          $lockRoot = "dist/backend/_internal/worker-src/scribeforge/runtime/locks"
+          $locks = Get-ChildItem $lockRoot -Filter "*-py312-universal.txt"
+          if ($locks.Count -ne 6) { throw "Expected 6 runtime locks, found $($locks.Count)" }
+          python -c "from pathlib import Path; locks=list(Path('dist/backend/_internal/worker-src/scribeforge/runtime/locks').glob('*-py312-universal.txt')); assert len(locks)==6; assert all('--hash=sha256:' in p.read_text(encoding='utf-8') for p in locks); print('runtime-locks passed')"
           $env:PYTHONPATH = (Resolve-Path "dist/backend/_internal/worker-src").Path
           python -c "from scribeforge.workers import mineru_worker, paddle_worker; print('external Worker imports passed')"
           Remove-Item Env:PYTHONPATH

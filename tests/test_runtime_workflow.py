@@ -44,7 +44,7 @@ def test_install_continues_with_paddle_when_mineru_fails(tmp_path: Path) -> None
             timeout_seconds: float,
         ) -> None:
             calls.append(argv)
-            if "envs/mineru" in " ".join(argv).replace("\\", "/"):
+            if "envs/.mineru.staging-" in " ".join(argv).replace("\\", "/"):
                 raise RuntimeError("synthetic MinerU failure")
 
     layout_root = tmp_path / "runtime"
@@ -73,4 +73,7 @@ def test_install_continues_with_paddle_when_mineru_fails(tmp_path: Path) -> None
         for event in events
     )
     assert any(event.backend == "paddleocr" and event.state == "ready" for event in events)
-    assert any("envs/paddleocr" in " ".join(argv).replace("\\", "/") for argv in calls)
+    assert any(
+        "envs/.paddleocr.staging-" in " ".join(argv).replace("\\", "/")
+        for argv in calls
+    )

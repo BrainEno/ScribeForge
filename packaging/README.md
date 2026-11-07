@@ -9,6 +9,7 @@ ScribeForge/
     scribeforge(.exe)
     _internal/
       worker-src/scribeforge/workers/*.py
+      worker-src/scribeforge/runtime/locks/*-py312-universal.txt
       ... frozen Python and native PDF dependencies ...
 ```
 
@@ -21,4 +22,4 @@ python -m pip install -e . pyinstaller==6.16.0
 python -m PyInstaller --noconfirm --clean packaging/scribeforge_backend.spec
 ```
 
-For a Windows portable bundle, copy `dist/backend` into the Flutter release directory as `backend/`. `packaging/windows/ScribeForge.iss` packages that release directory as a per-user installer. The Windows workflow performs these steps and runs frozen-backend smoke checks; OCR models are still downloaded explicitly by the in-app initializer and are not bundled.
+For a Windows portable bundle, copy `dist/backend` into the Flutter release directory as `backend/`. `packaging/windows/ScribeForge.iss` packages that release directory as a per-user installer. The Windows workflow performs these steps and runs frozen-backend smoke checks, including the presence and SHA-256 entries of all six runtime locks. OCR models are still downloaded explicitly by the in-app initializer and are not bundled.

@@ -1,8 +1,5 @@
 name: Flutter Desktop
 
-permissions:
-  contents: write
-
 on:
   pull_request:
   workflow_dispatch:
@@ -21,23 +18,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: TEMP - compile Python 3.12 runtime locks
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: TEMP - generate and publish runtime locks
-        working-directory: .
-        shell: bash
-        run: |
-          python -m pip install uv==0.13.7
-          python scripts/compile_runtime_locks.py --uv uv
-          git add src/scribeforge/runtime/locks
-          if ! git diff --cached --quiet -- src/scribeforge/runtime/locks; then
-            git config user.name "ScribeForge lock bot"
-            git config user.email "actions@users.noreply.github.com"
-            git commit -m "build: compile universal runtime dependency locks"
-            git push origin HEAD:arena/2711be68-scribeforge
-          fi
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:

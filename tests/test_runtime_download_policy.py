@@ -26,13 +26,18 @@ def test_health_checks_are_not_retried_as_downloads(tmp_path: Path) -> None:
     assert all(step.attempts == 1 for step in plan.backend("paddleocr").health_checks)
 
 
-def test_direct_runtime_versions_and_mineru_model_source_are_fixed(tmp_path: Path) -> None:
+def _lock_text(step) -> str:
+    lock = Path(step.argv[step.argv.index("-r") + 1])
+    return lock.read_text(encoding="utf-8")
+
+
+def test_locked_runtime_versions_and_mineru_model_source_are_fixed(tmp_path: Path) -> None:
     profile = HardwareProfile("windows", "x86_64", None, None, None, 16384)
     plan = build_runtime_plan(profile, RuntimeLayout(tmp_path))
 
     mineru = plan.backend("mineru")
     mineru_install = next(step for step in mineru.steps if step.name == "install")
-    assert "mineru==4.1.7" in mineru_install.argv
+    assert "mineru==4.1.7 " in _lock_text(mineru_install)
     assert all("mineru>=4.0,<5" not in step.argv for step in mineru.steps)
     download = mineru.model_steps[0].argv
     assert download[download.index("--source") + 1] == "huggingface"
@@ -41,9 +46,9 @@ def test_direct_runtime_versions_and_mineru_model_source_are_fixed(tmp_path: Pat
 
     paddle = plan.backend("paddleocr")
     paddle_install = next(step for step in paddle.steps if step.name == "install")
-    assert "paddleocr==3.3.0" in paddle_install.argv
-    assert "paddlex==3.3.0" in paddle_install.argv
-    assert "surya-ocr==0.14.0" in plan.backend("surya").steps[-1].argv
+    assert "paddleocr==3.3.0 " in _lock_text(paddle_install)
+    assert "paddlex==3.3.0 " in _lock_text(paddle_install)
+    assert "surya-ocr==0.14.0 " in _lock_text(plan.backend("surya").steps[-1])
 
 
 def test_install_model_and_health_steps_have_distinct_overall_deadlines(
