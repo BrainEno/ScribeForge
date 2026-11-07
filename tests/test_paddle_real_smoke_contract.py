@@ -1,4 +1,6 @@
+import json
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -30,3 +32,71 @@ def test_real_smoke_ci_runs_locked_production_setup_and_uploads_evidence() -> No
     assert "scripts/run_paddle_real_smoke.sh" in workflow_text
     assert "actions/upload-artifact@v4" in workflow_text
     assert "if: always()" in workflow_text
+
+
+def test_smoke_summary_reports_real_counts_without_accuracy_claim(tmp_path: Path) -> None:
+    (tmp_path / "model-evidence.json").write_text(
+        json.dumps(
+            {
+                "installed_distributions": {
+                    "python": "3.12.16",
+                    "paddlepaddle": "3.3.0",
+                    "paddleocr": "3.4.2",
+                },
+                "lock_file": {"sha256": "lock-digest"},
+                "models": [{"name": "det", "revision": "det-revision"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "worker-result.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "lines": [{"tokens": [{"text": "a"}, {"text": "b"}]}, {"tokens": []}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "summary.md"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/paddle_smoke_summary.py",
+            str(tmp_path),
+            "success",
+            str(output),
+        ],
+        check=True,
+    )
+
+    summary = output.read_text(encoding="utf-8")
+    assert "status: success" in summary
+    assert "2 native word boxes" in summary
+    assert "3.12.16" in summary
+    assert "det-revision" in summary
+    assert "accuracy was not evaluated" in summary
+    assert "recognition accuracy passed" not in summary
+
+
+def test_smoke_summary_preserves_failure_diagnostics(tmp_path: Path) -> None:
+    (tmp_path / "setup.jsonl").write_text("first line\nreal installer error\n", encoding="utf-8")
+    output = tmp_path / "summary.md"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/paddle_smoke_summary.py",
+            str(tmp_path),
+            "failure",
+            str(output),
+        ],
+        check=True,
+    )
+
+    summary = output.read_text(encoding="utf-8")
+    assert "status: failure" in summary
+    assert "real installer error" in summary
+    assert "real PP-OCRv4 smoke passed" not in summary
+    assert "accuracy was not evaluated" in summary

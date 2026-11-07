@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: paddle-real-smoke-${{ github.ref }}
@@ -43,6 +44,20 @@ jobs:
 
       - name: Install locked Paddle runtime and run real PP-OCRv4 OCR
         run: bash scripts/run_paddle_real_smoke.sh
+
+      - name: Publish smoke evidence summary to the PR
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SMOKE_STATUS: ${{ job.status }}
+        run: |
+          python scripts/paddle_smoke_summary.py \
+            "$SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE" "$SMOKE_STATUS" \
+            "$SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE/summary.md"
+          gh pr comment "$PR_NUMBER" \
+            --body-file "$SCRIBEFORGE_PADDLE_SMOKE_EVIDENCE/summary.md"
 
       - name: Upload real runtime and OCR evidence
         if: always()
