@@ -150,13 +150,19 @@ dependency, redirect the reviewed sources through caller configuration, or
 replace the selected CUDA engine in a second install step.
 
 The locks are generated with uv 0.13.7's universal resolver and `--generate-hashes`.
-Paddle's simple index does not provide upload timestamps, so the compile-time
-`--exclude-newer` cutoff applies only to the PyPI-only MinerU/Surya locks; it is
-not an installation-time integrity mechanism. The trusted Paddle index and PyPI
-use `unsafe-first-match` during compilation because the Paddle index contains
-some package names without the required versions. Installation still requires
-the committed hashes. Run `python scripts/compile_runtime_locks.py --uv uv` after
-reviewing and changing a source pin; `--check` regenerates and compares locks.
+Paddle's simple index provides neither upload timestamps nor embedded artifact
+hashes. In addition to uv's resolved custom-index hashes, the compile script
+therefore merges every official artifact SHA-256 from the immutable PyPI release
+JSON for each pinned package. This is additive: package versions and reviewed
+Paddle-only hashes stay unchanged, while Linux, macOS, and Windows PyPI wheels
+cannot be rejected merely because uv hashed one custom-index artifact during
+universal compilation. The compile-time `--exclude-newer` cutoff applies only to
+the PyPI-only MinerU/Surya locks; it is not an installation-time integrity
+mechanism. The trusted Paddle index and PyPI use `unsafe-first-match` during
+compilation because the Paddle index contains some package names without the
+required versions. Installation still requires the committed hashes. Run
+`python scripts/compile_runtime_locks.py --uv uv` after reviewing and changing a
+source pin; `--check` regenerates and compares locks.
 
 MinerU model preparation explicitly selects Hugging Face, ONNX small models, and
 the llama.cpp VLM engine; workers use the matching local source/backend settings
@@ -208,6 +214,28 @@ weights, and publication rollback have fixture tests. These tests use tiny fake
 models. They do not prove that the real PP-OCRv4 snapshots were downloaded or that
 real OCR inference succeeded.
 
+### Recorded real CPU acceptance
+
+GitHub Actions run
+[`42358636275`](https://github.com/BrainEno/ScribeForge/actions/runs/42358636275)
+completed this separately on 2026-11-07. The production transactional setup
+installed Python 3.12.16, PaddlePaddle 3.2.0, PaddleOCR 3.3.0, and PaddleX 3.3.0
+from CPU lock SHA-256
+`d6955946f423c8e9609b83d7290489c96a11e73f84b838e15319c6ceb5f9f93d`.
+It downloaded and independently reverified both immutable snapshots above,
+completed the managed health check, and ran `paddle_worker.py` with the managed
+Python on a generated synthetic image. The real schema-2 result contained three
+lines and eleven non-empty native word boxes with normalized geometry and
+line-only confidence. The run's `paddle-real-smoke-42358636275-1` artifact retains
+the setup log, exact model/file hashes, runtime state, worker JSON, and JUnit
+result. This is installation/protocol evidence, **not a recognition-accuracy
+benchmark**.
+
+The path-filtered `Paddle Real Model Smoke` pull-request workflow and its manual
+`workflow_dispatch` entry rerun this acceptance through
+`scripts/run_paddle_real_smoke.sh`. A clean, empty runtime root is mandatory so
+the acceptance cannot overwrite a developer or user runtime.
+
 ### Updating a Paddle model lock
 
 1. Select and review an immutable Hugging Face commit for both model behavior and
@@ -231,10 +259,10 @@ real inference path has the same content lock. In particular:
 - MinerU, PaddleOCR-VL, and Surya still rely on upstream model preparation and
   path/startup checks; their model trees are not covered by the PP-OCRv4 file
   verifier.
-- Fake-model corruption and rollback tests, universal lock inspection, and the
-  small real uv relocation test do not prove full backend installation, real
-  PP-OCRv4 downloads, OCR output, or accuracy. Those remain separate opt-in
-  validation tasks.
+- The real CPU run above does not validate MinerU, PaddleOCR-VL, Surya, CUDA
+  package selection, Windows/macOS Paddle installation, real-user desktop
+  packaging, or recognition accuracy. Those remain separate acceptance tasks;
+  fixture tests and lock inspection are not substitutes for them.
 
 ## Install and repair
 

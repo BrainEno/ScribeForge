@@ -145,8 +145,18 @@ python -m pytest -m gpu tests/test_paddle_real_smoke.py
 ```
 
 `SCRIBEFORGE_RUNTIME_ROOT` is optional when using the default per-user runtime path.
-The test resolves the PaddleOCR executable and model/cache environment from that root;
-on Windows this uses the environment's `Scripts` directory automatically. Setting the
-opt-in flag without an installed runtime is an error, not a skip. This test is the
-required real-engine evidence for the non-empty-token acceptance item; fixture results
-alone must not be reported as a successful model smoke test.
+The test resolves the managed Python, PaddleOCR executable, and model/cache
+environment from that root; on Windows this uses the environment's `Scripts`
+directory automatically. Setting the opt-in flag without an installed runtime is
+an error, not a skip. `SCRIBEFORGE_PADDLE_SMOKE_REPORT` optionally names a JSON
+file that receives the actual worker result. Fixture results alone must not be
+reported as a successful model smoke test.
+
+For a clean end-to-end run, the `Paddle Real Model Smoke` workflow executes
+`scripts/run_paddle_real_smoke.sh`: production Paddle-only setup, independent
+model/file hashing, managed-Python worker inference on a synthetic image, and
+artifact publication. Run
+[`42358636275`](https://github.com/BrainEno/ScribeForge/actions/runs/42358636275)
+passed with Python 3.12.16, PaddlePaddle 3.2.0, PaddleOCR/PaddleX 3.3.0, three
+schema-2 lines, and eleven native word boxes. It did not measure recognition
+accuracy.
