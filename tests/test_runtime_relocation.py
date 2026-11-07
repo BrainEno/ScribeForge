@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 
 def test_real_uv_hash_install_and_console_script_survive_relocation(tmp_path: Path) -> None:
-    uv = Path(sys.executable).with_name("uv.exe" if os.name == "nt" else "uv")
+    executable = shutil.which("uv")
+    uv = (
+        Path(executable)
+        if executable
+        else Path(sys.executable).with_name("uv.exe" if os.name == "nt" else "uv")
+    )
     assert uv.is_file(), "test dependencies must provide uv 0.13.7"
     lock = Path(__file__).parent / "fixtures" / "wheel-hash-lock.txt"
     staging = tmp_path / "staging"
