@@ -18,7 +18,13 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: mypy src
-      - run: pytest -m "not benchmark and not gpu"
+      - name: Run core tests
+        run: >-
+          python -m pytest -m "not benchmark and not gpu" --maxfail=1
+          --junitxml=core-tests.xml
+      - name: Annotate core test failure
+        if: failure()
+        run: python .github/scripts/report_pytest_failure.py core-tests.xml
 
       - name: Set up Java for official EPUBCheck
         uses: actions/setup-java@v4
