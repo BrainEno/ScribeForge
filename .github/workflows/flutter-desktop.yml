@@ -18,6 +18,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: TEMP - hash locked Paddle metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+
+          assets = {
+              "PP-OCRv4_mobile_det": "3cc09f3a5b424e8e010abc7a4271aea12999c2f7",
+              "PP-OCRv4_mobile_rec": "a2deb05cb05813be2da3365672881aa496d1452b",
+          }
+          for name, revision in assets.items():
+              for path in ("config.json", "inference.json", "inference.yml"):
+                  url = f"https://huggingface.co/PaddlePaddle/{name}/resolve/{revision}/{path}"
+                  with urllib.request.urlopen(url, timeout=60) as response:
+                      content = response.read()
+                  print(f"{name} {path} {len(content)} {hashlib.sha256(content).hexdigest()}")
+          PY
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
