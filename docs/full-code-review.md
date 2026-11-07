@@ -123,7 +123,7 @@ Python 3.10+，项目依赖 Pillow、pypdfium2、NumPy；开发依赖 pytest/pyt
 ### 仍有真实缺口/风险，保留（7 项）
 
 - [#81 基准代表性](https://github.com/BrainEno/ScribeForge/issues/81)：`benchmark/corpus/v/manifest.json` 六页、`guji/manifest.json` 三页，都是单次校对；缺 30–50 页分层、A/B/C/D 真实模型与人力成本比较。不是“当前仍只有四页”。
-- [#80 指标口径](https://github.com/BrainEno/ScribeForge/issues/80)：`benchmark/metrics.py` 的 `word_error_rate` 用 `split()`、`line_error_counts` 精确整行 LCS；中文 WER 和真实漏行不能混为一谈。WER 大于 1 本身可能因插入项，并非必然实现错误。
+- [#80 指标口径](https://github.com/BrainEno/ScribeForge/issues/80)：旧实现对所有语言直接 `split()`，并把精确整行 LCS 当成漏行；后续指标切片已将中文/日文/未知语言 WER 设为 N/A，适用语言声明 `whitespace-v1`，聚合展示适用分母，并分列严格 LCS、文本 Changed 与 Net 增删。WER 大于 1 本身可能因插入项，并非必然实现错误。Changed 不是空间对齐；宏/微并列、置信区间、特殊页面分层与真实漏行验证仍是剩余工作。
 - [#73 Python 格式门禁](https://github.com/BrainEno/ScribeForge/issues/73)：当前 CI 只执行 Ruff lint；本次 format check 113 个待格式化，结果依赖工具版本。低优先级维护债，不是业务 Bug。
 - [#71 依赖和模型供应链](https://github.com/BrainEno/ScribeForge/issues/71)：`runtime/planner.py` 有部分版本 pin，`runtime/tools.py` 有下载与安装；未见覆盖全部权重/依赖的锁定哈希清单。需按发行风险及模型许可核查，不声称已发现投毒。
 - [#70 串行处理](https://github.com/BrainEno/ScribeForge/issues/70)：`orchestrator.py:134-159,245-261` 依次运行，属于性能改进机会而非性能事故；老 Issue 基于小样本的小时推算不能作为本次实测。

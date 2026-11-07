@@ -18,16 +18,17 @@ from PIL import Image
 from scribeforge.benchmark.manifest import BenchmarkManifest
 from scribeforge.benchmark.metrics import (
     character_error_rate,
-    line_error_counts,
+    line_error_metrics,
     punctuation_accuracy,
     reading_order_errors,
     scoring_text,
     word_error_rate,
+    word_tokenizer_for_language,
 )
 from scribeforge.benchmark.runner import (
-    AggregateScore,
     BenchmarkReport,
     CaseScore,
+    aggregate_case_scores,
 )
 from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.vlm import VLMReviewer
@@ -113,21 +114,23 @@ def run_pipeline_benchmark(
                 accepted_text.append(decision.selected_text)
 
             hypothesis = scoring_text("\n".join(accepted_text))
-            missing, extra = line_error_counts(
-                reference.splitlines(), hypothesis.splitlines()
-            )
+            reference_lines = reference.splitlines()
+            hypothesis_lines = hypothesis.splitlines()
+            line_metrics = line_error_metrics(reference_lines, hypothesis_lines)
             scores.append(
                 CaseScore(
                     case_id=case.id,
                     language=case.language,
                     tags=case.tags,
                     cer=character_error_rate(reference, hypothesis),
-                    wer=word_error_rate(reference, hypothesis),
+                    wer=word_error_rate(reference, hypothesis, language=case.language),
+                    word_tokenizer=word_tokenizer_for_language(case.language),
                     punctuation_accuracy=punctuation_accuracy(reference, hypothesis),
-                    missing_lines=missing,
-                    extra_lines=extra,
+                    missing_lines=line_metrics.missing_lines,
+                    extra_lines=line_metrics.extra_lines,
+                    changed_lines=line_metrics.changed_lines,
                     reading_order_errors=reading_order_errors(
-                        reference.splitlines(), hypothesis.splitlines()
+                        reference_lines, hypothesis_lines
                     ),
                     elapsed_seconds=elapsed,
                     accepted_pairs=accepted_pairs,
@@ -136,22 +139,6 @@ def run_pipeline_benchmark(
                 )
             )
 
-    count = len(scores)
-    total_seconds = sum(score.elapsed_seconds for score in scores)
-    aggregate = AggregateScore(
-        case_count=count,
-        mean_cer=sum(score.cer for score in scores) / count if count else 0.0,
-        mean_wer=sum(score.wer for score in scores) / count if count else 0.0,
-        mean_punctuation_accuracy=(
-            sum(score.punctuation_accuracy for score in scores) / count if count else 1.0
-        ),
-        missing_lines=sum(score.missing_lines for score in scores),
-        extra_lines=sum(score.extra_lines for score in scores),
-        reading_order_errors=sum(score.reading_order_errors for score in scores),
-        elapsed_seconds=total_seconds,
-        pages_per_minute=60.0 * count / total_seconds if total_seconds > 0 else 0.0,
-        accepted_pairs=sum(score.accepted_pairs or 0 for score in scores),
-        unresolved_pairs=sum(score.unresolved_pairs or 0 for score in scores),
-    )
+    aggregate = aggregate_case_scores(scores, include_decision_counts=True)
     variant = label or ("dual-engine+vlm" if reviewer is not None else "dual-engine")
     return BenchmarkReport(engine=variant, cases=tuple(scores), aggregate=aggregate)

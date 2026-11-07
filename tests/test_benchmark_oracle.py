@@ -16,7 +16,9 @@ from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.ocr import PageDirection, PageOCRResult
 
 
-def _corpus(tmp_path: Path, ground_truth: str) -> tuple[Path, BenchmarkManifest]:
+def _corpus(
+    tmp_path: Path, ground_truth: str, *, language: str = "zh"
+) -> tuple[Path, BenchmarkManifest]:
     Image.new("RGB", (100, 120), "white").save(tmp_path / "page.png")
     (tmp_path / "truth.txt").write_text(ground_truth, encoding="utf-8")
     manifest_path = tmp_path / "manifest.json"
@@ -29,7 +31,7 @@ def _corpus(tmp_path: Path, ground_truth: str) -> tuple[Path, BenchmarkManifest]
                         "id": "case-1",
                         "image": "page.png",
                         "ground_truth": "truth.txt",
-                        "language": "zh",
+                        "language": language,
                         "tags": ["body"],
                     }
                 ],
@@ -61,6 +63,33 @@ def test_oracle_engine_scores_a_perfect_zero(tmp_path: Path) -> None:
     assert report.cases[0].cer == 0.0
     assert report.cases[0].missing_lines == 0
     assert report.cases[0].extra_lines == 0
+
+
+def test_single_engine_scores_language_appropriate_wer_and_changed_lines(
+    tmp_path: Path,
+) -> None:
+    chinese_root, chinese_manifest = _corpus(tmp_path, "乌鸦\n喝水")
+    chinese_engine = OracleEngine("oracle")
+    chinese_engine.register(chinese_root / "page.png", "鸟鸦\n喝水")
+
+    chinese = run_benchmark(chinese_manifest, chinese_root, chinese_engine).cases[0]
+    assert chinese.wer is None
+    assert chinese.word_tokenizer == "not-applicable"
+    assert (chinese.missing_lines, chinese.extra_lines) == (1, 1)
+    assert chinese.changed_lines == 1
+    assert (chinese.net_missing_lines, chinese.net_extra_lines) == (0, 0)
+
+    english_dir = tmp_path / "english"
+    english_dir.mkdir()
+    english_root, english_manifest = _corpus(english_dir, "one two", language="en-US")
+    english_engine = OracleEngine("oracle")
+    english_engine.register(english_root / "page.png", "one three")
+
+    english_report = run_benchmark(english_manifest, english_root, english_engine)
+    assert english_report.cases[0].wer == 0.5
+    assert english_report.cases[0].word_tokenizer == "whitespace-v1"
+    assert english_report.aggregate.mean_wer == 0.5
+    assert english_report.aggregate.wer_case_count == 1
 
 
 def test_oracle_engine_refuses_a_page_it_has_no_reference_for(tmp_path: Path) -> None:
@@ -113,6 +142,10 @@ def test_cli_oracle_ceiling_writes_both_variants(tmp_path: Path) -> None:
     assert "| oracle |" in text
     assert "| oracle-ceiling |" in text
     assert "- corpus content sha256: `" in text
+    assert text.count("N/A (0 / 1)") == 2
+    assert text.count("| case-1 | zh | body | 0.0000 | N/A |") == 2
+    assert "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra |" in text
+    assert "`whitespace-v1` preserves case and punctuation" in text
 
 
 def test_cli_oracle_ceiling_refuses_engine_selection(

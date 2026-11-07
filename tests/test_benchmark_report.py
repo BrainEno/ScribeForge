@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from scribeforge.benchmark.report import render_report
-from scribeforge.benchmark.runner import AggregateScore, BenchmarkReport, CaseScore
+from scribeforge.benchmark.runner import (
+    AggregateScore,
+    BenchmarkReport,
+    CaseScore,
+    aggregate_case_scores,
+)
 
 
 def _case(
@@ -13,7 +20,7 @@ def _case(
 ) -> CaseScore:
     return CaseScore(
         case_id=case_id,
-        language="zh",
+        language="en",
         tags=tags,
         cer=cer,
         wer=0.5,
@@ -42,6 +49,7 @@ def _report(
             reading_order_errors=2,
             elapsed_seconds=elapsed,
             pages_per_minute=pages_per_minute,
+            wer_case_count=1,
         ),
     )
 
@@ -61,12 +69,17 @@ def test_render_report_summarizes_variants_and_per_case_results() -> None:
     assert "- generated: 2026-10-20T00:00:00Z" in lines
     assert "- variants: 2" in lines
     assert (
-        "| mineru | 1 | 0.2500 | 0.5000 | 0.7500 | 0 | 1 | 2 | - | - | 2.000 | 30.00 |" in lines
+        "| mineru | 1 | 0.2500 | 0.5000 (1 / 1) | 0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 2.000 | 30.00 |"
+        in lines
     )
     assert (
-        "| paddleocr | 1 | 0.5000 | 0.5000 | 0.7500 | 0 | 1 | 2 | - | - | 1.000 | 60.00 |" in lines
+        "| paddleocr | 1 | 0.5000 | 0.5000 (1 / 1) | 0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 1.000 | 60.00 |"
+        in lines
     )
-    assert "| case-1 | zh | body,punctuation | 0.2500 | 0.5000 | 0.7500 | 0 | 1 | 2 | - | - | 2.000 |" in lines
+    assert (
+        "| case-1 | en | body,punctuation | 0.2500 | 0.5000 (`whitespace-v1`) | "
+        "0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 2.000 |" in lines
+    )
     assert text.index("| mineru |") < text.index("| paddleocr |")
     assert text.count("### mineru") == 1
     assert text.count("### paddleocr") == 1
@@ -111,7 +124,7 @@ def test_render_report_marks_a_case_without_tags() -> None:
         cases=(
             CaseScore(
                 case_id="case-1",
-                language="zh",
+                language="en",
                 tags=(),
                 cer=0.0,
                 wer=0.0,
@@ -129,14 +142,14 @@ def test_render_report_marks_a_case_without_tags() -> None:
         (untagged,), corpus="m.json", manifest_sha256="abc123", generated_at="t"
     )
 
-    assert "| case-1 | zh | - | 0.0000 |" in text
+    assert "| case-1 | en | - | 0.0000 |" in text
 
 
 def _mixed_report() -> BenchmarkReport:
     horizontal = _case("h-1", cer=0.10, tags=("body",))
     vertical = CaseScore(
         case_id="v-1",
-        language="zh",
+        language="en",
         tags=("body", "vertical"),
         cer=0.40,
         wer=0.5,
@@ -160,6 +173,7 @@ def _mixed_report() -> BenchmarkReport:
             reading_order_errors=5,
             elapsed_seconds=3.0,
             pages_per_minute=40.0,
+            wer_case_count=2,
         ),
     )
 
@@ -189,3 +203,66 @@ def test_report_omits_the_direction_table_for_a_single_direction() -> None:
     )
 
     assert "Results by writing direction" not in text
+
+
+def test_wer_aggregation_and_report_exclude_not_applicable_cases() -> None:
+    english = replace(
+        _case(case_id="english"),
+        wer=0.5,
+        missing_lines=1,
+        extra_lines=1,
+        changed_lines=1,
+        word_tokenizer="whitespace-v1",
+    )
+    chinese = replace(
+        _case(case_id="chinese"),
+        language="zh-Hant",
+        wer=None,
+        word_tokenizer="not-applicable",
+    )
+    aggregate = aggregate_case_scores((english, chinese))
+
+    assert aggregate.mean_wer == 0.5
+    assert aggregate.wer_case_count == 1
+    assert aggregate.changed_lines == 1
+
+    text = render_report(
+        (BenchmarkReport(engine="ocr", cases=(english, chinese), aggregate=aggregate),),
+        corpus="corpus/manifest.json",
+        manifest_sha256="abc123",
+        generated_at="2026-10-20T00:00:00Z",
+    )
+
+    assert "| ocr | 2 | 0.2500 | 0.5000 (1 / 2) |" in text
+    assert "| english | en | body,punctuation | 0.2500 | 0.5000 (`whitespace-v1`) |" in text
+    assert "| chinese | zh-Hant | body,punctuation | 0.2500 | N/A |" in text
+    assert "| 0.7500 | 1 | 1 | 1 | 0 | 0 | 2 |" in text
+    assert "`whitespace-v1` preserves case and punctuation" in text
+    assert "WER can exceed 1.0" in text
+    assert "Changed uses one-to-one `SequenceMatcher.ratio >= 0.5` text matching" in text
+    assert "not geometric or physical-region alignment" in text
+
+
+def test_all_not_applicable_wer_still_discloses_zero_applicable_cases() -> None:
+    empty = aggregate_case_scores(())
+    assert empty.mean_wer is None
+    assert (empty.wer_case_count, empty.case_count) == (0, 0)
+
+    chinese = replace(
+        _case(case_id="chinese"),
+        language="zh-Hant",
+        wer=None,
+        word_tokenizer="not-applicable",
+    )
+    report = BenchmarkReport(
+        engine="ocr",
+        cases=(chinese,),
+        aggregate=aggregate_case_scores((chinese,)),
+    )
+
+    text = render_report(
+        (report,), corpus="c", manifest_sha256="h", generated_at="now"
+    )
+
+    assert report.aggregate.mean_wer is None
+    assert "| ocr | 1 | 0.2500 | N/A (0 / 1) |" in text
