@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from scribeforge.benchmark.runner import AggregateScore, BenchmarkReport, CaseScore
+from scribeforge.benchmark.runner import (
+    AggregateScore,
+    BenchmarkReport,
+    CaseScore,
+    aggregate_case_scores,
+)
 
 
 def _direction_of(case: CaseScore) -> str:
@@ -28,10 +33,39 @@ def _mean(values: Sequence[float], empty: float) -> float:
     return sum(values) / len(values) if values else empty
 
 
+def _case_cer(case: CaseScore) -> str:
+    value = f"{case.cer:.4f}"
+    if case.character_errors is not None and case.reference_characters is not None:
+        value += f" ({case.character_errors} / {case.reference_characters} chars)"
+    return value
+
+
 def _case_wer(case: CaseScore) -> str:
     if case.wer is None:
         return "N/A"
-    return f"{case.wer:.4f} (`{case.word_tokenizer}`)"
+    if case.word_errors is not None and case.reference_words is not None:
+        counts = f"{case.word_errors} / {case.reference_words} words, "
+    else:
+        counts = ""
+    return f"{case.wer:.4f} ({counts}`{case.word_tokenizer}`)"
+
+
+def _micro_rate(
+    rate: float | None, errors: int | None, reference_units: int | None
+) -> str:
+    if rate is None or errors is None or reference_units is None:
+        return "N/A"
+    return f"{rate:.4f} ({errors} / {reference_units})"
+
+
+def _micro_cer(aggregate: AggregateScore) -> str:
+    return _micro_rate(
+        aggregate.micro_cer, aggregate.character_errors, aggregate.reference_characters
+    )
+
+
+def _micro_wer(aggregate: AggregateScore) -> str:
+    return _micro_rate(aggregate.micro_wer, aggregate.word_errors, aggregate.reference_words)
 
 
 def _aggregate_wer(aggregate: AggregateScore) -> str:
@@ -66,6 +100,51 @@ def _direction_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
                 f"{sum(case.reading_order_errors for case in cases)} |"
             )
     lines.append("")
+    return lines
+
+
+def _tag_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
+    """Aggregate declared manifest tags without treating them as disjoint."""
+
+    tags = sorted({tag for report in reports for case in report.cases for tag in case.tags})
+    include_untagged = any(not case.tags for report in reports for case in report.cases)
+    if not tags and not include_untagged:
+        return []
+    labels = [*tags]
+    if include_untagged:
+        labels.append("(untagged)")
+    lines = [
+        "## Results by manifest tag",
+        "",
+        (
+            "| Variant | Tag | Cases | Macro CER | Micro CER (edits / chars) "
+            "| Macro WER (applicable / total cases) | Micro WER (edits / words) |"
+        ),
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for report in reports:
+        for label in labels:
+            if label == "(untagged)":
+                cases = tuple(case for case in report.cases if not case.tags)
+            else:
+                cases = tuple(case for case in report.cases if label in case.tags)
+            if not cases:
+                continue
+            aggregate = aggregate_case_scores(cases)
+            lines.append(
+                f"| {report.engine} | {label} | {len(cases)} | "
+                f"{aggregate.mean_cer:.4f} | {_micro_cer(aggregate)} | "
+                f"{_aggregate_wer(aggregate)} | {_micro_wer(aggregate)} |"
+            )
+    lines += [
+        "",
+        (
+            "> Tags are declared manifest labels, not inferred layout classes; multi-tag "
+            "cases appear once in each applicable row, so rows are not disjoint. "
+            "`(untagged)` makes cases without labels visible."
+        ),
+        "",
+    ]
     return lines
 
 
@@ -117,9 +196,11 @@ def render_report(
             "tokenizers is not directly comparable."
         ),
         (
-            "- Mean WER is a macro average over applicable cases only; `(n / N)` shows "
-            "the applicable/total case counts. WER can exceed 1.0 when edit insertions "
-            "outnumber reference tokens."
+            "- Macro CER weights every case equally; macro WER weights applicable "
+            "cases equally and shows `(applicable / total)` case counts. Micro rates "
+            "are `sum(edits) / sum(reference units)` and show those raw counts. Micro "
+            "WER is N/A without an applicable case; either micro rate is N/A when "
+            "its required counts are incomplete. WER can exceed 1.0 through insertions."
         ),
         (
             "- LCS Missing/Extra are strict whole-line, ordered differences. Changed uses "
@@ -131,18 +212,20 @@ def render_report(
         "## Variants",
         "",
         (
-            "| Variant | Cases | Mean CER | Mean WER (applicable / total) | Punctuation "
+            "| Variant | Cases | Macro CER | Micro CER (edits / chars) "
+            "| Macro WER (applicable / total cases) | Micro WER (edits / words) | Punctuation "
             "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
             "| Reading-order errors "
             "| Accepted pairs | Unresolved pairs | Elapsed s | Pages/min |"
         ),
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for report in reports:
         aggregate = report.aggregate
         lines.append(
             f"| {report.engine} | {aggregate.case_count} | "
-            f"{aggregate.mean_cer:.4f} | {_aggregate_wer(aggregate)} | "
+            f"{aggregate.mean_cer:.4f} | {_micro_cer(aggregate)} | "
+            f"{_aggregate_wer(aggregate)} | {_micro_wer(aggregate)} | "
             f"{aggregate.mean_punctuation_accuracy:.4f} | "
             f"{aggregate.missing_lines} | {aggregate.extra_lines} | "
             f"{aggregate.changed_lines} | {aggregate.net_missing_lines} | "
@@ -156,6 +239,9 @@ def render_report(
     direction_rows = _direction_rows(reports)
     if direction_rows:
         lines += [""] + direction_rows
+    tag_rows = _tag_rows(reports)
+    if tag_rows:
+        lines += [""] + tag_rows
 
     lines += ["", "## Per-case results", ""]
     for report in reports:
@@ -172,7 +258,7 @@ def render_report(
         for case in report.cases:
             tags = ",".join(case.tags) if case.tags else "-"
             lines.append(
-                f"| {case.case_id} | {case.language} | {tags} | {case.cer:.4f} | "
+                f"| {case.case_id} | {case.language} | {tags} | {_case_cer(case)} | "
                 f"{_case_wer(case)} | {case.punctuation_accuracy:.4f} | "
                 f"{case.missing_lines} | {case.extra_lines} | {case.changed_lines} | "
                 f"{case.net_missing_lines} | {case.net_extra_lines} | "

@@ -2314,7 +2314,7 @@ def test_benchmark_include_pipeline_reports_conservative_unresolved_pairs(
     assert "### dual-engine" in report
     assert "Accepted pairs" in report
     assert "Unresolved pairs" in report
-    assert "| zh-1 | zh | clear | 1.0000 |" in report
+    assert "| zh-1 | zh | clear | 1.0000 (1 / 1 chars) |" in report
     assert "| 1 | 0 |" in report
 
 

@@ -131,6 +131,10 @@ def test_pipeline_uses_the_same_wer_and_changed_line_contract(tmp_path: Path) ->
     case = report.cases[0]
     assert case.wer == 0.5
     assert case.word_tokenizer == "whitespace-v1"
+    assert (case.character_errors, case.reference_characters) == (1, 7)
+    assert (case.word_errors, case.reference_words) == (1, 2)
+    assert report.aggregate.micro_cer == 1 / 7
+    assert report.aggregate.micro_wer == 0.5
     assert (case.missing_lines, case.extra_lines) == (1, 1)
     assert case.changed_lines == 1
     assert (case.net_missing_lines, case.net_extra_lines) == (0, 0)

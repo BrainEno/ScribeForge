@@ -17,12 +17,13 @@ from PIL import Image
 
 from scribeforge.benchmark.manifest import BenchmarkManifest
 from scribeforge.benchmark.metrics import (
-    character_error_rate,
+    character_error_counts,
+    error_rate_from_counts,
     line_error_metrics,
     punctuation_accuracy,
     reading_order_errors,
     scoring_text,
-    word_error_rate,
+    word_error_counts,
     word_tokenizer_for_language,
 )
 from scribeforge.benchmark.runner import (
@@ -117,14 +118,24 @@ def run_pipeline_benchmark(
             reference_lines = reference.splitlines()
             hypothesis_lines = hypothesis.splitlines()
             line_metrics = line_error_metrics(reference_lines, hypothesis_lines)
+            character_counts = character_error_counts(reference, hypothesis)
+            word_counts = word_error_counts(reference, hypothesis, language=case.language)
             scores.append(
                 CaseScore(
                     case_id=case.id,
                     language=case.language,
                     tags=case.tags,
-                    cer=character_error_rate(reference, hypothesis),
-                    wer=word_error_rate(reference, hypothesis, language=case.language),
+                    cer=error_rate_from_counts(*character_counts),
+                    wer=(
+                        None
+                        if word_counts is None
+                        else error_rate_from_counts(*word_counts)
+                    ),
                     word_tokenizer=word_tokenizer_for_language(case.language),
+                    character_errors=character_counts[0],
+                    reference_characters=character_counts[1],
+                    word_errors=None if word_counts is None else word_counts[0],
+                    reference_words=None if word_counts is None else word_counts[1],
                     punctuation_accuracy=punctuation_accuracy(reference, hypothesis),
                     missing_lines=line_metrics.missing_lines,
                     extra_lines=line_metrics.extra_lines,
