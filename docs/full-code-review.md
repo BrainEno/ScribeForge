@@ -127,7 +127,7 @@ Python 3.10+，项目依赖 Pillow、pypdfium2、NumPy；开发依赖 pytest/pyt
 - [#73 Python 格式门禁](https://github.com/BrainEno/ScribeForge/issues/73)：当前 CI 只执行 Ruff lint；本次 format check 113 个待格式化，结果依赖工具版本。低优先级维护债，不是业务 Bug。
 - [#71 依赖和模型供应链](https://github.com/BrainEno/ScribeForge/issues/71)：`runtime/planner.py` 有部分版本 pin，`runtime/tools.py` 有下载与安装；未见覆盖全部权重/依赖的锁定哈希清单。需按发行风险及模型许可核查，不声称已发现投毒。
 - [#70 串行处理](https://github.com/BrainEno/ScribeForge/issues/70)：`orchestrator.py:134-159,245-261` 依次运行，属于性能改进机会而非性能事故；老 Issue 基于小样本的小时推算不能作为本次实测。
-- [#69 用户处理报告/可观测性](https://github.com/BrainEno/ScribeForge/issues/69)：CLI status 与 jobs 可查，`rounds.progress` 有复核汇总；未见其所要求的完整每页/引擎耗时、风险聚合报告及脱敏日志。功能改进而非必然故障。
+- [#69 用户处理报告/可观测性](https://github.com/BrainEno/ScribeForge/issues/69)：CLI status 与 jobs 可查，`rounds.progress` 有复核汇总；后续已增加 `report` 的每页/分阶段时间戳跨度、风险原因和复核比例 Markdown/JSON，明确只覆盖最近 attempt 且不输出源路径或错误文本。逐 attempt 历史、轮转脱敏日志及 Flutter 可视化仍未完成，不能据报告切片关闭全部可观测性工作。
 - [#67 授权与发布](https://github.com/BrainEno/ScribeForge/issues/67)：仓库根目录无 LICENSE、`pyproject.toml` 无 license 字段；`gh api repos/BrainEno/ScribeForge/tags` 返回 `[]`，`gh release list` 无输出。许可选择需权利人决定。
 
 ### 过时、重复或需要重新定义（6 项）

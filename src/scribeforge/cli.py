@@ -81,6 +81,11 @@ from scribeforge.pipeline.structure import (
     build_book_structure,
     persist_book_structure,
 )
+from scribeforge.processing_report import (
+    build_processing_report,
+    processing_report_json,
+    render_processing_report,
+)
 from scribeforge.project_audit import audit_project_store
 from scribeforge.project_backup import (
     ProjectBackupError,
@@ -452,6 +457,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit a stable JSON summary for desktop clients."
     )
 
+    processing_report = subparsers.add_parser(
+        "report",
+        help="Render processing timing, risk and review evidence from a project store.",
+    )
+    processing_report.add_argument(
+        "--store", type=Path, required=True, help="Project store directory."
+    )
+    processing_report.add_argument(
+        "--project",
+        type=int,
+        default=None,
+        help="Project ID (required only when the store contains multiple projects).",
+    )
+    processing_report.add_argument(
+        "--json", action="store_true", help="Emit stable schema-v1 JSON instead of Markdown."
+    )
+
     structure = subparsers.add_parser(
         "structure",
         help="Derive page roles, printed page numbers and chapters from stored OCR evidence.",
@@ -726,6 +748,8 @@ def run(
         return _vlm_check(args, out)
     if args.command == "status":
         return _status(args, out)
+    if args.command == "report":
+        return _processing_report(args, out)
     if args.command == "structure":
         return _structure(args, out)
     if args.command == "relink-source":
@@ -1208,6 +1232,37 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                 f"  {job.stage.value} [{scope}] {job.state.value} attempts={job.attempts}",
                 file=out,
             )
+    return EXIT_OK
+
+
+def _processing_report(args: argparse.Namespace, out: TextIO) -> int:
+    store = _open_store(args.store)
+    if store is None:
+        print(f"error: no store found at {StoreLayout(args.store).db_path}", file=sys.stderr)
+        return EXIT_FATAL
+    projects = store.list_projects()
+    if args.project is None:
+        if not projects:
+            print("error: no projects in store", file=sys.stderr)
+            return EXIT_FATAL
+        if len(projects) != 1:
+            print("error: multiple projects; select one with --project", file=sys.stderr)
+            return EXIT_FATAL
+        project_id = projects[0].id
+    else:
+        project_id = args.project
+        if not any(project.id == project_id for project in projects):
+            print(f"error: unknown project ID: {project_id}", file=sys.stderr)
+            return EXIT_FATAL
+    try:
+        report = build_processing_report(store, project_id)
+    except (KeyError, ValueError) as exc:
+        print(f"error: cannot build processing report: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    if args.json:
+        out.write(processing_report_json(report))
+    else:
+        out.write(render_processing_report(report))
     return EXIT_OK
 
 
