@@ -142,8 +142,9 @@ def test_cli_oracle_ceiling_writes_both_variants(tmp_path: Path) -> None:
     assert "| oracle |" in text
     assert "| oracle-ceiling |" in text
     assert "- corpus content sha256: `" in text
-    assert text.count("N/A (0 / 1)") == 2
-    assert text.count("| case-1 | zh | body | 0.0000 | N/A |") == 2
+    # Each of the two variants has an overall row and a manifest-tag row.
+    assert text.count("| N/A (0 / 1) | N/A |") == 4
+    assert text.count("| case-1 | zh | body | 0.0000 (0 / 5 chars) | N/A |") == 2
     assert "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra |" in text
     assert "`whitespace-v1` preserves case and punctuation" in text
 

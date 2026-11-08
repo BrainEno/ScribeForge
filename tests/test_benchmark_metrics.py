@@ -1,11 +1,14 @@
 import pytest
 
 from scribeforge.benchmark.metrics import (
+    character_error_counts,
     character_error_rate,
+    error_rate_from_counts,
     line_error_counts,
     line_error_metrics,
     punctuation_accuracy,
     reading_order_errors,
+    word_error_counts,
     word_error_rate,
     word_tokenizer_for_language,
 )
@@ -23,6 +26,23 @@ def test_character_error_rate_is_zero_for_two_empty_strings() -> None:
 
 def test_word_error_rate_uses_whitespace_tokens() -> None:
     assert word_error_rate("the black bird", "the bird") == 1 / 3
+
+
+def test_error_counts_expose_the_exact_rate_numerator_and_denominator() -> None:
+    assert character_error_counts("abc", "axc") == (1, 3)
+    assert character_error_counts("", "insert") == (6, 0)
+    assert error_rate_from_counts(6, 0) == 1.0
+    assert error_rate_from_counts(0, 0) == 0.0
+    assert word_error_counts("one two", "one three", language="en") == (1, 2)
+    assert word_error_counts("乌鸦", "鸟鸦", language="zh") is None
+
+
+@pytest.mark.parametrize(("edits", "reference_units"), [(-1, 1), (1, -1)])
+def test_error_rate_from_counts_rejects_negative_counts(
+    edits: int, reference_units: int
+) -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        error_rate_from_counts(edits, reference_units)
 
 
 @pytest.mark.parametrize("language", ["zh", "zh-Hant", "cmn", "yue", "lzh", "ja", "und"])

@@ -7,12 +7,13 @@ from pathlib import Path
 
 from scribeforge.benchmark.manifest import BenchmarkManifest
 from scribeforge.benchmark.metrics import (
-    character_error_rate,
+    character_error_counts,
+    error_rate_from_counts,
     line_error_metrics,
     punctuation_accuracy,
     reading_order_errors,
     scoring_text,
-    word_error_rate,
+    word_error_counts,
     word_tokenizer_for_language,
 )
 from scribeforge.domain.ocr import OCREngine, page_text
@@ -37,6 +38,10 @@ class CaseScore:
     direction: str | None = None
     changed_lines: int = 0
     word_tokenizer: str = "whitespace-v1"
+    character_errors: int | None = None
+    reference_characters: int | None = None
+    word_errors: int | None = None
+    reference_words: int | None = None
 
     @property
     def net_missing_lines(self) -> int:
@@ -62,6 +67,22 @@ class AggregateScore:
     unresolved_pairs: int | None = None
     wer_case_count: int = 0
     changed_lines: int = 0
+    character_errors: int | None = None
+    reference_characters: int | None = None
+    word_errors: int | None = None
+    reference_words: int | None = None
+
+    @property
+    def micro_cer(self) -> float | None:
+        if self.character_errors is None or self.reference_characters is None:
+            return None
+        return error_rate_from_counts(self.character_errors, self.reference_characters)
+
+    @property
+    def micro_wer(self) -> float | None:
+        if self.word_errors is None or self.reference_words is None:
+            return None
+        return error_rate_from_counts(self.word_errors, self.reference_words)
 
     @property
     def net_missing_lines(self) -> int:
@@ -85,7 +106,16 @@ def aggregate_case_scores(
     """Aggregate pages without treating not-applicable WER values as zero."""
 
     count = len(scores)
-    applicable_wer = [score.wer for score in scores if score.wer is not None]
+    applicable_scores = [score for score in scores if score.wer is not None]
+    applicable_wer = [score.wer for score in applicable_scores if score.wer is not None]
+    complete_characters = all(
+        score.character_errors is not None and score.reference_characters is not None
+        for score in scores
+    )
+    complete_words = bool(applicable_scores) and all(
+        score.word_errors is not None and score.reference_words is not None
+        for score in applicable_scores
+    )
     total_seconds = sum(score.elapsed_seconds for score in scores)
     return AggregateScore(
         case_count=count,
@@ -111,6 +141,26 @@ def aggregate_case_scores(
         ),
         wer_case_count=len(applicable_wer),
         changed_lines=sum(score.changed_lines for score in scores),
+        character_errors=(
+            sum(score.character_errors or 0 for score in scores)
+            if complete_characters
+            else None
+        ),
+        reference_characters=(
+            sum(score.reference_characters or 0 for score in scores)
+            if complete_characters
+            else None
+        ),
+        word_errors=(
+            sum(score.word_errors or 0 for score in applicable_scores)
+            if complete_words
+            else None
+        ),
+        reference_words=(
+            sum(score.reference_words or 0 for score in applicable_scores)
+            if complete_words
+            else None
+        ),
     )
 
 
@@ -139,14 +189,24 @@ def run_benchmark(
         reference_lines = reference.splitlines()
         hypothesis_lines = hypothesis.splitlines()
         line_metrics = line_error_metrics(reference_lines, hypothesis_lines)
+        character_counts = character_error_counts(reference, hypothesis)
+        word_counts = word_error_counts(reference, hypothesis, language=case.language)
         scores.append(
             CaseScore(
                 case_id=case.id,
                 language=case.language,
                 tags=case.tags,
-                cer=character_error_rate(reference, hypothesis),
-                wer=word_error_rate(reference, hypothesis, language=case.language),
+                cer=error_rate_from_counts(*character_counts),
+                wer=(
+                    None
+                    if word_counts is None
+                    else error_rate_from_counts(*word_counts)
+                ),
                 word_tokenizer=word_tokenizer_for_language(case.language),
+                character_errors=character_counts[0],
+                reference_characters=character_counts[1],
+                word_errors=None if word_counts is None else word_counts[0],
+                reference_words=None if word_counts is None else word_counts[1],
                 punctuation_accuracy=punctuation_accuracy(reference, hypothesis),
                 missing_lines=line_metrics.missing_lines,
                 extra_lines=line_metrics.extra_lines,

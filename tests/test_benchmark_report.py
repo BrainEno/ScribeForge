@@ -69,11 +69,11 @@ def test_render_report_summarizes_variants_and_per_case_results() -> None:
     assert "- generated: 2026-10-20T00:00:00Z" in lines
     assert "- variants: 2" in lines
     assert (
-        "| mineru | 1 | 0.2500 | 0.5000 (1 / 1) | 0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 2.000 | 30.00 |"
+        "| mineru | 1 | 0.2500 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 2.000 | 30.00 |"
         in lines
     )
     assert (
-        "| paddleocr | 1 | 0.5000 | 0.5000 (1 / 1) | 0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 1.000 | 60.00 |"
+        "| paddleocr | 1 | 0.5000 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 1.000 | 60.00 |"
         in lines
     )
     assert (
@@ -233,7 +233,7 @@ def test_wer_aggregation_and_report_exclude_not_applicable_cases() -> None:
         generated_at="2026-10-20T00:00:00Z",
     )
 
-    assert "| ocr | 2 | 0.2500 | 0.5000 (1 / 2) |" in text
+    assert "| ocr | 2 | 0.2500 | N/A | 0.5000 (1 / 2) | N/A |" in text
     assert "| english | en | body,punctuation | 0.2500 | 0.5000 (`whitespace-v1`) |" in text
     assert "| chinese | zh-Hant | body,punctuation | 0.2500 | N/A |" in text
     assert "| 0.7500 | 1 | 1 | 1 | 0 | 0 | 2 |" in text
@@ -265,4 +265,103 @@ def test_all_not_applicable_wer_still_discloses_zero_applicable_cases() -> None:
     )
 
     assert report.aggregate.mean_wer is None
-    assert "| ocr | 1 | 0.2500 | N/A (0 / 1) |" in text
+    assert "| ocr | 1 | 0.2500 | N/A | N/A (0 / 1) | N/A |" in text
+
+
+def test_micro_rates_use_raw_edit_counts_and_manifest_tags_are_stratified() -> None:
+    small = replace(
+        _case(case_id="small", cer=0.5, tags=("body", "sparse")),
+        wer=1.0,
+        character_errors=1,
+        reference_characters=2,
+        word_errors=1,
+        reference_words=1,
+    )
+    large = replace(
+        _case(case_id="large", cer=0.01, tags=("body", "dense")),
+        wer=0.01,
+        character_errors=1,
+        reference_characters=100,
+        word_errors=1,
+        reference_words=100,
+    )
+    aggregate = aggregate_case_scores((small, large))
+
+    assert aggregate.mean_cer == 0.255
+    assert aggregate.micro_cer == 2 / 102
+    assert aggregate.mean_wer == 0.505
+    assert aggregate.micro_wer == 2 / 101
+    assert (aggregate.character_errors, aggregate.reference_characters) == (2, 102)
+    assert (aggregate.word_errors, aggregate.reference_words) == (2, 101)
+
+    text = render_report(
+        (BenchmarkReport(engine="ocr", cases=(small, large), aggregate=aggregate),),
+        corpus="c",
+        manifest_sha256="h",
+        generated_at="now",
+    )
+
+    assert "## Results by manifest tag" in text
+    assert (
+        "| ocr | body | 2 | 0.2550 | 0.0196 (2 / 102) | "
+        "0.5050 (2 / 2) | 0.0198 (2 / 101) |" in text
+    )
+    assert "| ocr | sparse | 1 | 0.5000 | 0.5000 (1 / 2) |" in text
+    assert "| ocr | dense | 1 | 0.0100 | 0.0100 (1 / 100) |" in text
+    assert "multi-tag cases appear once in each applicable row" in text
+
+
+def test_micro_rates_are_not_invented_for_legacy_scores_without_counts() -> None:
+    aggregate = aggregate_case_scores((_case(),))
+
+    assert aggregate.micro_cer is None
+    assert aggregate.micro_wer is None
+    assert aggregate.character_errors is None
+    assert aggregate.word_errors is None
+
+
+def test_micro_wer_uses_applicable_cases_and_counts_are_all_or_nothing() -> None:
+    english = replace(
+        _case(case_id="english", cer=0.5, tags=()),
+        wer=0.5,
+        character_errors=1,
+        reference_characters=2,
+        word_errors=1,
+        reference_words=2,
+    )
+    chinese = replace(
+        _case(case_id="chinese", cer=0.5, tags=()),
+        language="zh-Hant",
+        wer=None,
+        word_tokenizer="not-applicable",
+        character_errors=2,
+        reference_characters=4,
+    )
+    applicable = aggregate_case_scores((english, chinese))
+
+    assert applicable.micro_cer == 3 / 6
+    assert applicable.micro_wer == 1 / 2
+    assert applicable.wer_case_count == 1
+
+    missing_character_count = replace(
+        english, case_id="legacy-cer", character_errors=None
+    )
+    partial = aggregate_case_scores((english, missing_character_count))
+    assert partial.micro_cer is None
+    assert partial.micro_wer == 2 / 4
+
+    text = render_report(
+        (
+            BenchmarkReport(
+                engine="ocr",
+                cases=(english, chinese),
+                aggregate=applicable,
+            ),
+        ),
+        corpus="c",
+        manifest_sha256="h",
+        generated_at="now",
+    )
+    assert "| ocr | (untagged) | 2 | 0.5000 | 0.5000 (3 / 6) |" in text
+    assert "| english | en | - | 0.5000 (1 / 2 chars) |" in text
+    assert "| chinese | zh-Hant | - | 0.5000 (2 / 4 chars) | N/A |" in text

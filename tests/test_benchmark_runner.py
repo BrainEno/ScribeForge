@@ -32,6 +32,14 @@ def test_runner_scores_case_and_preserves_identity(tmp_path) -> None:
     assert report.cases[0].case_id == "case-1"
     assert report.cases[0].cer > 0
     assert report.cases[0].punctuation_accuracy == 0.5
+    assert (report.cases[0].character_errors, report.cases[0].reference_characters) == (
+        1,
+        6,
+    )
+    assert report.cases[0].word_errors is None
+    assert report.cases[0].reference_words is None
+    assert report.aggregate.micro_cer == 1 / 6
+    assert report.aggregate.micro_wer is None
     assert report.aggregate.case_count == 1
 
 

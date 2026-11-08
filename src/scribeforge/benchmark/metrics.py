@@ -43,14 +43,26 @@ def scoring_text(text: str) -> str:
     return "\n".join(lines)
 
 
+def error_rate_from_counts(edit_count: int, reference_units: int) -> float:
+    """Apply the benchmark's zero-reference convention to raw edit counts."""
+
+    if edit_count < 0 or reference_units < 0:
+        raise ValueError("edit and reference counts must be non-negative")
+    if reference_units == 0:
+        return 0.0 if edit_count == 0 else 1.0
+    return edit_count / reference_units
+
+
 def _error_rate(reference: Sequence[str], hypothesis: Sequence[str]) -> float:
-    if not reference:
-        return 0.0 if not hypothesis else 1.0
-    return _edit_distance(reference, hypothesis) / len(reference)
+    return error_rate_from_counts(_edit_distance(reference, hypothesis), len(reference))
+
+
+def character_error_counts(reference: str, hypothesis: str) -> tuple[int, int]:
+    return _edit_distance(tuple(reference), tuple(hypothesis)), len(reference)
 
 
 def character_error_rate(reference: str, hypothesis: str) -> float:
-    return _error_rate(tuple(reference), tuple(hypothesis))
+    return error_rate_from_counts(*character_error_counts(reference, hypothesis))
 
 
 def word_tokenizer_for_language(language: str) -> str:
@@ -68,12 +80,21 @@ def word_tokenizer_for_language(language: str) -> str:
     return "whitespace-v1"
 
 
+def word_error_counts(
+    reference: str, hypothesis: str, *, language: str = "en"
+) -> tuple[int, int] | None:
+    if word_tokenizer_for_language(language) == "not-applicable":
+        return None
+    reference_words = tuple(reference.split())
+    hypothesis_words = tuple(hypothesis.split())
+    return _edit_distance(reference_words, hypothesis_words), len(reference_words)
+
+
 def word_error_rate(
     reference: str, hypothesis: str, *, language: str = "en"
 ) -> float | None:
-    if word_tokenizer_for_language(language) == "not-applicable":
-        return None
-    return _error_rate(tuple(reference.split()), tuple(hypothesis.split()))
+    counts = word_error_counts(reference, hypothesis, language=language)
+    return None if counts is None else error_rate_from_counts(*counts)
 
 
 def _is_punctuation(character: str) -> bool:
