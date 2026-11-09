@@ -304,6 +304,77 @@ def test_vlm_and_repair_read_the_same_preprocessed_frame(tmp_path: Path) -> None
         assert crop.convert("L").getextrema()[0] > 200
 
 
+def test_deskewed_frame_binds_ocr_and_repair_evidence(tmp_path: Path) -> None:
+    """#124 acceptance: a real rotation must rebind every downstream frame.
+
+    A synthetic page whose text is rotated by 4 degrees is deskewed for real
+    (not passthrough). The OCR engines must read exactly the deskewed raster,
+    the recorded OCR input frame must say so (kind + digest + geometry), a
+    repair round must read the same deskewed frame, and the original page
+    raster must stay byte-identical.
+    """
+
+    store = SQLiteStore(tmp_path / "project.sqlite3")
+    store.initialize()
+    project = store.create_project("book", "book.pdf", "hash")
+    image = Image.new("RGB", (600, 800), "white")
+    draw = ImageDraw.Draw(image)
+    for row in range(20):
+        draw.line((60, 40 + row * 35, 540, 40 + row * 35), fill="black", width=3)
+    image = image.rotate(4.0, resample=Image.Resampling.BILINEAR, fillcolor="white")
+    source_path = tmp_path / "page.png"
+    image.save(source_path)
+    original_sha = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    store.add_page(project, 0, str(source_path), 600, 800)
+    page = store.list_pages(project)[0]
+
+    settings = PreprocessSettings(operations=(PreprocessOperation.DESKEW,), adapt_to_page=False)
+    primary = Engine("a", "甲")
+    secondary = Engine("b", "乙")
+    outcome = process_page(
+        store,
+        project,
+        page,
+        primary_engine=primary,
+        secondary_engine=secondary,
+        crops_dir=tmp_path / "crops",
+        preprocess=settings,
+    )
+
+    record = store.load_preprocess(project, 0)
+    assert record is not None
+    assert "deskew" in record.applied
+    assert abs(record.measured_skew_degrees) > 1.0  # the 4-degree skew was measured
+    frame_bytes = Path(record.output_image).read_bytes()
+    assert hashlib.sha256(frame_bytes).hexdigest() == record.output_sha256
+
+    # Both OCR engines read exactly the deskewed frame, never the raw page.
+    assert primary.images == [frame_bytes]
+    assert secondary.images == [frame_bytes]
+    for run_id in (outcome.primary_run_id, outcome.secondary_run_id):
+        frame = store.load_ocr_frame(run_id)
+        assert frame is not None
+        assert frame.kind == "preprocessed"
+        assert frame.sha256 == record.output_sha256
+        assert (frame.width, frame.height) == (record.output_width, record.output_height)
+
+    # A repair round crops from the same deskewed frame: the reader gets an
+    # enlarged region crop, never the raw (still skewed) page raster.
+    from io import BytesIO
+
+    repair_engine = Engine("c", "丙")
+    run_repair_round(
+        store, project, readers=(RepairReader("c", repair_engine),), crops_dir=tmp_path / "repair"
+    )
+    assert len(repair_engine.images) == 1
+    with Image.open(BytesIO(repair_engine.images[0])) as crop:
+        assert crop.size[0] < 600  # a region crop, not the full frame
+    assert repair_engine.images[0] != source_path.read_bytes()
+
+    # The original evidence raster is untouched.
+    assert hashlib.sha256(Path(page.source_image).read_bytes()).hexdigest() == original_sha
+
+
 @pytest.mark.parametrize("use_preprocess", [False, True])
 @pytest.mark.parametrize("raises", [False, True])
 def test_worker_cannot_overwrite_page_or_preprocessed_evidence(
