@@ -49,12 +49,11 @@ class BackendProvisionResult {
   final String? error;
 }
 
-typedef BackendProcessRunner =
-    Future<int> Function(
-      String executable,
-      List<String> arguments, {
-      void Function(String chunk)? onOutput,
-    });
+typedef BackendProcessRunner = Future<int> Function(
+  String executable,
+  List<String> arguments, {
+  void Function(String chunk)? onOutput,
+});
 
 typedef BackendFileExists = Future<bool> Function(String path);
 typedef BackendFileReader = Future<String> Function(String path);
@@ -93,9 +92,7 @@ class BackendEnvironmentProvisioner {
   static Future<String> _defaultReadFile(String path) =>
       File(path).readAsString();
 
-  Future<BackendProcessRunner> _runner() async {
-    return runProcess ?? _defaultRunner;
-  }
+  BackendProcessRunner get _runner => runProcess ?? _defaultRunner;
 
   static Future<int> _defaultRunner(
     String executable,
@@ -182,7 +179,7 @@ class BackendEnvironmentProvisioner {
     }
 
     final paths = BackendVenvPaths(venvDirectory, operatingSystem: _os);
-    final runner = await _runner();
+    final runner = _runner;
 
     log(r'$ $pythonExecutable -m venv $venvDirectory');
     var code = await runner(

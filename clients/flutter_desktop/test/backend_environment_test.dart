@@ -33,24 +33,27 @@ void main() {
   });
 
   group('BackendEnvironmentProvisioner.detectBackendSourcePath', () {
-    test('walks up to the checkout whose pyproject declares scribeforge', () async {
-      final files = <String, String>{
-        '/repo/pyproject.toml': '[project]\nname = "scribeforge"\n',
-        '/repo/clients/flutter_desktop/pyproject.toml': 'name = "other"',
-      };
-      final provisioner = BackendEnvironmentProvisioner(
-        operatingSystem: 'linux',
-        fileExists: (path) async => files.containsKey(path),
-        readFile: (path) async => files[path] ?? '',
-      );
+    test(
+      'walks up to the checkout whose pyproject declares scribeforge',
+      () async {
+        final files = <String, String>{
+          '/repo/pyproject.toml': '[project]\nname = "scribeforge"\n',
+          '/repo/clients/flutter_desktop/pyproject.toml': 'name = "other"',
+        };
+        final provisioner = BackendEnvironmentProvisioner(
+          operatingSystem: 'linux',
+          fileExists: (path) async => files.containsKey(path),
+          readFile: (path) async => files[path] ?? '',
+        );
 
-      expect(
-        await provisioner.detectBackendSourcePath(
-          startDirectory: '/repo/clients/flutter_desktop',
-        ),
-        '/repo',
-      );
-    });
+        expect(
+          await provisioner.detectBackendSourcePath(
+            startDirectory: '/repo/clients/flutter_desktop',
+          ),
+          '/repo',
+        );
+      },
+    );
 
     test('returns null when no scribeforge checkout is found', () async {
       final provisioner = BackendEnvironmentProvisioner(
@@ -99,37 +102,40 @@ void main() {
       expect(calls, isEmpty);
     });
 
-    test('creates the venv, installs editable, and smoke-checks the CLI', () async {
-      final calls = <List<String>>[];
-      final cli = '/settings/backend-venv/bin/scribeforge';
-      final provisioner = provisionerFor(
-        calls: calls,
-        existingFiles: {'/repo/pyproject.toml': true, cli: true},
-      );
+    test(
+      'creates the venv, installs editable, and smoke-checks the CLI',
+      () async {
+        final calls = <List<String>>[];
+        final cli = '/settings/backend-venv/bin/scribeforge';
+        final provisioner = provisionerFor(
+          calls: calls,
+          existingFiles: {'/repo/pyproject.toml': true, cli: true},
+        );
 
-      final result = await provisioner.provision(
-        pythonExecutable: 'python3',
-        backendSourcePath: '/repo',
-        venvDirectory: '/settings/backend-venv',
-      );
+        final result = await provisioner.provision(
+          pythonExecutable: 'python3',
+          backendSourcePath: '/repo',
+          venvDirectory: '/settings/backend-venv',
+        );
 
-      expect(result.ok, isTrue);
-      expect(result.cliExecutable, cli);
-      expect(calls, <List<String>>[
-        <String>['python3', '-m', 'venv', '/settings/backend-venv'],
-        <String>[
-          '/settings/backend-venv/bin/python',
-          '-m',
-          'pip',
-          'install',
-          '--quiet',
-          '-e',
-          '/repo',
-        ],
-        <String>[cli, '--help'],
-      ]);
-      expect(result.log, contains('后端环境就绪'));
-    });
+        expect(result.ok, isTrue);
+        expect(result.cliExecutable, cli);
+        expect(calls, <List<String>>[
+          <String>['python3', '-m', 'venv', '/settings/backend-venv'],
+          <String>[
+            '/settings/backend-venv/bin/python',
+            '-m',
+            'pip',
+            'install',
+            '--quiet',
+            '-e',
+            '/repo',
+          ],
+          <String>[cli, '--help'],
+        ]);
+        expect(result.log, contains('后端环境就绪'));
+      },
+    );
 
     test('fails closed when pip install exits non-zero', () async {
       final calls = <List<String>>[];
@@ -152,21 +158,24 @@ void main() {
       expect(calls.length, 2); // venv + pip, no smoke check
     });
 
-    test('fails closed when the CLI executable is missing after install', () async {
-      final calls = <List<String>>[];
-      final provisioner = provisionerFor(
-        calls: calls,
-        existingFiles: {'/repo/pyproject.toml': true},
-      );
+    test(
+      'fails closed when the CLI executable is missing after install',
+      () async {
+        final calls = <List<String>>[];
+        final provisioner = provisionerFor(
+          calls: calls,
+          existingFiles: {'/repo/pyproject.toml': true},
+        );
 
-      final result = await provisioner.provision(
-        pythonExecutable: 'python3',
-        backendSourcePath: '/repo',
-        venvDirectory: '/settings/backend-venv',
-      );
+        final result = await provisioner.provision(
+          pythonExecutable: 'python3',
+          backendSourcePath: '/repo',
+          venvDirectory: '/settings/backend-venv',
+        );
 
-      expect(result.ok, isFalse);
-      expect(result.error, contains('未找到'));
-    });
+        expect(result.ok, isFalse);
+        expect(result.error, contains('未找到'));
+      },
+    );
   });
 }

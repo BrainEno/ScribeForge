@@ -2203,7 +2203,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     );
   }
 
-  /// 简单的文本输入对话框。
   // ============================================================ 后端环境
 
   String get _backendVenvDirectory =>
@@ -2365,6 +2364,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     await _refreshReviewQueue();
   }
 
+  /// 简单的文本输入对话框。
   Future<String?> _promptString(String title, String initialValue) async {
     final controller = TextEditingController(text: initialValue);
     return showDialog<String>(
