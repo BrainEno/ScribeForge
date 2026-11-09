@@ -2105,100 +2105,102 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Widget _buildSettingsPage() {
     return Padding(
       padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Text(
-            '设置',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '首次使用点击“初始化环境”。完整桌面版会自动使用内置核心，无需预装 Python。',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          const SizedBox(height: 20),
-          _buildInitializationCard(),
-          const SizedBox(height: 12),
-          ListTile(
-            title: const Text('命令行工具'),
-            subtitle: Text(_cliExecutable),
-            trailing: IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () async {
-                final value = await _promptString('命令行工具路径', _cliExecutable);
-                if (value != null && value.trim().isNotEmpty) {
-                  await _settingsStore.saveCliExecutable(value.trim());
-                  final resolution = await _backendResolver.resolve(
-                    value.trim(),
-                  );
-                  if (!mounted) return;
-                  setState(() {
-                    _cliExecutable = resolution.executable;
-                    _backendResolution = resolution;
-                  });
-                  await _refreshRuntimeStatus();
-                  await _refreshStatus();
-                  await _refreshReviewQueue();
-                }
-              },
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              '设置',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
             ),
-          ),
-          _buildBackendEnvironmentCard(),
-          const SizedBox(height: 12),
-          ListTile(
-            title: const Text('视觉模型复核'),
-            subtitle: Text(
-              _vlmSettings.enabled
-                  ? '已启用：处理时会按配置发送复核裁切图。'
-                  : '默认关闭；未明确启用时不会发送复核裁切图。',
-            ),
-            trailing: TextButton(
-              onPressed: _busy ? null : _openVlmSettings,
-              child: const Text('配置 VLM 复核'),
-            ),
-          ),
-          const Divider(),
-          ListTile(
-            title: const Text('运行时配置 (setup)'),
-            subtitle: const Text('查看后端、阶段与步骤进度，或修复单个后端'),
-            trailing: _runtimeLoading
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.play_arrow),
-            onTap: _runtimeLoading ? null : _openRuntimeSetup,
-          ),
-          if (_runtimeStatus != null) ...[
-            const Divider(),
-            const Text('运行时状态', style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            Text('根目录：${_runtimeStatus!.runtimeRoot}'),
-            Text('存在：${_runtimeStatus!.runtimeRootExists}'),
-            Text('uv 可用：${_runtimeStatus!.uvAvailable}'),
-            const SizedBox(height: 8),
-            Text('后端：', style: const TextStyle(fontWeight: FontWeight.w600)),
-            ..._runtimeStatus!.backends.entries.map(
-              (entry) => Padding(
-                padding: const EdgeInsets.only(left: 16, top: 4),
-                child: Text(
-                  '${entry.key}: ${entry.value.state} ${entry.value.environmentExists ? '' : '(环境未安装)'}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
+            Text(
+              '首次使用点击“初始化环境”。完整桌面版会自动使用内置核心，无需预装 Python。',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+            _buildInitializationCard(),
+            const SizedBox(height: 12),
+            _buildBackendEnvironmentCard(),
+            const SizedBox(height: 12),
+            ListTile(
+              title: const Text('命令行工具'),
+              subtitle: Text(_cliExecutable),
+              trailing: IconButton(
+                icon: const Icon(Icons.edit),
+                onPressed: () async {
+                  final value = await _promptString('命令行工具路径', _cliExecutable);
+                  if (value != null && value.trim().isNotEmpty) {
+                    await _settingsStore.saveCliExecutable(value.trim());
+                    final resolution = await _backendResolver.resolve(
+                      value.trim(),
+                    );
+                    if (!mounted) return;
+                    setState(() {
+                      _cliExecutable = resolution.executable;
+                      _backendResolution = resolution;
+                    });
+                    await _refreshRuntimeStatus();
+                    await _refreshStatus();
+                    await _refreshReviewQueue();
+                  }
+                },
               ),
             ),
+            ListTile(
+              title: const Text('视觉模型复核'),
+              subtitle: Text(
+                _vlmSettings.enabled
+                    ? '已启用：处理时会按配置发送复核裁切图。'
+                    : '默认关闭；未明确启用时不会发送复核裁切图。',
+              ),
+              trailing: TextButton(
+                onPressed: _busy ? null : _openVlmSettings,
+                child: const Text('配置 VLM 复核'),
+              ),
+            ),
+            const Divider(),
+            ListTile(
+              title: const Text('运行时配置 (setup)'),
+              subtitle: const Text('查看后端、阶段与步骤进度，或修复单个后端'),
+              trailing: _runtimeLoading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.play_arrow),
+              onTap: _runtimeLoading ? null : _openRuntimeSetup,
+            ),
+            if (_runtimeStatus != null) ...[
+              const Divider(),
+              const Text('运行时状态', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text('根目录：${_runtimeStatus!.runtimeRoot}'),
+              Text('存在：${_runtimeStatus!.runtimeRootExists}'),
+              Text('uv 可用：${_runtimeStatus!.uvAvailable}'),
+              const SizedBox(height: 8),
+              Text('后端：', style: const TextStyle(fontWeight: FontWeight.w600)),
+              ..._runtimeStatus!.backends.entries.map(
+                (entry) => Padding(
+                  padding: const EdgeInsets.only(left: 16, top: 4),
+                  child: Text(
+                    '${entry.key}: ${entry.value.state} ${entry.value.environmentExists ? '' : '(环境未安装)'}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                ),
+              ),
+            ],
+            const Divider(),
+            ListTile(
+              title: const Text('刷新运行时状态'),
+              trailing: const Icon(Icons.refresh),
+              onTap: () {
+                _refreshRuntimeStatus();
+              },
+            ),
           ],
-          const Divider(),
-          ListTile(
-            title: const Text('刷新运行时状态'),
-            trailing: const Icon(Icons.refresh),
-            onTap: () {
-              _refreshRuntimeStatus();
-            },
-          ),
-        ],
+        ),
       ),
     );
   }
