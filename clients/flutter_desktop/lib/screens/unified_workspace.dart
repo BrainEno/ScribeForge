@@ -2174,7 +2174,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             ),
             if (_runtimeStatus != null) ...[
               const Divider(),
-              const Text('运行时状态', style: TextStyle(fontWeight: FontWeight.w600)),
+              const Text(
+                '运行时状态',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               Text('根目录：${_runtimeStatus!.runtimeRoot}'),
               Text('存在：${_runtimeStatus!.runtimeRootExists}'),
@@ -2190,15 +2193,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   ),
                 ),
               ),
-          ],
-          const Divider(),
-          ListTile(
-            title: const Text('刷新运行时状态'),
-            trailing: const Icon(Icons.refresh),
-            onTap: () {
-              _refreshRuntimeStatus();
-            },
-          ),
+            ],
+            const Divider(),
+            ListTile(
+              title: const Text('刷新运行时状态'),
+              trailing: const Icon(Icons.refresh),
+              onTap: () {
+                _refreshRuntimeStatus();
+              },
+            ),
           ],
         ),
       ),
