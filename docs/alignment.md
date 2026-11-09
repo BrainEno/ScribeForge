@@ -228,7 +228,11 @@ recognition accuracy on representative scans.
 
 ## Remaining limits
 
-- Rotated text and arbitrary nested layout trees still require explicit upstream
+- Rotated text is covered by a fail-safe regression
+  (`rotated-text-is-not-force-matched` in the fixtures): a 90-degree-rotated line
+  whose box is geometrically incompatible with its twin is **never force-matched**
+  on text equality — the whole page's uncertain mappings stay unmatched and enter
+  the review queue. Arbitrary nested layout trees still require explicit upstream
   layout evidence; this change does not add a layout classifier.
 - Asymmetric non-body or mixed-role block metadata deliberately prevents multi-line
   merging, which can leave genuine title/footnote splits for review. Unknown evidence is
