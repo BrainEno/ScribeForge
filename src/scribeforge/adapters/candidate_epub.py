@@ -8,7 +8,9 @@ from xml.etree import ElementTree
 from xml.sax.saxutils import escape, quoteattr
 
 from scribeforge.adapters.export_common import (
+    MIMETYPE,
     XML_DECL,
+    container_xml,
     format_modified,
     require_xml_text,
     validate_identifier,
@@ -18,29 +20,15 @@ from scribeforge.adapters.export_common import (
 )
 from scribeforge.domain.candidate import OcrCandidateBook, OcrCandidatePage
 
-_MIMETYPE = "application/epub+zip"
 _OPF_NS = "http://www.idpf.org/2007/opf"
 _XHTML_NS = "http://www.w3.org/1999/xhtml"
 _EPUB_NS = "http://www.idpf.org/2007/ops"
-_CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 _DC_NS = "http://purl.org/dc/elements/1.1/"
 _CANDIDATE_WARNING = "UNVERIFIED OCR CANDIDATE — not accepted or proofread"
 
 
 def _page_name(page_index: int) -> str:
     return f"page-{page_index + 1:06d}.xhtml"
-
-
-def _container_xml() -> str:
-    return (
-        XML_DECL
-        + "\n"
-        + f'<container version="1.0" xmlns="{_CONTAINER_NS}">'
-        + "<rootfiles>"
-        + '<rootfile full-path="OEBPS/content.opf" '
-        + 'media-type="application/oebps-package+xml"/>'
-        + "</rootfiles></container>\n"
-    )
 
 
 def _candidate_title(book: OcrCandidateBook) -> str:
@@ -148,8 +136,8 @@ def build_candidate_epub(
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        write_zip_entry(archive, "mimetype", _MIMETYPE, zipfile.ZIP_STORED)
-        write_zip_entry(archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED)
+        write_zip_entry(archive, "mimetype", MIMETYPE, zipfile.ZIP_STORED)
+        write_zip_entry(archive, "META-INF/container.xml", container_xml(), zipfile.ZIP_DEFLATED)
         write_zip_entry(
             archive,
             "OEBPS/content.opf",
@@ -202,7 +190,7 @@ def _check_candidate_epub(data: bytes, book: OcrCandidateBook) -> None:
             if archive.testzip() is not None:
                 raise ValueError("candidate EPUB archive checksum failed")
             names = set(archive.namelist())
-            if "mimetype" not in names or archive.read("mimetype") != _MIMETYPE.encode("ascii"):
+            if "mimetype" not in names or archive.read("mimetype") != MIMETYPE.encode("ascii"):
                 raise ValueError("candidate EPUB has an invalid mimetype entry")
             for name in ("META-INF/container.xml", "OEBPS/content.opf", "OEBPS/nav.xhtml"):
                 ElementTree.fromstring(archive.read(name))
