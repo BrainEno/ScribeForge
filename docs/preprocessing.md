@@ -36,6 +36,11 @@ IMPORT → PREPROCESS → PRIMARY_OCR → SECONDARY_OCR → VERIFY → VLM_REVIE
 预处理结果与参数按页持久化在 `page_preprocess` 表（settings/applied/skew/输出 SHA-256/
 尺寸/测量注记），重跑幂等：已存在的产物直接复用，**不会二次旋转**（二次旋转是静默破坏）。
 
+真实几何变换的端到端回归见 `tests/test_ocr_frames.py::test_deskewed_frame_binds_ocr_and_repair_evidence`：
+一张文本旋转 4° 的合成页经过真实 deskew 后，两个 OCR 引擎读到的字节与 `page_preprocess`
+记录的输出帧完全一致，`ocr_input_frames` 记录 `kind=preprocessed` 及相同的 SHA-256 与尺寸，
+修复轮次从同一纠偏帧裁出复核裁片，而原始页位图逐字节不变（#124 验收）。
+
 ## 3. 变换与它们的实测依据
 
 | 变换 | 默认 | 作用 |
