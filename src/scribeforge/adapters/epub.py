@@ -9,7 +9,9 @@ from xml.sax.saxutils import escape, quoteattr
 from scribeforge.adapters.export_check import check_epub
 from scribeforge.adapters.export_common import (
     IMAGES_DIR,
+    MIMETYPE,
     XML_DECL,
+    container_xml,
     epub_image_name,
     format_modified,
     validate_book_text,
@@ -29,26 +31,12 @@ from scribeforge.domain.flow import (
 )
 from scribeforge.domain.paragraphs import LineRole
 
-_MIMETYPE = "application/epub+zip"
 _OPF_NS = "http://www.idpf.org/2007/opf"
 _XHTML_NS = "http://www.w3.org/1999/xhtml"
 _EPUB_NS = "http://www.idpf.org/2007/ops"
-_CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
 _DC_NS = "http://purl.org/dc/elements/1.1/"
 #: Where page rasters live inside the package. One directory keeps the manifest
 #: and the integrity check's "every image is referenced once" rule simple.
-
-
-def _container_xml() -> str:
-    return (
-        XML_DECL
-        + "\n"
-        + f'<container version="1.0" xmlns="{_CONTAINER_NS}">'
-        + "<rootfiles>"
-        + '<rootfile full-path="OEBPS/content.opf" '
-        + 'media-type="application/oebps-package+xml"/>'
-        + "</rootfiles></container>\n"
-    )
 
 
 def _package_xml(
@@ -277,8 +265,8 @@ def build_epub(
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        write_zip_entry(archive, "mimetype", _MIMETYPE, zipfile.ZIP_STORED)
-        write_zip_entry(archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED)
+        write_zip_entry(archive, "mimetype", MIMETYPE, zipfile.ZIP_STORED)
+        write_zip_entry(archive, "META-INF/container.xml", container_xml(), zipfile.ZIP_DEFLATED)
         write_zip_entry(
             archive,
             "OEBPS/content.opf",

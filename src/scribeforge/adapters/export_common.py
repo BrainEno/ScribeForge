@@ -12,6 +12,29 @@ XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>'
 #: Directory inside an EPUB package that holds the page rasters. Both the writer
 #: and the integrity check read the convention from here, so they cannot drift.
 IMAGES_DIR = "images"
+#: The single mimetype payload every EPUB starts with; both exporters must use it.
+MIMETYPE = "application/epub+zip"
+_CONTAINER_NS = "urn:oasis:names:tc:opendocument:xmlns:container"
+
+
+def container_xml() -> str:
+    """The one `META-INF/container.xml` body shared by every EPUB exporter.
+
+    Trusted and candidate exports must produce byte-identical container
+    documents; keeping the string in one place makes drift impossible (#72).
+    """
+
+    return (
+        XML_DECL
+        + "\n"
+        + f'<container version="1.0" xmlns="{_CONTAINER_NS}">'
+        + "<rootfiles>"
+        + '<rootfile full-path="OEBPS/content.opf" '
+        + 'media-type="application/oebps-package+xml"/>'
+        + "</rootfiles></container>\n"
+    )
+
+
 # Fixed DOS epoch so two exports with the same inputs produce identical bytes.
 ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 _LANGUAGE_TAG = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
