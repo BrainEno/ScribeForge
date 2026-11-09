@@ -19,7 +19,10 @@ from scribeforge.observability import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_scribeforge_logger():
+def _reset_scribeforge_logger(tmp_path: Path):
+    # Requesting tmp_path forces this fixture to be finalized *before*
+    # tmp_path cleanup, so rotating file handlers are closed before Windows
+    # tries to delete the files they hold open.
     yield
     logger = logging.getLogger("scribeforge")
     for handler in list(logger.handlers):
@@ -91,6 +94,9 @@ def test_configure_logging_adds_a_rotating_file_handler_and_redacts(
     content = log_file.read_text(encoding="utf-8")
     assert str(home) not in content
     assert "~/secret.pdf" in content
+    for handler in logger.handlers:
+        handler.close()
+        logger.removeHandler(handler)
 
 
 def test_cli_log_flags_configure_logging_and_write_a_redacted_file(tmp_path: Path) -> None:
@@ -100,9 +106,14 @@ def test_cli_log_flags_configure_logging_and_write_a_redacted_file(tmp_path: Pat
         ["--log-level", "debug", "--log-file", str(log_file), "status", "--store", str(store)]
     )
     assert code != 0  # store does not exist; the point is the logging side effect
+    for handler in logging.getLogger("scribeforge").handlers:
+        handler.flush()
     content = log_file.read_text(encoding="utf-8")
     assert "status" in content
     assert str(Path.home()) not in content
+    for handler in logging.getLogger("scribeforge").handlers:
+        handler.close()
+        logging.getLogger("scribeforge").removeHandler(handler)
 
 
 def test_cli_defaults_to_info_without_a_log_file(tmp_path: Path) -> None:
