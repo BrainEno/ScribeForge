@@ -233,7 +233,7 @@ def test_wer_aggregation_and_report_exclude_not_applicable_cases() -> None:
         generated_at="2026-10-20T00:00:00Z",
     )
 
-    assert "| ocr | 2 | 0.2500 | N/A | 0.5000 (1 / 2) | N/A |" in text
+    assert "| ocr | 2 | 0.2500 [0.2500, 0.2500] | N/A | 0.5000 (1 / 2) | N/A |" in text
     assert "| english | en | body,punctuation | 0.2500 | 0.5000 (`whitespace-v1`) |" in text
     assert "| chinese | zh-Hant | body,punctuation | 0.2500 | N/A |" in text
     assert "| 0.7500 | 1 | 1 | 1 | 0 | 0 | 2 |" in text
@@ -303,11 +303,11 @@ def test_micro_rates_use_raw_edit_counts_and_manifest_tags_are_stratified() -> N
 
     assert "## Results by manifest tag" in text
     assert (
-        "| ocr | body | 2 | 0.2550 | 0.0196 (2 / 102) | "
-        "0.5050 (2 / 2) | 0.0198 (2 / 101) |" in text
+        "| ocr | body | 2 | 0.2550 [0.0000, 0.7352] | 0.0196 (2 / 102) [0.0054, 0.0687] | "
+        "0.5050 [0.0000, 1.4752] (2 / 2) | 0.0198 (2 / 101) [0.0054, 0.0693] |" in text
     )
-    assert "| ocr | sparse | 1 | 0.5000 | 0.5000 (1 / 2) |" in text
-    assert "| ocr | dense | 1 | 0.0100 | 0.0100 (1 / 100) |" in text
+    assert "| ocr | sparse | 1 | 0.5000 | 0.5000 (1 / 2) [0.0945, 0.9055] |" in text
+    assert "| ocr | dense | 1 | 0.0100 | 0.0100 (1 / 100) [0.0018, 0.0545] |" in text
     assert "multi-tag cases appear once in each applicable row" in text
 
 
@@ -362,6 +362,63 @@ def test_micro_wer_uses_applicable_cases_and_counts_are_all_or_nothing() -> None
         manifest_sha256="h",
         generated_at="now",
     )
-    assert "| ocr | (untagged) | 2 | 0.5000 | 0.5000 (3 / 6) |" in text
-    assert "| english | en | - | 0.5000 (1 / 2 chars) |" in text
-    assert "| chinese | zh-Hant | - | 0.5000 (2 / 4 chars) | N/A |" in text
+    assert "| ocr | (untagged) | 2 | 0.5000 [0.5000, 0.5000] | 0.5000 (3 / 6) [0.1876, 0.8124] |" in text
+    assert "| english | en | - | 0.5000 (1 / 2 chars) [0.0945, 0.9055] |" in text
+    assert "| chinese | zh-Hant | - | 0.5000 (2 / 4 chars) [0.1500, 0.8500] | N/A |" in text
+
+
+def test_report_renders_confidence_intervals_for_macro_and_micro_rates() -> None:
+    """A single mean must not hide uncertainty: macro and micro get deterministic CIs."""
+
+    small = replace(
+        _case(case_id="small", cer=0.5, tags=("body",)),
+        wer=1.0,
+        character_errors=1,
+        reference_characters=2,
+        word_errors=1,
+        reference_words=1,
+    )
+    large = replace(
+        _case(case_id="large", cer=0.01, tags=("dense",)),
+        wer=0.01,
+        character_errors=1,
+        reference_characters=100,
+        word_errors=1,
+        reference_words=100,
+    )
+    aggregate = aggregate_case_scores((small, large))
+    text = render_report(
+        (BenchmarkReport(engine="ocr", cases=(small, large), aggregate=aggregate),),
+        corpus="c",
+        manifest_sha256="h",
+        generated_at="now",
+    )
+
+    # Macro intervals use the per-case rates; micro intervals use the raw counts.
+    assert (
+        "| ocr | 2 | 0.2550 [0.0000, 0.7352] | 0.0196 (2 / 102) [0.0054, 0.0687] | "
+        "0.5050 [0.0000, 1.4752] (2 / 2) | 0.0198 (2 / 101) [0.0054, 0.0693] |" in text
+    )
+    # Per-case cells disclose their own count-based interval.
+    assert "| small | en | body | 0.5000 (1 / 2 chars) [0.0945, 0.9055] |" in text
+    assert "| large | en | dense | 0.0100 (1 / 100 chars) [0.0018, 0.0545] |" in text
+    # Tag strata carry the same intervals.
+    assert (
+        "| ocr | body | 1 | 0.5000 | 0.5000 (1 / 2) [0.0945, 0.9055] |" in text
+    )
+    assert "95% CI" in text
+    assert "Wilson" in text
+
+
+def test_report_marks_macro_interval_unavailable_for_a_single_case() -> None:
+    aggregate = aggregate_case_scores((_case(),))
+    text = render_report(
+        (BenchmarkReport(engine="ocr", cases=(_case(),), aggregate=aggregate),),
+        corpus="c",
+        manifest_sha256="h",
+        generated_at="now",
+    )
+
+    # One case has no dispersion estimate, so the macro cell keeps the bare mean.
+    assert "| ocr | 1 | 0.2500 | N/A |" in text
+    assert "at least two cases" in text

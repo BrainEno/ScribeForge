@@ -10,6 +10,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from scribeforge.benchmark.metrics import (
+    mean_confidence_interval,
+    wilson_score_interval,
+    z_score_for_confidence,
+)
 from scribeforge.benchmark.runner import (
     AggregateScore,
     BenchmarkReport,
@@ -33,43 +38,86 @@ def _mean(values: Sequence[float], empty: float) -> float:
     return sum(values) / len(values) if values else empty
 
 
-def _case_cer(case: CaseScore) -> str:
+def _interval_text(interval: tuple[float, float] | None) -> str:
+    if interval is None:
+        return ""
+    return f" [{interval[0]:.4f}, {interval[1]:.4f}]"
+
+
+def _macro_rate(
+    rate: float | None, values: Sequence[float], *, confidence: float
+) -> str:
+    if rate is None:
+        return "N/A"
+    return f"{rate:.4f}{_interval_text(mean_confidence_interval(values, confidence=confidence))}"
+
+
+def _case_cer(case: CaseScore, *, confidence: float) -> str:
     value = f"{case.cer:.4f}"
     if case.character_errors is not None and case.reference_characters is not None:
         value += f" ({case.character_errors} / {case.reference_characters} chars)"
+        value += _interval_text(
+            wilson_score_interval(
+                case.character_errors, case.reference_characters, confidence=confidence
+            )
+        )
     return value
 
 
-def _case_wer(case: CaseScore) -> str:
+def _case_wer(case: CaseScore, *, confidence: float) -> str:
     if case.wer is None:
         return "N/A"
     if case.word_errors is not None and case.reference_words is not None:
         counts = f"{case.word_errors} / {case.reference_words} words, "
+        interval = _interval_text(
+            wilson_score_interval(
+                case.word_errors, case.reference_words, confidence=confidence
+            )
+        )
     else:
         counts = ""
-    return f"{case.wer:.4f} ({counts}`{case.word_tokenizer}`)"
+        interval = ""
+    return f"{case.wer:.4f} ({counts}`{case.word_tokenizer}`){interval}"
 
 
 def _micro_rate(
-    rate: float | None, errors: int | None, reference_units: int | None
+    rate: float | None,
+    errors: int | None,
+    reference_units: int | None,
+    *,
+    confidence: float,
 ) -> str:
     if rate is None or errors is None or reference_units is None:
         return "N/A"
-    return f"{rate:.4f} ({errors} / {reference_units})"
+    interval = _interval_text(
+        wilson_score_interval(errors, reference_units, confidence=confidence)
+    )
+    return f"{rate:.4f} ({errors} / {reference_units}){interval}"
 
 
-def _micro_cer(aggregate: AggregateScore) -> str:
+def _micro_cer(aggregate: AggregateScore, *, confidence: float) -> str:
     return _micro_rate(
-        aggregate.micro_cer, aggregate.character_errors, aggregate.reference_characters
+        aggregate.micro_cer,
+        aggregate.character_errors,
+        aggregate.reference_characters,
+        confidence=confidence,
     )
 
 
-def _micro_wer(aggregate: AggregateScore) -> str:
-    return _micro_rate(aggregate.micro_wer, aggregate.word_errors, aggregate.reference_words)
+def _micro_wer(aggregate: AggregateScore, *, confidence: float) -> str:
+    return _micro_rate(
+        aggregate.micro_wer,
+        aggregate.word_errors,
+        aggregate.reference_words,
+        confidence=confidence,
+    )
 
 
-def _aggregate_wer(aggregate: AggregateScore) -> str:
-    value = "N/A" if aggregate.mean_wer is None else f"{aggregate.mean_wer:.4f}"
+def _aggregate_wer(
+    aggregate: AggregateScore, cases: Sequence[CaseScore], *, confidence: float
+) -> str:
+    applicable = [case.wer for case in cases if case.wer is not None]
+    value = _macro_rate(aggregate.mean_wer, applicable, confidence=confidence)
     return f"{value} ({aggregate.wer_case_count} / {aggregate.case_count})"
 
 
@@ -103,9 +151,10 @@ def _direction_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
     return lines
 
 
-def _tag_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
+def _tag_rows(reports: Sequence[BenchmarkReport], *, confidence: float) -> list[str]:
     """Aggregate declared manifest tags without treating them as disjoint."""
 
+    ci = f"{confidence:.0%} CI"
     tags = sorted({tag for report in reports for case in report.cases for tag in case.tags})
     include_untagged = any(not case.tags for report in reports for case in report.cases)
     if not tags and not include_untagged:
@@ -117,8 +166,8 @@ def _tag_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
         "## Results by manifest tag",
         "",
         (
-            "| Variant | Tag | Cases | Macro CER | Micro CER (edits / chars) "
-            "| Macro WER (applicable / total cases) | Micro WER (edits / words) |"
+            f"| Variant | Tag | Cases | Macro CER ({ci}) | Micro CER (edits / chars, {ci}) "
+            f"| Macro WER (applicable / total, {ci}) | Micro WER (edits / words, {ci}) |"
         ),
         "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
@@ -133,8 +182,10 @@ def _tag_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
             aggregate = aggregate_case_scores(cases)
             lines.append(
                 f"| {report.engine} | {label} | {len(cases)} | "
-                f"{aggregate.mean_cer:.4f} | {_micro_cer(aggregate)} | "
-                f"{_aggregate_wer(aggregate)} | {_micro_wer(aggregate)} |"
+                f"{_macro_rate(aggregate.mean_cer, [case.cer for case in cases], confidence=confidence)} | "
+                f"{_micro_cer(aggregate, confidence=confidence)} | "
+                f"{_aggregate_wer(aggregate, cases, confidence=confidence)} | "
+                f"{_micro_wer(aggregate, confidence=confidence)} |"
             )
     lines += [
         "",
@@ -157,9 +208,16 @@ def render_report(
     corpus_sha256: str | None = None,
     ground_truth_review_status: str | None = None,
     ground_truth_note: str | None = None,
+    confidence: float = 0.95,
 ) -> str:
-    """Render one Markdown report for every scored variant."""
+    """Render one Markdown report for every scored variant.
 
+    ``confidence`` selects the two-sided confidence level (90%, 95% or 99%) for
+    the deterministic intervals shown next to every macro and micro rate.
+    """
+
+    z_score_for_confidence(confidence)  # fail fast on an unsupported level
+    ci = f"{confidence:.0%} CI"
     review_status = ground_truth_review_status or "not declared"
     lines = [
         "# Benchmark Report",
@@ -203,6 +261,14 @@ def render_report(
             "its required counts are incomplete. WER can exceed 1.0 through insertions."
         ),
         (
+            f"- Every macro and micro rate carries a deterministic {ci} rendered as "
+            "`[lower, upper]`. Per-case and micro rates use the Wilson score interval "
+            f"over their raw edit counts at the {confidence:.0%} level; macro rates use "
+            "the normal approximation over per-case rates and need at least two cases "
+            "(fewer cases render the bare mean). Intervals for rates above 1.0, which "
+            "WER can reach through insertions, are approximate."
+        ),
+        (
             "- LCS Missing/Extra are strict whole-line, ordered differences. Changed uses "
             "one-to-one `SequenceMatcher.ratio >= 0.5` text matching among those unmatched "
             "lines; it is not geometric or physical-region alignment. Net M/E subtracts "
@@ -212,8 +278,8 @@ def render_report(
         "## Variants",
         "",
         (
-            "| Variant | Cases | Macro CER | Micro CER (edits / chars) "
-            "| Macro WER (applicable / total cases) | Micro WER (edits / words) | Punctuation "
+            f"| Variant | Cases | Macro CER ({ci}) | Micro CER (edits / chars, {ci}) "
+            f"| Macro WER (applicable / total, {ci}) | Micro WER (edits / words, {ci}) | Punctuation "
             "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
             "| Reading-order errors "
             "| Accepted pairs | Unresolved pairs | Elapsed s | Pages/min |"
@@ -224,8 +290,10 @@ def render_report(
         aggregate = report.aggregate
         lines.append(
             f"| {report.engine} | {aggregate.case_count} | "
-            f"{aggregate.mean_cer:.4f} | {_micro_cer(aggregate)} | "
-            f"{_aggregate_wer(aggregate)} | {_micro_wer(aggregate)} | "
+            f"{_macro_rate(aggregate.mean_cer, [case.cer for case in report.cases], confidence=confidence)} | "
+            f"{_micro_cer(aggregate, confidence=confidence)} | "
+            f"{_aggregate_wer(aggregate, report.cases, confidence=confidence)} | "
+            f"{_micro_wer(aggregate, confidence=confidence)} | "
             f"{aggregate.mean_punctuation_accuracy:.4f} | "
             f"{aggregate.missing_lines} | {aggregate.extra_lines} | "
             f"{aggregate.changed_lines} | {aggregate.net_missing_lines} | "
@@ -239,7 +307,7 @@ def render_report(
     direction_rows = _direction_rows(reports)
     if direction_rows:
         lines += [""] + direction_rows
-    tag_rows = _tag_rows(reports)
+    tag_rows = _tag_rows(reports, confidence=confidence)
     if tag_rows:
         lines += [""] + tag_rows
 
@@ -258,8 +326,8 @@ def render_report(
         for case in report.cases:
             tags = ",".join(case.tags) if case.tags else "-"
             lines.append(
-                f"| {case.case_id} | {case.language} | {tags} | {_case_cer(case)} | "
-                f"{_case_wer(case)} | {case.punctuation_accuracy:.4f} | "
+                f"| {case.case_id} | {case.language} | {tags} | {_case_cer(case, confidence=confidence)} | "
+                f"{_case_wer(case, confidence=confidence)} | {case.punctuation_accuracy:.4f} | "
                 f"{case.missing_lines} | {case.extra_lines} | {case.changed_lines} | "
                 f"{case.net_missing_lines} | {case.net_extra_lines} | "
                 f"{case.reading_order_errors} | "

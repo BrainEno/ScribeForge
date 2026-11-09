@@ -1,9 +1,88 @@
 from __future__ import annotations
 
+import math
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+
+#: Inverse-normal z values for the supported two-sided confidence levels.
+_Z_SCORES = {
+    0.90: 1.6448536269514722,
+    0.95: 1.959963984540054,
+    0.99: 2.5758293035489004,
+}
+
+
+def z_score_for_confidence(confidence: float) -> float:
+    """Return the two-sided z value for a supported confidence level."""
+
+    try:
+        return _Z_SCORES[confidence]
+    except KeyError:
+        supported = ", ".join(f"{level:.0%}" for level in sorted(_Z_SCORES))
+        raise ValueError(
+            f"unsupported confidence {confidence!r}; supported levels: {supported}"
+        ) from None
+
+
+def wilson_score_interval(
+    edit_count: int, reference_units: int, *, confidence: float = 0.95
+) -> tuple[float, float] | None:
+    """Wilson score interval for a count-based edit rate.
+
+    Micro and per-case rates are ``edit_count / reference_units``; modelling each
+    reference unit as one trial gives a deterministic interval that always
+    brackets the point estimate. Rates above 1.0 are possible for WER through
+    insertions, where the binomial model no longer applies: the variance term
+    then uses the proportion clamped to 1 and the interval is widened to still
+    contain the estimate. With zero reference units there is nothing to model
+    and the interval is ``None``.
+    """
+
+    if edit_count < 0 or reference_units < 0:
+        raise ValueError("edit and reference counts must be non-negative")
+    z = z_score_for_confidence(confidence)
+    if reference_units == 0:
+        return None
+    rate = edit_count / reference_units
+    clamped = min(max(rate, 0.0), 1.0)
+    denominator = 1.0 + z * z / reference_units
+    centre = (rate + z * z / (2.0 * reference_units)) / denominator
+    half_width = (
+        z
+        * math.sqrt(
+            clamped * (1.0 - clamped) / reference_units
+            + z * z / (4.0 * reference_units * reference_units)
+        )
+        / denominator
+    )
+    lower = max(0.0, min(centre - half_width, rate))
+    upper = max(centre + half_width, rate)
+    return lower, upper
+
+
+def mean_confidence_interval(
+    values: Sequence[float], *, confidence: float = 0.95
+) -> tuple[float, float] | None:
+    """Normal-approximation interval for the macro mean of per-case rates.
+
+    Macro rates average per-case rates, so the interval uses the sample standard
+    deviation (ddof=1) across cases. At least two values are required to estimate
+    dispersion; otherwise ``None`` is returned. The lower bound is clamped at 0;
+    the upper bound is not clamped at 1 because WER can exceed 1.0.
+    """
+
+    if any(value < 0 for value in values):
+        raise ValueError("rates must be non-negative")
+    z = z_score_for_confidence(confidence)
+    count = len(values)
+    if count < 2:
+        return None
+    mean = sum(values) / count
+    variance = sum((value - mean) ** 2 for value in values) / (count - 1)
+    half_width = z * math.sqrt(variance) / math.sqrt(count)
+    return max(0.0, mean - half_width), mean + half_width
 
 
 def _edit_distance(reference: Sequence[str], hypothesis: Sequence[str]) -> int:
