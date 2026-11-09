@@ -142,8 +142,8 @@ def test_cli_oracle_ceiling_writes_both_variants(tmp_path: Path) -> None:
     assert "| oracle |" in text
     assert "| oracle-ceiling |" in text
     assert "- corpus content sha256: `" in text
-    # Each of the two variants has an overall row and a manifest-tag row.
-    assert text.count("| N/A (0 / 1) | N/A |") == 4
+    # Each variant has an overall, a manifest-tag and a language row.
+    assert text.count("| N/A (0 / 1) | N/A |") == 6
     assert (
         text.count("| case-1 | zh | body | 0.0000 (0 / 5 chars) [0.0000, 0.4345] | N/A (`not-applicable`) |")
         == 2
