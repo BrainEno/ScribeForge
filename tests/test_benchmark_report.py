@@ -69,16 +69,16 @@ def test_render_report_summarizes_variants_and_per_case_results() -> None:
     assert "- generated: 2026-10-20T00:00:00Z" in lines
     assert "- variants: 2" in lines
     assert (
-        "| mineru | 1 | 0.2500 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 2.000 | 30.00 |"
+        "| mineru | 1 | 0.2500 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | - | - | 2.000 | 30.00 |"
         in lines
     )
     assert (
-        "| paddleocr | 1 | 0.5000 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 1.000 | 60.00 |"
+        "| paddleocr | 1 | 0.5000 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | - | - | 1.000 | 60.00 |"
         in lines
     )
     assert (
         "| case-1 | en | body,punctuation | 0.2500 | 0.5000 (`whitespace-v1`) | "
-        "0.7500 | 0 | 1 | 0 | 0 | 1 | 2 | - | - | 2.000 |" in lines
+        "0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | - | - | 2.000 |" in lines
     )
     assert text.index("| mineru |") < text.index("| paddleocr |")
     assert text.count("### mineru") == 1
@@ -236,7 +236,7 @@ def test_wer_aggregation_and_report_exclude_not_applicable_cases() -> None:
     assert "| ocr | 2 | 0.2500 [0.2500, 0.2500] | N/A | 0.5000 (1 / 2) | N/A |" in text
     assert "| english | en | body,punctuation | 0.2500 | 0.5000 (`whitespace-v1`) |" in text
     assert "| chinese | zh-Hant | body,punctuation | 0.2500 | N/A |" in text
-    assert "| 0.7500 | 1 | 1 | 1 | 0 | 0 | 2 |" in text
+    assert "| 0.7500 | 1 | 1 | 1 | 0 | 0 | - | - | 2 |" in text
     assert "`whitespace-v1` preserves case and punctuation" in text
     assert "WER can exceed 1.0" in text
     assert "Changed uses one-to-one `SequenceMatcher.ratio >= 0.5` text matching" in text
@@ -422,3 +422,28 @@ def test_report_marks_macro_interval_unavailable_for_a_single_case() -> None:
     # One case has no dispersion estimate, so the macro cell keeps the bare mean.
     assert "| ocr | 1 | 0.2500 | N/A |" in text
     assert "at least two cases" in text
+
+
+def test_report_shows_spatial_line_counts_only_when_declared() -> None:
+    geo = replace(_case(), spatial_missing_lines=1, spatial_extra_lines=2)
+    aggregate = aggregate_case_scores((geo,))
+    text = render_report(
+        (BenchmarkReport(engine="ocr", cases=(geo,), aggregate=aggregate),),
+        corpus="c",
+        manifest_sha256="h",
+        generated_at="now",
+    )
+
+    assert "| Spatial Missing | Spatial Extra |" in text
+    assert "| ocr | 1 |" in text and "| 1 | 2 |" in text
+    assert "| case-1 | en | body,punctuation |" in text and "| 1 | 2 |" in text
+    assert "IoU >= 0.5" in text
+
+    plain = aggregate_case_scores((_case(),))
+    text = render_report(
+        (BenchmarkReport(engine="ocr", cases=(_case(),), aggregate=plain),),
+        corpus="c",
+        manifest_sha256="h",
+        generated_at="now",
+    )
+    assert "| - | - |" in text
