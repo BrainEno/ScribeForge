@@ -2318,6 +2318,61 @@ def test_benchmark_include_pipeline_reports_conservative_unresolved_pairs(
     assert "| 1 | 0 |" in report
 
 
+_ALIGNMENT_FIXTURES = Path(__file__).parent / "fixtures" / "alignment_groundtruth.json"
+
+
+def test_alignment_eval_writes_markdown_report_for_labelled_fixtures(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from scribeforge.cli import run
+
+    out_path = tmp_path / "alignment_report.md"
+    code = run(
+        ["alignment-eval", "--fixtures", str(_ALIGNMENT_FIXTURES), "--out", str(out_path)]
+    )
+
+    assert code == 0
+    report = out_path.read_text(encoding="utf-8")
+    assert "# Alignment evaluation" in report
+    assert "| rotated-text-is-not-force-matched |" in report
+    assert "| aggregate |" in report
+    captured = capsys.readouterr()
+    assert "precision=" in captured.out
+
+
+def test_alignment_eval_json_output_is_machine_readable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+
+    from scribeforge.cli import run
+
+    code = run(
+        ["alignment-eval", "--fixtures", str(_ALIGNMENT_FIXTURES), "--json"],
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["sample_count"] == 11
+    totals = payload["totals"]
+    assert totals["precision"] == 1.0
+    assert totals["reading_order_errors"] == 0
+    assert any(s["name"] == "close-score-alternatives-are-ambiguous" for s in payload["samples"])
+
+
+def test_alignment_eval_rejects_a_malformed_fixture_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from scribeforge.cli import run
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("[]", encoding="utf-8")
+    code = run(["alignment-eval", "--fixtures", str(bad)])
+
+    assert code == 2
+    assert "cannot load alignment fixtures" in capsys.readouterr().err
+
+
 def test_benchmark_pipeline_requires_both_backends(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
