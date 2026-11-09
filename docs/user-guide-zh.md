@@ -327,7 +327,7 @@ cd clients\flutter_desktop
 flutter run -d windows
 ```
 
-首次启动会生成 Windows 桌面 runner 并拉取 Flutter 依赖。macOS/Linux 可分别运行 `sh tool/bootstrap_desktop.sh`，再使用相应平台的 `flutter run` 命令。桌面端负责组织工作流；Python CLI 与本机运行时仍需按第 3、4 节安装。目前尚未发布可直接安装的 Windows 预编译包；打包方向与发布验收条件见 [Windows 桌面分发方案](windows-desktop-distribution.md)。
+首次启动会生成 Windows 桌面 runner 并拉取 Flutter 依赖。bootstrap 脚本会把依赖解析固定到官方 `https://pub.dev` 与 `https://storage.googleapis.com`（可用环境变量 `PUB_HOSTED_URL` / `FLUTTER_STORAGE_BASE_URL` 覆盖）。如果你绕过脚本直接 `flutter run` 时遇到 `Downloaded archive ... had wrong content-hash`（常见于 pub.flutter-io.cn 这类镜像重打包了 pdfrx 归档），请先执行一次 bootstrap 脚本，或在自己的终端里把上述两个环境变量指向官方地址后再运行。macOS/Linux 可分别运行 `sh tool/bootstrap_desktop.sh`，再使用相应平台的 `flutter run` 命令。桌面端负责组织工作流；本机运行时仍需按第 3、4 节安装。目前尚未发布可直接安装的 Windows 预编译包；打包方向与发布验收条件见 [Windows 桌面分发方案](windows-desktop-distribution.md)。
 
 ### 7.1 导入或打开项目
 
@@ -340,7 +340,7 @@ flutter run -d windows
 
 ### 7.2 首次运行检查与处理
 
-第一次使用前，进入 **设置**，查看运行时状态；若尚未安装 OCR 运行时，点击 **运行时配置 (setup)**。原生向导会分别显示 MinerU 与 PaddleOCR 的状态、当前安装阶段、步骤计数和失败步骤；全部安装失败或仅单个后端出错时，可从对应后端卡片重试/单独修复。安装完成或失败后，关闭向导会刷新状态；也可随时点击 **刷新运行时状态**。若 Python CLI 不在 PATH 中，可在 **命令行工具** 中填写完整可执行文件路径，例如 `D:\ScribeForge\.venv\Scripts\scribeforge.exe`。
+第一次使用前，进入 **设置**，查看运行时状态；若尚未安装 OCR 运行时，点击 **运行时配置 (setup)**。原生向导会分别显示 MinerU 与 PaddleOCR 的状态、当前安装阶段、步骤计数和失败步骤；全部安装失败或仅单个后端出错时，可从对应后端卡片重试/单独修复。安装完成或失败后，关闭向导会刷新状态；也可随时点击 **刷新运行时状态**。若 Python CLI 不在 PATH 中，推荐在 **设置 → 后端环境（Python 虚拟环境）** 中选择 Python 解释器与 ScribeForge 源码目录（留空会自动向上检测仓库根目录），然后点击 **自动创建后端环境**——客户端会自动创建虚拟环境、安装后端并完成 `--help` 冒烟检查，无需手动敲 venv/pip 命令。也可以继续在 **命令行工具** 中手动填写完整可执行文件路径，例如 `D:\ScribeForge\.venv\Scripts\scribeforge.exe`。
 
 进入 **处理** 并点击 **开始处理**。工作台调用 `scribeforge process --cancelable`，同时每秒读取 `scribeforge status --json`，显示已完成双引擎 OCR 的页数、当前运行的页面与阶段、任务计数及失败详情。OCR 页面调用默认期限为 600 秒；点击 **取消处理** 会向 CLI 发送取消消息并终止 worker 及其后代进程。失败或中断的阶段可重试，已保存的页图、OCR 证据和人工决策不会被覆盖。CLI 退出码 1 表示部分页面失败，2 表示源文件、输入或运行时错误，130 表示用户取消。
 

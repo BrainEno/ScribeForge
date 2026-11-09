@@ -77,6 +77,34 @@ class DesktopSettingsStore {
     await _writeSettings(settings);
   }
 
+  /// Directory that holds `settings.json`; the managed backend venv lives
+  /// beside it as `backend-venv`.
+  Directory get settingsDirectory => directory ?? _defaultDirectory();
+
+  Future<String> loadBackendPython() async {
+    final settings = await _readSettings();
+    final value = settings['backend_python'];
+    return value is String ? value.trim() : '';
+  }
+
+  Future<void> saveBackendPython(String pythonExecutable) async {
+    final settings = await _readSettings();
+    settings['backend_python'] = pythonExecutable.trim();
+    await _writeSettings(settings);
+  }
+
+  Future<String> loadBackendSourcePath() async {
+    final settings = await _readSettings();
+    final value = settings['backend_source_path'];
+    return value is String ? value.trim() : '';
+  }
+
+  Future<void> saveBackendSourcePath(String sourcePath) async {
+    final settings = await _readSettings();
+    settings['backend_source_path'] = sourcePath.trim();
+    await _writeSettings(settings);
+  }
+
   Future<DesktopVlmSettings> loadVlmSettings() async {
     final settings = await _readSettings();
     return DesktopVlmSettings.fromJson(settings['vlm_settings']);

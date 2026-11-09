@@ -14,11 +14,7 @@ A complete package contains `backend/scribeforge(.exe)` beside the Flutter appli
 
 - Flutter 3.47.7 stable (Dart 3.13+).
 - Windows, macOS, or Linux desktop development support.
-- For source-only development without a frozen side-by-side backend, install the CLI from the repository root:
-
-  ```bash
-  python -m pip install -e ".[dev]"
-  ```
+- For source-only development without a frozen side-by-side backend, no manual venv/pip commands are needed: open **设置 → 后端环境（Python 虚拟环境）**, choose the Python interpreter and the repository root (or let the client auto-detect it), then click **自动创建后端环境**. The client creates `backend-venv` under the settings directory, runs `pip install -e <repo root>` inside it, smoke-checks `scribeforge --help`, and points **命令行工具** at the resulting executable automatically.
 
   The explicit **设置 → 命令行工具** override remains available for this mode. Without an override or bundle, PATH is a development fallback and is identified as such in Settings.
 
@@ -35,6 +31,20 @@ flutter pub get
 
 Windows PowerShell users can run `./tool/bootstrap_desktop.ps1`; macOS/Linux users can run `sh tool/bootstrap_desktop.sh`. The generated `windows/`, `macos/`, and `linux/` folders are local platform runners. CI scaffolds them from Flutter templates before analyzing and testing.
 
+Both bootstrap scripts pin dependency resolution to the official `https://pub.dev` / `https://storage.googleapis.com` (unless you export `PUB_HOSTED_URL`/`FLUTTER_STORAGE_BASE_URL` yourself). Third-party pub mirrors such as `pub.flutter-io.cn` re-pack some archives (`pdfrx`, `pdfrx_engine`), which makes `flutter pub get` / `flutter run` abort with `Downloaded archive ... had wrong content-hash`. If you run `flutter run` directly and hit that error, either use the bootstrap script once or point your environment at the official endpoints:
+
+```powershell
+# PowerShell
+$env:PUB_HOSTED_URL = "https://pub.dev"
+$env:FLUTTER_STORAGE_BASE_URL = "https://storage.googleapis.com"
+```
+
+```bash
+# macOS/Linux
+export PUB_HOSTED_URL=https://pub.dev
+export FLUTTER_STORAGE_BASE_URL=https://storage.googleapis.com
+```
+
 Run the desktop app:
 
 ```bash
@@ -43,7 +53,7 @@ flutter run -d windows
 # or: flutter run -d linux
 ```
 
-If the CLI is not on `PATH`, open **Settings → 命令行工具** and enter the full path to the executable in the Python environment where ScribeForge is installed.
+If the CLI is not on `PATH`, either use **设置 → 后端环境（Python 虚拟环境） → 自动创建后端环境** (recommended; no commands to type) or open **Settings → 命令行工具** and enter the full path to the executable in the Python environment where ScribeForge is installed.
 
 ## Guided workflow
 
@@ -53,7 +63,7 @@ If the CLI is not on `PATH`, open **Settings → 命令行工具** and enter the
 4. **候选比较** — After every page has both OCR results, choose **生成 OCR 候选 EPUB** to call `export-candidates`, or load two EPUBs manually. Compare aligned pages and line differences, jump to the next differing page, and explicitly rate each page **A/B/Tie/稍后再评**. These quality ratings and whole-book notes are saved to `<source>.scribeforge-review.json`, bound to source/candidate SHA-256 values. They do not accept text, alter the trusted review queue, or unblock final export. A failed generation can be retried.
 5. **导出** — Select EPUB 3 or DOCX, choose an output folder (the filename follows the book title and format), and set language plus optional author. Strict acceptance blocks export when unresolved content remains. Candidate OCR output is not an accepted final export.
 6. **项目安全** — Run the read-only audit and inspect database/page-evidence findings; choose a backup directory to create a non-overwriting ZIP; select a ZIP to verify its hashes and SQLite integrity; then choose a parent folder and explicitly confirm restore to a generated new directory. The UI binds restore eligibility to the verified archive fingerprint, surfaces CLI errors for retry, and loads a successful restore into the workbench. Existing project directories are never overwritten.
-7. **设置** — Inspect runtime and hardware status, launch the first-run setup wizard, refresh status, configure the CLI executable, or explicitly opt in to VLM review. The VLM switch starts off; endpoint/API-key environment variable/timeout settings are saved locally, never secret values. Remote HTTPS requires a separate opt-in.
+7. **设置** — Inspect runtime and hardware status, launch the first-run setup wizard, refresh status, configure the CLI executable, provision the backend Python environment automatically (**后端环境 → 自动创建后端环境**, no manual venv/pip commands), or explicitly opt in to VLM review. The VLM switch starts off; endpoint/API-key environment variable/timeout settings are saved locally, never secret values. Remote HTTPS requires a separate opt-in.
 
 Each project store is expected to contain one book. Before processing, the client checks the selected source path and SHA-256 against the project record. If a source has moved, **重新关联源文件** calls `relink-source`; it updates only the path after the source bytes match. A modified source is not silently applied to old jobs or OCR evidence.
 

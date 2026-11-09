@@ -526,9 +526,27 @@ class _MemorySettingsStore extends DesktopSettingsStore {
 
   String _cliExecutable = DesktopSettingsStore.defaultCliExecutable;
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
+  String _backendPython = '';
+  String _backendSourcePath = '';
 
   @override
   Future<String> loadCliExecutable() async => _cliExecutable;
+
+  @override
+  Future<String> loadBackendPython() async => _backendPython;
+
+  @override
+  Future<void> saveBackendPython(String pythonExecutable) async {
+    _backendPython = pythonExecutable;
+  }
+
+  @override
+  Future<String> loadBackendSourcePath() async => _backendSourcePath;
+
+  @override
+  Future<void> saveBackendSourcePath(String sourcePath) async {
+    _backendSourcePath = sourcePath;
+  }
 
   @override
   Future<void> saveCliExecutable(String executable) async {
