@@ -201,6 +201,52 @@ def _tag_rows(reports: Sequence[BenchmarkReport], *, confidence: float) -> list[
     return lines
 
 
+def _language_rows(reports: Sequence[BenchmarkReport], *, confidence: float) -> list[str]:
+    """Aggregate the same metrics per declared case language.
+
+    Languages are manifest metadata, not inferred classes. A language that has
+    no corpus case simply has no row, so a claim about an unsupported language
+    stays visible as an absence instead of being averaged away.
+    """
+
+    ci = f"{confidence:.0%} CI"
+    languages = sorted({case.language for report in reports for case in report.cases})
+    if not languages:
+        return []
+    lines = [
+        "## Results by language",
+        "",
+        (
+            f"| Variant | Language | Cases | Macro CER ({ci}) | Micro CER (edits / chars, {ci}) "
+            f"| Macro WER (applicable / total, {ci}) | Micro WER (edits / words, {ci}) |"
+        ),
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for report in reports:
+        for language in languages:
+            cases = tuple(case for case in report.cases if case.language == language)
+            if not cases:
+                continue
+            aggregate = aggregate_case_scores(cases)
+            lines.append(
+                f"| {report.engine} | {language} | {len(cases)} | "
+                f"{_macro_rate(aggregate.mean_cer, [case.cer for case in cases], confidence=confidence)} | "
+                f"{_micro_cer(aggregate, confidence=confidence)} | "
+                f"{_aggregate_wer(aggregate, cases, confidence=confidence)} | "
+                f"{_micro_wer(aggregate, confidence=confidence)} |"
+            )
+    lines += [
+        "",
+        (
+            "> Languages are declared manifest metadata, not inferred classes; a language "
+            "without corpus cases has no row, so unsupported-language claims remain visible "
+            "as an absence."
+        ),
+        "",
+    ]
+    return lines
+
+
 def render_report(
     reports: Sequence[BenchmarkReport],
     *,
@@ -229,11 +275,20 @@ def render_report(
     ]
     if corpus_sha256 is not None:
         lines.append(f"- corpus content sha256: `{corpus_sha256}`")
+    language_counts: dict[str, int] = {}
+    for report in reports:
+        for case in report.cases:
+            language_counts[case.language] = language_counts.get(case.language, 0) + 1
+    languages_summary = ", ".join(
+        f"`{language}` ({count})" for language, count in sorted(language_counts.items())
+    )
     lines += [
         f"- generated: {generated_at}",
         f"- ground-truth review: `{review_status}`",
         f"- variants: {len(reports)}",
     ]
+    if languages_summary:
+        lines.append(f"- declared languages: {languages_summary}")
     if ground_truth_note is not None and ground_truth_note.strip():
         note = " ".join(ground_truth_note.split())
         lines += [f"> Ground-truth note: {note}", ""]
@@ -332,6 +387,9 @@ def render_report(
     tag_rows = _tag_rows(reports, confidence=confidence)
     if tag_rows:
         lines += [""] + tag_rows
+    language_rows = _language_rows(reports, confidence=confidence)
+    if language_rows:
+        lines += [""] + language_rows
 
     lines += ["", "## Per-case results", ""]
     for report in reports:

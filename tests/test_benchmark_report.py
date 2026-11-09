@@ -452,6 +452,47 @@ def test_report_marks_macro_interval_unavailable_for_a_single_case() -> None:
     assert "at least two cases" in text
 
 
+def test_report_stratifies_results_by_declared_language() -> None:
+    """#68: language coverage must be visible, not hidden in an overall mean."""
+
+    english = replace(
+        _case(case_id="en-1", cer=0.1, tags=()),
+        language="en",
+        wer=0.2,
+        character_errors=1,
+        reference_characters=10,
+        word_errors=1,
+        reference_words=5,
+    )
+    chinese = replace(
+        _case(case_id="zh-1", cer=0.4, tags=()),
+        language="zh-Hant",
+        wer=None,
+        word_tokenizer="not-applicable",
+        character_errors=2,
+        reference_characters=5,
+    )
+    aggregate = aggregate_case_scores((english, chinese))
+    text = render_report(
+        (BenchmarkReport(engine="ocr", cases=(english, chinese), aggregate=aggregate),),
+        corpus="c",
+        manifest_sha256="h",
+        generated_at="now",
+    )
+
+    assert "- declared languages: `en` (1), `zh-Hant` (1)" in text.splitlines()
+    assert "## Results by language" in text
+    assert (
+        "| ocr | en | 1 | 0.1000 | 0.1000 (1 / 10) [0.0179, 0.4042] | "
+        "0.2000 (1 / 1) | 0.2000 (1 / 5) [0.0362, 0.6245] |" in text
+    )
+    assert (
+        "| ocr | zh-Hant | 1 | 0.4000 | 0.4000 (2 / 5) [0.1176, 0.7693] | "
+        "N/A (0 / 1) | N/A |" in text
+    )
+    assert "declared manifest metadata" in text
+
+
 def test_report_shows_spatial_line_counts_only_when_declared() -> None:
     geo = replace(_case(), spatial_missing_lines=1, spatial_extra_lines=2)
     aggregate = aggregate_case_scores((geo,))
