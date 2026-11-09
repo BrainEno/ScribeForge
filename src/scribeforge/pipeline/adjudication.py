@@ -90,9 +90,7 @@ def _line_box(result: PageOCRResult, indexes: tuple[int, ...]) -> BoundingBox | 
     return merged
 
 
-def _merge_boxes(
-    primary: BoundingBox | None, secondary: BoundingBox | None
-) -> BoundingBox | None:
+def _merge_boxes(primary: BoundingBox | None, secondary: BoundingBox | None) -> BoundingBox | None:
     if primary is None:
         return secondary
     if secondary is None:
@@ -161,9 +159,7 @@ def _pair_context(
     pair = record.alignment.pairs[pair_index]
     primary = store.load_ocr_run(record.primary_run_id)
     secondary = store.load_ocr_run(record.secondary_run_id)
-    candidate = next(
-        (item for item in record.candidates if item.pair_index == pair_index), None
-    )
+    candidate = next((item for item in record.candidates if item.pair_index == pair_index), None)
     return _PairContext(
         record=record,
         primary_text=_line_text(primary, pair.primary_line_indexes),
@@ -344,9 +340,7 @@ def review_queue(
     return tuple(items)
 
 
-def _pair_furniture_reason(
-    page_furniture: Mapping[int, str], pair: LineAlignment
-) -> str | None:
+def _pair_furniture_reason(page_furniture: Mapping[int, str], pair: LineAlignment) -> str | None:
     # Furniture indexes are derived from the primary reading. Secondary line
     # indexes are a separate coordinate space and may collide with body indexes.
     for index in pair.primary_line_indexes:
@@ -355,9 +349,7 @@ def _pair_furniture_reason(
     return None
 
 
-def project_furniture(
-    store: SQLiteStore, project_id: int
-) -> Mapping[int, Mapping[int, str]]:
+def project_furniture(store: SQLiteStore, project_id: int) -> Mapping[int, Mapping[int, str]]:
     """Book-wide furniture detection from stored OCR runs.
 
     Public because every stage that walks pairs must agree on which ones are page
@@ -416,8 +408,11 @@ def review_detail(
         vlm_text=None if reading is None else reading.reading.text,
         vlm_uncertain=reading is not None and reading.reading.uncertain,
         crop_path=(
-            (_review_crop(reading) if store.load_vlm_crop_input(reading.id) is not None
-             else _materialized_crop(crops_dir, page_index, pair_index, candidate))
+            (
+                _review_crop(reading)
+                if store.load_vlm_crop_input(reading.id) is not None
+                else _materialized_crop(crops_dir, page_index, pair_index, candidate)
+            )
             if reading is not None
             else _materialized_crop(crops_dir, page_index, pair_index, candidate)
         ),

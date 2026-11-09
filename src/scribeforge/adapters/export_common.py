@@ -18,9 +18,7 @@ _LANGUAGE_TAG = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
 # XML 1.0 forbids most C0 controls and lone surrogates. Writing them would emit an
 # archive that no reader can parse, so the exporters reject them instead of
 # silently dropping characters from the source text.
-_XML_INVALID = re.compile(
-    r"[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]"
-)
+_XML_INVALID = re.compile(r"[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 
 
 def epub_image_name(image: VerifiedImage) -> str:
@@ -51,8 +49,7 @@ def require_xml_text(value: str, *, context: str) -> str:
     match = _XML_INVALID.search(value)
     if match is not None:
         raise ValueError(
-            f"{context} contains a character XML cannot represent: "
-            f"U+{ord(match.group()):04X}"
+            f"{context} contains a character XML cannot represent: U+{ord(match.group()):04X}"
         )
     return value
 
@@ -82,17 +79,13 @@ def validate_book_text(book: VerifiedBook, *, author: str | None) -> None:
             require_xml_text(line, context=f"page {page.page_index} line {line_index}")
 
 
-def write_zip_entry(
-    archive: zipfile.ZipFile, name: str, text: str, compression: int
-) -> None:
+def write_zip_entry(archive: zipfile.ZipFile, name: str, text: str, compression: int) -> None:
     """Write one UTF-8 entry with a fixed timestamp for reproducible archives."""
 
     write_zip_bytes(archive, name, text.encode("utf-8"), compression)
 
 
-def write_zip_bytes(
-    archive: zipfile.ZipFile, name: str, data: bytes, compression: int
-) -> None:
+def write_zip_bytes(archive: zipfile.ZipFile, name: str, data: bytes, compression: int) -> None:
     """Write one binary entry with the same fixed timestamp as text entries.
 
     Page rasters go through here: an image must be byte-identical to the evidence

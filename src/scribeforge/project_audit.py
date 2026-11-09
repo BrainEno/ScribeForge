@@ -204,14 +204,18 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
         invalid_evidence = False
         try:
             evidence = parse_page_asset_evidence(
-                page["page_asset_sha256"], page["page_asset_byte_size"],
-                page["page_asset_parameters_json"], page["page_asset_version"],
+                page["page_asset_sha256"],
+                page["page_asset_byte_size"],
+                page["page_asset_parameters_json"],
+                page["page_asset_version"],
             )
         except PageAssetError as exc:
             findings.append(
                 AuditFinding(
-                    "page_asset_evidence_invalid", "error",
-                    f"{page_label}: {exc}.", str(page_path),
+                    "page_asset_evidence_invalid",
+                    "error",
+                    f"{page_label}: {exc}.",
+                    str(page_path),
                 )
             )
             evidence = None
@@ -220,8 +224,10 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
         if not page_path.is_file():
             findings.append(
                 AuditFinding(
-                    "page_asset_missing", "error",
-                    f"Source image for {page_label} is missing.", str(page_path),
+                    "page_asset_missing",
+                    "error",
+                    f"Source image for {page_label} is missing.",
+                    str(page_path),
                 )
             )
             continue
@@ -258,7 +264,8 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
         elif evidence is not None and actual_size != evidence.byte_size:
             findings.append(
                 AuditFinding(
-                    "page_asset_size_mismatch", "error",
+                    "page_asset_size_mismatch",
+                    "error",
                     f"{page_label}: raster size differs from recorded page asset evidence.",
                     str(page_path),
                 )
@@ -289,13 +296,11 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
     )
 
 
-
-def _audit_decision_bindings(
-    connection: sqlite3.Connection, findings: list[AuditFinding]
-) -> None:
-    tables = {str(row[0]) for row in connection.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table'"
-    )}
+def _audit_decision_bindings(connection: sqlite3.Connection, findings: list[AuditFinding]) -> None:
+    tables = {
+        str(row[0])
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
     if not {"verification_runs", "alignments", "decisions"}.issubset(tables):
         return
     pages = connection.execute(
@@ -311,15 +316,19 @@ def _audit_decision_bindings(
         ):
             message = (
                 "has no verification citation; provenance is unknown"
-                if status == "unknown" else
-                f"cannot be safely applied to latest verification {latest}; preserve the "
+                if status == "unknown"
+                else f"cannot be safely applied to latest verification {latest}; preserve the "
                 "history and reprocess in a new project"
             )
-            findings.append(AuditFinding(
-                f"decision_verification_{status}", "warning",
-                f"project {page['project_id']} page {int(page['page_index']) + 1} "
-                f"pair {decision['pair_index']}: decision {decision['id']} {message}.",
-            ))
+            findings.append(
+                AuditFinding(
+                    f"decision_verification_{status}",
+                    "warning",
+                    f"project {page['project_id']} page {int(page['page_index']) + 1} "
+                    f"pair {decision['pair_index']}: decision {decision['id']} {message}.",
+                )
+            )
+
 
 def _report(
     root: Path,

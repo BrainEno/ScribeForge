@@ -37,9 +37,7 @@ def _add_page(
 ) -> None:
     store.add_page(project_id, page_index, f"pages/{page_index}.png", 100, 200)
     lines = tuple(_line(text, 0.1 + 0.1 * index) for index, text in enumerate(texts))
-    primary_id = store.record_ocr(
-        project_id, PageOCRResult(page_index, "primary", "1.0", lines)
-    )
+    primary_id = store.record_ocr(project_id, PageOCRResult(page_index, "primary", "1.0", lines))
     secondary_id = store.record_ocr(
         project_id, PageOCRResult(page_index, "secondary", "1.0", lines)
     )

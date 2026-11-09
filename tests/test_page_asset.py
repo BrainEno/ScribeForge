@@ -60,9 +60,7 @@ def test_verify_page_asset_rejects_replaced_raster(tmp_path: Path) -> None:
     evidence = PageAssetEvidence.from_bytes(b"original bytes")
 
     path.write_bytes(b"replacement bytes")
-    with pytest.raises(
-        PageAssetError, match="not the raster this project recorded"
-    ):
+    with pytest.raises(PageAssetError, match="not the raster this project recorded"):
         verify_page_asset(path, evidence, what="test raster")
 
 
@@ -166,9 +164,11 @@ def test_rehash_does_not_clobber_evidence_recorded_during_hashing(
     def concurrent_record(path: Path) -> tuple[str, int]:
         actual = measure(path)
         with closing(sqlite3.connect(database)) as db, db:
-            db.execute("""UPDATE pages SET page_asset_sha256=?, page_asset_byte_size=?,
+            db.execute(
+                """UPDATE pages SET page_asset_sha256=?, page_asset_byte_size=?,
                         page_asset_version=1, page_asset_parameters_json=? WHERE id=?""",
-                       (legitimate.sha256, legitimate.byte_size, '{"source": "other"}', page_id))
+                (legitimate.sha256, legitimate.byte_size, '{"source": "other"}', page_id),
+            )
         return actual
 
     monkeypatch.setattr(storage, "_measure_page_asset", concurrent_record)
@@ -247,9 +247,11 @@ def test_batch_rehash_refuses_evidence_added_after_page_listing(
 
     def record_before_rehash(*args, **kwargs):
         with closing(sqlite3.connect(database)) as db, db:
-            db.execute("UPDATE pages SET page_asset_sha256=?, page_asset_byte_size=?, "
-                       "page_asset_version=1 WHERE id=?",
-                       (hashlib.sha256(data).hexdigest(), len(data), page_id))
+            db.execute(
+                "UPDATE pages SET page_asset_sha256=?, page_asset_byte_size=?, "
+                "page_asset_version=1 WHERE id=?",
+                (hashlib.sha256(data).hexdigest(), len(data), page_id),
+            )
         return rehash(*args, **kwargs)
 
     monkeypatch.setattr(store, "rehash_page_asset", record_before_rehash)
@@ -300,7 +302,9 @@ def test_rehash_refuses_page_path_changed_during_measurement(
         result = measure(path)
         if not changed:
             with closing(sqlite3.connect(database)) as db, db:
-                db.execute("UPDATE pages SET source_image=? WHERE id=?", (str(replacement), page_id))
+                db.execute(
+                    "UPDATE pages SET source_image=? WHERE id=?", (str(replacement), page_id)
+                )
             changed = True
         return result
 
@@ -314,14 +318,17 @@ def test_rehash_refuses_page_path_changed_during_measurement(
     assert replacement.read_bytes() == b"replacement"
 
 
-@pytest.mark.parametrize("column,value", [
-    ("page_asset_byte_size", None),
-    ("page_asset_byte_size", 999),
-    ("page_asset_parameters_json", None),
-    ("page_asset_parameters_json", "invalid json"),
-    ("page_asset_parameters_json", "[]"),
-    ("page_asset_version", None),
-])
+@pytest.mark.parametrize(
+    "column,value",
+    [
+        ("page_asset_byte_size", None),
+        ("page_asset_byte_size", 999),
+        ("page_asset_parameters_json", None),
+        ("page_asset_parameters_json", "invalid json"),
+        ("page_asset_parameters_json", "[]"),
+        ("page_asset_version", None),
+    ],
+)
 def test_rehash_does_not_invent_incomplete_recorded_metadata(
     tmp_path: Path, column: str, value: object
 ) -> None:
@@ -336,8 +343,9 @@ def test_rehash_does_not_invent_incomplete_recorded_metadata(
     pid = store.create_project("book", "book.pdf", "hash")
     image = tmp_path / "page.png"
     image.write_bytes(b"page")
-    page_id = store.add_page(pid, 0, str(image), 10, 20,
-                             page_asset=PageAssetEvidence.from_bytes(b"page"))
+    page_id = store.add_page(
+        pid, 0, str(image), 10, 20, page_asset=PageAssetEvidence.from_bytes(b"page")
+    )
     with closing(sqlite3.connect(database)) as db, db:
         db.execute(f"UPDATE pages SET {column}=? WHERE id=?", (value, page_id))
     before = store.list_pages(pid)[0]
@@ -346,11 +354,14 @@ def test_rehash_does_not_invent_incomplete_recorded_metadata(
     assert store.list_pages(pid)[0] == before
 
 
-@pytest.mark.parametrize("column,value", [
-    ("page_asset_byte_size", 17),
-    ("page_asset_parameters_json", '{"dpi": 300}'),
-    ("page_asset_version", 2),
-])
+@pytest.mark.parametrize(
+    "column,value",
+    [
+        ("page_asset_byte_size", 17),
+        ("page_asset_parameters_json", '{"dpi": 300}'),
+        ("page_asset_version", 2),
+    ],
+)
 def test_rehash_does_not_overwrite_partial_evidence_without_digest(
     tmp_path: Path, column: str, value: object
 ) -> None:
@@ -402,8 +413,10 @@ def test_rehash_does_not_overwrite_partial_evidence_created_while_hashing(
         result = measure(path)
         if not changed:
             with closing(sqlite3.connect(database)) as db, db:
-                db.execute("UPDATE pages SET page_asset_parameters_json=? WHERE id=?",
-                           ('{"dpi": 300}', page_id))
+                db.execute(
+                    "UPDATE pages SET page_asset_parameters_json=? WHERE id=?",
+                    ('{"dpi": 300}', page_id),
+                )
             changed = True
         return result
 

@@ -137,14 +137,11 @@ def run_windows_smoke(
         runner=command_runner,
         environment=environment,
     )
-    document = json.loads(
-        (evidence_dir / "worker-result.json").read_text(encoding="utf-8")
-    )
+    document = json.loads((evidence_dir / "worker-result.json").read_text(encoding="utf-8"))
     lines = document["lines"]
     tokens = sum(len(line.get("tokens", [])) for line in lines)
     message = (
-        f"real PP-OCRv4 Windows smoke passed: {len(lines)} lines, "
-        f"{tokens} native word boxes\n"
+        f"real PP-OCRv4 Windows smoke passed: {len(lines)} lines, {tokens} native word boxes\n"
     )
     sys.stdout.write(message)
     _append_log(runner_log, message)

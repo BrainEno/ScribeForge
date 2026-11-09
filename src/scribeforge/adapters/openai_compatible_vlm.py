@@ -107,9 +107,7 @@ def _image_data_url(path: Path) -> str:
     mime_types = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}
     mime_type = mime_types.get(image_format or "")
     if mime_type is None:
-        raise VLMAdapterError(
-            f"unsupported VLM review crop format: {image_format or 'unknown'}"
-        )
+        raise VLMAdapterError(f"unsupported VLM review crop format: {image_format or 'unknown'}")
     encoded = base64.b64encode(data).decode("ascii")
     return f"data:{mime_type};base64,{encoded}"
 
@@ -190,9 +188,7 @@ class OpenAICompatibleVLMReviewer:
             suffix = f": {detail}" if detail else ""
             raise VLMAdapterError(f"VLM endpoint returned HTTP {exc.code}{suffix}") from exc
         except (URLError, TimeoutError, OSError) as exc:
-            raise VLMAdapterError(
-                f"VLM request failed ({type(exc).__name__}): {exc}"
-            ) from exc
+            raise VLMAdapterError(f"VLM request failed ({type(exc).__name__}): {exc}") from exc
 
         if len(raw_response) > _MAX_RESPONSE_BYTES:
             raise VLMAdapterError("VLM endpoint response exceeds the 2 MiB limit")

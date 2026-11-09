@@ -387,9 +387,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_repair_arguments(process)
     _add_vlm_arguments(process)
 
-    setup = subparsers.add_parser(
-        "setup", help="Configure private OCR runtimes and models."
-    )
+    setup = subparsers.add_parser("setup", help="Configure private OCR runtimes and models.")
     setup.add_argument(
         "--runtime-root",
         type=Path,
@@ -443,7 +441,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Test a configured VLM endpoint with an explicit image without writing project data.",
     )
     vlm_check.add_argument(
-        "--image", type=Path, required=True, help="Image/crop to send for one diagnostic transcription."
+        "--image",
+        type=Path,
+        required=True,
+        help="Image/crop to send for one diagnostic transcription.",
     )
     vlm_check.add_argument(
         "--json", action="store_true", help="Emit a machine-readable diagnostic result."
@@ -503,18 +504,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Check project database integrity and referenced source assets without repairing them.",
     )
     audit.add_argument("--store", type=Path, required=True, help="Project store directory.")
-    audit.add_argument(
-        "--json", action="store_true", help="Emit a stable JSON audit report."
-    )
+    audit.add_argument("--json", action="store_true", help="Emit a stable JSON audit report.")
 
     rehash_pages = subparsers.add_parser(
         "rehash-pages",
         help="Record page asset digests for pages that were imported before schema v11.",
     )
     rehash_pages.add_argument("--store", type=Path, required=True, help="Project store directory.")
-    rehash_pages.add_argument(
-        "--json", action="store_true", help="Emit a JSON rehash report."
-    )
+    rehash_pages.add_argument("--json", action="store_true", help="Emit a JSON rehash report.")
 
     backup = subparsers.add_parser(
         "backup",
@@ -531,7 +528,9 @@ def build_parser() -> argparse.ArgumentParser:
         "verify-backup", help="Verify archive, SQLite, and recorded evidence in a temporary store."
     )
     verify_backup.add_argument("--backup", type=Path, required=True, help="Backup ZIP archive.")
-    verify_backup.add_argument("--json", action="store_true", help="Emit a JSON verification report.")
+    verify_backup.add_argument(
+        "--json", action="store_true", help="Emit a JSON verification report."
+    )
 
     restore = subparsers.add_parser(
         "restore", help="Restore a verified backup into a new project directory."
@@ -566,9 +565,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit schema-versioned review evidence as JSON."
     )
 
-    resolve = subparsers.add_parser(
-        "resolve", help="Record a human decision for one page pair."
-    )
+    resolve = subparsers.add_parser("resolve", help="Record a human decision for one page pair.")
     resolve.add_argument("--store", type=Path, required=True, help="Project store directory.")
     resolve.add_argument(
         "--project-id", type=int, default=None, help="Project ID (defaults to the first project)."
@@ -597,9 +594,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Why this page has no text; recorded in the audit trail.",
     )
 
-    ui = subparsers.add_parser(
-        "ui", help="Open the read-only desktop shell for a project store."
-    )
+    ui = subparsers.add_parser("ui", help="Open the read-only desktop shell for a project store.")
     ui.add_argument("--store", type=Path, required=True, help="Project store directory.")
 
     export = subparsers.add_parser(
@@ -607,12 +602,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export.add_argument("--store", type=Path, required=True, help="Project store directory.")
     _add_include_page_furniture_argument(export)
-    export.add_argument(
-        "--out", type=Path, required=True, help="Destination .epub or .docx file."
-    )
-    export.add_argument(
-        "--language", default="und", help="BCP 47 language tag (default: und)."
-    )
+    export.add_argument("--out", type=Path, required=True, help="Destination .epub or .docx file.")
+    export.add_argument("--language", default="und", help="BCP 47 language tag (default: und).")
     export.add_argument(
         "--title", default=None, help="Override the book title (default: project title)."
     )
@@ -653,9 +644,7 @@ def build_parser() -> argparse.ArgumentParser:
             "OCR decisions are never modified; a JSON change report is always written."
         ),
     )
-    export.add_argument(
-        "--json", action="store_true", help="Emit a JSON export report."
-    )
+    export.add_argument("--json", action="store_true", help="Emit a JSON export report.")
 
     candidates = subparsers.add_parser(
         "export-candidates",
@@ -666,7 +655,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--out-dir", type=Path, required=True, help="Directory for candidate EPUBs and manifest."
     )
     candidates.add_argument(
-        "--project-id", type=int, default=None, help="Project ID (required when store has multiple projects)."
+        "--project-id",
+        type=int,
+        default=None,
+        help="Project ID (required when store has multiple projects).",
     )
     candidates.add_argument(
         "--engine",
@@ -675,9 +667,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME",
         help="OCR engine name, repeatable (default: mineru and paddleocr).",
     )
-    candidates.add_argument(
-        "--language", default="und", help="BCP 47 language tag (default: und)."
-    )
+    candidates.add_argument("--language", default="und", help="BCP 47 language tag (default: und).")
 
     benchmark = subparsers.add_parser(
         "benchmark", help="Score OCR engines against a benchmark corpus manifest."
@@ -691,9 +681,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Corpus root (default: the manifest directory).",
     )
-    benchmark.add_argument(
-        "--out", type=Path, required=True, help="Destination Markdown report."
-    )
+    benchmark.add_argument("--out", type=Path, required=True, help="Destination Markdown report.")
     benchmark.add_argument(
         "--runtime-root",
         type=Path,
@@ -804,6 +792,7 @@ def run(
         return _ui(args)
     if args.command == "benchmark":
         if benchmark_engine_factory is None:
+
             def build_default_benchmark_factory(
                 root: Path, backends: Sequence[str]
             ) -> tuple[OCREngine, ...]:
@@ -827,6 +816,7 @@ def run(
 
     uses_default_engine_factory = engine_factory is None
     if engine_factory is None:
+
         def build_default_engine_factory(runtime_root: Path) -> Engines:
             return default_engine_factory(
                 runtime_root,
@@ -873,9 +863,7 @@ def _preprocess_settings(args: argparse.Namespace) -> PreprocessSettings | None:
     max_skew = getattr(args, "preprocess_max_skew", None)
     return PreprocessSettings(
         operations=tuple(operations),
-        max_skew_degrees=(
-            default_settings().max_skew_degrees if max_skew is None else max_skew
-        ),
+        max_skew_degrees=(default_settings().max_skew_degrees if max_skew is None else max_skew),
     )
 
 
@@ -918,7 +906,11 @@ def _process(
                 source = open_page_source(snapshot)
                 import_started = True
                 imported = import_source(
-                    store, project_id, source, layout.assets_dir, reencode=reencode,
+                    store,
+                    project_id,
+                    source,
+                    layout.assets_dir,
+                    reencode=reencode,
                 )
         except ProcessingCancelled as exc:
             if not import_started:
@@ -957,8 +949,7 @@ def _process(
         return EXIT_FATAL
 
     print(
-        f"imported {len(imported.imported_page_indexes)} new page(s), "
-        f"{imported.page_count} total",
+        f"imported {len(imported.imported_page_indexes)} new page(s), {imported.page_count} total",
         file=out,
     )
     print(
@@ -1059,13 +1050,9 @@ def _structure_summary(report: StructureReport) -> str:
         f"chapters {report.chapters} from {report.chapter_source}"
     )
     if report.toc_entries:
-        summary += (
-            f" (contents lists {report.toc_entries}, {report.toc_mapped} anchored)"
-        )
+        summary += f" (contents lists {report.toc_entries}, {report.toc_mapped} anchored)"
     if report.blank_pages or report.plate_pages:
-        summary += (
-            f"; blank {len(report.blank_pages)}, plate {len(report.plate_pages)}"
-        )
+        summary += f"; blank {len(report.blank_pages)}, plate {len(report.plate_pages)}"
     return summary
 
 
@@ -1126,9 +1113,7 @@ def _repair(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> in
     project_id = projects[-1].id
     layout = StoreLayout(args.store)
     runtime_root: Path = (
-        args.runtime_root
-        if args.runtime_root is not None
-        else runtime_root_for_store(layout.root)
+        args.runtime_root if args.runtime_root is not None else runtime_root_for_store(layout.root)
     )
     settings = _repair_settings(args) or RepairSettings(max_rounds=1)
     try:
@@ -1146,9 +1131,7 @@ def _repair(args: argparse.Namespace, out: TextIO, factory: EngineFactory) -> in
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
-    summary = progress(
-        store, project_id, include_page_furniture=args.include_page_furniture
-    )
+    summary = progress(store, project_id, include_page_furniture=args.include_page_furniture)
     if args.json:
         print(
             json.dumps(
@@ -1199,9 +1182,8 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
             for job in jobs:
                 if job.page_index is not None and job.state.value == "succeeded":
                     successful_pages.setdefault(job.stage.value, set()).add(job.page_index)
-            dual_ocr_pages = (
-                successful_pages.get("primary_ocr", set())
-                & successful_pages.get("secondary_ocr", set())
+            dual_ocr_pages = successful_pages.get("primary_ocr", set()) & successful_pages.get(
+                "secondary_ocr", set()
             )
             failed_jobs = [
                 {
@@ -1499,10 +1481,15 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                     frame, path = verification_frame(store, project.id, page, verification_id)
                     frame_kind = frame.kind
                     frame_path = str(path)
-                    pair_reviews = [review for review in store.list_vlm_reviews(verification_id)
-                                    if review.pair_index == detail.pair_index]
+                    pair_reviews = [
+                        review
+                        for review in store.list_vlm_reviews(verification_id)
+                        if review.pair_index == detail.pair_index
+                    ]
                     if pair_reviews:
-                        evidence = verified_vlm_crop(store, verification_id, frame, pair_reviews[-1])
+                        evidence = verified_vlm_crop(
+                            store, verification_id, frame, pair_reviews[-1]
+                        )
                         trusted_crop_path = evidence.crop_path
                 except (ValueError, OSError, KeyError):
                     # Legacy or corrupt evidence must not be represented as a known frame.
@@ -1535,9 +1522,7 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                                         ),
                                         "score": alternative.score,
                                         "text_similarity": alternative.text_similarity,
-                                        "cross_axis_distance": (
-                                            alternative.cross_axis_distance
-                                        ),
+                                        "cross_axis_distance": (alternative.cross_axis_distance),
                                     }
                                     for alternative in detail.ambiguity.alternatives
                                 ],
@@ -1637,11 +1622,18 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
             trusted_crop_path = None
             try:
                 verification_id = store.latest_verification_id(project.id, item.page_index)
-                frame, _ = verification_frame(store, project.id, pages[item.page_index], verification_id)
-                reviews = [review for review in store.list_vlm_reviews(verification_id)
-                           if review.pair_index == item.pair_index]
+                frame, _ = verification_frame(
+                    store, project.id, pages[item.page_index], verification_id
+                )
+                reviews = [
+                    review
+                    for review in store.list_vlm_reviews(verification_id)
+                    if review.pair_index == item.pair_index
+                ]
                 if reviews:
-                    trusted_crop_path = verified_vlm_crop(store, verification_id, frame, reviews[-1]).crop_path
+                    trusted_crop_path = verified_vlm_crop(
+                        store, verification_id, frame, reviews[-1]
+                    ).crop_path
             except (ValueError, OSError, KeyError):
                 pass
             print(f"    crop={trusted_crop_path or 'none'}", file=out)
@@ -1675,9 +1667,7 @@ def _resolve(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     try:
-        decision_id = record_human_decision(
-            store, project.id, args.page, args.pair, args.text
-        )
+        decision_id = record_human_decision(store, project.id, args.page, args.pair, args.text)
     except KeyError as exc:
         message = exc.args[0] if exc.args else exc
         print(f"error: {message}", file=sys.stderr)
@@ -1727,8 +1717,7 @@ def _confirm(args: argparse.Namespace, out: TextIO) -> int:
         reason=reason,
     )
     print(
-        f"confirmed page {args.page} as {args.kind} "
-        f"(confirmation #{confirmation_id}): {reason}",
+        f"confirmed page {args.page} as {args.kind} (confirmation #{confirmation_id}): {reason}",
         file=out,
     )
     return EXIT_OK
@@ -1780,8 +1769,7 @@ def _report_blocked_export(exc: UnresolvedContentError, out: TextIO) -> None:
             file=out,
         )
         print(
-            "    if it is a plate or illustration with no caption to read: "
-            "--kind non_text",
+            "    if it is a plate or illustration with no caption to read: --kind non_text",
             file=out,
         )
         print("    otherwise those pages failed to read and must be re-run", file=out)
@@ -1991,8 +1979,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             )
     if book.chapters:
         print(
-            f"table of contents: {len(book.chapters)} chapter(s) from the book's "
-            "structure",
+            f"table of contents: {len(book.chapters)} chapter(s) from the book's structure",
             file=out,
         )
     print(
@@ -2048,9 +2035,7 @@ def _export_candidates(args: argparse.Namespace, out: TextIO) -> int:
             return EXIT_FATAL
         selected_project = projects[0]
     else:
-        selected_project = next(
-            (item for item in projects if item.id == args.project_id), None
-        )
+        selected_project = next((item for item in projects if item.id == args.project_id), None)
         if selected_project is None:
             print(f"error: unknown project ID: {args.project_id}", file=sys.stderr)
             return EXIT_FATAL
@@ -2192,9 +2177,7 @@ def _verify_corpus_fingerprint(
     return True
 
 
-def _benchmark(
-    args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFactory
-) -> int:
+def _benchmark(args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFactory) -> int:
     try:
         reviewer = _configured_vlm_reviewer(args, benchmark=True)
     except ValueError as exc:
@@ -2224,14 +2207,10 @@ def _benchmark(
         return EXIT_FATAL
 
     if args.oracle_ceiling:
-        return _oracle_ceiling(
-            args, out, manifest, root, manifest_path, corpus_fingerprint
-        )
+        return _oracle_ceiling(args, out, manifest, root, manifest_path, corpus_fingerprint)
 
     backends: list[str] = list(args.engine) if args.engine else ["mineru", "paddleocr"]
-    if args.include_pipeline and (
-        len(backends) != 2 or set(backends) != set(_PIPELINE_BACKENDS)
-    ):
+    if args.include_pipeline and (len(backends) != 2 or set(backends) != set(_PIPELINE_BACKENDS)):
         print(
             "error: --include-pipeline requires both mineru and paddleocr exactly once",
             file=sys.stderr,
@@ -2255,13 +2234,10 @@ def _benchmark(
         reports_list = [run_benchmark(manifest, root, engine) for engine in engines]
         if args.include_pipeline:
             engines_by_name = {engine.name: engine for engine in engines}
-            missing = [
-                name for name in ("mineru", "paddleocr") if name not in engines_by_name
-            ]
+            missing = [name for name in ("mineru", "paddleocr") if name not in engines_by_name]
             if missing:
                 raise ValueError(
-                    "benchmark factory did not provide required backend(s): "
-                    + ", ".join(missing)
+                    "benchmark factory did not provide required backend(s): " + ", ".join(missing)
                 )
             reports_list.append(
                 run_pipeline_benchmark(
@@ -2430,16 +2406,12 @@ def _oracle_ceiling(
         # Declare the reference geometry so the report can separate spatial
         # missing/extra lines from strict text-based LCS counts. The boxes are
         # aligned with the same scored text the runner computes.
-        reference_layout[case.id] = primary.boxes_for_text(
-            scoring_text(text), direction=direction
-        )
+        reference_layout[case.id] = primary.boxes_for_text(scoring_text(text), direction=direction)
 
     try:
         reports = [
             run_benchmark(manifest, root, primary, reference_layout=reference_layout),
-            run_pipeline_benchmark(
-                manifest, root, primary, secondary, label="oracle-ceiling"
-            ),
+            run_pipeline_benchmark(manifest, root, primary, secondary, label="oracle-ceiling"),
         ]
     except Exception as exc:  # noqa: BLE001 - a harness failure must fail loudly
         print(f"error: oracle ceiling failed: {exc}", file=sys.stderr)
@@ -2492,8 +2464,10 @@ def _vlm_check(args: argparse.Namespace, out: TextIO) -> int:
         print(f"error: VLM check failed: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
-    status = "uncertain" if reading.uncertain else (
-        "blank" if not reading.text.strip() else "transcribed"
+    status = (
+        "uncertain"
+        if reading.uncertain
+        else ("blank" if not reading.text.strip() else "transcribed")
     )
     report: dict[str, object] = {
         "schema_version": 1,
@@ -2512,7 +2486,10 @@ def _vlm_check(args: argparse.Namespace, out: TextIO) -> int:
         print(f"Image: {image_path.resolve()}", file=out)
         print(f"Transcription: {reading.text!r}", file=out)
         if status != "transcribed":
-            print("This result is diagnostic only; it has not been accepted as project text.", file=out)
+            print(
+                "This result is diagnostic only; it has not been accepted as project text.",
+                file=out,
+            )
 
     return EXIT_OK if status == "transcribed" else EXIT_PARTIAL
 
@@ -2666,8 +2643,7 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
         inspection_error = f"Could not inspect final runtime state: {exc}"
         message = f"{message}; {inspection_error}" if message else inspection_error
         backend_states: dict[str, dict[str, object]] = {
-            name: {"state": "unknown", "failed_step": None}
-            for name in ("mineru", "paddleocr")
+            name: {"state": "unknown", "failed_step": None} for name in ("mineru", "paddleocr")
         }
     else:
         backend_states = {}
@@ -2679,9 +2655,13 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
                 "state": state if isinstance(state, str) else "unknown",
                 "failed_step": failed_step if isinstance(failed_step, str) else None,
             }
-        target_backends = (args.backend,) if args.backend is not None else (
-            "mineru",
-            "paddleocr",
+        target_backends = (
+            (args.backend,)
+            if args.backend is not None
+            else (
+                "mineru",
+                "paddleocr",
+            )
         )
         if message is None and any(
             backend_states[name]["state"] != "ready" for name in target_backends

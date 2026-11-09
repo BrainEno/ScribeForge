@@ -7,9 +7,7 @@ def _page(engine: str, lines: list[tuple[str, float]]) -> PageOCRResult:
         page_index=0,
         engine=engine,
         engine_version="1",
-        lines=tuple(
-            OCRLine(text, BoundingBox(0.1, y, 0.8, 0.05)) for text, y in lines
-        ),
+        lines=tuple(OCRLine(text, BoundingBox(0.1, y, 0.8, 0.05)) for text, y in lines),
     )
 
 

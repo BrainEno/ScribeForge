@@ -113,9 +113,7 @@ def compile_lock(uv: str, name: str) -> str:
     source = SOURCE_DIR / name.replace(".txt", ".in")
     # Paddle's simple index omits upload timestamps, which uv rejects when a
     # global cutoff is present. The committed artifact hashes remain mandatory.
-    date_arguments = (
-        [] if name.startswith("paddleocr-") else ["--exclude-newer", EXCLUDE_NEWER]
-    )
+    date_arguments = [] if name.startswith("paddleocr-") else ["--exclude-newer", EXCLUDE_NEWER]
     with tempfile.TemporaryDirectory(prefix="scribeforge-lock-") as temporary:
         output = Path(temporary) / name
         subprocess.run(

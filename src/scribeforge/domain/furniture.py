@@ -224,14 +224,10 @@ def detect_page_furniture(
             folio = _extract_folio_from_margin_line(line.text)
             if folio is not None:
                 head = fold_for_comparison(
-                    _FOLIO_SUFFIX.sub("", _FOLIO_PREFIX.sub("", line.text)).strip(
-                        ".,:;-–—"
-                    )
+                    _FOLIO_SUFFIX.sub("", _FOLIO_PREFIX.sub("", line.text)).strip(".,:;-–—")
                 )
                 head_entry = counts.get(head, {}) if head else {}
-                head_pages = head_entry.get("all", set()) or head_entry.get(
-                    parity, set()
-                )
+                head_pages = head_entry.get("all", set()) or head_entry.get(parity, set())
                 if head and len(head_pages) >= repetition_min_pages:
                     found[index] = REASON_PAGE_NUMBER
                     continue
@@ -254,9 +250,7 @@ def furniture_line_indexes(
     """Convenience wrapper returning just the line indexes to exclude."""
 
     detected = detect_page_furniture(pages, repetition_min_pages=repetition_min_pages)
-    return {
-        page_index: frozenset(found) for page_index, found in detected.items()
-    }
+    return {page_index: frozenset(found) for page_index, found in detected.items()}
 
 
 def repeated_margin_texts(
@@ -275,8 +269,4 @@ def repeated_margin_texts(
     for result in pages:
         for key in margin_line_keys(result):
             counts.setdefault(key, set()).add(result.page_index)
-    return {
-        key: len(seen)
-        for key, seen in counts.items()
-        if len(seen) >= repetition_min_pages
-    }
+    return {key: len(seen) for key, seen in counts.items() if len(seen) >= repetition_min_pages}

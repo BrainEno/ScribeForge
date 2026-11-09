@@ -124,12 +124,12 @@ def preprocess_page(
     store.require_current_page(project_id, page)
     source_evidence = page.asset_evidence()
     if source_evidence is not None:
-        verify_page_asset(Path(page.source_image), source_evidence, what="preprocessing source image")
+        verify_page_asset(
+            Path(page.source_image), source_evidence, what="preprocessing source image"
+        )
 
     stored = store.load_preprocess(project_id, page.page_index)
-    job_id = store.ensure_job(
-        project_id, JobStage.PREPROCESS, page_index=page.page_index
-    )
+    job_id = store.ensure_job(project_id, JobStage.PREPROCESS, page_index=page.page_index)
     state = store.load_job(job_id).state
 
     if stored is not None and stored.settings != dict(settings.fingerprint()):
@@ -172,7 +172,8 @@ def preprocess_page(
                 "restore it from a verified backup"
             )
         destination = (
-            Path(stored.output_image) if stored is not None
+            Path(stored.output_image)
+            if stored is not None
             else assets_dir / preprocessed_asset_name(page.page_index)
         )
         width, height = _dimensions(data)

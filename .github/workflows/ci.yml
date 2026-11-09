@@ -17,6 +17,7 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
       - run: ruff check .
+      - run: ruff format --check .
       - run: mypy src
       - name: Run core tests
         run: >-

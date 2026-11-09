@@ -87,7 +87,9 @@ def test_adjudication_accepts_agreement_and_defers_disagreement(tmp_path: Path) 
     assert result.unresolved == (0,)
 
     decisions = store.list_decisions(project_id, 0, 1)
-    assert [(decision.selected_text, decision.actor) for decision in decisions] == [("乙", "automatic")]
+    assert [(decision.selected_text, decision.actor) for decision in decisions] == [
+        ("乙", "automatic")
+    ]
     assert decisions[0].evidence_refs == (
         f"verification_run:{verification_id}",
         f"engine_run:{primary_id}",
@@ -293,9 +295,7 @@ def _agreeing_page(
     secondary_id = store.record_ocr(
         project_id, PageOCRResult(0, "secondary", "1.0", (_line(text, 0.1),))
     )
-    alignment = PageAlignment(
-        0, "primary", "secondary", (LineAlignment(0, 0, 1.0, 0.0, ()),)
-    )
+    alignment = PageAlignment(0, "primary", "secondary", (LineAlignment(0, 0, 1.0, 0.0, ()),))
     pair_risk = risk if risk is not None else PairRisk(0, 0.0, ())
     verification_id = store.record_verification(
         primary_id, secondary_id, alignment, (pair_risk,), ()
@@ -342,7 +342,9 @@ def test_agreement_at_low_confidence_is_queued_not_accepted(tmp_path: Path) -> N
     store, project_id, verification_id = _agreeing_page(
         tmp_path,
         "鸦",
-        risk=PairRisk(0, 0.25, (RiskReason.LOW_CONFIDENCE,), min_confidence=0.1, content_score=0.25),
+        risk=PairRisk(
+            0, 0.25, (RiskReason.LOW_CONFIDENCE,), min_confidence=0.1, content_score=0.25
+        ),
     )
 
     result = adjudicate_verification(store, project_id, verification_id)
@@ -392,7 +394,9 @@ def test_blocked_decision_records_the_risk_that_blocked_it(tmp_path: Path) -> No
     store, project_id, verification_id = _agreeing_page(
         tmp_path,
         "鸚",
-        risk=PairRisk(0, 0.25, (RiskReason.LOW_CONFIDENCE,), min_confidence=0.1, content_score=0.25),
+        risk=PairRisk(
+            0, 0.25, (RiskReason.LOW_CONFIDENCE,), min_confidence=0.1, content_score=0.25
+        ),
     )
     adjudicate_verification(store, project_id, verification_id)
 
@@ -412,8 +416,12 @@ def test_adjudication_does_not_supersede_concurrent_human_decision(
     target = 1
     if machine_actor == "vlm":
         target = 0
-        store.record_vlm_review(verification, VLMReading(0, 0, "vlm", "1", "鸦", False),
-                                crop_path="crop.png", crop_sha256="a" * 64)
+        store.record_vlm_review(
+            verification,
+            VLMReading(0, 0, "vlm", "1", "鸦", False),
+            crop_path="crop.png",
+            crop_sha256="a" * 64,
+        )
     other = SQLiteStore(tmp_path / "project.sqlite3")
     append = store.append_decision
 
@@ -448,8 +456,10 @@ def test_concurrent_adjudications_do_not_duplicate_machine_decisions(
 
         monkeypatch.setattr(store, "append_decision", wait_for_other)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(adjudicate_verification, store, project, verification)
-                   for store in (first, second)]
+        futures = [
+            pool.submit(adjudicate_verification, store, project, verification)
+            for store in (first, second)
+        ]
         results = [future.result(timeout=20) for future in futures]
     assert sorted(result.recorded for result in results) == [0, 1]
     decisions = first.list_decisions(project, 0, 1)
@@ -465,22 +475,26 @@ def test_human_decision_still_supersedes_existing_machine_decision(tmp_path: Pat
     decisions = store.list_decisions(project, 0, 1)
     assert decisions[0] == prior[0]
     assert [(d.actor, d.selected_text) for d in decisions] == [
-        ("automatic", "乙"), ("human", "人工订正")
+        ("automatic", "乙"),
+        ("human", "人工订正"),
     ]
     assert store.latest_decision(project, 0, 1).selected_text == "人工订正"
 
 
 def _repeat_verification(store: SQLiteStore, verification_id: int) -> int:
     old = store.load_verification(verification_id)
-    return store.record_verification(old.primary_run_id, old.secondary_run_id,
-                                     old.alignment, old.risks, old.candidates)
+    return store.record_verification(
+        old.primary_run_id, old.secondary_run_id, old.alignment, old.risks, old.candidates
+    )
 
 
 def test_reverification_refuses_to_reinterpret_existing_decisions(tmp_path: Path) -> None:
     store, project, verification, _, _ = _two_engine_page(tmp_path)
     assert adjudicate_verification(store, project, verification).recorded == 1
     existing = store.list_decisions(project, 0, 1)
-    with pytest.raises(ValueError, match="(?i)(verification|decision).*(decision|project|reimport)"):
+    with pytest.raises(
+        ValueError, match="(?i)(verification|decision).*(decision|project|reimport)"
+    ):
         _repeat_verification(store, verification)
     assert store.latest_verification_id(project, 0) == verification
     assert store.list_decisions(project, 0, 1) == existing
@@ -525,7 +539,9 @@ def test_new_verification_during_decision_write_requires_retry(
         adjudicate_verification(store, project, new_ids[0])
     else:
         record_human_decision(store, project, 0, target, "人工文本")
-    assert f"verification_run:{new_ids[0]}" in store.latest_decision(project, 0, target).evidence_refs
+    assert (
+        f"verification_run:{new_ids[0]}" in store.latest_decision(project, 0, target).evidence_refs
+    )
 
 
 def test_concurrent_new_verification_and_decision_are_serialized(tmp_path: Path) -> None:
@@ -548,9 +564,15 @@ def test_concurrent_new_verification_and_decision_are_serialized(tmp_path: Path)
         barrier.wait()
         try:
             return "decision", store.append_decision(
-                project_id=project, page_index=0, pair_index=1, selected_text="乙",
-                actor="automatic", evidence_refs=(f"verification_run:{old}",),
-                expected_page=page, expected_verification_id=old, require_undecided=True,
+                project_id=project,
+                page_index=0,
+                pair_index=1,
+                selected_text="乙",
+                actor="automatic",
+                evidence_refs=(f"verification_run:{old}",),
+                expected_page=page,
+                expected_verification_id=old,
+                require_undecided=True,
             )
         except ValueError as exc:
             return "rejected_decision", str(exc)
@@ -561,7 +583,8 @@ def test_concurrent_new_verification_and_decision_are_serialized(tmp_path: Path)
         new_result = new_task.result(timeout=20)
         decision_result = decision_task.result(timeout=20)
     assert (new_result[0], decision_result[0]) in {
-        ("verification", "rejected_decision"), ("rejected_verification", "decision")
+        ("verification", "rejected_decision"),
+        ("rejected_verification", "decision"),
     }
     if new_result[0] == "verification":
         assert store.latest_verification_id(project, 0) == new_result[1]
@@ -591,27 +614,38 @@ def _historical_batches(tmp_path: Path) -> tuple[SQLiteStore, int, int, int]:
         0, "primary", "secondary", tuple(reversed(original.alignment.pairs))
     )
     new = store.record_verification(
-        primary, secondary, reversed_alignment,
-        (PairRisk(0, 0.0, ()), PairRisk(1, 0.5, (RiskReason.TEXT_DISAGREEMENT,))), (),
+        primary,
+        secondary,
+        reversed_alignment,
+        (PairRisk(0, 0.0, ()), PairRisk(1, 0.5, (RiskReason.TEXT_DISAGREEMENT,))),
+        (),
     )
     return store, project, old, new
 
 
 @pytest.mark.parametrize("path", ["assembly", "review", "detail", "progress", "repair"])
-def test_historical_decision_cannot_be_reinterpreted_as_new_pair(
-    tmp_path: Path, path: str
-) -> None:
+def test_historical_decision_cannot_be_reinterpreted_as_new_pair(tmp_path: Path, path: str) -> None:
     from scribeforge.pipeline.assembly import assemble_verified_content
     from scribeforge.pipeline.rounds import open_pairs, progress
 
     store, project, old, new = _historical_batches(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="乙", actor="human",
-                          evidence_refs=(f"verification_run:{new}",))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=(f"verification_run:{new}",),
+    )
     # This was pair 1 (乙) in the old run; pair 1 now means 鸦/雅.
-    store.append_decision(project_id=project, page_index=0, pair_index=1,
-                          selected_text="乙", actor="human",
-                          evidence_refs=(f"verification_run:{old}",))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=1,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=(f"verification_run:{old}",),
+    )
     with pytest.raises(ValueError, match="(?i)(ambiguous|verification).*(decision|batch)"):
         if path == "assembly":
             assemble_verified_content(store, project, include_page_furniture=True)
@@ -633,8 +667,14 @@ def test_multibatch_decision_without_provable_binding_is_rejected(
     tmp_path: Path, refs: tuple[str, ...]
 ) -> None:
     store, project, _, _ = _historical_batches(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="乙", actor="human", evidence_refs=refs)
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=refs,
+    )
     with pytest.raises(ValueError, match="(?i)(ambiguous|verification).*(decision|batch)"):
         store.latest_verification_id(project, 0)
 
@@ -642,12 +682,22 @@ def test_multibatch_decision_without_provable_binding_is_rejected(
 def test_multibatch_matching_latest_decisions_and_revisions_are_usable(tmp_path: Path) -> None:
     store, project, old, new = _historical_batches(tmp_path)
     assert store.latest_verification_id(project, 0) == new  # no decisions
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="历史", actor="human",
-                          evidence_refs=(f"verification_run:{old}",))
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="乙", actor="human",
-                          evidence_refs=(f"verification_run:{new}",))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="历史",
+        actor="human",
+        evidence_refs=(f"verification_run:{old}",),
+    )
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=(f"verification_run:{new}",),
+    )
     assert store.latest_verification_id(project, 0) == new
     assert review_detail(store, project, 0, 0).accepted_text == "乙"
     assert len(store.list_decisions(project, 0, 0)) == 2
@@ -655,55 +705,94 @@ def test_multibatch_matching_latest_decisions_and_revisions_are_usable(tmp_path:
 
 def test_multibatch_conflicting_verification_refs_rejected(tmp_path: Path) -> None:
     store, project, old, new = _historical_batches(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="乙", actor="human",
-                          evidence_refs=(f"verification_run:{new}", f"verification_run:{old}"))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=(f"verification_run:{new}", f"verification_run:{old}"),
+    )
     with pytest.raises(ValueError, match="(?i)(ambiguous|verification).*(decision|batch)"):
         store.latest_verification_id(project, 0)
 
 
 def test_multibatch_orphan_pair_rejected_even_if_it_cites_latest(tmp_path: Path) -> None:
     store, project, _, new = _historical_batches(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=9,
-                          selected_text="不可归属", actor="human",
-                          evidence_refs=(f"verification_run:{new}",))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=9,
+        selected_text="不可归属",
+        actor="human",
+        evidence_refs=(f"verification_run:{new}",),
+    )
     with pytest.raises(ValueError, match="(?i)(ambiguous|verification).*(decision|batch)"):
         store.latest_verification_id(project, 0)
 
 
 def test_single_batch_legacy_uncited_decision_remains_compatible(tmp_path: Path) -> None:
     store, project, only, _, _ = _two_engine_page(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="旧决定", actor="human", evidence_refs=())
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="旧决定",
+        actor="human",
+        evidence_refs=(),
+    )
     assert store.latest_verification_id(project, 0) == only
     assert review_detail(store, project, 0, 0).accepted_text == "旧决定"
 
 
 def test_human_cannot_append_on_ambiguous_history(tmp_path: Path) -> None:
     store, project, old, _ = _historical_batches(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=1,
-                          selected_text="乙", actor="human",
-                          evidence_refs=(f"verification_run:{old}",))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=1,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=(f"verification_run:{old}",),
+    )
     with pytest.raises(ValueError, match="ambiguous verification batch"):
         record_human_decision(store, project, 0, 1, "重新审阅")
     assert len(store.list_decisions(project, 0, 1)) == 1
 
 
-@pytest.mark.parametrize("refs", [(), ("verification_run:999",), ("verification_run:bad",),
-                                    ("verification_run:999", "verification_run:1")])
+@pytest.mark.parametrize(
+    "refs",
+    [
+        (),
+        ("verification_run:999",),
+        ("verification_run:bad",),
+        ("verification_run:999", "verification_run:1"),
+    ],
+)
 def test_guarded_decision_requires_exact_verification_citation(
     tmp_path: Path, refs: tuple[str, ...]
 ) -> None:
     store, project, verification, _, _ = _two_engine_page(tmp_path)
     with pytest.raises(ValueError, match="(?i)verification.*(citation|reference)"):
-        store.append_decision(project_id=project, page_index=0, pair_index=0,
-                              selected_text="鸦", actor="human", evidence_refs=refs,
-                              expected_verification_id=verification)
+        store.append_decision(
+            project_id=project,
+            page_index=0,
+            pair_index=0,
+            selected_text="鸦",
+            actor="human",
+            evidence_refs=refs,
+            expected_verification_id=verification,
+        )
     assert store.list_decisions(project, 0, 0) == ()
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="鸦", actor="human",
-                          evidence_refs=(f"verification_run:{verification}",),
-                          expected_verification_id=verification)
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="鸦",
+        actor="human",
+        evidence_refs=(f"verification_run:{verification}",),
+        expected_verification_id=verification,
+    )
     assert len(store.list_decisions(project, 0, 0)) == 1
 
 
@@ -715,20 +804,33 @@ def test_single_batch_explicitly_invalid_decision_cannot_be_used(tmp_path: Path,
     from scribeforge.project_audit import audit_project_store
 
     store, project, only, _, _ = _two_engine_page(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="鸦", actor="human",
-                          evidence_refs=(f"verification_run:{only}",))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="鸦",
+        actor="human",
+        evidence_refs=(f"verification_run:{only}",),
+    )
     refs = (f"verification_run:{only}",) if kind == "orphan" else ("verification_run:999",)
     if kind == "conflicting":
         refs = (f"verification_run:{only}", "verification_run:999")
     pair = 9 if kind == "orphan" else 1
-    decision = store.append_decision(project_id=project, page_index=0, pair_index=pair,
-                                     selected_text="乙", actor="human", evidence_refs=refs)
+    decision = store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=pair,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=refs,
+    )
     if kind == "malformed":
         with sqlite3.connect(tmp_path / "project.sqlite3") as db:
             db.execute("UPDATE decisions SET evidence_refs_json='{' WHERE id=?", (decision,))
     with pytest.raises(ValueError, match="ambiguous verification batch"):
         assemble_verified_content(store, project, include_page_furniture=True)
     report = audit_project_store(tmp_path)
-    assert any(f.code == "decision_verification_ambiguous" and f"decision {decision}" in f.message
-               for f in report.findings)
+    assert any(
+        f.code == "decision_verification_ambiguous" and f"decision {decision}" in f.message
+        for f in report.findings
+    )

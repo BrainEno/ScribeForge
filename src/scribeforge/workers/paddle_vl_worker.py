@@ -135,9 +135,7 @@ def extract_page(
     """
 
     document = _page_document(raw)
-    direction = reported_direction(
-        document.get("direction") or document.get("page_direction")
-    )
+    direction = reported_direction(document.get("direction") or document.get("page_direction"))
 
     lines: list[dict[str, Any]] = []
     blocks: list[dict[str, Any]] = []
@@ -209,9 +207,7 @@ def main() -> None:
         blocks=blocks,
         direction=direction,
     )
-    sys.stdout.buffer.write(
-        (json.dumps(document, ensure_ascii=False) + "\n").encode("utf-8")
-    )
+    sys.stdout.buffer.write((json.dumps(document, ensure_ascii=False) + "\n").encode("utf-8"))
     sys.stdout.buffer.flush()
 
 

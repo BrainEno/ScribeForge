@@ -65,9 +65,7 @@ def test_corpus_fingerprint_binds_manifest_images_and_transcriptions(
 
     manifest_data["description"] = "corpus revision two"
     manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
-    manifest_changed = fingerprint_corpus(
-        manifest_path, load_manifest(manifest_path), tmp_path
-    )
+    manifest_changed = fingerprint_corpus(manifest_path, load_manifest(manifest_path), tmp_path)
     assert manifest_changed.manifest_sha256 != image_changed.manifest_sha256
     assert manifest_changed.corpus_sha256 != image_changed.corpus_sha256
 
@@ -128,9 +126,7 @@ def test_validate_corpus_reports_a_missing_ground_truth(tmp_path: Path) -> None:
 
     problems = validate_corpus(_manifest(_case()), tmp_path)
 
-    assert [problem.problem for problem in problems] == [
-        "missing ground truth: case-1.txt"
-    ]
+    assert [problem.problem for problem in problems] == ["missing ground truth: case-1.txt"]
 
 
 def test_validate_corpus_reports_blank_ground_truth(tmp_path: Path) -> None:
@@ -157,7 +153,6 @@ def test_validate_corpus_rejects_an_empty_manifest(tmp_path: Path) -> None:
     problems = validate_corpus(_manifest(), tmp_path)
 
     assert [problem.problem for problem in problems] == ["manifest contains no cases"]
-
 
 
 def test_validate_corpus_rejects_absolute_paths_even_when_targets_exist(

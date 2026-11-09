@@ -68,9 +68,7 @@ class PreprocessSettings:
 
     def __post_init__(self) -> None:
         if not 0.0 < self.max_skew_degrees <= MAX_SKEW_DEGREES_LIMIT:
-            raise ValueError(
-                f"max_skew_degrees must be in (0, {MAX_SKEW_DEGREES_LIMIT}]"
-            )
+            raise ValueError(f"max_skew_degrees must be in (0, {MAX_SKEW_DEGREES_LIMIT}]")
         if not 0.0 <= self.contrast_cutoff < 50.0:
             raise ValueError("contrast_cutoff must be in [0, 50)")
         if self.denoise_size not in (3, 5):

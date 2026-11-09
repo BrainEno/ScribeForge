@@ -43,9 +43,7 @@ def test_plain_agreed_text_is_accepted() -> None:
 
 
 def test_text_without_any_risk_row_is_still_judged_on_its_text() -> None:
-    assert machine_blockers(text="\ufffd", risk=None) == (
-        "unrepresentable_text",
-    )
+    assert machine_blockers(text="\ufffd", risk=None) == ("unrepresentable_text",)
     assert machine_blockers(text="子曰", risk=None) == ()
 
 
@@ -54,16 +52,12 @@ def test_replacement_character_blocks_acceptance() -> None:
 
     assert has_unrepresentable_characters("子曰\ufffd")
     assert unrepresentable_characters("子曰\ufffd也") == ("U+FFFD",)
-    assert machine_blockers(text="子曰\ufffd", risk=_risk()) == (
-        "unrepresentable_text",
-    )
+    assert machine_blockers(text="子曰\ufffd", risk=_risk()) == ("unrepresentable_text",)
 
 
 @pytest.mark.parametrize("control", ["\x00", "\x0b", "\x1b", "\x7f"])
 def test_control_characters_block_acceptance(control: str) -> None:
-    assert machine_blockers(text=f"子曰{control}", risk=_risk()) == (
-        "unrepresentable_text",
-    )
+    assert machine_blockers(text=f"子曰{control}", risk=_risk()) == ("unrepresentable_text",)
     assert unrepresentable_characters(f"a{control}") == (f"U+{ord(control):04X}",)
 
 
@@ -78,9 +72,7 @@ def test_blank_text_blocks_acceptance() -> None:
 
 
 def test_high_content_risk_blocks_acceptance() -> None:
-    risk = _risk(
-        0.6, (RiskReason.LOW_CONFIDENCE, RiskReason.UNICODE_ANOMALY), min_confidence=0.1
-    )
+    risk = _risk(0.6, (RiskReason.LOW_CONFIDENCE, RiskReason.UNICODE_ANOMALY), min_confidence=0.1)
     assert machine_blockers(text="子曰", risk=risk) == (
         "unicode_anomaly",
         "high_content_risk",
@@ -120,31 +112,23 @@ def test_low_confidence_blocks_acceptance() -> None:
     """Two engines guessing the same way is not corroboration."""
 
     risk = _risk(0.0, (), min_confidence=0.1, content_score=0.0)
-    assert machine_blockers(text="鸦", risk=_risk(min_confidence=0.1)) == (
-        "low_confidence",
-    )
+    assert machine_blockers(text="鸦", risk=_risk(min_confidence=0.1)) == ("low_confidence",)
     assert risk.min_confidence == 0.1
 
 
 def test_confidence_at_the_floor_is_enough() -> None:
     policy = DEFAULT_POLICY
-    assert machine_blockers(
-        text="子曰", risk=_risk(min_confidence=policy.min_confidence)
-    ) == ()
+    assert machine_blockers(text="子曰", risk=_risk(min_confidence=policy.min_confidence)) == ()
 
 
 def test_unknown_confidence_does_not_block_on_confidence() -> None:
     """An adapter that reports no confidence is not the same as a low one."""
 
-    assert machine_blockers(
-        text="子曰", risk=_risk(0.0, (), min_confidence=None)
-    ) == ()
+    assert machine_blockers(text="子曰", risk=_risk(0.0, (), min_confidence=None)) == ()
 
 
 def test_reasons_are_reported_in_a_stable_order() -> None:
-    risk = _risk(
-        0.6, (RiskReason.SPATIAL_MISMATCH, RiskReason.UNICODE_ANOMALY), min_confidence=0.1
-    )
+    risk = _risk(0.6, (RiskReason.SPATIAL_MISMATCH, RiskReason.UNICODE_ANOMALY), min_confidence=0.1)
     assert machine_blockers(text="\ufffd", risk=risk) == (
         "unrepresentable_text",
         "unicode_anomaly",
@@ -168,9 +152,7 @@ def test_policy_can_block_more_reasons_than_the_default() -> None:
     risk = _risk(0.45, (RiskReason.TEXT_DISAGREEMENT,), content_score=0.0)
     strict = AcceptancePolicy(blocking_reasons=frozenset({RiskReason.TEXT_DISAGREEMENT}))
     assert machine_blockers(text="子曰", risk=risk) == ()
-    assert machine_blockers(text="子曰", risk=risk, policy=strict) == (
-        "text_disagreement",
-    )
+    assert machine_blockers(text="子曰", risk=risk, policy=strict) == ("text_disagreement",)
 
 
 def test_unrepresentable_characters_are_listed_once_each() -> None:

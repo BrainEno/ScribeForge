@@ -48,9 +48,7 @@ def run_runtime_process(
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
         process_options: dict[str, Any] = {}
         if os.name == "nt":
-            process_options["creationflags"] = getattr(
-                subprocess, "CREATE_NEW_PROCESS_GROUP", 0
-            )
+            process_options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         else:
             process_options["start_new_session"] = True
         process = subprocess.Popen(
@@ -86,9 +84,7 @@ def run_runtime_process(
                 max_log_bytes=max_log_bytes,
             )
             stdout_file.seek(0)
-            stdout = stdout_file.read(max_output_bytes + 1).decode(
-                "utf-8", errors="replace"
-            )
+            stdout = stdout_file.read(max_output_bytes + 1).decode("utf-8", errors="replace")
             stderr = _read_tail(stderr_file, min(max_log_bytes, _MAX_ERROR_DETAIL_BYTES))
             return_code = process.returncode
             if return_code is None:

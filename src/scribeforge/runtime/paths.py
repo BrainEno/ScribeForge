@@ -24,7 +24,11 @@ def default_runtime_root(
         base = user_home / "Library" / "Application Support"
     else:
         data_home = env.get("XDG_DATA_HOME")
-        base = Path(data_home) if data_home and Path(data_home).is_absolute() else user_home / ".local" / "share"
+        base = (
+            Path(data_home)
+            if data_home and Path(data_home).is_absolute()
+            else user_home / ".local" / "share"
+        )
 
     return base / "ScribeForge" / "runtime"
 

@@ -41,9 +41,7 @@ def test_error_counts_expose_the_exact_rate_numerator_and_denominator() -> None:
 
 
 @pytest.mark.parametrize(("edits", "reference_units"), [(-1, 1), (1, -1)])
-def test_error_rate_from_counts_rejects_negative_counts(
-    edits: int, reference_units: int
-) -> None:
+def test_error_rate_from_counts_rejects_negative_counts(edits: int, reference_units: int) -> None:
     with pytest.raises(ValueError, match="non-negative"):
         error_rate_from_counts(edits, reference_units)
 
@@ -106,13 +104,9 @@ def test_line_error_counts_detect_missing_and_extra_lines() -> None:
 
 
 def test_reading_order_errors_count_only_matched_lines_out_of_order() -> None:
-    assert reading_order_errors(
-        ["first", "second", "third"], ["third", "first", "second"]
-    ) == 2
+    assert reading_order_errors(["first", "second", "third"], ["third", "first", "second"]) == 2
     assert reading_order_errors(["first", "second"], ["first"]) == 0
-    assert reading_order_errors(
-        ["same", "same", "last"], ["same", "last", "same"]
-    ) == 1
+    assert reading_order_errors(["same", "same", "last"], ["same", "last", "same"]) == 1
 
 
 def test_wilson_score_interval_matches_known_values() -> None:

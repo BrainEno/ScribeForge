@@ -269,9 +269,7 @@ def test_load_alignment_samples_rejects_malformed_files(tmp_path: Path) -> None:
 
 def test_loaded_fixtures_evaluate_to_full_accuracy() -> None:
     samples = load_alignment_samples(FIXTURES)
-    evaluation = evaluate_alignment_samples(
-        [s for s in samples if not s.expect_ambiguity]
-    )
+    evaluation = evaluate_alignment_samples([s for s in samples if not s.expect_ambiguity])
     totals = evaluation.totals
 
     assert (totals.precision, totals.recall, totals.f1) == (1.0, 1.0, 1.0)

@@ -70,8 +70,7 @@ def test_missing_uv_downloads_locked_archive_after_verifying_digest(tmp_path: Pa
 
     assert Path(executable).read_bytes() == b"verified uv binary"
     expected_url = (
-        "https://github.com/astral-sh/uv/releases/download/"
-        "0.13.4/uv-x86_64-pc-windows-msvc.zip"
+        "https://github.com/astral-sh/uv/releases/download/0.13.4/uv-x86_64-pc-windows-msvc.zip"
     )
     assert requested == [expected_url]
 

@@ -33,9 +33,7 @@ class VLMReading:
 
 
 class VLMReviewer(Protocol):
-    def transcribe_crop(
-        self, image_path: str, page_index: int, pair_index: int
-    ) -> VLMReading: ...
+    def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading: ...
 
 
 def review_candidates_with_vlm(

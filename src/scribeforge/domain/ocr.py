@@ -106,11 +106,7 @@ class OCRLine:
         agreement, and it must not be treated as zero either.
         """
 
-        values = [
-            token.confidence
-            for token in (self.tokens or ())
-            if token.confidence is not None
-        ]
+        values = [token.confidence for token in (self.tokens or ()) if token.confidence is not None]
         if self.confidence is not None:
             values.append(self.confidence)
         return min(values) if values else None
@@ -186,8 +182,7 @@ class PageOCRResult:
         for index in range(len(self.lines)):
             block = self.block_of_line(index)
             if block is None or (
-                not block.block_type.is_page_furniture
-                and not block.block_type.is_non_text
+                not block.block_type.is_page_furniture and not block.block_type.is_non_text
             ):
                 kept.append(index)
         return tuple(kept)

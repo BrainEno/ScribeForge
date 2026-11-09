@@ -15,11 +15,15 @@ from scribeforge.domain.direction import detect_page_direction, resolve_page_dir
 from scribeforge.domain.ocr import BoundingBox, OCRLine, PageDirection, PageOCRResult
 
 
-def _column(text: str, *, x: float, y: float = 0.10, width: float = 0.05, height: float = 0.70) -> OCRLine:
+def _column(
+    text: str, *, x: float, y: float = 0.10, width: float = 0.05, height: float = 0.70
+) -> OCRLine:
     return OCRLine(text, BoundingBox(x, y, width, height), ())
 
 
-def _row(text: str, *, y: float, x: float = 0.10, width: float = 0.70, height: float = 0.04) -> OCRLine:
+def _row(
+    text: str, *, y: float, x: float = 0.10, width: float = 0.70, height: float = 0.04
+) -> OCRLine:
     return OCRLine(text, BoundingBox(x, y, width, height), ())
 
 
@@ -82,7 +86,6 @@ def test_left_to_right_columns_are_detected_too() -> None:
         )
     )
 
-
     assert detect_page_direction(page) is PageDirection.VERTICAL_LR
 
 
@@ -134,12 +137,18 @@ def test_engine_declarations_beat_geometry() -> None:
 
     vertical_looking = _vertical_page()
     primary = PageOCRResult(
-        0, "primary", "1.0", vertical_looking.lines,
+        0,
+        "primary",
+        "1.0",
+        vertical_looking.lines,
         direction=PageDirection.HORIZONTAL_LR,
         direction_declared=True,
     )
     secondary = PageOCRResult(
-        0, "secondary", "1.0", vertical_looking.lines,
+        0,
+        "secondary",
+        "1.0",
+        vertical_looking.lines,
         direction=PageDirection.HORIZONTAL_LR,
         direction_declared=True,
     )
@@ -235,7 +244,6 @@ def test_direction_can_be_supplied_by_the_caller() -> None:
 
     primary = _page((_column("甲列", x=0.7), _column("乙列", x=0.5)))
     secondary = _page((_column("甲列", x=0.7), _column("乙列", x=0.5)))
-
 
     alignment = align_pages(primary, secondary, direction=PageDirection.VERTICAL_RL)
 

@@ -209,9 +209,7 @@ def test_export_check_rejects_a_splice_that_swallows_a_line(monkeypatch) -> None
     book = _book(PageDirection.VERTICAL_RL)
     broken = VerifiedPage(0, ("甲", "乙"), direction=PageDirection.VERTICAL_RL)
 
-    monkeypatch.setattr(
-        type(broken), "paragraphs", lambda self: ("甲",), raising=True
-    )
+    monkeypatch.setattr(type(broken), "paragraphs", lambda self: ("甲",), raising=True)
     object.__setattr__(book, "pages", (broken,))
 
     with pytest.raises(export_check.ExportIntegrityError, match="lost or gained text"):
@@ -236,12 +234,8 @@ def test_assembly_records_the_alignment_direction(tmp_path: Path) -> None:
     store.initialize()
     project_id = store.create_project("Book", "source.pdf", "hash")
     store.add_page(project_id, 0, "pages/0001.png", 1000, 2000)
-    primary_id = store.record_ocr(
-        project_id, PageOCRResult(0, "mineru", "1", lines)
-    )
-    secondary_id = store.record_ocr(
-        project_id, PageOCRResult(0, "paddleocr", "1", lines)
-    )
+    primary_id = store.record_ocr(project_id, PageOCRResult(0, "mineru", "1", lines))
+    secondary_id = store.record_ocr(project_id, PageOCRResult(0, "paddleocr", "1", lines))
     alignment = PageAlignment(
         0,
         "mineru",

@@ -116,9 +116,7 @@ def test_publish_failure_restores_previous_model(tmp_path: Path, monkeypatch) ->
         _write_snapshot(destination, weight)
 
     with pytest.raises(OSError, match="publish failure"):
-        prepare_paddle_models(
-            tmp_path / "models", assets=(asset,), snapshot_downloader=download
-        )
+        prepare_paddle_models(tmp_path / "models", assets=(asset,), snapshot_downloader=download)
 
     assert (previous / "inference.pdiparams").read_bytes() == b"old-v1"
 
@@ -220,9 +218,7 @@ def test_permission_denied_during_publish_restores_old_model(
         _write_snapshot(destination, weight)
 
     with pytest.raises(PermissionError) as caught:
-        prepare_paddle_models(
-            tmp_path / "models", assets=(asset,), snapshot_downloader=download
-        )
+        prepare_paddle_models(tmp_path / "models", assets=(asset,), snapshot_downloader=download)
 
     assert caught.value is denied
     assert (previous / "inference.pdiparams").read_bytes() == b"old-v1"

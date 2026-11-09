@@ -50,9 +50,7 @@ def test_run_ui_hands_the_store_and_crops_to_the_shell(
     assert seen == [(store, tmp_path / "crops")]
 
 
-def test_launch_resolves_the_tkinter_shell(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_launch_resolves_the_tkinter_shell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     requested: list[str] = []
     monkeypatch.setattr(
         "scribeforge.ui.app.importlib.import_module",

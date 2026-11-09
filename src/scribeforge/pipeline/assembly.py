@@ -102,9 +102,7 @@ def assemble_verified_content(
 
     structure = store.load_book_structure(project_id)
     labels = structure.printed_labels_by_page()
-    furniture = (
-        {} if include_page_furniture else _detect_furniture(store, project_id)
-    )
+    furniture = {} if include_page_furniture else _detect_furniture(store, project_id)
     confirmations = store.latest_page_confirmations(project_id)
     measured_ink = {
         entry.page_index: entry.ink_ratio
@@ -164,9 +162,7 @@ def assemble_verified_content(
                 text = decision.selected_text if decision is not None else ""
                 if not text:
                     text = _pair_source_text(store, record, pair)
-                dropped.append(
-                    DroppedFurniture(page.page_index, text, furniture_reason)
-                )
+                dropped.append(DroppedFurniture(page.page_index, text, furniture_reason))
                 continue
             if decision is None:
                 if _pair_is_empty(primary_result, secondary_result, pair):
@@ -339,9 +335,7 @@ def _page_images(
             caption = ""
         else:
             continue
-        images.append(
-            _load_image(page, assets[page.page_index], image_role, caption=caption)
-        )
+        images.append(_load_image(page, assets[page.page_index], image_role, caption=caption))
     return tuple(images)
 
 
@@ -368,8 +362,7 @@ def _load_image(
         ) from exc
     if not data:
         raise PageImageError(
-            f"page {page.page_index} must be embedded as an image, but its raster "
-            f"{path} is empty"
+            f"page {page.page_index} must be embedded as an image, but its raster {path} is empty"
         )
     actual_sha256 = hashlib.sha256(data).hexdigest()
     try:
@@ -403,9 +396,7 @@ def _pair_text(result: PageOCRResult, indexes: tuple[int, ...]) -> str | None:
     return assemble_group_text(result.lines[index].text for index in indexes)
 
 
-def _pair_is_empty(
-    primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment
-) -> bool:
+def _pair_is_empty(primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment) -> bool:
     """True when neither engine returned any text for this pair."""
 
     texts = [
@@ -435,9 +426,7 @@ def _pair_box(
     return BoundingBox(left, top, right - left, bottom - top)
 
 
-def _pair_role(
-    primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment
-) -> LineRole:
+def _pair_role(primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlignment) -> LineRole:
     """Block label of this pair, mapped onto an export role.
 
     Both engines are consulted: a title one engine labelled and the other did not
@@ -460,9 +449,7 @@ def _pair_role(
     return LineRole.BODY
 
 
-def _detect_furniture(
-    store: SQLiteStore, project_id: int
-) -> dict[int, dict[int, str]]:
+def _detect_furniture(store: SQLiteStore, project_id: int) -> dict[int, dict[int, str]]:
     """Margin/furniture detection over every stored run of the project.
 
     Uses whichever engine produced a run for the page; furniture is a property of
@@ -479,9 +466,7 @@ def _detect_furniture(
         except KeyError:
             verification_id = None
         if verification_id is not None:
-            result = store.load_ocr_run(
-                store.load_verification(verification_id).primary_run_id
-            )
+            result = store.load_ocr_run(store.load_verification(verification_id).primary_run_id)
         else:
             stored = _first_stored_run(store, project_id, page.page_index)
             if stored is None:
@@ -491,9 +476,7 @@ def _detect_furniture(
     return {page_index: dict(found) for page_index, found in detect_page_furniture(pages).items()}
 
 
-def _first_stored_run(
-    store: SQLiteStore, project_id: int, page_index: int
-) -> PageOCRResult | None:
+def _first_stored_run(store: SQLiteStore, project_id: int, page_index: int) -> PageOCRResult | None:
     for engine in ("primary", "secondary"):
         try:
             run_id = store.latest_engine_run(project_id, page_index, engine)
@@ -503,9 +486,7 @@ def _first_stored_run(
     return None
 
 
-def _pair_furniture(
-    page_furniture: dict[int, str], pair: LineAlignment
-) -> str | None:
+def _pair_furniture(page_furniture: dict[int, str], pair: LineAlignment) -> str | None:
     """Reason for furniture mapped from the primary OCR line index."""
 
     # Detection indexes come from the primary OCR run. A secondary line index may
@@ -517,15 +498,9 @@ def _pair_furniture(
     return None
 
 
-def _pair_source_text(
-    store: SQLiteStore, record: VerificationRecord, pair: LineAlignment
-) -> str:
+def _pair_source_text(store: SQLiteStore, record: VerificationRecord, pair: LineAlignment) -> str:
     primary = store.load_ocr_run(record.primary_run_id)
     if pair.primary_line_indexes:
-        return assemble_group_text(
-            primary.lines[index].text for index in pair.primary_line_indexes
-        )
+        return assemble_group_text(primary.lines[index].text for index in pair.primary_line_indexes)
     secondary = store.load_ocr_run(record.secondary_run_id)
-    return assemble_group_text(
-        secondary.lines[index].text for index in pair.secondary_line_indexes
-    )
+    return assemble_group_text(secondary.lines[index].text for index in pair.secondary_line_indexes)

@@ -73,19 +73,13 @@ def otsu_threshold(gray: np.ndarray) -> int:
     cumulative_mean = np.cumsum(histogram * levels)
     total_mean = cumulative_mean[-1]
     with np.errstate(divide="ignore", invalid="ignore"):
-        mean_background = np.where(
-            weight_background > 0, cumulative_mean / weight_background, 0.0
-        )
+        mean_background = np.where(weight_background > 0, cumulative_mean / weight_background, 0.0)
         mean_foreground = np.where(
             weight_foreground > 0,
             (total_mean - cumulative_mean) / weight_foreground,
             0.0,
         )
-        between = (
-            weight_background
-            * weight_foreground
-            * (mean_background - mean_foreground) ** 2
-        )
+        between = weight_background * weight_foreground * (mean_background - mean_foreground) ** 2
     between = np.where(valid, between, -1.0)
     return int(np.argmax(between))
 
@@ -237,13 +231,9 @@ def estimate_skew_degrees(
         for sign in (1.0, -1.0):
             angle = sign * index * step
             rotated_gray = _to_gray_array(
-                analysis.rotate(
-                    angle, resample=Image.Resampling.BILINEAR, fillcolor=255
-                )
+                analysis.rotate(angle, resample=Image.Resampling.BILINEAR, fillcolor=255)
             )
-            score = _projection_score(
-                threshold_mask(flatten_illumination(rotated_gray))
-            )
+            score = _projection_score(threshold_mask(flatten_illumination(rotated_gray)))
             if score > best_score:
                 best_score = score
                 best_angle = angle
@@ -255,9 +245,7 @@ def estimate_skew_degrees(
     return best_angle
 
 
-def _deskew(
-    image: Image.Image, measured: float
-) -> tuple[Image.Image, dict[str, str]]:
+def _deskew(image: Image.Image, measured: float) -> tuple[Image.Image, dict[str, str]]:
     if measured == 0.0:
         return image, {"skew": "0.0"}
     corrected = image.rotate(
@@ -306,9 +294,7 @@ def _denoise(image: Image.Image, size: int) -> tuple[Image.Image, dict[str, str]
 
 
 def _contrast(image: Image.Image, cutoff: float) -> tuple[Image.Image, dict[str, str]]:
-    return ImageOps.autocontrast(image.convert("L"), cutoff=cutoff), {
-        "cutoff": f"{cutoff:g}"
-    }
+    return ImageOps.autocontrast(image.convert("L"), cutoff=cutoff), {"cutoff": f"{cutoff:g}"}
 
 
 def _binarize(image: Image.Image) -> tuple[Image.Image, dict[str, str]]:
@@ -316,14 +302,10 @@ def _binarize(image: Image.Image) -> tuple[Image.Image, dict[str, str]]:
     flattened = flatten_illumination(_to_gray_array(gray))
     ink = threshold_mask(flattened)
     binary = np.where(ink, 0, 255).astype(np.uint8)
-    return Image.fromarray(binary, mode="L"), {
-        "otsu_threshold": str(otsu_threshold(flattened))
-    }
+    return Image.fromarray(binary, mode="L"), {"otsu_threshold": str(otsu_threshold(flattened))}
 
 
-def _crop_border(
-    image: Image.Image, threshold: int
-) -> tuple[Image.Image, dict[str, str]]:
+def _crop_border(image: Image.Image, threshold: int) -> tuple[Image.Image, dict[str, str]]:
     """Trim uniform margins, keeping a small safety border.
 
     Scanners often capture a wide grey gutter or desk edge. Cropping it stops
@@ -350,9 +332,7 @@ def _crop_border(
     right = min(gray.shape[1], right + margin)
     if (left, top, right, bottom) == (0, 0, gray.shape[1], gray.shape[0]):
         return image, {"crop": "none"}
-    return image.crop((left, top, right, bottom)), {
-        "crop": f"{left},{top},{right},{bottom}"
-    }
+    return image.crop((left, top, right, bottom)), {"crop": f"{left},{top},{right},{bottom}"}
 
 
 def apply_preprocess(
@@ -380,9 +360,7 @@ def apply_preprocess(
     degradation = measure_degradation(image)
     operations = refine_operations(settings, degradation)
     planned = settings.operations
-    skipped = [
-        operation.value for operation in planned if operation not in operations
-    ]
+    skipped = [operation.value for operation in planned if operation not in operations]
     applied: list[PreprocessOperation] = []
     notes: dict[str, str] = {
         "measured": (
@@ -394,9 +372,7 @@ def apply_preprocess(
         )
     }
     if skipped:
-        notes["skipped"] = (
-            "page is clean enough to skip restoration: " + ",".join(skipped)
-        )
+        notes["skipped"] = "page is clean enough to skip restoration: " + ",".join(skipped)
     measured_skew = 0.0
 
     try:
@@ -410,9 +386,7 @@ def apply_preprocess(
                     # The page was measured and found straight. Record the
                     # measurement, but do not claim a transform that did not
                     # happen: ``applied`` is evidence, not intent.
-                    applied_skew_note = "; ".join(
-                        f"{key}={value}" for key, value in detail.items()
-                    )
+                    applied_skew_note = "; ".join(f"{key}={value}" for key, value in detail.items())
                     notes[operation.value] = applied_skew_note
                     continue
             elif operation is PreprocessOperation.DESHADOW:
@@ -428,9 +402,7 @@ def apply_preprocess(
             else:  # pragma: no cover - guarded by the enum
                 raise PreprocessError(f"unsupported preprocess operation: {operation}")
             applied.append(operation)
-            notes[operation.value] = "; ".join(
-                f"{key}={value}" for key, value in detail.items()
-            )
+            notes[operation.value] = "; ".join(f"{key}={value}" for key, value in detail.items())
 
         buffer = BytesIO()
         image.save(buffer, format="PNG", optimize=False, compress_level=6)
@@ -464,9 +436,7 @@ def preprocess_file(
     leaves a half-written raster that later looks like valid evidence.
     """
 
-    data, outcome = apply_preprocess(
-        Path(source).read_bytes(), settings, page_index=page_index
-    )
+    data, outcome = apply_preprocess(Path(source).read_bytes(), settings, page_index=page_index)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.name}.tmp")
     try:

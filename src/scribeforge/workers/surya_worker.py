@@ -172,9 +172,7 @@ def main() -> None:
         blocks=blocks,
         direction=reading_direction(blocks),
     )
-    sys.stdout.buffer.write(
-        (json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8")
-    )
+    sys.stdout.buffer.write((json.dumps(result, ensure_ascii=False) + "\n").encode("utf-8"))
     sys.stdout.buffer.flush()
 
 

@@ -54,8 +54,12 @@ def _worker_pages(
         "rec_texts": secondary_texts,
         "rec_scores": [0.99 for _ in secondary_texts],
         "rec_polys": [
-            [[100, 200 + index * 40], [900, 200 + index * 40],
-             [900, 240 + index * 40], [100, 240 + index * 40]]
+            [
+                [100, 200 + index * 40],
+                [900, 200 + index * 40],
+                [900, 240 + index * 40],
+                [100, 240 + index * 40],
+            ]
             for index in range(len(secondary_texts))
         ],
     }
@@ -123,9 +127,7 @@ def test_default_worker_contract_supports_both_multiline_directions(
     expected_group: tuple[tuple[int, ...], tuple[int, ...]],
     paddle_layout: bool,
 ) -> None:
-    primary, secondary = _worker_pages(
-        primary_texts, secondary_texts, paddle_layout=paddle_layout
-    )
+    primary, secondary = _worker_pages(primary_texts, secondary_texts, paddle_layout=paddle_layout)
 
     result = align_pages(primary, secondary)
 
@@ -192,7 +194,5 @@ def test_layout_blocks_require_unique_clear_line_ownership() -> None:
 
 
 def test_layout_without_lines_emits_no_empty_fake_ranges() -> None:
-    raw = {
-        "layout_det_res": [{"label": "title", "bbox": [0.1, 0.1, 0.5, 0.2]}]
-    }
+    raw = {"layout_det_res": [{"label": "title", "bbox": [0.1, 0.1, 0.5, 0.2]}]}
     assert paddle_worker._layout_blocks(raw, []) == []

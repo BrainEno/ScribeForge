@@ -30,9 +30,7 @@ class QueueInput:
 
 
 def test_setup_parser_accepts_cancellation_and_step_timeout() -> None:
-    args = build_parser().parse_args(
-        ["setup", "--json", "--cancelable", "--step-timeout", "12.5"]
-    )
+    args = build_parser().parse_args(["setup", "--json", "--cancelable", "--step-timeout", "12.5"])
 
     assert args.cancelable is True
     assert args.step_timeout == pytest.approx(12.5)

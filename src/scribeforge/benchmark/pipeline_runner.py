@@ -67,9 +67,7 @@ def run_pipeline_benchmark(
     scores: list[CaseScore] = []
     for case in manifest.cases:
         image_path = (root / case.image).resolve()
-        reference = scoring_text(
-            (root / case.ground_truth).read_text(encoding="utf-8")
-        )
+        reference = scoring_text((root / case.ground_truth).read_text(encoding="utf-8"))
         with Image.open(image_path) as image:
             width, height = image.size
 
@@ -96,8 +94,7 @@ def run_pipeline_benchmark(
             elapsed = clock() - started
             if outcome.failed_pages:
                 details = "; ".join(
-                    f"page {page_index}: {message}"
-                    for page_index, message in outcome.failed_pages
+                    f"page {page_index}: {message}" for page_index, message in outcome.failed_pages
                 )
                 raise RuntimeError(f"case {case.id} pipeline failed: {details}")
 
@@ -126,11 +123,7 @@ def run_pipeline_benchmark(
                     language=case.language,
                     tags=case.tags,
                     cer=error_rate_from_counts(*character_counts),
-                    wer=(
-                        None
-                        if word_counts is None
-                        else error_rate_from_counts(*word_counts)
-                    ),
+                    wer=(None if word_counts is None else error_rate_from_counts(*word_counts)),
                     word_tokenizer=word_tokenizer_for_language(case.language),
                     character_errors=character_counts[0],
                     reference_characters=character_counts[1],
@@ -140,9 +133,7 @@ def run_pipeline_benchmark(
                     missing_lines=line_metrics.missing_lines,
                     extra_lines=line_metrics.extra_lines,
                     changed_lines=line_metrics.changed_lines,
-                    reading_order_errors=reading_order_errors(
-                        reference_lines, hypothesis_lines
-                    ),
+                    reading_order_errors=reading_order_errors(reference_lines, hypothesis_lines),
                     elapsed_seconds=elapsed,
                     accepted_pairs=accepted_pairs,
                     unresolved_pairs=unresolved_pairs,

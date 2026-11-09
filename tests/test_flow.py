@@ -81,7 +81,10 @@ def test_a_paragraph_continues_across_a_page_turn() -> None:
 
     assert len(flow.paragraphs) == 1
     paragraph = flow.paragraphs[0]
-    assert paragraph.text == "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥一二三四五六七八九十句号在这里。"
+    assert (
+        paragraph.text
+        == "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥一二三四五六七八九十句号在这里。"
+    )
     assert (paragraph.start_page, paragraph.end_page) == (0, 1)
 
 
@@ -300,7 +303,9 @@ def _epub(book: VerifiedBook, *, layout: str = "auto") -> bytes:
 
 def test_epub_writes_one_document_per_chapter_with_page_markers() -> None:
     book = _book(
-        _page(0, _full("甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥一二三四", 0), printed_label="1"),
+        _page(
+            0, _full("甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥一二三四", 0), printed_label="1"
+        ),
         _page(1, _full("五六七八九十句号在这里。", 0), printed_label="2"),
         chapters=(VerifiedChapter("第一章", 1, 0),),
     )
@@ -314,7 +319,10 @@ def test_epub_writes_one_document_per_chapter_with_page_markers() -> None:
     # Both scanned pages leave a marker, in order, carrying the printed folio.
     assert document.index('id="page-0" title="1"') < document.index('id="page-1" title="2"')
     # And the paragraph is not cut at the page turn.
-    assert "<p>甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥一二三四五六七八九十句号在这里。</p>" in document
+    assert (
+        "<p>甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥一二三四五六七八九十句号在这里。</p>"
+        in document
+    )
 
 
 def test_epub_page_layout_still_writes_one_file_per_scan() -> None:
@@ -344,8 +352,7 @@ def test_a_document_that_loses_a_page_break_is_rejected() -> None:
             payload = source.read(info.filename)
             if info.filename == "OEBPS/doc-000001.xhtml":
                 payload = payload.replace(
-                    b'<span epub:type="pagebreak" role="doc-pagebreak" '
-                    b'id="page-1" title="2"/>',
+                    b'<span epub:type="pagebreak" role="doc-pagebreak" id="page-1" title="2"/>',
                     b"",
                 )
             target.writestr(info, payload)

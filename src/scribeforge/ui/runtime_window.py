@@ -52,9 +52,7 @@ class RuntimeSetupWindow:
             main, text="Detecting hardware…", wraplength=730, justify="left"
         )
         self._hardware_label.pack(anchor="w", pady=(0, 4))
-        self._bootstrap_label = ttk.Label(
-            main, text="Bootstrap tool: checking", wraplength=730
-        )
+        self._bootstrap_label = ttk.Label(main, text="Bootstrap tool: checking", wraplength=730)
         self._bootstrap_label.pack(anchor="w", pady=(0, 8))
         ttk.Label(main, text=f"Private runtime folder: {runtime_root}", wraplength=730).pack(
             anchor="w", pady=(0, 8)
@@ -74,9 +72,7 @@ class RuntimeSetupWindow:
         self._backend_table.column("failure", width=350, anchor="w")
         self._backend_table.pack(fill="x", pady=(0, 8))
         for backend in ("mineru", "paddleocr"):
-            item = self._backend_table.insert(
-                "", "end", text=backend, values=("checking", "—")
-            )
+            item = self._backend_table.insert("", "end", text=backend, values=("checking", "—"))
             self._backend_items[backend] = item
 
         self._progress = ttk.Progressbar(main, mode="indeterminate")
@@ -208,9 +204,7 @@ class RuntimeSetupWindow:
             ("paddleocr", overview.paddleocr),
         ):
             failure = status.failed_step or "—"
-            self._backend_table.item(
-                self._backend_items[backend], values=(status.state, failure)
-            )
+            self._backend_table.item(self._backend_items[backend], values=(status.state, failure))
         if overview.mineru.state == "ready" and overview.paddleocr.state == "ready":
             self._append_log("Both OCR backends are ready.")
         elif overview.mineru.state == "failed" or overview.paddleocr.state == "failed":
@@ -221,9 +215,7 @@ class RuntimeSetupWindow:
         progress = ""
         if event.total_steps:
             progress = f" ({event.completed_steps}/{event.total_steps} steps)"
-        self._append_log(
-            f"{event.backend}: {event.phase} — {event.state}{step}{progress}"
-        )
+        self._append_log(f"{event.backend}: {event.phase} — {event.state}{step}{progress}")
         if event.state == "failed":
             self._status.configure(
                 text=f"{event.backend} failed at {event.phase}:{event.step or 'unknown'}"

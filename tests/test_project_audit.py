@@ -96,9 +96,7 @@ def test_project_audit_errors_when_page_asset_hash_changed(tmp_path: Path) -> No
 
     report = audit_project_store(store_dir)
 
-    finding = next(
-        item for item in report.findings if item.code == "page_asset_hash_mismatch"
-    )
+    finding = next(item for item in report.findings if item.code == "page_asset_hash_mismatch")
     assert finding.severity == "error"
     assert "SHA-256" in finding.message
 
@@ -120,7 +118,6 @@ def test_project_audit_reports_unreadable_database_as_fatal(tmp_path: Path) -> N
 
     assert report.database_readable is False
     assert report.findings[0].code == "database_unreadable"
-
 
 
 def test_audit_cli_emits_stable_json_and_zero_exit_for_healthy_project(
@@ -153,7 +150,6 @@ def test_audit_cli_returns_partial_for_findings_and_fatal_for_missing_store(
     fatal_output = capsys.readouterr()
     assert fatal == 2
     assert "database_missing" in fatal_output.out
-
 
 
 def test_project_audit_detects_foreign_key_violations(tmp_path: Path) -> None:
@@ -197,15 +193,18 @@ def test_project_audit_warns_when_store_contains_multiple_projects(tmp_path: Pat
     assert report.project_count == 2
 
 
-@pytest.mark.parametrize("column,value", [
-    ("page_asset_sha256", None),
-    ("page_asset_sha256", "invalid"),
-    ("page_asset_byte_size", None),
-    ("page_asset_parameters_json", None),
-    ("page_asset_parameters_json", "broken"),
-    ("page_asset_parameters_json", "[]"),
-    ("page_asset_version", None),
-])
+@pytest.mark.parametrize(
+    "column,value",
+    [
+        ("page_asset_sha256", None),
+        ("page_asset_sha256", "invalid"),
+        ("page_asset_byte_size", None),
+        ("page_asset_parameters_json", None),
+        ("page_asset_parameters_json", "broken"),
+        ("page_asset_parameters_json", "[]"),
+        ("page_asset_version", None),
+    ],
+)
 def test_audit_reports_invalid_page_asset_evidence_without_crashing(
     tmp_path: Path, column: str, value: object
 ) -> None:
@@ -238,8 +237,9 @@ def test_audit_reports_recorded_size_mismatch(tmp_path: Path) -> None:
     with sqlite3.connect(root / "project.sqlite3") as db:
         db.execute("UPDATE pages SET page_asset_byte_size=page_asset_byte_size+1")
     report = audit_project_store(root)
-    assert any(f.code == "page_asset_size_mismatch" and f.severity == "error"
-               for f in report.findings)
+    assert any(
+        f.code == "page_asset_size_mismatch" and f.severity == "error" for f in report.findings
+    )
 
 
 def test_audit_reports_partial_evidence_even_if_raster_is_missing(tmp_path: Path) -> None:
@@ -280,8 +280,14 @@ def test_audit_reports_ambiguous_multibatch_decisions_readonly(tmp_path: Path, k
         "malformed": (),
     }[kind]
     pair = 9 if kind == "orphan" else 0
-    decision = store.append_decision(project_id=project, page_index=0, pair_index=pair,
-                                     selected_text="甲", actor="human", evidence_refs=refs)
+    decision = store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=pair,
+        selected_text="甲",
+        actor="human",
+        evidence_refs=refs,
+    )
     if kind == "malformed":
         with sqlite3.connect(root / "project.sqlite3") as db:
             db.execute("UPDATE decisions SET evidence_refs_json = ? WHERE id = ?", ("{", decision))
@@ -302,17 +308,33 @@ def test_audit_reports_ambiguous_multibatch_decisions_readonly(tmp_path: Path, k
 
 def test_audit_ignores_superseded_decisions_and_accepts_current_binding(tmp_path: Path) -> None:
     root, store, project, old, new = _multibatch_store(tmp_path)
-    assert not any(f.code == "decision_verification_ambiguous" for f in audit_project_store(root).findings)
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="old", actor="human", evidence_refs=(f"verification_run:{old}",))
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="new", actor="human", evidence_refs=(f"verification_run:{new}",))
+    assert not any(
+        f.code == "decision_verification_ambiguous" for f in audit_project_store(root).findings
+    )
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="old",
+        actor="human",
+        evidence_refs=(f"verification_run:{old}",),
+    )
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="new",
+        actor="human",
+        evidence_refs=(f"verification_run:{new}",),
+    )
     report = audit_project_store(root)
     assert not any(f.code == "decision_verification_ambiguous" for f in report.findings)
     assert len(store.list_decisions(project, 0, 0)) == 2
 
 
-def test_ambiguous_history_backup_remains_available_and_carries_audit_warning(tmp_path: Path) -> None:
+def test_ambiguous_history_backup_remains_available_and_carries_audit_warning(
+    tmp_path: Path,
+) -> None:
     from scribeforge.project_backup import (
         create_project_backup,
         restore_project_backup,
@@ -320,18 +342,28 @@ def test_ambiguous_history_backup_remains_available_and_carries_audit_warning(tm
     )
 
     root, store, project, old, _ = _multibatch_store(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="甲", actor="human", evidence_refs=(f"verification_run:{old}",))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="甲",
+        actor="human",
+        evidence_refs=(f"verification_run:{old}",),
+    )
     archive = tmp_path / "history.zip"
     create_project_backup(root, archive)
     verification = verify_project_backup(archive)
-    assert any(f["code"] == "decision_verification_ambiguous" for f in verification["audit_warnings"])
+    assert any(
+        f["code"] == "decision_verification_ambiguous" for f in verification["audit_warnings"]
+    )
     restored = tmp_path / "restored.scribeforge"
     restore_project_backup(archive, restored)
     report = audit_project_store(restored)
     assert any(f.code == "decision_verification_ambiguous" for f in report.findings)
     restored_store = SQLiteStore(restored / "project.sqlite3")
-    assert restored_store.list_decisions(project, 0, 0)[0].evidence_refs == (f"verification_run:{old}",)
+    assert restored_store.list_decisions(project, 0, 0)[0].evidence_refs == (
+        f"verification_run:{old}",
+    )
     with pytest.raises(ValueError, match="ambiguous verification batch"):
         restored_store.latest_verification_id(project, 0)
 
@@ -340,8 +372,14 @@ def test_audit_cli_reports_ambiguous_history_in_json(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root, store, project, old, _ = _multibatch_store(tmp_path)
-    store.append_decision(project_id=project, page_index=0, pair_index=0,
-                          selected_text="甲", actor="human", evidence_refs=(f"verification_run:{old}",))
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="甲",
+        actor="human",
+        evidence_refs=(f"verification_run:{old}",),
+    )
     assert run(["audit", "--store", str(root), "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["database_readable"] is True
@@ -360,9 +398,14 @@ def test_audit_observes_one_database_snapshot_when_a_decision_arrives(
     original = project_audit._audit_decision_bindings
 
     def add_after_snapshot(connection, findings):
-        store.append_decision(project_id=project, page_index=0, pair_index=0,
-                              selected_text="甲", actor="human",
-                              evidence_refs=(f"verification_run:{old}",))
+        store.append_decision(
+            project_id=project,
+            page_index=0,
+            pair_index=0,
+            selected_text="甲",
+            actor="human",
+            evidence_refs=(f"verification_run:{old}",),
+        )
         return original(connection, findings)
 
     monkeypatch.setattr(project_audit, "_audit_decision_bindings", add_after_snapshot)
@@ -386,17 +429,29 @@ def test_single_batch_uncited_decision_is_audited_as_unknown_and_preserved(tmp_p
     line = OCRLine("甲", BoundingBox(0.1, 0.1, 0.5, 0.05))
     a = store.record_ocr(project, PageOCRResult(0, "a", "1", (line,)))
     b = store.record_ocr(project, PageOCRResult(0, "b", "1", (line,)))
-    verification = store.record_verification(a, b, PageAlignment(
-        0, "a", "b", (LineAlignment(0, 0, 1.0, 0.0, ()),)
-    ), (PairRisk(0, 0.0, ()),), ())
-    decision = store.append_decision(project_id=project, page_index=0, pair_index=0,
-                                     selected_text="甲", actor="human", evidence_refs=())
+    verification = store.record_verification(
+        a,
+        b,
+        PageAlignment(0, "a", "b", (LineAlignment(0, 0, 1.0, 0.0, ()),)),
+        (PairRisk(0, 0.0, ()),),
+        (),
+    )
+    decision = store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="甲",
+        actor="human",
+        evidence_refs=(),
+    )
     report = audit_project_store(root)
     finding = next(item for item in report.findings if item.code == "decision_verification_unknown")
     assert finding.severity == "warning" and f"decision {decision}" in finding.message
     assert store.latest_verification_id(project, 0) == verification
     archive = tmp_path / "legacy.zip"
     create_project_backup(root, archive)
-    assert any(f["code"] == "decision_verification_unknown"
-               for f in verify_project_backup(archive)["audit_warnings"])
+    assert any(
+        f["code"] == "decision_verification_unknown"
+        for f in verify_project_backup(archive)["audit_warnings"]
+    )
     assert store.list_decisions(project, 0, 0)[0].evidence_refs == ()

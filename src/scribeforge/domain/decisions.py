@@ -73,9 +73,7 @@ def adjudicate_pair(
         return PairAdjudication(None, None, "no_engine_text")
 
     if primary_text is not None and primary_text == secondary_text:
-        return _gated(
-            primary_text, DecisionActor.AUTOMATIC, "engines_agree", risk, policy
-        )
+        return _gated(primary_text, DecisionActor.AUTOMATIC, "engines_agree", risk, policy)
 
     if (
         primary_text is not None
@@ -85,9 +83,7 @@ def adjudicate_pair(
         # The engines agree on the text modulo orthography. Accept the primary
         # engine's literal characters — never a folded or "corrected" form — and
         # record why, so the choice is reviewable rather than silent.
-        return _gated(
-            primary_text, DecisionActor.AUTOMATIC, "variant_agreement", risk, policy
-        )
+        return _gated(primary_text, DecisionActor.AUTOMATIC, "variant_agreement", risk, policy)
 
     if vlm is None:
         if primary_text is None or secondary_text is None:
@@ -100,8 +96,7 @@ def adjudicate_pair(
         return PairAdjudication(None, None, "vlm_blank")
     engine_texts = [text for text in (primary_text, secondary_text) if text is not None]
     if not any(
-        vlm.text == text or is_variant_only_difference(vlm.text, text)
-        for text in engine_texts
+        vlm.text == text or is_variant_only_difference(vlm.text, text) for text in engine_texts
     ):
         # A third reading that matches nothing is the *most* suspicious case: two
         # engines and a model all disagree, so there is no independent agreement to

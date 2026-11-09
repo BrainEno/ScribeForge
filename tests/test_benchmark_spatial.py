@@ -9,9 +9,13 @@ def test_box_iou_matches_known_geometries() -> None:
     assert box_iou(box, box) == 1.0
     assert box_iou(BoundingBox(0.0, 0.0, 0.2, 0.2), BoundingBox(0.5, 0.5, 0.2, 0.2)) == 0.0
     # Overlap 0.2 x 0.4 = 0.08 over union 0.16 + 0.16 - 0.08 = 0.24.
-    assert box_iou(BoundingBox(0.0, 0.0, 0.4, 0.4), BoundingBox(0.2, 0.0, 0.4, 0.4)) == pytest.approx(1 / 3)
+    assert box_iou(
+        BoundingBox(0.0, 0.0, 0.4, 0.4), BoundingBox(0.2, 0.0, 0.4, 0.4)
+    ) == pytest.approx(1 / 3)
     # A fully contained box: intersection 0.01 over union 0.16.
-    assert box_iou(BoundingBox(0.0, 0.0, 0.4, 0.4), BoundingBox(0.1, 0.1, 0.1, 0.1)) == pytest.approx(0.0625)
+    assert box_iou(
+        BoundingBox(0.0, 0.0, 0.4, 0.4), BoundingBox(0.1, 0.1, 0.1, 0.1)
+    ) == pytest.approx(0.0625)
 
 
 def test_spatial_line_metrics_count_exact_box_matches_as_matched() -> None:

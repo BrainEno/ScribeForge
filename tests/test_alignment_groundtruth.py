@@ -50,9 +50,7 @@ def _result(
     )
 
 
-def _match_rate(
-    result_pairs, expected: dict[int, int | None]
-) -> tuple[int, int, list[int]]:
+def _match_rate(result_pairs, expected: dict[int, int | None]) -> tuple[int, int, list[int]]:
     """Return (matched, total, mismatched_primary_indexes)."""
 
     matched = 0
@@ -63,7 +61,12 @@ def _match_rate(
             continue
         expected_s = expected.get(p)
         actual_s = pair.secondary_line_index
-        if expected_s is None and actual_s is None or expected_s is not None and actual_s == expected_s:
+        if (
+            expected_s is None
+            and actual_s is None
+            or expected_s is not None
+            and actual_s == expected_s
+        ):
             matched += 1
         else:
             mismatched.append(p)
@@ -105,9 +108,7 @@ def test_groundtruth_two_column_matching_accuracy() -> None:
 
     assert matched == total == 4, f"matched {matched}/{total}, mismatched {_mismatched}"
     # Order: reading order is top-to-bottom, left-to-right.
-    order = [
-        (p.primary_line_index, p.secondary_line_index) for p in alignment.pairs
-    ]
+    order = [(p.primary_line_index, p.secondary_line_index) for p in alignment.pairs]
     assert order == [(0, 0), (1, 1), (2, 2), (3, 3)], order
     # No conflicts: identical text.
     for pair in alignment.pairs:
@@ -281,9 +282,7 @@ def test_groundtruth_uncertain_alignment_enters_review() -> None:
     assert candidate.pair_index == 0
     # High disagreement -> high score -> above the default 0.35 threshold.
     assert candidate.score >= 0.35, candidate.score
-    assert any(
-        r is not None for r in candidate.reasons
-    ), "candidate must carry risk reasons"
+    assert any(r is not None for r in candidate.reasons), "candidate must carry risk reasons"
 
 
 def test_groundtruth_rotated_text_is_not_force_matched_and_enters_review() -> None:

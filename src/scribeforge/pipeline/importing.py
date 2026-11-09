@@ -94,9 +94,7 @@ def import_source(
                 fmt = str(reencode.get("format", "jpeg"))
                 quality_raw = reencode.get("quality")
                 quality = None if quality_raw is None else cast(int, quality_raw)
-                data, extension = reencode_image(
-                    data, format=fmt, quality=quality
-                )
+                data, extension = reencode_image(data, format=fmt, quality=quality)
                 render_parameters["reencoded"] = {
                     "format": fmt,
                     "quality": quality,

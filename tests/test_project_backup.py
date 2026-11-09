@@ -159,9 +159,10 @@ def test_verification_detects_tampered_member_bytes(tmp_path: Path) -> None:
     create_project_backup(store_dir, archive)
 
     tampered = tmp_path / "tampered.zip"
-    with zipfile.ZipFile(archive, "r") as source_zip, zipfile.ZipFile(
-        tampered, "w", compression=zipfile.ZIP_DEFLATED
-    ) as target_zip:
+    with (
+        zipfile.ZipFile(archive, "r") as source_zip,
+        zipfile.ZipFile(tampered, "w", compression=zipfile.ZIP_DEFLATED) as target_zip,
+    ):
         for item in source_zip.infolist():
             data = source_zip.read(item.filename)
             if item.filename == "assets/page-000001.png":
@@ -207,7 +208,6 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-
 def test_cli_backup_verify_restore_json_round_trip(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -215,9 +215,7 @@ def test_cli_backup_verify_restore_json_round_trip(
     archive = tmp_path / "Book.zip"
     target = tmp_path / "restored-from-cli.scribeforge"
 
-    backup_code = run(
-        ["backup", "--store", str(store_dir), "--out", str(archive), "--json"]
-    )
+    backup_code = run(["backup", "--store", str(store_dir), "--out", str(archive), "--json"])
     backup_payload = json.loads(capsys.readouterr().out)
     assert backup_code == 0
     assert backup_payload["healthy"] is True
@@ -232,7 +230,9 @@ def test_cli_backup_verify_restore_json_round_trip(
     assert restore_code == 0
     assert restore_payload["healthy"] is True
     restored_project = SQLiteStore(target / "project.sqlite3").list_projects()[0]
-    assert restored_project.source_uri == str((target / "source" / "project-1" / "Book.pdf").resolve())
+    assert restored_project.source_uri == str(
+        (target / "source" / "project-1" / "Book.pdf").resolve()
+    )
 
 
 def test_cli_backup_refuses_overwrite_and_restore_never_replaces_directory(
@@ -259,7 +259,6 @@ def test_cli_backup_refuses_overwrite_and_restore_never_replaces_directory(
     assert (target / "marker.txt").read_text(encoding="utf-8") == "preserve"
 
 
-
 def test_backup_refuses_to_package_a_source_whose_hash_changed(tmp_path: Path) -> None:
     store_dir, source = _prepared_store(tmp_path)
     source.write_bytes(b"modified source PDF bytes")
@@ -276,9 +275,10 @@ def test_verification_rejects_manifest_that_omits_a_referenced_page_asset(
     create_project_backup(store_dir, archive)
 
     incomplete = tmp_path / "incomplete.zip"
-    with zipfile.ZipFile(archive, "r") as source_zip, zipfile.ZipFile(
-        incomplete, "w", compression=zipfile.ZIP_DEFLATED
-    ) as target_zip:
+    with (
+        zipfile.ZipFile(archive, "r") as source_zip,
+        zipfile.ZipFile(incomplete, "w", compression=zipfile.ZIP_DEFLATED) as target_zip,
+    ):
         manifest = json.loads(source_zip.read("manifest.json"))
         manifest["files"] = [
             record for record in manifest["files"] if record["path"] != "assets/page-000001.png"
@@ -341,14 +341,20 @@ def test_restore_relocates_preprocessed_page_paths(tmp_path: Path) -> None:
     database = tmp_path / "project.sqlite3"
     with sqlite3.connect(database) as connection:
         connection.execute("CREATE TABLE pages (id INTEGER PRIMARY KEY, source_image TEXT)")
-        connection.execute("CREATE TABLE page_preprocess (page_id INTEGER PRIMARY KEY, output_image TEXT)")
-        connection.execute("INSERT INTO pages VALUES (1, ?)",
-                           (str(tmp_path / "old" / "assets" / "page.png"),))
-        connection.execute("INSERT INTO page_preprocess VALUES (1, ?)",
-                           (str(tmp_path / "old" / "preprocessed" / "page-pre.png"),))
+        connection.execute(
+            "CREATE TABLE page_preprocess (page_id INTEGER PRIMARY KEY, output_image TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO pages VALUES (1, ?)", (str(tmp_path / "old" / "assets" / "page.png"),)
+        )
+        connection.execute(
+            "INSERT INTO page_preprocess VALUES (1, ?)",
+            (str(tmp_path / "old" / "preprocessed" / "page-pre.png"),),
+        )
     target = tmp_path / "restored"
-    project_backup._remap_page_assets(database, target,
-                                      {"assets/page.png", "preprocessed/page-pre.png"})
+    project_backup._remap_page_assets(
+        database, target, {"assets/page.png", "preprocessed/page-pre.png"}
+    )
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT output_image FROM page_preprocess").fetchone()[0] == str(
             (target / "preprocessed" / "page-pre.png").resolve()
@@ -418,8 +424,12 @@ def test_backup_excludes_job_claims_through_publication(
     other = SQLiteStore(store_dir / "project.sqlite3")
     project_id = other.list_projects()[0].id
     job_id = other.ensure_job(project_id, JobStage.IMPORT)
-    names = {"audit": "audit_project_store", "snapshot": "_snapshot_database",
-             "archive": "_stream_file_to_zip", "validate": "restore_project_backup"}
+    names = {
+        "audit": "audit_project_store",
+        "snapshot": "_snapshot_database",
+        "archive": "_stream_file_to_zip",
+        "validate": "restore_project_backup",
+    }
     name = names[phase]
     original = getattr(project_backup, name)
     blocked = []
@@ -468,8 +478,9 @@ def test_backup_refuses_owned_writer_and_preserves_archive(tmp_path: Path) -> No
     project_id = other.list_projects()[0].id
     archive = tmp_path / "Book.zip"
     archive.write_bytes(b"previous archive")
-    with other.project_writer_guard(project_id), pytest.raises(
-        ProjectBackupError, match="active writer"
+    with (
+        other.project_writer_guard(project_id),
+        pytest.raises(ProjectBackupError, match="active writer"),
     ):
         create_project_backup(store_dir, archive, overwrite=True)
     assert archive.read_bytes() == b"previous archive"
@@ -521,7 +532,10 @@ finally:
     def snapshot_with_worker(*args, **kwargs):
         result = subprocess.run(
             [sys.executable, "-c", script, str(store_dir / "project.sqlite3"), str(job_id)],
-            capture_output=True, text=True, check=True, timeout=30,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
         )
         outcomes.append(result.stdout.strip())
         return original_snapshot(*args, **kwargs)

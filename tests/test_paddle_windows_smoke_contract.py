@@ -18,9 +18,7 @@ def test_windows_real_smoke_workflow_runs_and_uploads_windows_evidence() -> None
     assert "paddle-real-smoke-windows-" in workflow
     assert "if: always()" in workflow
 
-    linux_workflow = (root / ".github/workflows/paddle-real-smoke.yml").read_text(
-        encoding="utf-8"
-    )
+    linux_workflow = (root / ".github/workflows/paddle-real-smoke.yml").read_text(encoding="utf-8")
     for workflow_text in (workflow, linux_workflow):
         assert "scripts/create_paddle_smoke_image.py" in workflow_text
         assert "scripts/record_paddle_smoke_evidence.py" in workflow_text

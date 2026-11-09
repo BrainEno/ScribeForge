@@ -72,8 +72,7 @@ def _margin_candidates(result: PageOCRResult) -> list[OCRLine]:
     declared = [
         result.lines[index]
         for index in range(len(result.lines))
-        if (block := result.block_of_line(index)) is not None
-        and block.block_type.is_page_furniture
+        if (block := result.block_of_line(index)) is not None and block.block_type.is_page_furniture
     ]
     if declared:
         return declared
@@ -126,9 +125,7 @@ def _body_height(result: PageOCRResult) -> float:
     return heights[len(heights) // 2]
 
 
-def detect_chapters(
-    result: PageOCRResult, page_index: int
-) -> tuple[tuple[int, str], ...]:
+def detect_chapters(result: PageOCRResult, page_index: int) -> tuple[tuple[int, str], ...]:
     """Headings on one page, with a level inferred from their typeset size.
 
     Two independent signals are required, never a single guess:
@@ -147,9 +144,7 @@ def detect_chapters(
         declared_title = block is not None and block.block_type is BlockType.TITLE
         if not declared_title and not looks_like_heading(line.text):
             continue
-        if not declared_title and body > 0 and line.box.height < body * (
-            _HEADING_LEVEL_MIN_RATIO
-        ):
+        if not declared_title and body > 0 and line.box.height < body * (_HEADING_LEVEL_MIN_RATIO):
             continue
         ratio = (line.box.height / body) if body > 0 else 1.0
         level = 1 if ratio >= 1.6 else 2 if ratio >= 1.3 else 3
@@ -233,9 +228,7 @@ def build_book_structure(
             candidates.append((page.page_index, label))
 
     resolved = assign_sequences(candidates)
-    ink = (
-        measure_ink(store, project_id, sorted(results)) if measure_ink_ratio else {}
-    )
+    ink = measure_ink(store, project_id, sorted(results)) if measure_ink_ratio else {}
 
     evidence = tuple(
         _PageEvidence(
@@ -396,16 +389,12 @@ def persist_book_structure(
     )
     return StructureReport(
         pages=tuple(page.page_index for page in structure.pages),
-        labelled_pages=tuple(
-            page.page_index for page in structure.pages if page.label.is_numbered
-        ),
+        labelled_pages=tuple(page.page_index for page in structure.pages if page.label.is_numbered),
         chapters=len(structure.chapters),
         roles=roles,
         chapter_source=chapter_source,
         toc_entries=structure.toc_entries,
-        toc_mapped=sum(
-            1 for chapter in structure.chapters if chapter.source == "toc"
-        ),
+        toc_mapped=sum(1 for chapter in structure.chapters if chapter.source == "toc"),
         toc_unmapped=structure.unplaced_toc_titles,
         blank_pages=blank,
         plate_pages=plate,

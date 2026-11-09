@@ -37,9 +37,7 @@ def test_initialize_creates_versioned_core_schema(tmp_path: Path) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         tables = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
     assert version == 15
     assert {
@@ -108,8 +106,7 @@ def test_v11_migration_preserves_known_tokens_and_unknown_state(tmp_path: Path) 
             "VALUES (1, 0, 'page.png', 100, 100)"
         )
         connection.execute(
-            "INSERT INTO engine_runs(page_id, engine, engine_version) "
-            "VALUES (1, 'legacy', '1')"
+            "INSERT INTO engine_runs(page_id, engine, engine_version) VALUES (1, 'legacy', '1')"
         )
         connection.execute(
             "INSERT INTO ocr_lines(run_id, line_index, text, x, y, width, height) "
@@ -225,7 +222,6 @@ def test_unknown_page_and_run_raise_key_error(tmp_path: Path) -> None:
         store.record_ocr(project_id, PageOCRResult(1, "fixture", "1", ()))
     with pytest.raises(KeyError, match="unknown OCR run"):
         store.load_ocr_run(999)
-
 
 
 def test_relink_project_source_updates_path_only_when_recorded_hash_matches(

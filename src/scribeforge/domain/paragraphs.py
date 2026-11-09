@@ -185,8 +185,7 @@ def _closing_only(text: str) -> bool:
 
     stripped = text.strip()
     return bool(stripped) and all(
-        character in _CLOSING_MARKS or character in _TERMINAL_PUNCTUATION
-        for character in stripped
+        character in _CLOSING_MARKS or character in _TERMINAL_PUNCTUATION for character in stripped
     )
 
 

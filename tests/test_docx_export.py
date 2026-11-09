@@ -59,9 +59,7 @@ def _paragraphs(root: ET.Element) -> list[str]:
         if any(item.get(f"{{{_WORD_NS}}}type") == "page" for item in breaks):
             result.append("<break>")
             continue
-        result.append(
-            "".join(token.text or "" for token in paragraph.iter(f"{{{_WORD_NS}}}t"))
-        )
+        result.append("".join(token.text or "" for token in paragraph.iter(f"{{{_WORD_NS}}}t")))
     return result
 
 
@@ -245,9 +243,7 @@ def test_build_rejects_an_author_that_xml_cannot_represent() -> None:
 def test_build_accepts_xml_whitespace_characters() -> None:
     book = VerifiedBook("Title", (VerifiedPage(0, ("a\tb", "c\nd")),))
 
-    archive = _archive(
-        build_docx(book, identifier="urn:test", language="zh", modified=_MODIFIED)
-    )
+    archive = _archive(build_docx(book, identifier="urn:test", language="zh", modified=_MODIFIED))
 
     document = _parse(archive, "word/document.xml")
     assert _paragraphs(document) == ["a\tb c\nd"]

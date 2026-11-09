@@ -70,9 +70,7 @@ class RuntimeSetupWorkflow:
             paddleocr=manager.status("paddleocr"),
         )
 
-    def install(
-        self, *, on_event: Callable[[RuntimeEvent], None] | None = None
-    ) -> None:
+    def install(self, *, on_event: Callable[[RuntimeEvent], None] | None = None) -> None:
         profile = self._hardware_probe()
         layout = RuntimeLayout(self.root)
         uv = self._uv_ensurer(layout.tools_dir, profile.os_name, profile.architecture)

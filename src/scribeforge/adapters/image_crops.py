@@ -81,7 +81,9 @@ def materialize_review_crops(
                 crop = enlarged
             temporary = None
             try:
-                with tempfile.NamedTemporaryFile(dir=output_dir, prefix=".crop-", delete=False) as stream:
+                with tempfile.NamedTemporaryFile(
+                    dir=output_dir, prefix=".crop-", delete=False
+                ) as stream:
                     temporary = Path(stream.name)
                     crop.save(stream, format="PNG", optimize=False, compress_level=6)
                 if immutable:

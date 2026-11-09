@@ -143,11 +143,7 @@ def test_paddle_extract_lines_maps_confidence_and_geometry() -> None:
 
 def test_paddle_vl_reports_region_confidence_without_fabricating_tokens() -> None:
     lines, _blocks, _direction = paddle_vl_worker.extract_page(
-        {
-            "blocks": [
-                {"type": "text", "bbox": [10, 20, 50, 40], "text": "乌鸦", "score": 0.42}
-            ]
-        },
+        {"blocks": [{"type": "text", "bbox": [10, 20, 50, 40], "text": "乌鸦", "score": 0.42}]},
         width=100,
         height=100,
     )
@@ -279,17 +275,29 @@ def test_mineru_extract_page_reports_block_labels_and_ranges() -> None:
         "pages": [
             {
                 "blocks": [
-                    {"type": "page_header", "bbox": [0.8, 0.02, 0.9, 0.05],
-                     "content": [{"type": "text", "content": "V."}]},
-                    {"type": "title", "bbox": [0.1, 0.1, 0.5, 0.16],
-                     "content": [{"type": "text", "content": "第 一 章"}]},
-                    {"type": "text", "bbox": [0.1, 0.2, 0.9, 0.4],
-                     "content": [
-                         {"type": "text", "content": "正文一"},
-                         {"type": "text", "content": "正文二"},
-                     ]},
-                    {"type": "page_footnote", "bbox": [0.1, 0.9, 0.9, 0.95],
-                     "content": [{"type": "text", "content": "① 脚注"}]},
+                    {
+                        "type": "page_header",
+                        "bbox": [0.8, 0.02, 0.9, 0.05],
+                        "content": [{"type": "text", "content": "V."}],
+                    },
+                    {
+                        "type": "title",
+                        "bbox": [0.1, 0.1, 0.5, 0.16],
+                        "content": [{"type": "text", "content": "第 一 章"}],
+                    },
+                    {
+                        "type": "text",
+                        "bbox": [0.1, 0.2, 0.9, 0.4],
+                        "content": [
+                            {"type": "text", "content": "正文一"},
+                            {"type": "text", "content": "正文二"},
+                        ],
+                    },
+                    {
+                        "type": "page_footnote",
+                        "bbox": [0.1, 0.9, 0.9, 0.95],
+                        "content": [{"type": "text", "content": "① 脚注"}],
+                    },
                     {"type": "image", "bbox": [0.1, 0.5, 0.9, 0.8], "content": []},
                 ]
             }
@@ -320,8 +328,12 @@ def test_mineru_extract_page_uses_item_bbox_and_score() -> None:
                         "type": "text",
                         "bbox": [0.1, 0.2, 0.9, 0.4],
                         "content": [
-                            {"type": "text", "content": "甲", "bbox": [0.1, 0.2, 0.9, 0.25],
-                             "score": 0.42},
+                            {
+                                "type": "text",
+                                "content": "甲",
+                                "bbox": [0.1, 0.2, 0.9, 0.25],
+                                "score": 0.42,
+                            },
                             {"type": "text", "content": "乙"},
                         ],
                     }
@@ -348,8 +360,11 @@ def test_mineru_main_emits_contract_v2(monkeypatch, capsys, tmp_path: Path) -> N
         "pages": [
             {
                 "blocks": [
-                    {"type": "title", "bbox": [0.1, 0.1, 0.5, 0.2],
-                     "content": [{"type": "text", "content": "第 一 章"}]}
+                    {
+                        "type": "title",
+                        "bbox": [0.1, 0.1, 0.5, 0.2],
+                        "content": [{"type": "text", "content": "第 一 章"}],
+                    }
                 ]
             }
         ],

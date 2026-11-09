@@ -70,9 +70,7 @@ class SubprocessExecutor:
             # Caller shell/index settings must not redirect a reviewed lock to a
             # different package source. Managed UV_* values are added back below.
             process_env = {
-                key: value
-                for key, value in os.environ.items()
-                if not key.startswith("UV_")
+                key: value for key, value in os.environ.items() if not key.startswith("UV_")
             }
             process_env.update(env)
         return_code, stdout, stderr = run_runtime_process(
@@ -83,9 +81,7 @@ class SubprocessExecutor:
             max_log_bytes=self._max_log_bytes,
         )
         if return_code != 0:
-            raise subprocess.CalledProcessError(
-                return_code, argv, output=stdout, stderr=stderr
-            )
+            raise subprocess.CalledProcessError(return_code, argv, output=stdout, stderr=stderr)
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,11 +174,7 @@ class RuntimeManager:
         except Exception as exc:
             self._set_status(backend.name, RuntimeStatus("failed", "publish"))
             total = len(backend.steps) + len(backend.model_steps) + len(backend.health_checks)
-            self._emit(
-                RuntimeEvent(
-                    backend.name, "install", "failed", "publish", total, total
-                )
-            )
+            self._emit(RuntimeEvent(backend.name, "install", "failed", "publish", total, total))
             detail = str(exc).strip()
             suffix = f": {detail}" if detail else ""
             raise RuntimeInstallError(f"{backend.name}:publish{suffix}") from exc
@@ -195,9 +187,7 @@ class RuntimeManager:
         self._emit(RuntimeEvent(backend.name, "complete", "ready", None, total, total))
 
     @staticmethod
-    def _relocate_backend(
-        backend: RuntimeBackendPlan, staging: Path
-    ) -> RuntimeBackendPlan:
+    def _relocate_backend(backend: RuntimeBackendPlan, staging: Path) -> RuntimeBackendPlan:
         final_text = str(backend.environment_dir)
         staging_text = str(staging)
 
@@ -306,9 +296,7 @@ class RuntimeManager:
                     if len(detail) > 1200:
                         detail = detail[-1200:]
                     suffix = f": {detail}" if detail else ""
-                    raise RuntimeInstallError(
-                        f"{backend.name}:{failed_step}{suffix}"
-                    ) from exc
+                    raise RuntimeInstallError(f"{backend.name}:{failed_step}{suffix}") from exc
                 completed += 1
                 self._emit(
                     RuntimeEvent(
@@ -335,9 +323,7 @@ class RuntimeManager:
                 )
             try:
                 if environment:
-                    self._executor.run(
-                        step.argv, environment, timeout_seconds=remaining
-                    )
+                    self._executor.run(step.argv, environment, timeout_seconds=remaining)
                 else:
                     self._executor.run(step.argv, timeout_seconds=remaining)
                 if time.monotonic() >= deadline:

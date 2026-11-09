@@ -103,7 +103,7 @@ def test_check_epub_rejects_altered_page_text() -> None:
         replace={
             "OEBPS/page-000001.xhtml": (
                 b'<?xml version="1.0" encoding="UTF-8"?>'
-                b'<!DOCTYPE html>'
+                b"<!DOCTYPE html>"
                 b'<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head>'
                 b"<body><section>"
                 b"<p>one</p><p>changed</p></section></body></html>"
@@ -241,10 +241,7 @@ def test_check_docx_rejects_a_missing_page_break() -> None:
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
         "<w:body>"
-        + "".join(
-            f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>"
-            for line in ("one", "two", "three")
-        )
+        + "".join(f"<w:p><w:r><w:t>{line}</w:t></w:r></w:p>" for line in ("one", "two", "three"))
         + "<w:sectPr/></w:body></w:document>"
     )
 
@@ -360,10 +357,7 @@ def test_check_epub_rejects_missing_head() -> None:
 
 def test_check_epub_rejects_missing_body() -> None:
     original = _entry(_epub(), "OEBPS/page-000001.xhtml")
-    tampered = (
-        original.replace("<body><section>", "", 1)
-        .replace("</section></body>", "", 1)
-    )
+    tampered = original.replace("<body><section>", "", 1).replace("</section></body>", "", 1)
     assert tampered != original
     assert "<body" not in tampered
     data = _rewrite(_epub(), replace={"OEBPS/page-000001.xhtml": tampered.encode("utf-8")})

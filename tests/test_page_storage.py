@@ -25,9 +25,7 @@ def test_list_pages_returns_ordered_page_evidence(tmp_path: Path) -> None:
     assert store.imported_page_indexes(project_id) == frozenset({0, 1})
 
     pages = store.list_pages(project_id)
-    assert [
-        (page.page_index, page.source_image, page.width, page.height) for page in pages
-    ] == [
+    assert [(page.page_index, page.source_image, page.width, page.height) for page in pages] == [
         (0, "pages/0.png", 30, 40),
         (1, "pages/1.png", 10, 20),
     ]
@@ -194,11 +192,12 @@ def test_v7_database_migrates_to_v8_adding_run_scope(tmp_path: Path) -> None:
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(engine_runs)").fetchall()
+            row[1] for row in connection.execute("PRAGMA table_info(engine_runs)").fetchall()
         }
         assert "scope" in columns
-        assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+        assert (
+            connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+        )
 
 
 def test_v8_database_migrates_to_v9_adding_risk_and_confirmation_columns(
@@ -238,9 +237,7 @@ def test_v8_database_migrates_to_v9_adding_risk_and_confirmation_columns(
             row[1] for row in connection.execute("PRAGMA table_info(decisions)").fetchall()
         }
         assert {"risk_score", "risk_reasons_json"} <= decision_columns
-        risk_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(risks)").fetchall()
-        }
+        risk_columns = {row[1] for row in connection.execute("PRAGMA table_info(risks)").fetchall()}
         assert {"min_confidence", "content_score"} <= risk_columns
         tables = {
             row[0]
@@ -249,7 +246,9 @@ def test_v8_database_migrates_to_v9_adding_risk_and_confirmation_columns(
             ).fetchall()
         }
         assert "page_confirmations" in tables
-        assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+        assert (
+            connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+        )
 
 
 def test_v9_database_migrates_to_v10_adding_ink_and_chapter_source(
@@ -287,8 +286,7 @@ def test_v9_database_migrates_to_v10_adding_ink_and_chapter_source(
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         structure_columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(page_structure)").fetchall()
+            row[1] for row in connection.execute("PRAGMA table_info(page_structure)").fetchall()
         }
         assert "ink_ratio" in structure_columns
         chapter_columns = {
@@ -296,6 +294,5 @@ def test_v9_database_migrates_to_v10_adding_ink_and_chapter_source(
         }
         assert "source" in chapter_columns
         assert (
-            connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0]
-            == "Legacy"
+            connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
         )

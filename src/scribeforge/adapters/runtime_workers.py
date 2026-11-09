@@ -68,9 +68,7 @@ def runtime_environment(
     environment = build_runtime_environment(layout)
     existing = os.environ.get("PYTHONPATH")
     sources = str(worker_source_root())
-    environment["PYTHONPATH"] = (
-        f"{sources}{os.pathsep}{existing}" if existing else sources
-    )
+    environment["PYTHONPATH"] = f"{sources}{os.pathsep}{existing}" if existing else sources
     if extra:
         environment.update(dict(extra))
     return environment
@@ -89,9 +87,7 @@ def require_backend_ready(
         raise BackendNotReadyError(f"backend {backend} is not ready (state={state})")
     python = layout.python_executable(backend, os_name)
     if not python.exists():
-        raise BackendNotReadyError(
-            f"backend {backend} python executable is missing: {python}"
-        )
+        raise BackendNotReadyError(f"backend {backend} python executable is missing: {python}")
 
 
 def build_runtime_engine(
@@ -119,9 +115,7 @@ def build_runtime_engine(
     python = layout.python_executable(backend, os_name)
     base_path = os.environ.get("PATH", "")
     extra = dict(extra_environment or {})
-    extra["PATH"] = f"{python.parent}{os.pathsep}{base_path}" if base_path else str(
-        python.parent
-    )
+    extra["PATH"] = f"{python.parent}{os.pathsep}{base_path}" if base_path else str(python.parent)
     return SubprocessOCREngine(
         name,
         worker_command(layout, backend, worker_script, os_name),

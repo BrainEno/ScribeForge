@@ -141,7 +141,6 @@ def test_reviewer_rejects_truncated_model_output(tmp_path: Path, vlm_server) -> 
         reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
 
 
-
 @pytest.mark.parametrize(
     "endpoint",
     [
@@ -180,9 +179,7 @@ def test_reviewer_reports_http_failures_without_retrying_elsewhere(
         reviewer.transcribe_crop(str(_crop(tmp_path)), page_index=0, pair_index=0)
 
 
-def test_reviewer_does_not_follow_endpoint_redirects(
-    tmp_path: Path, vlm_server
-) -> None:
+def test_reviewer_does_not_follow_endpoint_redirects(tmp_path: Path, vlm_server) -> None:
     endpoint, handler = vlm_server
     handler.response_status = 307
     handler.redirect_url = "http://example.invalid/exfiltrate"
@@ -213,7 +210,6 @@ def test_reviewer_validates_timeout_and_model_identity() -> None:
             endpoint="http://127.0.0.1:1234/v1",
             model="  ",
         )
-
 
 
 def test_remote_endpoint_requires_https_even_when_opted_in() -> None:

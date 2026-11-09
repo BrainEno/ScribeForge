@@ -93,16 +93,13 @@ def _text_digest(book: VerifiedBook) -> str:
     document = {
         "title": book.title,
         "pages": [
-            {"page_index": page.page_index, "lines": list(page.lines)}
-            for page in book.pages
+            {"page_index": page.page_index, "lines": list(page.lines)} for page in book.pages
         ],
         "chapters": [
-            {"title": chapter.title, "page_index": chapter.page_index}
-            for chapter in book.chapters
+            {"title": chapter.title, "page_index": chapter.page_index} for chapter in book.chapters
         ],
         "image_captions": [
-            {"page_index": image.page_index, "caption": image.caption}
-            for image in book.images
+            {"page_index": image.page_index, "caption": image.caption} for image in book.images
         ],
     }
     encoded = json.dumps(
@@ -187,7 +184,13 @@ def _converted_text(
         raise TypeError("a text normalization converter must return str")
     changes: list[NormalizationChange] = []
     matcher = SequenceMatcher(None, text, normalized, autojunk=False)
-    for operation, source_start, source_end, normalized_start, normalized_end in matcher.get_opcodes():
+    for (
+        operation,
+        source_start,
+        source_end,
+        normalized_start,
+        normalized_end,
+    ) in matcher.get_opcodes():
         if operation == "equal":
             continue
         changes.append(
@@ -222,9 +225,7 @@ def derive_normalized_book(
     if selected is NormalizationPolicy.PRESERVE:
         return NormalizedBook(
             book,
-            NormalizationReport(
-                selected, "none", source_sha256, source_sha256, ()
-            ),
+            NormalizationReport(selected, "none", source_sha256, source_sha256, ()),
         )
     if selected is NormalizationPolicy.SIMPLIFIED and converter is None:
         raise ValueError("simplified normalization requires an explicit converter")

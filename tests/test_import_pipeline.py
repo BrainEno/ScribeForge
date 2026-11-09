@@ -32,10 +32,7 @@ def _store(tmp_path: Path) -> tuple[SQLiteStore, int]:
 
 
 def _pages(count: int) -> list[RenderedPage]:
-    return [
-        RenderedPage(index, 10, 20, f"bytes-{index}".encode(), "png")
-        for index in range(count)
-    ]
+    return [RenderedPage(index, 10, 20, f"bytes-{index}".encode(), "png") for index in range(count)]
 
 
 def test_import_source_persists_pages_and_completes_job(tmp_path: Path) -> None:
@@ -69,15 +66,11 @@ def test_import_source_records_page_asset_digest(tmp_path: Path) -> None:
     result = import_source(store, project_id, FakePageSource(_pages(2)), assets)
 
     pages = store.list_pages(project_id)
-    assert pages[0].page_asset_sha256 == PageAssetEvidence.from_bytes(
-        b"bytes-0"
-    ).sha256
+    assert pages[0].page_asset_sha256 == PageAssetEvidence.from_bytes(b"bytes-0").sha256
     assert pages[0].page_asset_byte_size == len(b"bytes-0")
     assert pages[0].page_asset_version == 1
     assert pages[0].page_asset_parameters_json is not None
-    assert pages[1].page_asset_sha256 == PageAssetEvidence.from_bytes(
-        b"bytes-1"
-    ).sha256
+    assert pages[1].page_asset_sha256 == PageAssetEvidence.from_bytes(b"bytes-1").sha256
 
     job = store.load_job(result.job_id)
     assert job.state is JobState.SUCCEEDED
@@ -151,7 +144,9 @@ def test_shared_import_directory_never_overwrites_another_project_page(tmp_path:
     assert saved != second_path
     assert saved.read_bytes() == before
     assert second_path.read_bytes() == b"other-page"
-    assert store.list_pages(first)[0].page_asset_sha256 == PageAssetEvidence.from_bytes(before).sha256
+    assert (
+        store.list_pages(first)[0].page_asset_sha256 == PageAssetEvidence.from_bytes(before).sha256
+    )
 
 
 def test_import_preserves_existing_source_and_temporary_path(tmp_path: Path) -> None:
@@ -238,7 +233,9 @@ def test_failed_asset_publication_cleans_temporary_and_retries(
     assert not list(assets.glob(".import-*"))
 
 
-def test_import_collision_paths_survive_backup_restore_without_original_store(tmp_path: Path) -> None:
+def test_import_collision_paths_survive_backup_restore_without_original_store(
+    tmp_path: Path,
+) -> None:
     import hashlib
     import shutil
 
@@ -287,7 +284,9 @@ def test_import_index_lookup_failure_marks_job_failed_and_releases_writer(
     assert store.load_job(job_id).state is JobState.FAILED
     assert store.load_job(job_id).last_error == "could not load page index"
     monkeypatch.undo()
-    assert import_source(store, project_id, FakePageSource(_pages(1)), assets).imported_page_indexes == (0,)
+    assert import_source(
+        store, project_id, FakePageSource(_pages(1)), assets
+    ).imported_page_indexes == (0,)
     assert store.load_job(job_id).state is JobState.SUCCEEDED
 
 
@@ -309,8 +308,12 @@ def test_concurrent_imports_publish_distinct_page_files(tmp_path: Path) -> None:
     def run(project_id: int, data: bytes) -> None:
         instance = SQLiteStore(tmp_path / "project.sqlite3")
         try:
-            import_source(instance, project_id,
-                          SynchronizedSource([RenderedPage(0, 10, 20, data, "png")]), assets)
+            import_source(
+                instance,
+                project_id,
+                SynchronizedSource([RenderedPage(0, 10, 20, data, "png")]),
+                assets,
+            )
         finally:
             instance.close()
 

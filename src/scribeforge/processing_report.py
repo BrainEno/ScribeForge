@@ -62,9 +62,7 @@ class PageReport:
         return sum(measured) if measured else None
 
     def stage_seconds(self, stage: JobStage) -> float | None:
-        timing = next(
-            (item for item in self.stage_timings if item.stage == stage.value), None
-        )
+        timing = next((item for item in self.stage_timings if item.stage == stage.value), None)
         return None if timing is None else timing.observed_seconds
 
 
@@ -159,9 +157,7 @@ def build_processing_report(
         stage: [job for job in jobs if job.stage is stage]
         for stage in sorted(JobStage, key=lambda item: item.order)
     }
-    stages = tuple(
-        _stage_report(stage, jobs_by_stage[stage]) for stage in jobs_by_stage
-    )
+    stages = tuple(_stage_report(stage, jobs_by_stage[stage]) for stage in jobs_by_stage)
 
     all_reasons: Counter[str] = Counter()
     pages: list[PageReport] = []
@@ -260,9 +256,7 @@ def processing_report_dict(report: ProcessingReport) -> dict[str, object]:
             "open_blocked": report.progress.open_blocked,
             "review_required_ratio": report.review_required_ratio,
         },
-        "risk_reasons": {
-            item.reason: item.count for item in report.risk_reasons
-        },
+        "risk_reasons": {item.reason: item.count for item in report.risk_reasons},
         "timing": {
             "scope": _TIMING_SCOPE,
             "observed_seconds": report.observed_seconds,
@@ -291,9 +285,7 @@ def processing_report_dict(report: ProcessingReport) -> dict[str, object]:
                 "aligned_pairs": page.aligned_pairs,
                 "high_risk_pairs": page.high_risk_pairs,
                 "open_pairs": page.open_pairs,
-                "risk_reasons": {
-                    item.reason: item.count for item in page.risk_reasons
-                },
+                "risk_reasons": {item.reason: item.count for item in page.risk_reasons},
                 "observed_seconds": page.observed_seconds,
                 "stage_timings": [
                     {
@@ -311,9 +303,10 @@ def processing_report_dict(report: ProcessingReport) -> dict[str, object]:
 
 
 def processing_report_json(report: ProcessingReport) -> str:
-    return json.dumps(
-        processing_report_dict(report), ensure_ascii=False, sort_keys=True, indent=2
-    ) + "\n"
+    return (
+        json.dumps(processing_report_dict(report), ensure_ascii=False, sort_keys=True, indent=2)
+        + "\n"
+    )
 
 
 def _cell(value: str) -> str:
@@ -328,9 +321,7 @@ def render_processing_report(report: ProcessingReport) -> str:
     """Render deterministic Markdown with explicit timing and review semantics."""
 
     ratio = report.review_required_ratio * 100
-    observed = (
-        "—" if report.observed_seconds is None else f"{report.observed_seconds:.3f} s"
-    )
+    observed = "—" if report.observed_seconds is None else f"{report.observed_seconds:.3f} s"
     lines = [
         "# Processing Report",
         "",
@@ -378,9 +369,7 @@ def render_processing_report(report: ProcessingReport) -> str:
     lines += ["", "## Risk reasons", ""]
     if report.risk_reasons:
         lines += ["| Reason | Occurrences |", "| --- | ---: |"]
-        lines.extend(
-            f"| {item.reason} | {item.count} |" for item in report.risk_reasons
-        )
+        lines.extend(f"| {item.reason} | {item.count} |" for item in report.risk_reasons)
     else:
         lines.append("No verification risk reasons recorded.")
 
@@ -395,9 +384,7 @@ def render_processing_report(report: ProcessingReport) -> str:
         "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for page in report.pages:
-        reasons = ", ".join(
-            f"{item.reason}={item.count}" for item in page.risk_reasons
-        ) or "—"
+        reasons = ", ".join(f"{item.reason}={item.count}" for item in page.risk_reasons) or "—"
         lines.append(
             f"| {page.page_index + 1} | {page.status} "
             f"| {_seconds(page.stage_seconds(JobStage.PRIMARY_OCR))} "

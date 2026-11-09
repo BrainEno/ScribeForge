@@ -31,7 +31,7 @@ Pipeline stages must be restartable and page-granular. Persist results before re
 ## Definition of done
 A slice is done only when:
 - tests were added first and now pass;
-- type/lint checks pass;
+- type/lint checks pass (`ruff check .`, `ruff format --check .`, `mypy src`);
 - no source evidence is overwritten;
 - failure/retry behavior is defined;
 - docs/schema are updated when contracts change;

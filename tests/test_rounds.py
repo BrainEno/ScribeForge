@@ -199,9 +199,10 @@ def test_the_second_attempt_reads_a_wider_larger_crop(tmp_path: Path) -> None:
     assert not first_crop.exists() and not second_crop.exists()
     assert reader.seen_bytes[0] == (tmp_path / "repair" / first_crop.name).read_bytes()
     assert reader.seen_bytes[1] == (tmp_path / "repair" / second_crop.name).read_bytes()
-    with Image.open(BytesIO(reader.seen_bytes[0])) as before, Image.open(
-        BytesIO(reader.seen_bytes[1])
-    ) as after:
+    with (
+        Image.open(BytesIO(reader.seen_bytes[0])) as before,
+        Image.open(BytesIO(reader.seen_bytes[1])) as after,
+    ):
         assert after.size[0] > before.size[0]
         assert after.size[1] >= before.size[1]
 
@@ -322,8 +323,10 @@ def test_a_round_re_asks_the_vision_model_on_the_bigger_crop(tmp_path: Path) -> 
     # The vision model supplied the second vote, so the decision is recorded as
     # such — not as a silent automatic accept.
     assert decision.actor == "vlm"
-    assert any(ref.startswith("vlm_review:") and ref != "vlm_review:unknown"
-               for ref in decision.evidence_refs)
+    assert any(
+        ref.startswith("vlm_review:") and ref != "vlm_review:unknown"
+        for ref in decision.evidence_refs
+    )
 
 
 def test_progress_reports_what_still_needs_a_person(tmp_path: Path) -> None:
@@ -354,9 +357,7 @@ def test_a_round_needs_a_reader(tmp_path: Path) -> None:
     store, project_id = _disputed_page(tmp_path)
 
     with pytest.raises(ValueError, match="reader"):
-        run_repair_round(
-            store, project_id, readers=(), crops_dir=tmp_path / "repair"
-        )
+        run_repair_round(store, project_id, readers=(), crops_dir=tmp_path / "repair")
 
 
 def test_reserved_reader_labels_are_rejected(tmp_path: Path) -> None:
@@ -441,6 +442,7 @@ def test_progress_separates_structural_disagreement_from_blocked_text(
     assert report.open_pairs == 1
     assert report.open_blocked == 1
 
+
 @pytest.mark.parametrize("text", ["\ufffd", "bad\x0btext"])
 def test_repair_cannot_accept_unrepresentable_consensus(tmp_path: Path, text: str) -> None:
     store, project_id = _page_with(
@@ -450,9 +452,12 @@ def test_repair_cannot_accept_unrepresentable_consensus(tmp_path: Path, text: st
     )
     assert open_pairs(store, project_id)
     report = run_repair_round(
-        store, project_id,
-        readers=(RepairReader("one", FakeEngine("mineru", text)),
-                 RepairReader("two", FakeEngine("paddleocr", text))),
+        store,
+        project_id,
+        readers=(
+            RepairReader("one", FakeEngine("mineru", text)),
+            RepairReader("two", FakeEngine("paddleocr", text)),
+        ),
         crops_dir=tmp_path / "repair",
     )
     assert report.still_open
@@ -471,7 +476,8 @@ def test_repair_cannot_bypass_low_confidence_even_with_independent_agreement(
         ConfidentTextEngine("paddleocr", "鸦", 0.1),
     )
     report = run_repair_round(
-        store, project_id,
+        store,
+        project_id,
         readers=(RepairReader("third", FakeEngine("third", "鸦")),),
         crops_dir=tmp_path / "repair",
     )
@@ -482,9 +488,12 @@ def test_repair_cannot_bypass_low_confidence_even_with_independent_agreement(
 def test_repair_does_not_count_repeated_engine_as_independent(tmp_path: Path) -> None:
     store, project_id = _disputed_page(tmp_path)
     report = run_repair_round(
-        store, project_id,
-        readers=(RepairReader("one", FakeEngine("mineru", "鸦")),
-                 RepairReader("two", FakeEngine("paddleocr", "蛙"))),
+        store,
+        project_id,
+        readers=(
+            RepairReader("one", FakeEngine("mineru", "鸦")),
+            RepairReader("two", FakeEngine("paddleocr", "蛙")),
+        ),
         crops_dir=tmp_path / "repair",
     )
     assert report.still_open
@@ -495,9 +504,12 @@ def test_repair_records_original_risk_with_independent_corroboration(tmp_path: P
     store, project_id = _disputed_page(tmp_path)
     verification = store.load_verification(store.latest_verification_id(project_id, 0))
     run_repair_round(
-        store, project_id,
-        readers=(RepairReader("one", FakeEngine("mineru", "鸦")),
-                 RepairReader("two", FakeEngine("paddleocr", "鸦"))),
+        store,
+        project_id,
+        readers=(
+            RepairReader("one", FakeEngine("mineru", "鸦")),
+            RepairReader("two", FakeEngine("paddleocr", "鸦")),
+        ),
         crops_dir=tmp_path / "repair",
     )
     decision = store.latest_decision(project_id, 0, 0)
@@ -517,7 +529,8 @@ def test_repair_respects_persisted_spatial_mismatch(tmp_path: Path) -> None:
             ('["spatial_mismatch"]', 0.2),
         )
     report = run_repair_round(
-        store, project_id,
+        store,
+        project_id,
         readers=(RepairReader("second", FakeEngine("paddleocr", "鸦")),),
         crops_dir=tmp_path / "repair",
     )
@@ -528,7 +541,8 @@ def test_repair_respects_persisted_spatial_mismatch(tmp_path: Path) -> None:
 def test_repair_does_not_accept_low_confidence_crop_corroboration(tmp_path: Path) -> None:
     store, project_id = _disputed_page(tmp_path)
     report = run_repair_round(
-        store, project_id,
+        store,
+        project_id,
         readers=(RepairReader("second", ConfidentTextEngine("paddleocr", "鸦", 0.1)),),
         crops_dir=tmp_path / "repair",
     )
@@ -545,7 +559,8 @@ def test_engine_version_does_not_create_an_independent_source(tmp_path: Path) ->
 
     store, project_id = _disputed_page(tmp_path)
     report = run_repair_round(
-        store, project_id,
+        store,
+        project_id,
         readers=(RepairReader("upgraded", NewVersionEngine("mineru", "鸦")),),
         crops_dir=tmp_path / "repair",
     )
@@ -563,7 +578,8 @@ def test_repair_rejects_worker_identity_mismatch(tmp_path: Path) -> None:
     store, project_id = _disputed_page(tmp_path)
     with pytest.raises(ValueError, match="mismatched engine or page identity"):
         run_repair_round(
-            store, project_id,
+            store,
+            project_id,
             readers=(RepairReader("wrong", MismatchedEngine("mineru", "鸦")),),
             crops_dir=tmp_path / "repair",
         )
@@ -578,16 +594,31 @@ def test_repair_refuses_replaced_original_page_before_reading(tmp_path: Path) ->
     project_id = store.create_project("Book", "book.pdf", "source-hash")
     image = tmp_path / "page.png"
     Image.new("RGB", (100, 150), "white").save(image)
-    store.add_page(project_id, 0, str(image), 100, 150,
-                   page_asset=PageAssetEvidence.from_bytes(image.read_bytes()))
-    process_page(store, project_id, store.list_pages(project_id)[0],
-                 primary_engine=FakeEngine("mineru", "鸦"),
-                 secondary_engine=FakeEngine("paddleocr", "雅"), crops_dir=tmp_path / "crops")
+    store.add_page(
+        project_id,
+        0,
+        str(image),
+        100,
+        150,
+        page_asset=PageAssetEvidence.from_bytes(image.read_bytes()),
+    )
+    process_page(
+        store,
+        project_id,
+        store.list_pages(project_id)[0],
+        primary_engine=FakeEngine("mineru", "鸦"),
+        secondary_engine=FakeEngine("paddleocr", "雅"),
+        crops_dir=tmp_path / "crops",
+    )
     image.write_bytes(b"replacement")
     engine = FakeEngine("paddleocr", "鸦")
     with pytest.raises(PageAssetError, match="source image"):
-        run_repair_round(store, project_id, readers=(RepairReader("reread", engine),),
-                         crops_dir=tmp_path / "repair")
+        run_repair_round(
+            store,
+            project_id,
+            readers=(RepairReader("reread", engine),),
+            crops_dir=tmp_path / "repair",
+        )
     assert engine.calls == 0
     assert store.latest_decision(project_id, 0, 0) is None
 
@@ -605,18 +636,28 @@ def test_repair_decision_refuses_page_change_at_write_boundary(
 
     monkeypatch.setattr(store, "append_decision", backfill_before_write)
     with pytest.raises(ValueError, match="(?i)page.*(record|changed|match)"):
-        run_repair_round(store, project, readers=(
-            RepairReader("one", FakeEngine("mineru", "鸦")),
-            RepairReader("two", FakeEngine("paddleocr", "鸦")),
-        ), crops_dir=tmp_path / "repair")
+        run_repair_round(
+            store,
+            project,
+            readers=(
+                RepairReader("one", FakeEngine("mineru", "鸦")),
+                RepairReader("two", FakeEngine("paddleocr", "鸦")),
+            ),
+            crops_dir=tmp_path / "repair",
+        )
     assert store.latest_decision(project, 0, 0) is None
     original_runs = store.list_scoped_run_ids(project, 0, "pair:0")
     assert len(original_runs) == 2
     monkeypatch.setattr(store, "append_decision", append)
-    report = run_repair_round(store, project, readers=(
-        RepairReader("one", FakeEngine("mineru", "鸦")),
-        RepairReader("two", FakeEngine("paddleocr", "鸦")),
-    ), crops_dir=tmp_path / "repair")
+    report = run_repair_round(
+        store,
+        project,
+        readers=(
+            RepairReader("one", FakeEngine("mineru", "鸦")),
+            RepairReader("two", FakeEngine("paddleocr", "鸦")),
+        ),
+        crops_dir=tmp_path / "repair",
+    )
     assert report.progressed
     assert store.latest_decision(project, 0, 0).selected_text == "鸦"
     assert store.list_scoped_run_ids(project, 0, "pair:0")[:2] == original_runs
@@ -658,10 +699,15 @@ def test_repair_does_not_supersede_concurrent_human_decision(
         return append(**kwargs)
 
     monkeypatch.setattr(store, "append_decision", concurrent_human)
-    report = run_repair_round(store, project, readers=(
-        RepairReader("one", FakeEngine("mineru", "鸦")),
-        RepairReader("two", FakeEngine("paddleocr", "鸦")),
-    ), crops_dir=tmp_path / "repair")
+    report = run_repair_round(
+        store,
+        project,
+        readers=(
+            RepairReader("one", FakeEngine("mineru", "鸦")),
+            RepairReader("two", FakeEngine("paddleocr", "鸦")),
+        ),
+        crops_dir=tmp_path / "repair",
+    )
     decisions = store.list_decisions(project, 0, 0)
     assert [(d.actor, d.selected_text) for d in decisions] == [("human", "人定文本")]
     assert not report.progressed
@@ -686,9 +732,12 @@ def test_repair_reports_concurrent_human_decision_even_without_consensus(tmp_pat
             record_human_decision(other, project, 0, 0, "人工确认")
             return super().analyze_page(image_path, page_index)
 
-    report = run_repair_round(store, project, readers=(
-        RepairReader("other", HumanDuringRead("third", "不同")),
-    ), crops_dir=tmp_path / "repair")
+    report = run_repair_round(
+        store,
+        project,
+        readers=(RepairReader("other", HumanDuringRead("third", "不同")),),
+        crops_dir=tmp_path / "repair",
+    )
     assert not report.remaining and not report.resolved
     assert [(ref.page_index, ref.pair_index) for ref in report.already_decided] == [(0, 0)]
     assert store.latest_decision(project, 0, 0).selected_text == "人工确认"
@@ -705,16 +754,24 @@ def test_new_verification_during_repair_decision_refuses_old_pair(
     new_ids: list[int] = []
 
     def new_verification(**kwargs):
-        new_ids.append(other.record_verification(old.primary_run_id, old.secondary_run_id,
-                       old.alignment, old.risks, old.candidates))
+        new_ids.append(
+            other.record_verification(
+                old.primary_run_id, old.secondary_run_id, old.alignment, old.risks, old.candidates
+            )
+        )
         return append(**kwargs)
 
     monkeypatch.setattr(store, "append_decision", new_verification)
     with pytest.raises(ValueError, match="(?i)verification.*(latest|newer|changed)"):
-        run_repair_round(store, project, readers=(
-            RepairReader("one", FakeEngine("mineru", "鸦")),
-            RepairReader("two", FakeEngine("paddleocr", "鸦")),
-        ), crops_dir=tmp_path / "repair")
+        run_repair_round(
+            store,
+            project,
+            readers=(
+                RepairReader("one", FakeEngine("mineru", "鸦")),
+                RepairReader("two", FakeEngine("paddleocr", "鸦")),
+            ),
+            crops_dir=tmp_path / "repair",
+        )
     assert store.latest_decision(project, 0, 0) is None
     assert store.latest_verification_id(project, 0) == new_ids[0]
     assert len(store.list_scoped_run_ids(project, 0, "pair:0")) == 2

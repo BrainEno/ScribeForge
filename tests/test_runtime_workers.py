@@ -176,8 +176,12 @@ def test_build_runtime_engine_fails_fast_when_backend_not_ready(tmp_path: Path) 
 
     with pytest.raises(BackendNotReadyError, match="not ready"):
         build_runtime_engine(
-            layout, "mineru", script, "windows",
-            name="mineru", status=lambda backend: "failed",
+            layout,
+            "mineru",
+            script,
+            "windows",
+            name="mineru",
+            status=lambda backend: "failed",
         )
 
 
@@ -191,8 +195,12 @@ def test_build_runtime_engine_rechecks_health_before_every_page(tmp_path: Path) 
 
     state = {"value": "ready"}
     engine = build_runtime_engine(
-        layout, "mineru", script, "windows",
-        name="mineru", status=lambda backend: state["value"],
+        layout,
+        "mineru",
+        script,
+        "windows",
+        name="mineru",
+        status=lambda backend: state["value"],
     )
 
     state["value"] = "failed"

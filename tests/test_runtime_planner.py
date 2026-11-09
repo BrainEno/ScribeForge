@@ -67,7 +67,9 @@ def test_machine_without_nvidia_uses_cpu_paddle_runtime(tmp_path: Path) -> None:
         for step in paddle.steps
         for argument in step.argv
     )
-    assert all("paddlepaddle-gpu" not in argument for step in paddle.steps for argument in step.argv)
+    assert all(
+        "paddlepaddle-gpu" not in argument for step in paddle.steps for argument in step.argv
+    )
 
 
 def test_mineru_and_paddle_use_separate_private_environments(tmp_path: Path) -> None:

@@ -56,9 +56,7 @@ def order_indexes(lines: Sequence[OCRLine], direction: PageDirection) -> tuple[i
     )
 
 
-def splice_paragraphs(
-    lines: Sequence[str], direction: PageDirection
-) -> tuple[str, ...]:
+def splice_paragraphs(lines: Sequence[str], direction: PageDirection) -> tuple[str, ...]:
     """Turn reading-order lines into the paragraphs an export should render.
 
     Text-only convenience wrapper around
@@ -70,7 +68,5 @@ def splice_paragraphs(
 
     return tuple(
         paragraph.text
-        for paragraph in assemble_paragraphs(
-            [TextLine(text) for text in lines], direction
-        )
+        for paragraph in assemble_paragraphs([TextLine(text) for text in lines], direction)
     )

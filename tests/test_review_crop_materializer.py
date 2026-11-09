@@ -126,9 +126,7 @@ def test_materialized_review_crop_uses_line_boxes_not_oversized_block(tmp_path: 
         padding_fraction=0,
     )
     paths = materialize_review_crops(source, plans, tmp_path / "review-crops")
-    block_pixel_area = int(block_box.width * page_width) * int(
-        block_box.height * page_height
-    )
+    block_pixel_area = int(block_box.width * page_width) * int(block_box.height * page_height)
 
     with Image.open(paths[0]) as crop:
         assert crop.size == (110, 32)

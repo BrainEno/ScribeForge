@@ -86,9 +86,7 @@ def _relationship_base(name: str) -> str:
     return posixpath.dirname(posixpath.dirname(name))
 
 
-def check_epub(
-    data: bytes, book: VerifiedBook, *, layout: str = AUTO_LAYOUT
-) -> None:
+def check_epub(data: bytes, book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> None:
     """Verify a rendered EPUB 3 archive against the verified book."""
 
     with _open(data) as archive:
@@ -130,10 +128,7 @@ def check_epub(
 
         flow = build_flow(book, layout=layout)
         expected_spine = [document.item_id for document in flow.documents]
-        spine = [
-            item.get("idref") or ""
-            for item in package.findall("o:spine/o:itemref", _OPF_NS)
-        ]
+        spine = [item.get("idref") or "" for item in package.findall("o:spine/o:itemref", _OPF_NS)]
         _require(spine == expected_spine, "spine does not follow the verified page order")
         for idref in spine:
             _require(idref in manifest, f"spine itemref {idref!r} is not in the manifest")
@@ -164,8 +159,7 @@ def check_epub(
             rendered = _xhtml_blocks(_parse(archive, document_name))
             _require_xhtml_structure(archive, document_name)
             _require(
-                rendered.paragraphs
-                == [paragraph.text for paragraph in expected.paragraphs],
+                rendered.paragraphs == [paragraph.text for paragraph in expected.paragraphs],
                 f"document {expected.file_name} text differs from the verified book",
             )
             _require(
@@ -341,13 +335,11 @@ def _check_nav(
     assert nav_element is not None
     _require(
         nav_element.get("{http://www.idpf.org/2007/ops}type") == "toc",
-        "nav document's <nav> is not epub:type=\"toc\"",
+        'nav document\'s <nav> is not epub:type="toc"',
     )
 
     nav_items = [
-        item
-        for item in package.findall("o:manifest/o:item", _OPF_NS)
-        if item.get("id") == "nav"
+        item for item in package.findall("o:manifest/o:item", _OPF_NS) if item.get("id") == "nav"
     ]
     _require(len(nav_items) == 1, "manifest must declare exactly one nav item")
     nav_item = nav_items[0]
@@ -357,7 +349,7 @@ def _check_nav(
     )
     _require(
         "nav" in (nav_item.get("properties") or "").split(),
-        "nav manifest item must carry properties=\"nav\"",
+        'nav manifest item must carry properties="nav"',
     )
     _require(
         manifest.get("nav") == posixpath.relpath(nav_name, "OEBPS"),
@@ -365,8 +357,7 @@ def _check_nav(
     )
 
     spine_hrefs = [
-        manifest[item.get("idref") or ""]
-        for item in package.findall("o:spine/o:itemref", _OPF_NS)
+        manifest[item.get("idref") or ""] for item in package.findall("o:spine/o:itemref", _OPF_NS)
     ]
     nav_hrefs = [link.get("href") or "" for link in nav.findall(".//x:a", _XHTML_NS)]
     for href in spine_hrefs:
@@ -473,9 +464,7 @@ def _require_flow_preserves_pages(book: VerifiedBook, flow: BookFlow) -> None:
     book.
     """
 
-    placed = [
-        page_index for document in flow.documents for page_index, _ in document.page_labels
-    ]
+    placed = [page_index for document in flow.documents for page_index, _ in document.page_labels]
     expected = [page.page_index for page in book.pages]
     _require(
         sorted(placed) == sorted(expected) and placed == sorted(placed),
@@ -556,9 +545,7 @@ def check_docx(data: bytes, book: VerifiedBook) -> None:
                 page_texts.append([])
                 continue
             page_texts[-1].append(
-                "".join(
-                    token.text or "" for token in paragraph.iter(f"{{{_WORD_NS_URI}}}t")
-                )
+                "".join(token.text or "" for token in paragraph.iter(f"{{{_WORD_NS_URI}}}t"))
             )
         expected = [list(page.paragraphs()) for page in book.pages]
         _require(

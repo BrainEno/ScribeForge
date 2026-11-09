@@ -102,9 +102,7 @@ class BookFlow:
 
     @property
     def paragraphs(self) -> tuple[FlowParagraph, ...]:
-        return tuple(
-            paragraph for document in self.documents for paragraph in document.paragraphs
-        )
+        return tuple(paragraph for document in self.documents for paragraph in document.paragraphs)
 
 
 def _page_blocks(page: VerifiedPage) -> tuple[Paragraph, ...]:
@@ -135,9 +133,7 @@ def _previous_page_ended_the_paragraph(previous: VerifiedPage) -> bool:
         return False
     if ends_sentence(last.text):
         return False
-    metrics = measure_page(
-        [line for line in previous.text_lines() if line.text.strip()]
-    )
+    metrics = measure_page([line for line in previous.text_lines() if line.text.strip()])
     if metrics is None or last.box is None:
         return True
     # A short final line means the paragraph ended even without punctuation.
@@ -150,9 +146,7 @@ def _next_page_continues_the_paragraph(next_page: VerifiedPage) -> bool:
     first = _first_line(next_page)
     if first is None:
         return False
-    metrics = measure_page(
-        [line for line in next_page.text_lines() if line.text.strip()]
-    )
+    metrics = measure_page([line for line in next_page.text_lines() if line.text.strip()])
     if metrics is None or first.box is None:
         # No geometry: punctuation carries the decision, and the previous page's
         # rule already said the sentence was open.
@@ -191,16 +185,8 @@ def _group_pages(book: VerifiedBook) -> list[tuple[str, int, tuple[int, ...]]] |
     if before:
         grouped.append(("Front matter", 1, before))
     for position, chapter in enumerate(anchored):
-        end = (
-            anchored[position + 1].page_index
-            if position + 1 < len(anchored)
-            else max(pages) + 1
-        )
-        span = tuple(
-            page_index
-            for page_index in pages
-            if chapter.page_index <= page_index < end
-        )
+        end = anchored[position + 1].page_index if position + 1 < len(anchored) else max(pages) + 1
+        span = tuple(page_index for page_index in pages if chapter.page_index <= page_index < end)
         if span:
             grouped.append((chapter.title, chapter.level, span))
     # Anything after the last chapter is already inside it (its span runs to the
@@ -269,9 +255,7 @@ def build_flow(book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> BookFlow:
     # chapter tree says: that shape exists precisely to compare against the scans.
     chapter_layout = grouped is not None
     groups = (
-        grouped
-        if grouped is not None
-        else [("", 1, (page.page_index,)) for page in book.pages]
+        grouped if grouped is not None else [("", 1, (page.page_index,)) for page in book.pages]
     )
 
     images_by_page: dict[int, list[VerifiedImage]] = {}
@@ -299,8 +283,7 @@ def build_flow(book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> BookFlow:
                 paragraphs=_build_paragraphs(book, page_indexes),
                 level=level,
                 page_labels=tuple(
-                    (page_index, spans[page_index].printed_label)
-                    for page_index in page_indexes
+                    (page_index, spans[page_index].printed_label) for page_index in page_indexes
                 ),
                 images=tuple(
                     image
