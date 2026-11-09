@@ -286,6 +286,42 @@ def test_groundtruth_uncertain_alignment_enters_review() -> None:
     ), "candidate must carry risk reasons"
 
 
+def test_groundtruth_rotated_text_is_not_force_matched_and_enters_review() -> None:
+    """#79 remaining limit: rotated text must not be force-matched.
+
+    Same text with 90-degree-rotated geometry (wide row vs tall column) has
+    identical text but incompatible boxes. Text equality alone must not be
+    the reliability signal: the pair stays unmatched/ambiguous and both lines
+    enter the review queue instead of a wrong automatic match.
+    """
+
+    primary = _result(
+        "mineru",
+        [
+            ("旋轉文字行", 0.10, 0.20, 0.80, 0.05),
+            ("正常行", 0.10, 0.50, 0.60, 0.04),
+        ],
+    )
+    secondary = _result(
+        "paddleocr",
+        [
+            ("旋轉文字行", 0.10, 0.20, 0.05, 0.80),
+            ("正常行", 0.10, 0.50, 0.60, 0.04),
+        ],
+    )
+
+    alignment = align_pages(primary, secondary)
+    matched = [p for p in alignment.pairs if p.status.value == "matched"]
+
+    # The rotated box poisons the page's geometry: nothing is force-matched,
+    # not even the identical-text line — conservative beats wrong here.
+    assert matched == []
+
+    risks = assess_page(alignment, primary, secondary)
+    candidates = review_candidates(alignment, risks, primary, secondary)
+    assert len(candidates) >= 1
+
+
 def test_groundtruth_report_accuracy_and_order_error_rates() -> None:
     """Aggregate report: accuracy and order-error rates across all samples.
 

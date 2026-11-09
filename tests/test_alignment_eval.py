@@ -185,6 +185,31 @@ def test_lone_disagreement_is_force_paired_but_queued_for_review() -> None:
     assert metrics.review_candidates >= 1
 
 
+def test_rotated_geometry_sample_scores_no_forced_match() -> None:
+    """#79: rotated text via the production eval — no FP, review-queued."""
+
+    primary = _result(
+        "mineru",
+        [("旋轉文字行", 0.10, 0.20, 0.80, 0.05), ("正常行", 0.10, 0.50, 0.60, 0.04)],
+    )
+    secondary = _result(
+        "paddleocr",
+        [("旋轉文字行", 0.10, 0.20, 0.05, 0.80), ("正常行", 0.10, 0.50, 0.60, 0.04)],
+    )
+    sample = AlignmentSample(
+        name="rotated",
+        primary=primary,
+        secondary=secondary,
+        expected_groups=(),
+    )
+    metrics = evaluate_alignment_sample(sample)
+
+    # Nothing is force-matched (no false positives), and the page is queued
+    # for human review instead of receiving a wrong automatic mapping.
+    assert (metrics.true_positive, metrics.false_positive, metrics.false_negative) == (0, 0, 0)
+    assert metrics.review_candidates >= 1
+
+
 def test_aggregate_evaluation_and_markdown_report() -> None:
     evaluation = evaluate_alignment_samples([_two_column_sample()])
     totals = evaluation.totals

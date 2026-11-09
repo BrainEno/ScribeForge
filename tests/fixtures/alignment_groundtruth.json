@@ -184,5 +184,24 @@
         ]
       }
     ]
+  },
+  {
+    "name": "rotated-text-is-not-force-matched",
+    "direction": "horizontal-lr",
+    "primary": [
+      {"text": "旋轉文字行", "box": [0.10, 0.20, 0.80, 0.05], "role": "text", "column": "body"},
+      {"text": "正常行", "box": [0.10, 0.50, 0.60, 0.04], "role": "text", "column": "body"}
+    ],
+    "secondary": [
+      {"text": "旋轉文字行", "box": [0.10, 0.20, 0.05, 0.80], "role": "text", "column": "body"},
+      {"text": "正常行", "box": [0.10, 0.50, 0.60, 0.04], "role": "text", "column": "body"}
+    ],
+    "expected_groups": [],
+    "expected_unmatched": [
+      {"primary": [0], "secondary": []},
+      {"primary": [], "secondary": [0]},
+      {"primary": [1], "secondary": []},
+      {"primary": [], "secondary": [1]}
+    ]
   }
 ]
