@@ -80,11 +80,9 @@ class BackendEnvironmentProvisioner {
 
   String get _os => operatingSystem ?? Platform.operatingSystem;
 
-  Future<bool> _exists(String path) =>
-      (fileExists ?? _defaultFileExists)(path);
+  Future<bool> _exists(String path) => (fileExists ?? _defaultFileExists)(path);
 
-  Future<String> _read(String path) =>
-      (readFile ?? _defaultReadFile)(path);
+  Future<String> _read(String path) => (readFile ?? _defaultReadFile)(path);
 
   static Future<bool> _defaultFileExists(String path) =>
       Future<bool>.value(File(path).existsSync());
