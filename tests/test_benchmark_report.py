@@ -235,12 +235,40 @@ def test_wer_aggregation_and_report_exclude_not_applicable_cases() -> None:
 
     assert "| ocr | 2 | 0.2500 [0.2500, 0.2500] | N/A | 0.5000 (1 / 2) | N/A |" in text
     assert "| english | en | body,punctuation | 0.2500 | 0.5000 (`whitespace-v1`) |" in text
-    assert "| chinese | zh-Hant | body,punctuation | 0.2500 | N/A |" in text
+    assert "| chinese | zh-Hant | body,punctuation | 0.2500 | N/A (`not-applicable`) |" in text
     assert "| 0.7500 | 1 | 1 | 1 | 0 | 0 | - | - | 2 |" in text
     assert "`whitespace-v1` preserves case and punctuation" in text
     assert "WER can exceed 1.0" in text
     assert "Changed uses one-to-one `SequenceMatcher.ratio >= 0.5` text matching" in text
     assert "not geometric or physical-region alignment" in text
+
+
+def test_report_explains_what_chinese_wer_above_one_means() -> None:
+    """#80 acceptance: the report must explain Chinese WER > 1, not just show it."""
+
+    chinese = replace(
+        _case(case_id="chinese"),
+        language="zh-Hant",
+        wer=None,
+        word_tokenizer="not-applicable",
+    )
+    report = BenchmarkReport(
+        engine="ocr",
+        cases=(chinese,),
+        aggregate=aggregate_case_scores((chinese,)),
+    )
+    text = render_report(
+        (report,), corpus="c", manifest_sha256="h", generated_at="now"
+    )
+
+    # The semantics section states why whitespace WER on Chinese would exceed
+    # 1.0 (one giant token per line) and that this is a tokenizer artifact, so
+    # Chinese WER is N/A and CER is primary.
+    assert "tokenizer artifact" in text
+    assert "one giant token" in text
+    assert "CER is the primary" in text
+    # Every per-case row declares WER applicability via the tokenizer label.
+    assert "| chinese | zh-Hant | body,punctuation | 0.2500 | N/A (`not-applicable`) |" in text
 
 
 def test_all_not_applicable_wer_still_discloses_zero_applicable_cases() -> None:
@@ -364,7 +392,7 @@ def test_micro_wer_uses_applicable_cases_and_counts_are_all_or_nothing() -> None
     )
     assert "| ocr | (untagged) | 2 | 0.5000 [0.5000, 0.5000] | 0.5000 (3 / 6) [0.1876, 0.8124] |" in text
     assert "| english | en | - | 0.5000 (1 / 2 chars) [0.0945, 0.9055] |" in text
-    assert "| chinese | zh-Hant | - | 0.5000 (2 / 4 chars) [0.1500, 0.8500] | N/A |" in text
+    assert "| chinese | zh-Hant | - | 0.5000 (2 / 4 chars) [0.1500, 0.8500] | N/A (`not-applicable`) |" in text
 
 
 def test_report_renders_confidence_intervals_for_macro_and_micro_rates() -> None:

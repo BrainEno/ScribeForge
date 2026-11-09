@@ -66,7 +66,9 @@ def _case_cer(case: CaseScore, *, confidence: float) -> str:
 
 def _case_wer(case: CaseScore, *, confidence: float) -> str:
     if case.wer is None:
-        return "N/A"
+        # Show the tokenizer label even for N/A so every row declares WER
+        # applicability instead of leaving readers to guess why it is missing.
+        return f"N/A (`{case.word_tokenizer}`)"
     if case.word_errors is not None and case.reference_words is not None:
         counts = f"{case.word_errors} / {case.reference_words} words, "
         interval = _interval_text(
@@ -246,7 +248,16 @@ def render_report(
         "",
         (
             "- CER is the primary Chinese/Japanese accuracy metric. Chinese, Japanese "
-            "and unknown-language cases report WER as `N/A`; no implicit segmenter is used."
+            "and unknown-language cases report WER as `N/A` with tokenizer "
+            "`not-applicable`; no implicit segmenter is used."
+        ),
+        (
+            "- Chinese WER above 1.0 has no recognition meaning: with whitespace "
+            "\"words\", an unsegmented Chinese line is one giant token, so a single "
+            "inserted line can add more edits than the reference \"words\". That is a "
+            "tokenizer artifact, not recognition quality, which is why those cases "
+            "report N/A. Wherever WER is applicable, a value above 1.0 simply means "
+            "insertions outnumber reference words."
         ),
         (
             "- Applicable WER uses a declared tokenizer. `whitespace-v1` preserves case "

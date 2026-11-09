@@ -144,7 +144,10 @@ def test_cli_oracle_ceiling_writes_both_variants(tmp_path: Path) -> None:
     assert "- corpus content sha256: `" in text
     # Each of the two variants has an overall row and a manifest-tag row.
     assert text.count("| N/A (0 / 1) | N/A |") == 4
-    assert text.count("| case-1 | zh | body | 0.0000 (0 / 5 chars) [0.0000, 0.4345] | N/A |") == 2
+    assert (
+        text.count("| case-1 | zh | body | 0.0000 (0 / 5 chars) [0.0000, 0.4345] | N/A (`not-applicable`) |")
+        == 2
+    )
     # The oracle variant declares reference geometry, so its spatial counts are
     # real zeros (the ceiling); the pipeline variant has none and shows '-'.
     assert "| Spatial Missing | Spatial Extra |" in text
