@@ -274,6 +274,15 @@ def render_report(
             "lines; it is not geometric or physical-region alignment. Net M/E subtracts "
             "Changed from the corresponding strict LCS count and is not proof of layout loss."
         ),
+        (
+            "- Spatial Missing/Extra are geometry-only: greedy one-to-one box matching "
+            "(IoU >= 0.5) between declared reference line boxes and the engine's reported "
+            "line boxes. They are shown only when reference geometry is declared (for "
+            "example in oracle-ceiling runs) and render as `-` otherwise; a box match does "
+            "not prove the text matched, and strict LCS Missing/Extra remain the "
+            "text-based counts. A one-character line error is Changed, not a spatial "
+            "missing line."
+        ),
         "",
         "## Variants",
         "",
@@ -281,10 +290,10 @@ def render_report(
             f"| Variant | Cases | Macro CER ({ci}) | Micro CER (edits / chars, {ci}) "
             f"| Macro WER (applicable / total, {ci}) | Micro WER (edits / words, {ci}) | Punctuation "
             "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
-            "| Reading-order errors "
+            "| Spatial Missing | Spatial Extra | Reading-order errors "
             "| Accepted pairs | Unresolved pairs | Elapsed s | Pages/min |"
         ),
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for report in reports:
         aggregate = report.aggregate
@@ -298,6 +307,8 @@ def render_report(
             f"{aggregate.missing_lines} | {aggregate.extra_lines} | "
             f"{aggregate.changed_lines} | {aggregate.net_missing_lines} | "
             f"{aggregate.net_extra_lines} | "
+            f"{aggregate.spatial_missing_lines if aggregate.spatial_missing_lines is not None else '-'} | "
+            f"{aggregate.spatial_extra_lines if aggregate.spatial_extra_lines is not None else '-'} | "
             f"{aggregate.reading_order_errors} | "
             f"{aggregate.accepted_pairs if aggregate.accepted_pairs is not None else '-'} | "
             f"{aggregate.unresolved_pairs if aggregate.unresolved_pairs is not None else '-'} | "
@@ -319,9 +330,10 @@ def render_report(
             (
                 "| Case | Language | Tags | CER | WER (tokenizer) | Punctuation "
                 "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
-                "| Reading-order errors | Accepted pairs | Unresolved pairs | Seconds |"
+                "| Spatial Missing | Spatial Extra | Reading-order errors "
+                "| Accepted pairs | Unresolved pairs | Seconds |"
             ),
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for case in report.cases:
             tags = ",".join(case.tags) if case.tags else "-"
@@ -330,6 +342,8 @@ def render_report(
                 f"{_case_wer(case, confidence=confidence)} | {case.punctuation_accuracy:.4f} | "
                 f"{case.missing_lines} | {case.extra_lines} | {case.changed_lines} | "
                 f"{case.net_missing_lines} | {case.net_extra_lines} | "
+                f"{case.spatial_missing_lines if case.spatial_missing_lines is not None else '-'} | "
+                f"{case.spatial_extra_lines if case.spatial_extra_lines is not None else '-'} | "
                 f"{case.reading_order_errors} | "
                 f"{case.accepted_pairs if case.accepted_pairs is not None else '-'} | "
                 f"{case.unresolved_pairs if case.unresolved_pairs is not None else '-'} | "

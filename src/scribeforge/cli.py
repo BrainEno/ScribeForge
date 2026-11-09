@@ -31,6 +31,7 @@ from scribeforge.benchmark.corpus import (
     validate_corpus,
 )
 from scribeforge.benchmark.manifest import BenchmarkManifest, load_manifest
+from scribeforge.benchmark.metrics import scoring_text
 from scribeforge.benchmark.oracle import OracleEngine
 from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
 from scribeforge.benchmark.report import render_report
@@ -2308,6 +2309,7 @@ def _oracle_ceiling(
 
     primary = OracleEngine("oracle")
     secondary = OracleEngine("oracle")
+    reference_layout: dict[str, tuple[BoundingBox, ...]] = {}
     for case in manifest.cases:
         image = (root / case.image).resolve()
         text = (root / case.ground_truth).read_text(encoding="utf-8")
@@ -2318,10 +2320,16 @@ def _oracle_ceiling(
         )
         primary.register(image, text, direction=direction)
         secondary.register(image, text, direction=direction)
+        # Declare the reference geometry so the report can separate spatial
+        # missing/extra lines from strict text-based LCS counts. The boxes are
+        # aligned with the same scored text the runner computes.
+        reference_layout[case.id] = primary.boxes_for_text(
+            scoring_text(text), direction=direction
+        )
 
     try:
         reports = [
-            run_benchmark(manifest, root, primary),
+            run_benchmark(manifest, root, primary, reference_layout=reference_layout),
             run_pipeline_benchmark(
                 manifest, root, primary, secondary, label="oracle-ceiling"
             ),

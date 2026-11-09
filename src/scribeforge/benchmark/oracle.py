@@ -103,6 +103,18 @@ class OracleEngine(OCREngine):
     def name(self) -> str:
         return self._name
 
+    def boxes_for_text(
+        self, text: str, *, direction: PageDirection = PageDirection.HORIZONTAL_LR
+    ) -> tuple[BoundingBox, ...]:
+        """Deterministic synthetic boxes for reference ``text``.
+
+        The boxes follow the same layout :meth:`analyze_page` would produce, so
+        benchmark runs can pair declared reference geometry with an engine's
+        reported line boxes for spatial missing/extra counts.
+        """
+
+        return tuple(line.box for line in _lines(tuple(text.splitlines()), direction))
+
     def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
         key = Path(image_path).resolve()
         if key in self._texts:

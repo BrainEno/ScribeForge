@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,7 +16,8 @@ from scribeforge.benchmark.metrics import (
     word_error_counts,
     word_tokenizer_for_language,
 )
-from scribeforge.domain.ocr import OCREngine, page_text
+from scribeforge.benchmark.spatial import spatial_line_metrics
+from scribeforge.domain.ocr import BoundingBox, OCREngine, page_text
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +43,10 @@ class CaseScore:
     reference_characters: int | None = None
     word_errors: int | None = None
     reference_words: int | None = None
+    #: Box-based coverage against declared reference geometry; ``None`` when the
+    #: case has no declared reference boxes and the counts must not be inferred.
+    spatial_missing_lines: int | None = None
+    spatial_extra_lines: int | None = None
 
     @property
     def net_missing_lines(self) -> int:
@@ -71,6 +76,8 @@ class AggregateScore:
     reference_characters: int | None = None
     word_errors: int | None = None
     reference_words: int | None = None
+    spatial_missing_lines: int | None = None
+    spatial_extra_lines: int | None = None
 
     @property
     def micro_cer(self) -> float | None:
@@ -161,6 +168,16 @@ def aggregate_case_scores(
             if complete_words
             else None
         ),
+        spatial_missing_lines=(
+            sum(score.spatial_missing_lines or 0 for score in scores)
+            if all(score.spatial_missing_lines is not None for score in scores)
+            else None
+        ),
+        spatial_extra_lines=(
+            sum(score.spatial_extra_lines or 0 for score in scores)
+            if all(score.spatial_extra_lines is not None for score in scores)
+            else None
+        ),
     )
 
 
@@ -170,11 +187,15 @@ def run_benchmark(
     engine: OCREngine,
     *,
     clock: Callable[[], float] = time.perf_counter,
+    reference_layout: Mapping[str, Sequence[BoundingBox]] | None = None,
 ) -> BenchmarkReport:
     """Score one engine over every case, timing each page.
 
     ``clock`` is injectable so tests can assert durations exactly instead of
-    depending on machine speed.
+    depending on machine speed. ``reference_layout`` optionally maps a case id to
+    the declared reference line boxes (aligned with the scored reference lines);
+    only then are spatial missing/extra lines computed, otherwise they stay
+    ``None`` because geometry cannot be inferred from text.
     """
 
     scores: list[CaseScore] = []
@@ -188,6 +209,16 @@ def run_benchmark(
         hypothesis = scoring_text(page_text(result))
         reference_lines = reference.splitlines()
         hypothesis_lines = hypothesis.splitlines()
+        reference_boxes = (
+            None if reference_layout is None else reference_layout.get(case.id)
+        )
+        spatial = (
+            None
+            if reference_boxes is None or len(reference_boxes) != len(reference_lines)
+            else spatial_line_metrics(
+                reference_boxes, [line.box for line in result.lines]
+            )
+        )
         line_metrics = line_error_metrics(reference_lines, hypothesis_lines)
         character_counts = character_error_counts(reference, hypothesis)
         word_counts = word_error_counts(reference, hypothesis, language=case.language)
@@ -214,6 +245,8 @@ def run_benchmark(
                 reading_order_errors=reading_order_errors(reference_lines, hypothesis_lines),
                 elapsed_seconds=elapsed,
                 direction=case.direction,
+                spatial_missing_lines=None if spatial is None else spatial.missing_lines,
+                spatial_extra_lines=None if spatial is None else spatial.extra_lines,
             )
         )
 
