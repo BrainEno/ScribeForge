@@ -6,11 +6,14 @@ from scribeforge.benchmark.metrics import (
     error_rate_from_counts,
     line_error_counts,
     line_error_metrics,
+    mean_confidence_interval,
     punctuation_accuracy,
     reading_order_errors,
+    wilson_score_interval,
     word_error_counts,
     word_error_rate,
     word_tokenizer_for_language,
+    z_score_for_confidence,
 )
 
 
@@ -110,3 +113,76 @@ def test_reading_order_errors_count_only_matched_lines_out_of_order() -> None:
     assert reading_order_errors(
         ["same", "same", "last"], ["same", "last", "same"]
     ) == 1
+
+
+def test_wilson_score_interval_matches_known_values() -> None:
+    # Independently computed Wilson score bounds (z = 1.959963984540054).
+    assert wilson_score_interval(0, 100) == pytest.approx((0.0, 0.036993), abs=1e-6)
+    assert wilson_score_interval(2, 102) == pytest.approx((0.005394, 0.068693), abs=1e-6)
+    assert wilson_score_interval(50, 100) == pytest.approx((0.403832, 0.596168), abs=1e-6)
+    assert wilson_score_interval(1, 2) == pytest.approx((0.094531, 0.905469), abs=1e-6)
+
+
+def test_wilson_score_interval_brackets_the_rate_and_shrinks_with_more_units() -> None:
+    for errors, units in [(0, 5), (1, 2), (2, 102), (50, 100)]:
+        interval = wilson_score_interval(errors, units)
+        assert interval is not None
+        rate = errors / units
+        assert interval[0] <= rate <= interval[1]
+        assert interval[0] >= 0.0
+
+    narrow = wilson_score_interval(2, 102)
+    wide = wilson_score_interval(2, 10)
+    assert narrow is not None and wide is not None
+    assert (narrow[1] - narrow[0]) < (wide[1] - wide[0])
+
+
+def test_wilson_score_interval_supports_declared_confidence_levels() -> None:
+    assert wilson_score_interval(2, 102, confidence=0.90) == pytest.approx(
+        (0.006510, 0.057532), abs=1e-6
+    )
+    assert wilson_score_interval(2, 102, confidence=0.99) == pytest.approx(
+        (0.003838, 0.094058), abs=1e-6
+    )
+    with pytest.raises(ValueError, match="confidence"):
+        wilson_score_interval(2, 102, confidence=0.975)
+    with pytest.raises(ValueError, match="confidence"):
+        z_score_for_confidence(0.5)
+
+
+def test_wilson_score_interval_has_no_interval_without_reference_units() -> None:
+    assert wilson_score_interval(0, 0) is None
+    assert wilson_score_interval(6, 0) is None
+
+
+def test_wilson_score_interval_stays_defined_for_rates_above_one() -> None:
+    # WER can exceed 1.0 through insertions; the binomial variance term is clamped
+    # and the interval is widened to still bracket the point estimate.
+    interval = wilson_score_interval(3, 2)
+    assert interval == pytest.approx((0.513570, 1.5), abs=1e-6)
+
+
+@pytest.mark.parametrize(("edits", "units"), [(-1, 1), (1, -1)])
+def test_wilson_score_interval_rejects_negative_counts(edits: int, units: int) -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        wilson_score_interval(edits, units)
+
+
+def test_mean_confidence_interval_uses_sample_dispersion() -> None:
+    assert mean_confidence_interval([0.5, 0.01]) == pytest.approx((0.0, 0.735191), abs=1e-6)
+    assert mean_confidence_interval([0.5, 0.01], confidence=0.90) == pytest.approx(
+        (0.0, 0.657989), abs=1e-6
+    )
+    assert mean_confidence_interval([0.2, 0.2, 0.2]) == pytest.approx((0.2, 0.2), abs=1e-9)
+
+
+def test_mean_confidence_interval_needs_at_least_two_values() -> None:
+    assert mean_confidence_interval([]) is None
+    assert mean_confidence_interval([1.0]) is None
+
+
+def test_mean_confidence_interval_rejects_negative_values() -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        mean_confidence_interval([0.5, -0.1])
+    with pytest.raises(ValueError, match="confidence"):
+        mean_confidence_interval([0.5, 0.1], confidence=0.5)
