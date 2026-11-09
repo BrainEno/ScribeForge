@@ -723,6 +723,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_vlm_arguments(benchmark, include_vlm_switch=True)
 
+    alignment_eval = subparsers.add_parser(
+        "alignment-eval",
+        help=(
+            "Evaluate line alignment on hand-labelled layout fixtures and report "
+            "match accuracy, reading-order errors and review-queue counts (#79)."
+        ),
+    )
+    alignment_eval.add_argument(
+        "--fixtures",
+        type=Path,
+        required=True,
+        help="Hand-labelled alignment fixture JSON (see tests/fixtures/alignment_groundtruth.json).",
+    )
+    alignment_eval.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Destination Markdown report (default: print to stdout).",
+    )
+    alignment_eval.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the evaluation as JSON instead of Markdown.",
+    )
+
     return parser
 
 
@@ -792,6 +817,8 @@ def run(
         else:
             benchmark_factory = benchmark_engine_factory
         return _benchmark(args, out, benchmark_factory)
+    if args.command == "alignment-eval":
+        return _alignment_eval(args, out)
     try:
         reviewer = _configured_vlm_reviewer(args)
     except ValueError as exc:
@@ -2281,6 +2308,86 @@ def _benchmark(
         f"wrote benchmark report for {len(reports)} variant(s) to {args.out}",
         file=out,
     )
+    return EXIT_OK
+
+
+def _alignment_eval(args: argparse.Namespace, out: TextIO) -> int:
+    """Report #79 alignment accuracy on hand-labelled layout fixtures.
+
+    This is a regression/acceptance artifact over synthetic labelled pages, not
+    an OCR accuracy measurement: no model is run and no real scan is read.
+    """
+
+    from scribeforge.domain.alignment_eval import (
+        evaluate_alignment_samples,
+        load_alignment_samples,
+        render_alignment_report,
+    )
+
+    try:
+        samples = load_alignment_samples(args.fixtures)
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        print(f"error: cannot load alignment fixtures: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    evaluation = evaluate_alignment_samples(samples)
+    totals = evaluation.totals
+    if args.json:
+        payload = {
+            "sample_count": len(evaluation.samples),
+            "samples": [
+                {
+                    "name": item.name,
+                    "true_positive": item.true_positive,
+                    "false_positive": item.false_positive,
+                    "false_negative": item.false_negative,
+                    "precision": item.precision,
+                    "recall": item.recall,
+                    "f1": item.f1,
+                    "reading_order_errors": item.reading_order_errors,
+                    "cross_column_errors": item.cross_column_errors,
+                    "unresolved_ambiguities": item.unresolved_ambiguities,
+                    "one_to_many": item.one_to_many,
+                    "many_to_one": item.many_to_one,
+                    "review_candidates": item.review_candidates,
+                }
+                for item in evaluation.samples
+            ],
+            "totals": {
+                "true_positive": totals.true_positive,
+                "false_positive": totals.false_positive,
+                "false_negative": totals.false_negative,
+                "precision": totals.precision,
+                "recall": totals.recall,
+                "f1": totals.f1,
+                "reading_order_errors": totals.reading_order_errors,
+                "cross_column_errors": totals.cross_column_errors,
+                "unresolved_ambiguities": totals.unresolved_ambiguities,
+                "one_to_many": totals.one_to_many,
+                "many_to_one": totals.many_to_one,
+                "review_candidates": totals.review_candidates,
+            },
+        }
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True), file=out)
+    else:
+        report = render_alignment_report(evaluation)
+        if args.out is not None:
+            try:
+                args.out.write_text(report, encoding="utf-8")
+            except OSError as exc:
+                print(f"error: cannot write report: {exc}", file=sys.stderr)
+                return EXIT_FATAL
+        else:
+            print(report, file=out)
+    summary = (
+        "alignment evaluation: "
+        f"precision={totals.precision:.4f} recall={totals.recall:.4f} f1={totals.f1:.4f} "
+        f"order_errors={totals.reading_order_errors} "
+        f"cross_column={totals.cross_column_errors} "
+        f"ambiguities={totals.unresolved_ambiguities} review_queue={totals.review_candidates}"
+    )
+    # In --json mode stdout must stay pure machine-readable JSON.
+    print(summary, file=sys.stderr if args.json else out)
     return EXIT_OK
 
 

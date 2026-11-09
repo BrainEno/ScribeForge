@@ -12,8 +12,11 @@ concatenated text.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from scribeforge.domain.alignment import (
     AlignmentStatus,
@@ -21,7 +24,14 @@ from scribeforge.domain.alignment import (
     PageAlignment,
     align_pages,
 )
-from scribeforge.domain.ocr import PageOCRResult
+from scribeforge.domain.ocr import (
+    BlockType,
+    BoundingBox,
+    OCRBlock,
+    OCRLine,
+    PageDirection,
+    PageOCRResult,
+)
 from scribeforge.domain.risk import assess_page, review_candidates
 
 
@@ -182,6 +192,92 @@ def evaluate_alignment_samples(
     return AlignmentEvaluation(
         samples=tuple(evaluate_alignment_sample(sample) for sample in samples)
     )
+
+
+def _page_from_rows(
+    engine: str, rows: Sequence[dict[str, Any]], direction: PageDirection
+) -> PageOCRResult:
+    lines: list[OCRLine] = []
+    blocks: list[OCRBlock] = []
+    for index, row in enumerate(rows):
+        x, y, width, height = (float(value) for value in row["box"])
+        box = BoundingBox(x, y, width, height)
+        lines.append(OCRLine(str(row["text"]), box))
+        # One block per line is intentional: role compatibility must come from
+        # the declared role, not from accidentally sharing one large block.
+        blocks.append(OCRBlock(BlockType(str(row.get("role", "text"))), box, index, index + 1))
+    return PageOCRResult(
+        0,
+        engine,
+        "fixture-1",
+        tuple(lines),
+        blocks=tuple(blocks),
+        direction=direction,
+        direction_declared=True,
+    )
+
+
+def _validate_group_indexes(
+    groups: Sequence[dict[str, Any]], *, primary_count: int, secondary_count: int, name: str
+) -> None:
+    for group in groups:
+        for index in group["primary"]:
+            if not 0 <= int(index) < primary_count:
+                raise ValueError(f"sample {name!r}: primary index {index} out of range")
+        for index in group["secondary"]:
+            if not 0 <= int(index) < secondary_count:
+                raise ValueError(f"sample {name!r}: secondary index {index} out of range")
+
+
+def load_alignment_samples(path: Path) -> tuple[AlignmentSample, ...]:
+    """Load hand-labelled layout samples from a JSON fixture file.
+
+    The format is a list of ``{"name", "direction", "primary", "secondary",
+    "expected_groups", ...}`` objects whose line rows carry ``text``, ``box``
+    (x, y, w, h), ``role`` and ``column``. ``expected_ambiguities`` marks a
+    sample that must stay ambiguous instead of contributing a forced match.
+    """
+
+    raw: Any = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("alignment fixture file must contain at least one sample")
+    samples: list[AlignmentSample] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            raise TypeError("each alignment sample must be an object")
+        name = str(item["name"])
+        direction = PageDirection(str(item.get("direction", "horizontal-lr")))
+        primary = _page_from_rows("mineru", item["primary"], direction)
+        secondary = _page_from_rows("paddleocr", item["secondary"], direction)
+        expected_groups_raw = item.get("expected_groups", [])
+        _validate_group_indexes(
+            expected_groups_raw,
+            primary_count=len(primary.lines),
+            secondary_count=len(secondary.lines),
+            name=name,
+        )
+        samples.append(
+            AlignmentSample(
+                name=name,
+                primary=primary,
+                secondary=secondary,
+                expected_groups=tuple(
+                    ExpectedGroup(
+                        tuple(int(i) for i in group["primary"]),
+                        tuple(int(i) for i in group["secondary"]),
+                    )
+                    for group in expected_groups_raw
+                ),
+                primary_columns=tuple(
+                    str(row.get("column", "body")) for row in item["primary"]
+                ),
+                secondary_columns=tuple(
+                    str(row.get("column", "body")) for row in item["secondary"]
+                ),
+                expect_ambiguity=bool(item.get("expected_ambiguities")),
+            )
+        )
+    return tuple(samples)
 
 
 def _row(metrics: SampleEvaluation) -> str:

@@ -7,6 +7,8 @@ issue #79 requires, instead of keeping the metrics inside test code.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from scribeforge.domain.alignment_eval import (
@@ -14,6 +16,7 @@ from scribeforge.domain.alignment_eval import (
     ExpectedGroup,
     evaluate_alignment_sample,
     evaluate_alignment_samples,
+    load_alignment_samples,
     render_alignment_report,
 )
 from scribeforge.domain.ocr import (
@@ -225,3 +228,53 @@ def test_aggregate_evaluation_and_markdown_report() -> None:
     assert "order_errors" in report
     # Deterministic: rendering twice is byte-identical.
     assert render_alignment_report(evaluation) == report
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "alignment_groundtruth.json"
+
+
+def test_load_alignment_samples_parses_the_hand_labelled_fixture_file() -> None:
+    samples = load_alignment_samples(FIXTURES)
+
+    assert len(samples) == 11
+    names = [sample.name for sample in samples]
+    assert "rotated-text-is-not-force-matched" in names
+    rotated = next(s for s in samples if s.name == "rotated-text-is-not-force-matched")
+    assert rotated.expected_groups == ()
+    assert rotated.expect_ambiguity is False
+    assert rotated.primary_columns == ("body", "body")
+    assert len(rotated.primary.lines) == 2
+    assert rotated.primary.direction is PageDirection.HORIZONTAL_LR
+    ambiguous = next(s for s in samples if s.expect_ambiguity)
+    assert ambiguous.name == "close-score-alternatives-are-ambiguous"
+
+
+def test_load_alignment_samples_rejects_malformed_files(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.json"
+    bad.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="at least one"):
+        load_alignment_samples(bad)
+
+    wrong_group = tmp_path / "wrong.json"
+    wrong_group.write_text(
+        '[{"name": "x", "direction": "horizontal-lr",'
+        ' "primary": [{"text": "a", "box": [0, 0, 0.1, 0.1]}],'
+        ' "secondary": [{"text": "a", "box": [0, 0, 0.1, 0.1]}],'
+        ' "expected_groups": [{"primary": [5], "secondary": [0]}]}]',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="out of range"):
+        load_alignment_samples(wrong_group)
+
+
+def test_loaded_fixtures_evaluate_to_full_accuracy() -> None:
+    samples = load_alignment_samples(FIXTURES)
+    evaluation = evaluate_alignment_samples(
+        [s for s in samples if not s.expect_ambiguity]
+    )
+    totals = evaluation.totals
+
+    assert (totals.precision, totals.recall, totals.f1) == (1.0, 1.0, 1.0)
+    assert totals.reading_order_errors == 0
+    assert totals.cross_column_errors == 0
+    assert totals.false_positive == 0

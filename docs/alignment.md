@@ -214,6 +214,16 @@ cross-column errors, unresolved ambiguities, 1:N / N:1 counts and review-queue e
 mappings in the deterministic fixtures must be found exactly. The ambiguity fixture
 must expose both alternatives instead of contributing a forced match.
 
+The same evaluation is runnable as a command, so the reported rates are an artifact, not
+test-log output:
+
+```bash
+scribeforge alignment-eval --fixtures tests/fixtures/alignment_groundtruth.json --out alignment_report.md
+scribeforge alignment-eval --fixtures tests/fixtures/alignment_groundtruth.json --json
+```
+
+`--json` keeps stdout pure machine-readable JSON (the human summary goes to stderr).
+
 `tests/test_worker_alignment_contract.py` additionally passes raw MinerU middle JSON and
 Paddle recognition/PP-Structure-shaped JSON through the actual worker extraction
 functions, contract-v2 JSON serialization and the production adapter. It covers both
