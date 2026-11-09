@@ -204,9 +204,13 @@ rules that refuse to apply decisions to another verification run are unchanged.
 `tests/fixtures/alignment_groundtruth.json` contains deterministic, hand-labelled
 synthetic pages for horizontal splits/merges, repeated text in two columns, vertical RL
 and LR, title/header/body/footnote roles, duplicate positions, extra/missing lines, and
-close-score ambiguity. `tests/test_alignment_multiline.py` compares **groups of original
-line indexes**, not page text, and reports group precision, recall, F1, reading-order
-errors, cross-column errors, unresolved ambiguities, and 1:N / N:1 counts. All explicit
+close-score ambiguity. The evaluation itself lives in production code:
+`src/scribeforge/domain/alignment_eval.py` (`AlignmentSample` / `evaluate_alignment_samples`
+/ `render_alignment_report`) runs each sample through the real `align_pages` plus the
+risk and review stages and compares **groups of original line indexes**, never page-wide
+concatenated text, reporting group precision, recall, F1, reading-order errors,
+cross-column errors, unresolved ambiguities, 1:N / N:1 counts and review-queue entries.
+`tests/test_alignment_multiline.py` drives the fixtures through that module. All explicit
 mappings in the deterministic fixtures must be found exactly. The ambiguity fixture
 must expose both alternatives instead of contributing a forced match.
 
