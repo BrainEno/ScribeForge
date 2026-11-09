@@ -58,6 +58,12 @@ from scribeforge.domain.preprocess import (
     default_settings,
 )
 from scribeforge.domain.vlm import VLMReviewer
+from scribeforge.observability import (
+    DEFAULT_LOG_LEVEL,
+    LOG_LEVELS,
+    configure_logging,
+    get_logger,
+)
 from scribeforge.pipeline.adjudication import record_human_decision, review_detail, review_queue
 from scribeforge.pipeline.assembly import (
     PageImageError,
@@ -319,6 +325,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="scribeforge",
         description="Evidence-grade transcription of scanned books.",
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=sorted(LOG_LEVELS),
+        default=DEFAULT_LOG_LEVEL,
+        help=f"Logging verbosity (default: {DEFAULT_LOG_LEVEL}).",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Also write logs to this rotating file; home-directory paths are redacted.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -750,6 +769,9 @@ def run(
 
     args = build_parser().parse_args(list(argv))
     out = sys.stdout if stdout is None else stdout
+    configure_logging(args.log_level, args.log_file)
+    cli_log = get_logger("cli")
+    cli_log.info("command=%s log_level=%s", args.command, args.log_level)
     if args.command == "setup":
         setup_token = CancellationToken()
         if args.cancelable:
