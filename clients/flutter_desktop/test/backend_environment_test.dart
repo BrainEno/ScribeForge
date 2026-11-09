@@ -143,7 +143,8 @@ void main() {
         calls: calls,
         existingFiles: {'/repo/pyproject.toml': true},
         exitCodes: {
-          '/settings/backend-venv/bin/python -m pip install --quiet -e /repo': 1,
+          '/settings/backend-venv/bin/python -m pip install --quiet -e /repo':
+              1,
         },
       );
 

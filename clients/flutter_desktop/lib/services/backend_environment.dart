@@ -104,10 +104,8 @@ class BackendEnvironmentProvisioner {
   }
 
   /// Default venv location: a `backend-venv` folder inside the settings dir.
-  String defaultVenvDirectory(String settingsDirectory) => joinForOs(
-    <String>[settingsDirectory, 'backend-venv'],
-    _os,
-  );
+  String defaultVenvDirectory(String settingsDirectory) =>
+      joinForOs(<String>[settingsDirectory, 'backend-venv'], _os);
 
   /// Walks up from [startDirectory] looking for the ScribeForge source
   /// checkout (a `pyproject.toml` declaring the `scribeforge` project).
@@ -135,9 +133,7 @@ class BackendEnvironmentProvisioner {
 
   String _dirname(String path) {
     final separator = _os == 'windows' ? r'\' : '/';
-    final normalized = _os == 'windows'
-        ? path.replaceAll('/', r'\')
-        : path;
+    final normalized = _os == 'windows' ? path.replaceAll('/', r'\') : path;
     final index = normalized.lastIndexOf(separator);
     if (index < 0) return path;
     if (index == 0) return separator;
@@ -159,10 +155,10 @@ class BackendEnvironmentProvisioner {
       onLog?.call(line);
     }
 
-    final pyproject = joinForOs(
-      <String>[backendSourcePath, 'pyproject.toml'],
-      _os,
-    );
+    final pyproject = joinForOs(<String>[
+      backendSourcePath,
+      'pyproject.toml',
+    ], _os);
     if (!await _exists(pyproject)) {
       const error =
           '所选目录不是 ScribeForge 源码仓库（缺少 pyproject.toml）。'
@@ -180,11 +176,11 @@ class BackendEnvironmentProvisioner {
     final runner = _runner;
 
     log(r'$ $pythonExecutable -m venv $venvDirectory');
-    var code = await runner(
-      pythonExecutable,
-      <String>['-m', 'venv', venvDirectory],
-      onOutput: log,
-    );
+    var code = await runner(pythonExecutable, <String>[
+      '-m',
+      'venv',
+      venvDirectory,
+    ], onOutput: log);
     if (code != 0) {
       final error = '创建虚拟环境失败（退出码 $code），见上方日志。';
       return BackendProvisionResult(
@@ -203,7 +199,10 @@ class BackendEnvironmentProvisioner {
       '-e',
       backendSourcePath,
     ];
-    log(r'$ ${paths.pythonExecutable} ${pipArgs.join(' ')}');
+    log(
+      r'$ ${paths.pythonExecutable} ${pipArgs.join('
+      ')}',
+    );
     code = await runner(paths.pythonExecutable, pipArgs, onOutput: log);
     if (code != 0) {
       final error = '安装后端到虚拟环境失败（退出码 $code），见上方日志。';
@@ -216,8 +215,7 @@ class BackendEnvironmentProvisioner {
     }
 
     if (!await _exists(paths.cliExecutable)) {
-      final error =
-          '安装完成但未找到 ${paths.cliExecutable}；请确认选择了正确的源码目录。';
+      final error = '安装完成但未找到 ${paths.cliExecutable}；请确认选择了正确的源码目录。';
       log(error);
       return BackendProvisionResult(
         ok: false,
