@@ -2190,15 +2190,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   ),
                 ),
               ),
-            ],
-            const Divider(),
-            ListTile(
-              title: const Text('刷新运行时状态'),
-              trailing: const Icon(Icons.refresh),
-              onTap: () {
-                _refreshRuntimeStatus();
-              },
-            ),
+          ],
+          const Divider(),
+          ListTile(
+            title: const Text('刷新运行时状态'),
+            trailing: const Icon(Icons.refresh),
+            onTap: () {
+              _refreshRuntimeStatus();
+            },
+          ),
           ],
         ),
       ),
