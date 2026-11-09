@@ -11,6 +11,7 @@ import '../models/review_queue_navigation.dart';
 import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
 import '../services/backend_diagnostics.dart';
+import '../services/backend_environment.dart';
 import '../services/backend_resolver.dart';
 import '../services/candidate_comparison_store.dart';
 import '../services/cli_executor.dart';
@@ -47,6 +48,7 @@ class UnifiedWorkspace extends StatefulWidget {
     this.settingsStore,
     this.fileSystem,
     this.backendResolver,
+    this.backendProvisioner,
   });
 
   final ScribeForgeCliExecutor? cliExecutor;
@@ -54,6 +56,7 @@ class UnifiedWorkspace extends StatefulWidget {
   final DesktopFilePicker? filePicker;
   final DesktopSettingsStore? settingsStore;
   final WorkspaceFileSystem? fileSystem;
+  final BackendEnvironmentProvisioner? backendProvisioner;
 
   @override
   State<UnifiedWorkspace> createState() => _UnifiedWorkspaceState();
@@ -83,7 +86,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   late final DesktopBackendResolver _backendResolver;
   late final DesktopFilePicker _filePicker;
   late final WorkspaceFileSystem _fileSystem;
+  late final BackendEnvironmentProvisioner _provisioner;
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
+  String _backendPython = '';
+  String _backendSourcePath = '';
+  bool _backendBusy = false;
   DesktopBackendResolution? _backendResolution;
   bool _backendConnected = false;
   Object? _backendLaunchError;
@@ -170,6 +177,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _backendResolver = widget.backendResolver ?? const DesktopBackendResolver();
     _filePicker = widget.filePicker ?? const PluginDesktopFilePicker();
     _fileSystem = widget.fileSystem ?? const IoWorkspaceFileSystem();
+    _provisioner =
+        widget.backendProvisioner ?? const BackendEnvironmentProvisioner();
     _loadSettings();
   }
 
@@ -193,12 +202,16 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _loadSettings() async {
     final executable = await _settingsStore.loadCliExecutable();
     final vlmSettings = await _settingsStore.loadVlmSettings();
+    final backendPython = await _settingsStore.loadBackendPython();
+    final backendSourcePath = await _settingsStore.loadBackendSourcePath();
     final resolution = await _backendResolver.resolve(executable);
     if (!mounted) return;
     setState(() {
       _cliExecutable = resolution.executable;
       _backendResolution = resolution;
       _vlmSettings = vlmSettings;
+      _backendPython = backendPython;
+      _backendSourcePath = backendSourcePath;
     });
     await _refreshRuntimeStatus();
     await _refreshStatus();
@@ -2131,6 +2144,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               },
             ),
           ),
+          _buildBackendEnvironmentCard(),
+          const SizedBox(height: 12),
           ListTile(
             title: const Text('视觉模型复核'),
             subtitle: Text(
@@ -2189,6 +2204,167 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   /// 简单的文本输入对话框。
+  // ============================================================ 后端环境
+
+  String get _backendVenvDirectory =>
+      _provisioner.defaultVenvDirectory(_settingsStore.settingsDirectory.path);
+
+  Widget _buildBackendEnvironmentCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              '后端环境（Python 虚拟环境）',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '无需手动执行命令行：选择 Python 解释器与 ScribeForge 源码目录后点击'
+              '“自动创建后端环境”，客户端会自动创建虚拟环境、安装后端并完成冒烟检查。'
+              '完整桌面安装包自带后端，无需此步骤。',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Python 解释器：${_backendPython.isEmpty ? '未设置（将使用 python3）' : _backendPython}',
+              style: const TextStyle(fontSize: 12),
+            ),
+            Text(
+              '源码目录：${_backendSourcePath.isEmpty ? '未设置（将自动向上检测）' : _backendSourcePath}',
+              style: const TextStyle(fontSize: 12),
+            ),
+            Text(
+              '虚拟环境目录：$_backendVenvDirectory',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                OutlinedButton.icon(
+                  onPressed: _backendBusy ? null : _pickBackendPython,
+                  icon: const Icon(Icons.edit),
+                  label: const Text('选择 Python 解释器'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _backendBusy ? null : _pickBackendSourcePath,
+                  icon: const Icon(Icons.folder_open),
+                  label: const Text('选择源码目录'),
+                ),
+                FilledButton.icon(
+                  key: const ValueKey('provision-backend-button'),
+                  onPressed: _backendBusy || _busy
+                      ? null
+                      : () => unawaited(_provisionBackendEnvironment()),
+                  icon: const Icon(Icons.build),
+                  label: const Text('自动创建后端环境'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickBackendPython() async {
+    final value = await _promptString(
+      'Python 解释器路径',
+      _backendPython.isEmpty ? 'python3' : _backendPython,
+    );
+    if (value == null || value.trim().isEmpty) return;
+    await _settingsStore.saveBackendPython(value.trim());
+    if (!mounted) return;
+    setState(() => _backendPython = value.trim());
+  }
+
+  Future<void> _pickBackendSourcePath() async {
+    final picked = await _filePicker.getDirectoryPath(
+      dialogTitle: '选择 ScribeForge 源码仓库目录（包含 pyproject.toml）',
+    );
+    if (picked == null || picked.trim().isEmpty) return;
+    await _settingsStore.saveBackendSourcePath(picked.trim());
+    if (!mounted) return;
+    setState(() => _backendSourcePath = picked.trim());
+  }
+
+  Future<void> _provisionBackendEnvironment() async {
+    var python = _backendPython.trim();
+    if (python.isEmpty) {
+      final value = await _promptString('Python 解释器路径', 'python3');
+      if (value == null || value.trim().isEmpty) return;
+      python = value.trim();
+    }
+    var sourcePath = _backendSourcePath.trim();
+    if (sourcePath.isEmpty) {
+      final detected = await _provisioner.detectBackendSourcePath();
+      if (detected != null) {
+        sourcePath = detected;
+      } else {
+        final picked = await _filePicker.getDirectoryPath(
+          dialogTitle: '选择 ScribeForge 源码仓库目录（包含 pyproject.toml）',
+        );
+        if (picked == null || picked.trim().isEmpty) return;
+        sourcePath = picked.trim();
+      }
+    }
+    await _settingsStore.saveBackendPython(python);
+    await _settingsStore.saveBackendSourcePath(sourcePath);
+    if (!mounted) return;
+    setState(() {
+      _backendPython = python;
+      _backendSourcePath = sourcePath;
+      _backendBusy = true;
+    });
+
+    final venvDirectory = _backendVenvDirectory;
+    final result = await _provisioner.provision(
+      pythonExecutable: python,
+      backendSourcePath: sourcePath,
+      venvDirectory: venvDirectory,
+    );
+
+    if (!mounted) return;
+    setState(() => _backendBusy = false);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(result.ok ? '后端环境已就绪' : '后端环境创建失败'),
+        content: SingleChildScrollView(
+          child: Text(
+            result.ok
+                ? '${result.log}\n命令行工具已指向：${result.cliExecutable}'
+                : (result.error ?? '未知错误') + '\n\n' + result.log,
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+    if (!result.ok) return;
+
+    await _settingsStore.saveCliExecutable(result.cliExecutable);
+    final resolution = await _backendResolver.resolve(result.cliExecutable);
+    if (!mounted) return;
+    setState(() {
+      _cliExecutable = resolution.executable;
+      _backendResolution = resolution;
+      _notice = '后端环境已就绪，命令行工具指向虚拟环境中的 scribeforge。';
+    });
+    await _refreshRuntimeStatus();
+    await _refreshStatus();
+    await _refreshReviewQueue();
+  }
+
   Future<String?> _promptString(String title, String initialValue) async {
     final controller = TextEditingController(text: initialValue);
     return showDialog<String>(

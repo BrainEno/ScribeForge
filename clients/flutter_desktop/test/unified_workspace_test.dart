@@ -143,6 +143,22 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('settings exposes one-click backend environment provisioning', (
+    tester,
+  ) async {
+    await showDesktopWorkspace(tester);
+    await openTab(tester, '设置');
+
+    expect(find.text('后端环境（Python 虚拟环境）'), findsOneWidget);
+    expect(find.text('选择 Python 解释器'), findsOneWidget);
+    expect(find.text('选择源码目录'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('provision-backend-button')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('opens the Flutter-native runtime setup guide', (tester) async {
     await showDesktopWorkspace(tester);
     await openTab(tester, '设置');
@@ -163,10 +179,28 @@ void main() {
 
 class _MemorySettingsStore extends DesktopSettingsStore {
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
+  String _backendPython = '';
+  String _backendSourcePath = '';
 
   @override
   Future<String> loadCliExecutable() async =>
       DesktopSettingsStore.defaultCliExecutable;
+
+  @override
+  Future<String> loadBackendPython() async => _backendPython;
+
+  @override
+  Future<void> saveBackendPython(String pythonExecutable) async {
+    _backendPython = pythonExecutable;
+  }
+
+  @override
+  Future<String> loadBackendSourcePath() async => _backendSourcePath;
+
+  @override
+  Future<void> saveBackendSourcePath(String sourcePath) async {
+    _backendSourcePath = sourcePath;
+  }
 
   @override
   Future<DesktopVlmSettings> loadVlmSettings() async => _vlmSettings;

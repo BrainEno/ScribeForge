@@ -19,6 +19,9 @@ void main() {
   test('uses safe defaults when no settings file exists', () async {
     final store = DesktopSettingsStore(directory: temporary);
     expect(await store.loadCliExecutable(), 'scribeforge');
+    expect(await store.loadBackendPython(), isEmpty);
+    expect(await store.loadBackendSourcePath(), isEmpty);
+    expect(store.settingsDirectory.path, temporary.path);
     final vlm = await store.loadVlmSettings();
     expect(vlm.enabled, isFalse);
     expect(vlm.endpoint, isEmpty);
@@ -35,6 +38,19 @@ void main() {
     expect(
       await DesktopSettingsStore(directory: temporary).loadCliExecutable(),
       r'C:\Tools\ScribeForge\scribeforge.exe',
+    );
+  });
+
+  test('persists the backend environment settings across loads', () async {
+    final store = DesktopSettingsStore(directory: temporary);
+    await store.saveBackendPython(r'C:\Python314\python.exe');
+    await store.saveBackendSourcePath(r'D:\develop\python-projs\ScribeForge');
+
+    final reloaded = DesktopSettingsStore(directory: temporary);
+    expect(await reloaded.loadBackendPython(), r'C:\Python314\python.exe');
+    expect(
+      await reloaded.loadBackendSourcePath(),
+      r'D:\develop\python-projs\ScribeForge',
     );
   });
 

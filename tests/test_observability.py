@@ -92,8 +92,10 @@ def test_configure_logging_adds_a_rotating_file_handler_and_redacts(
     for handler in logger.handlers:
         handler.flush()
     content = log_file.read_text(encoding="utf-8")
+    # The home prefix is redacted regardless of the platform path separator.
     assert str(home) not in content
-    assert "~/secret.pdf" in content
+    assert "~" in content
+    assert "secret.pdf" in content
     for handler in logger.handlers:
         handler.close()
         logger.removeHandler(handler)
