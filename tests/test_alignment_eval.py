@@ -1,0 +1,202 @@
+"""#79 acceptance artifact: production alignment evaluation over labelled samples.
+
+`domain/alignment_eval.py` turns hand-labelled layout samples into the
+reported match accuracy / order error rate / review-queue numbers that
+issue #79 requires, instead of keeping the metrics inside test code.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from scribeforge.domain.alignment_eval import (
+    AlignmentSample,
+    ExpectedGroup,
+    evaluate_alignment_sample,
+    evaluate_alignment_samples,
+    render_alignment_report,
+)
+from scribeforge.domain.ocr import (
+    BoundingBox,
+    OCRLine,
+    OCRToken,
+    PageDirection,
+    PageOCRResult,
+)
+
+
+def _result(
+    engine: str,
+    lines: list[tuple[str, float, float, float, float]],
+    *,
+    direction: PageDirection = PageDirection.HORIZONTAL_LR,
+) -> PageOCRResult:
+    return PageOCRResult(
+        page_index=0,
+        engine=engine,
+        engine_version="1",
+        lines=tuple(
+            OCRLine(
+                text,
+                BoundingBox(x, y, w, h),
+                (OCRToken(text, 0.9, BoundingBox(x, y, w, h)),),
+            )
+            for text, x, y, w, h in lines
+        ),
+        direction=direction,
+        direction_declared=True,
+    )
+
+
+def _two_column_sample() -> AlignmentSample:
+    primary = _result(
+        "mineru",
+        [
+            ("左栏第一行", 0.10, 0.20, 0.40, 0.05),
+            ("右栏第一行", 0.60, 0.20, 0.40, 0.05),
+            ("左栏第二行", 0.10, 0.35, 0.40, 0.05),
+            ("右栏第二行", 0.60, 0.35, 0.40, 0.05),
+        ],
+    )
+    secondary = _result(
+        "paddleocr",
+        [
+            ("左栏第一行", 0.10, 0.21, 0.40, 0.05),
+            ("右栏第一行", 0.60, 0.21, 0.40, 0.05),
+            ("左栏第二行", 0.10, 0.36, 0.40, 0.05),
+            ("右栏第二行", 0.60, 0.36, 0.40, 0.05),
+        ],
+    )
+    return AlignmentSample(
+        name="two-column",
+        primary=primary,
+        secondary=secondary,
+        expected_groups=(
+            ExpectedGroup((0,), (0,)),
+            ExpectedGroup((1,), (1,)),
+            ExpectedGroup((2,), (2,)),
+            ExpectedGroup((3,), (3,)),
+        ),
+        primary_columns=("left", "right", "left", "right"),
+        secondary_columns=("left", "right", "left", "right"),
+    )
+
+
+def test_perfect_sample_scores_full_precision_and_no_order_errors() -> None:
+    metrics = evaluate_alignment_sample(_two_column_sample())
+
+    assert (metrics.true_positive, metrics.false_positive, metrics.false_negative) == (4, 0, 0)
+    assert (metrics.precision, metrics.recall, metrics.f1) == (1.0, 1.0, 1.0)
+    assert metrics.reading_order_errors == 0
+    assert metrics.cross_column_errors == 0
+    assert metrics.unresolved_ambiguities == 0
+    assert metrics.review_candidates == 0
+
+
+def test_wrong_group_counts_false_positive_and_false_negative() -> None:
+    sample = _two_column_sample()
+    wrong = AlignmentSample(
+        name="wrong",
+        primary=sample.primary,
+        secondary=sample.secondary,
+        expected_groups=(
+            ExpectedGroup((0,), (1,)),  # swapped columns: not the labelled mapping
+            ExpectedGroup((1,), (0,)),
+            ExpectedGroup((2,), (2,)),
+            ExpectedGroup((3,), (3,)),
+        ),
+    )
+    metrics = evaluate_alignment_sample(wrong)
+
+    assert metrics.true_positive == 2
+    assert metrics.false_positive == 2
+    assert metrics.false_negative == 2
+    # The predicted pairs themselves stay column-consistent; only the labels
+    # were swapped, so the cross-column metric is about predictions, not labels.
+    assert metrics.cross_column_errors == 0
+    assert metrics.precision == pytest.approx(0.5)
+    assert metrics.recall == pytest.approx(0.5)
+
+
+def test_one_to_many_and_many_to_one_groups_are_counted() -> None:
+    primary = _result(
+        "mineru",
+        [("春眠不觉晓", 0.1, 0.2, 0.5, 0.04), ("处处闻啼鸟", 0.1, 0.4, 0.5, 0.04)],
+    )
+    secondary = _result(
+        "paddleocr",
+        [
+            ("春眠", 0.1, 0.18, 0.5, 0.03),
+            ("不觉晓", 0.1, 0.23, 0.5, 0.03),
+            ("处处闻啼鸟", 0.1, 0.4, 0.5, 0.04),
+        ],
+    )
+    sample = AlignmentSample(
+        name="split-merge",
+        primary=primary,
+        secondary=secondary,
+        expected_groups=(
+            ExpectedGroup((0,), (0, 1)),
+            ExpectedGroup((1,), (2,)),
+        ),
+    )
+    metrics = evaluate_alignment_sample(sample)
+
+    assert metrics.f1 == 1.0
+    assert (metrics.one_to_many, metrics.many_to_one) == (1, 0)
+
+
+def test_ambiguous_sample_reports_unresolved_ambiguity_and_review() -> None:
+    # One primary line competing between two identical secondary lines:
+    # the aligner must not force a pair, and the region must enter review.
+    primary = _result("mineru", [("相同文字", 0.10, 0.30, 0.60, 0.04)])
+    secondary = _result(
+        "paddleocr",
+        [
+            ("相同文字", 0.10, 0.29, 0.60, 0.04),
+            ("相同文字", 0.10, 0.31, 0.60, 0.04),
+        ],
+    )
+    sample = AlignmentSample(
+        name="ambiguous",
+        primary=primary,
+        secondary=secondary,
+        expected_groups=(),
+        expect_ambiguity=True,
+    )
+    metrics = evaluate_alignment_sample(sample)
+
+    assert metrics.unresolved_ambiguities >= 1
+    assert metrics.false_positive == 0  # no forced match
+    assert metrics.review_candidates >= 1
+
+
+def test_lone_disagreement_is_force_paired_but_queued_for_review() -> None:
+    primary = _result("mineru", [("完全不同的文本内容", 0.10, 0.20, 0.80, 0.05)])
+    secondary = _result("paddleocr", [("totally different text", 0.10, 0.21, 0.80, 0.05)])
+    sample = AlignmentSample(
+        name="disagreement",
+        primary=primary,
+        secondary=secondary,
+        expected_groups=(),
+    )
+    metrics = evaluate_alignment_sample(sample)
+
+    assert metrics.review_candidates >= 1
+
+
+def test_aggregate_evaluation_and_markdown_report() -> None:
+    evaluation = evaluate_alignment_samples([_two_column_sample()])
+    totals = evaluation.totals
+
+    assert totals.precision == totals.recall == totals.f1 == 1.0
+    assert totals.reading_order_errors == 0
+    assert len(evaluation.samples) == 1
+
+    report = render_alignment_report(evaluation)
+    assert "# Alignment evaluation" in report
+    assert "| two-column |" in report
+    assert "| aggregate |" in report
+    assert "order_errors" in report
+    # Deterministic: rendering twice is byte-identical.
+    assert render_alignment_report(evaluation) == report

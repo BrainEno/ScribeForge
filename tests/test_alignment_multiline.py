@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -17,7 +16,15 @@ import pytest
 from scribeforge.domain.alignment import (
     AlignmentStatus,
     LineAlignment,
+    PageAlignment,
     align_pages,
+)
+from scribeforge.domain.alignment_eval import (
+    AlignmentSample,
+    ExpectedGroup,
+    SampleEvaluation,
+    evaluate_alignment_sample,
+    evaluate_alignment_samples,
 )
 from scribeforge.domain.ocr import (
     BlockType,
@@ -77,31 +84,23 @@ def _labelled_groups(fixture: dict[str, object], key: str = "expected_groups") -
     }
 
 
-@dataclass(frozen=True)
-class AlignmentMetrics:
-    true_positive: int
-    false_positive: int
-    false_negative: int
-    reading_order_errors: int
-    cross_column_errors: int
-    unresolved_ambiguities: int
-    one_to_many: int
-    many_to_one: int
-
-    @property
-    def precision(self) -> float:
-        denominator = self.true_positive + self.false_positive
-        return self.true_positive / denominator if denominator else 1.0
-
-    @property
-    def recall(self) -> float:
-        denominator = self.true_positive + self.false_negative
-        return self.true_positive / denominator if denominator else 1.0
-
-    @property
-    def f1(self) -> float:
-        denominator = self.precision + self.recall
-        return 2 * self.precision * self.recall / denominator if denominator else 0.0
+def _sample(fixture: dict[str, object], primary: PageOCRResult, secondary: PageOCRResult) -> AlignmentSample:
+    return AlignmentSample(
+        name=str(fixture["name"]),
+        primary=primary,
+        secondary=secondary,
+        expected_groups=tuple(
+            ExpectedGroup(tuple(item["primary"]), tuple(item["secondary"]))  # type: ignore[misc]
+            for item in fixture.get("expected_groups", [])  # type: ignore[union-attr]
+        ),
+        primary_columns=tuple(
+            str(row["column"]) for row in fixture["primary"]  # type: ignore[index]
+        ),
+        secondary_columns=tuple(
+            str(row["column"]) for row in fixture["secondary"]  # type: ignore[index]
+        ),
+        expect_ambiguity=bool(fixture.get("expected_ambiguities")),
+    )
 
 
 def _measure(
@@ -109,60 +108,9 @@ def _measure(
     primary: PageOCRResult,
     secondary: PageOCRResult,
     pairs: tuple[LineAlignment, ...],
-) -> AlignmentMetrics:
-    expected = _labelled_groups(fixture)
-    regular = [pair for pair in pairs if pair.status is AlignmentStatus.MATCHED]
-    actual = {_group(pair) for pair in regular}
-    expected_order = [
-        (tuple(item["primary"]), tuple(item["secondary"]))
-        for item in fixture.get("expected_groups", [])  # type: ignore[union-attr]
-    ]
-    actual_order = [_group(pair) for pair in regular]
-    expected_positions = {group: index for index, group in enumerate(expected_order)}
-    reading_positions = [
-        expected_positions[group] for group in actual_order if group in expected_positions
-    ]
-    reading_order_errors = sum(
-        earlier > later
-        for index, earlier in enumerate(reading_positions)
-        for later in reading_positions[index + 1 :]
-    )
-
-    cross_column_errors = 0
-    for pair in regular:
-        primary_columns = {
-            str(fixture["primary"][index]["column"])  # type: ignore[index]
-            for index in pair.primary_line_indexes
-        }
-        secondary_columns = {
-            str(fixture["secondary"][index]["column"])  # type: ignore[index]
-            for index in pair.secondary_line_indexes
-        }
-        if (
-            len(primary_columns) != 1
-            or len(secondary_columns) != 1
-            or primary_columns != secondary_columns
-        ):
-            cross_column_errors += 1
-
-    return AlignmentMetrics(
-        true_positive=len(actual & expected),
-        false_positive=len(actual - expected),
-        false_negative=len(expected - actual),
-        reading_order_errors=reading_order_errors,
-        cross_column_errors=cross_column_errors,
-        unresolved_ambiguities=sum(
-            pair.status is AlignmentStatus.AMBIGUOUS for pair in pairs
-        ),
-        one_to_many=sum(
-            len(pair.primary_line_indexes) == 1 and len(pair.secondary_line_indexes) > 1
-            for pair in regular
-        ),
-        many_to_one=sum(
-            len(pair.primary_line_indexes) > 1 and len(pair.secondary_line_indexes) == 1
-            for pair in regular
-        ),
-    )
+) -> SampleEvaluation:
+    alignment = PageAlignment(0, primary.engine, secondary.engine, pairs)
+    return evaluate_alignment_sample(_sample(fixture, primary, secondary), alignment=alignment)
 
 
 @pytest.mark.parametrize(
@@ -192,24 +140,13 @@ def test_hand_labelled_layout_groups_and_metrics(fixture: dict[str, object]) -> 
 
 
 def test_aggregate_groundtruth_precision_recall_f1_and_structure_counts() -> None:
-    measurements: list[AlignmentMetrics] = []
+    samples = []
     for fixture in _FIXTURES:
         if fixture.get("expected_ambiguities"):
             continue
         primary, secondary = _pages(fixture)
-        measurements.append(
-            _measure(fixture, primary, secondary, align_pages(primary, secondary).pairs)
-        )
-    total = AlignmentMetrics(
-        true_positive=sum(item.true_positive for item in measurements),
-        false_positive=sum(item.false_positive for item in measurements),
-        false_negative=sum(item.false_negative for item in measurements),
-        reading_order_errors=sum(item.reading_order_errors for item in measurements),
-        cross_column_errors=sum(item.cross_column_errors for item in measurements),
-        unresolved_ambiguities=sum(item.unresolved_ambiguities for item in measurements),
-        one_to_many=sum(item.one_to_many for item in measurements),
-        many_to_one=sum(item.many_to_one for item in measurements),
-    )
+        samples.append(_sample(fixture, primary, secondary))
+    total = evaluate_alignment_samples(samples).totals
     print(
         f"aggregate: precision={total.precision:.3f} recall={total.recall:.3f} "
         f"f1={total.f1:.3f} order_errors={total.reading_order_errors} "
