@@ -46,9 +46,7 @@ def unrepresentable_characters(text: str) -> tuple[str, ...]:
     for character in text:
         if character in _ALLOWED_CONTROL:
             continue
-        if character == _REPLACEMENT_CHARACTER or unicodedata.category(
-            character
-        ).startswith("C"):
+        if character == _REPLACEMENT_CHARACTER or unicodedata.category(character).startswith("C"):
             name = f"U+{ord(character):04X}"
             if name not in found:
                 found.append(name)

@@ -35,9 +35,7 @@ def locked_model_directories() -> dict[str, Path]:
     return paths
 
 
-def build_command(
-    image: str, *, model_directories: Mapping[str, Path] | None = None
-) -> list[str]:
+def build_command(image: str, *, model_directories: Mapping[str, Path] | None = None) -> list[str]:
     command = [
         "paddleocr",
         "ocr",
@@ -92,10 +90,7 @@ def _normalize_word_box(raw_box: Any, width: float, height: float) -> list[float
 
     if not isinstance(raw_box, list) or len(raw_box) != 4:
         raise TypeError("PaddleOCR word box must contain left, top, right, bottom")
-    if any(
-        not isinstance(value, (int, float)) or isinstance(value, bool)
-        for value in raw_box
-    ):
+    if any(not isinstance(value, (int, float)) or isinstance(value, bool) for value in raw_box):
         raise TypeError("PaddleOCR word box coordinates must be numeric")
     left, top, right, bottom = (float(value) for value in raw_box)
     if right < left or bottom < top:
@@ -107,9 +102,7 @@ def _normalize_word_box(raw_box: Any, width: float, height: float) -> list[float
     )
 
 
-def extract_lines(
-    raw: Any, image_size: tuple[int, int] | None = None
-) -> list[dict[str, Any]]:
+def extract_lines(raw: Any, image_size: tuple[int, int] | None = None) -> list[dict[str, Any]]:
     if isinstance(raw, list) and len(raw) == 1:
         raw = raw[0]
     if not isinstance(raw, dict):
@@ -118,7 +111,11 @@ def extract_lines(
     texts: Any = raw.get("rec_texts", [])
     scores: Any = raw.get("rec_scores", [])
     polygons: Any = raw.get("rec_polys", raw.get("dt_polys", []))
-    if not isinstance(texts, list) or not isinstance(scores, list) or not isinstance(polygons, list):
+    if (
+        not isinstance(texts, list)
+        or not isinstance(scores, list)
+        or not isinstance(polygons, list)
+    ):
         raise TypeError("PaddleOCR result arrays must be lists")
     if not (len(texts) == len(scores) == len(polygons)):
         raise ValueError("PaddleOCR result arrays have inconsistent lengths")
@@ -144,23 +141,15 @@ def extract_lines(
         word_text_groups = None
         word_box_groups = None
     else:
-        if not isinstance(raw_word_text_groups, list) or not isinstance(
-            raw_word_box_groups, list
-        ):
+        if not isinstance(raw_word_text_groups, list) or not isinstance(raw_word_box_groups, list):
             raise TypeError("PaddleOCR word outputs must be lists")
-        if not (
-            len(raw_word_text_groups)
-            == len(raw_word_box_groups)
-            == len(texts)
-        ):
+        if not (len(raw_word_text_groups) == len(raw_word_box_groups) == len(texts)):
             raise ValueError("PaddleOCR word arrays have inconsistent lengths")
         word_text_groups = raw_word_text_groups
         word_box_groups = raw_word_box_groups
 
     lines: list[dict[str, Any]] = []
-    for line_index, (text, score, polygon) in enumerate(
-        zip(texts, scores, polygons, strict=True)
-    ):
+    for line_index, (text, score, polygon) in enumerate(zip(texts, scores, polygons, strict=True)):
         if not isinstance(polygon, list):
             raise TypeError("PaddleOCR polygon must be a list")
         box = normalize_polygon(polygon, width, height)
@@ -195,7 +184,6 @@ def extract_lines(
     return lines
 
 
-
 def _engine_direction(raw: Any) -> Any:
     """Return PP-OCR's own direction claim, or ``None`` when it makes none.
 
@@ -209,9 +197,7 @@ def _engine_direction(raw: Any) -> Any:
     return raw.get("text_direction") or raw.get("direction")
 
 
-def _layout_blocks(
-    raw: Any, lines: list[dict[str, Any]] | None = None
-) -> list[dict[str, Any]]:
+def _layout_blocks(raw: Any, lines: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Associate PP-Structure regions with OCR lines only when ownership is clear.
 
     Plain PP-OCR has no layout labels and returns no blocks.  When layout exists,
@@ -293,9 +279,7 @@ def _layout_blocks(
                 continue
             intersection = max(
                 0.0, min(x + width, region_x + region_width) - max(x, region_x)
-            ) * max(
-                0.0, min(y + height, region_y + region_height) - max(y, region_y)
-            )
+            ) * max(0.0, min(y + height, region_y + region_height) - max(y, region_y))
             if intersection / line_area >= 0.60:
                 candidates.append(region_index)
         if len(candidates) == 1:

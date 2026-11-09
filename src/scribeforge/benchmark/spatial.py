@@ -27,12 +27,8 @@ DEFAULT_IOU_THRESHOLD = 0.5
 def box_iou(first: BoundingBox, second: BoundingBox) -> float:
     """Intersection-over-union area of two normalized page boxes."""
 
-    overlap_width = min(first.x + first.width, second.x + second.width) - max(
-        first.x, second.x
-    )
-    overlap_height = min(first.y + first.height, second.y + second.height) - max(
-        first.y, second.y
-    )
+    overlap_width = min(first.x + first.width, second.x + second.width) - max(first.x, second.x)
+    overlap_height = min(first.y + first.height, second.y + second.height) - max(first.y, second.y)
     if overlap_width <= 0.0 or overlap_height <= 0.0:
         return 0.0
     intersection = overlap_width * overlap_height

@@ -37,12 +37,8 @@ _CORE_PROPERTIES_REL = (
 _DOCUMENT_CONTENT_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
 )
-_CORE_PROPERTIES_CONTENT_TYPE = (
-    "application/vnd.openxmlformats-package.core-properties+xml"
-)
-_RELATIONSHIPS_CONTENT_TYPE = (
-    "application/vnd.openxmlformats-package.relationships+xml"
-)
+_CORE_PROPERTIES_CONTENT_TYPE = "application/vnd.openxmlformats-package.core-properties+xml"
+_RELATIONSHIPS_CONTENT_TYPE = "application/vnd.openxmlformats-package.relationships+xml"
 
 
 def _content_types_xml() -> str:
@@ -119,8 +115,10 @@ def _block_xml(block: Paragraph) -> str:
             f'<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
         )
     if block.role is LineRole.FOOTNOTE:
-        return f'<w:p><w:r><w:rPr><w:vertAlign w:val="subscript"/></w:rPr>' \
-               f'<w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+        return (
+            f'<w:p><w:r><w:rPr><w:vertAlign w:val="subscript"/></w:rPr>'
+            f'<w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+        )
     return f'<w:p><w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
 
 
@@ -160,15 +158,9 @@ def build_docx(
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        write_zip_entry(
-            archive, "[Content_Types].xml", _content_types_xml(), zipfile.ZIP_DEFLATED
-        )
-        write_zip_entry(
-            archive, "_rels/.rels", _package_relationships_xml(), zipfile.ZIP_DEFLATED
-        )
-        write_zip_entry(
-            archive, "word/document.xml", _document_xml(book), zipfile.ZIP_DEFLATED
-        )
+        write_zip_entry(archive, "[Content_Types].xml", _content_types_xml(), zipfile.ZIP_DEFLATED)
+        write_zip_entry(archive, "_rels/.rels", _package_relationships_xml(), zipfile.ZIP_DEFLATED)
+        write_zip_entry(archive, "word/document.xml", _document_xml(book), zipfile.ZIP_DEFLATED)
         write_zip_entry(
             archive,
             "docProps/core.xml",

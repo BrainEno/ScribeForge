@@ -110,9 +110,7 @@ def _evidence(
 
 
 def _numbered(page_index: int, number: int, run: int = 1) -> PageLabel:
-    return PageLabel(
-        str(number), NumberingScheme.ARABIC, number, run * 1_000_000 + number
-    )
+    return PageLabel(str(number), NumberingScheme.ARABIC, number, run * 1_000_000 + number)
 
 
 def test_a_page_without_text_or_ink_is_blank() -> None:
@@ -495,9 +493,7 @@ def _store_with(tmp_path: Path, pages: list[PageOCRResult]) -> tuple[SQLiteStore
     store.initialize()
     project_id = store.create_project("V.", "v.pdf", "hash")
     for result in pages:
-        store.add_page(
-            project_id, result.page_index, f"page-{result.page_index:03d}.png", 100, 150
-        )
+        store.add_page(project_id, result.page_index, f"page-{result.page_index:03d}.png", 100, 150)
         store.record_ocr(project_id, result)
     return store, project_id
 
@@ -520,9 +516,7 @@ def test_the_contents_page_supplies_the_chapter_tree(tmp_path: Path) -> None:
     ]
     store, project_id = _store_with(tmp_path, pages)
 
-    structure = build_book_structure(
-        store, project_id, engine="fixture", measure_ink_ratio=False
-    )
+    structure = build_book_structure(store, project_id, engine="fixture", measure_ink_ratio=False)
 
     assert [chapter.title for chapter in structure.chapters] == ["第一章 开端", "第二章 发展"]
     assert [chapter.start_page_index for chapter in structure.chapters] == [1, 3]
@@ -538,9 +532,7 @@ def test_headings_are_the_fallback_when_there_is_no_usable_toc(tmp_path: Path) -
     ]
     store, project_id = _store_with(tmp_path, pages)
 
-    structure = build_book_structure(
-        store, project_id, engine="fixture", measure_ink_ratio=False
-    )
+    structure = build_book_structure(store, project_id, engine="fixture", measure_ink_ratio=False)
 
     assert [chapter.title for chapter in structure.chapters] == ["第一章 开端"]
     assert structure.chapters[0].source == "heading"
@@ -604,9 +596,7 @@ def test_page_ink_round_trips_through_the_store(tmp_path: Path) -> None:
     store, project_id = _store_with(tmp_path, [_page([], page_index=0)])
     store.record_page_structure(
         project_id,
-        (
-            PageStructure(0, PageRole.BLANK, ink_ratio=0.0125),
-        ),
+        (PageStructure(0, PageRole.BLANK, ink_ratio=0.0125),),
     )
 
     loaded = store.load_book_structure(project_id)
@@ -741,18 +731,13 @@ def _accept_every_pair(store: SQLiteStore, project_id: int, pages: int) -> None:
         primary = store.load_ocr_run(primary_id)
         secondary_id = store.record_ocr(
             project_id,
-            PageOCRResult(
-                page_index, "fixture-secondary", "1.0", primary.lines, primary.blocks
-            ),
+            PageOCRResult(page_index, "fixture-secondary", "1.0", primary.lines, primary.blocks),
         )
         alignment = PageAlignment(
             page_index,
             "fixture",
             "fixture-secondary",
-            tuple(
-                LineAlignment(index, index, 1.0, 0.0, ())
-                for index in range(len(primary.lines))
-            ),
+            tuple(LineAlignment(index, index, 1.0, 0.0, ()) for index in range(len(primary.lines))),
         )
         risks = tuple(PairRisk(index, 0.0, ()) for index in range(len(primary.lines)))
         store.record_verification(primary_id, secondary_id, alignment, risks, ())

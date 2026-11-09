@@ -397,9 +397,7 @@ def run_repair_round(
     settings = settings or RepairSettings()
 
     pages = {page.page_index: page for page in store.list_pages(project_id)}
-    undecided = open_pairs(
-        store, project_id, include_page_furniture=include_page_furniture
-    )
+    undecided = open_pairs(store, project_id, include_page_furniture=include_page_furniture)
     candidates = undecided[: settings.max_pairs_per_round]
     deferred = undecided[len(candidates) :]
 
@@ -453,16 +451,14 @@ def run_repair_round(
             padding_fraction=padding,
             scale=scale,
         )
-        crop_path = materialize_review_crops(
-            frame_path, (plan,), crops_dir, immutable=True
-        )[ref.pair_index]
+        crop_path = materialize_review_crops(frame_path, (plan,), crops_dir, immutable=True)[
+            ref.pair_index
+        ]
         verification_frame(store, project_id, page, verification_id)
         crop_input = crop_evidence(crop_path, plan, frame, verification_id)
         examined.append(ref)
 
-        readings, refs = _engine_readings(
-            store, project_id, ref.page_index, ref.pair_index
-        )
+        readings, refs = _engine_readings(store, project_id, ref.page_index, ref.pair_index)
         order = [reading.reader for reading in readings]
         crop_confidences: dict[str, float] = {}
         for index, reader in enumerate(readers):
@@ -499,14 +495,16 @@ def run_repair_round(
                 )
             )
             refs[reader.label] = (
-                f"engine_run:{run_id}", f"region_read:{scope}", f"source:{source}"
+                f"engine_run:{run_id}",
+                f"region_read:{scope}",
+                f"source:{source}",
             )
             order.append(reader.label)
 
         if reviewer is not None:
-            crop_path = materialize_review_crops(
-                frame_path, (plan,), crops_dir, immutable=True
-            )[ref.pair_index]
+            crop_path = materialize_review_crops(frame_path, (plan,), crops_dir, immutable=True)[
+                ref.pair_index
+            ]
             verification_frame(store, project_id, page, verification_id)
             crop_input = crop_evidence(crop_path, plan, frame, verification_id)
             record = store.load_verification(verification_id)
@@ -520,8 +518,7 @@ def run_repair_round(
                 crop_input=crop_input,
                 expected_page=page,
                 has_candidate=any(
-                    candidate.pair_index == ref.pair_index
-                    for candidate in record.candidates
+                    candidate.pair_index == ref.pair_index for candidate in record.candidates
                 ),
             )
             if vision is not None:
@@ -547,9 +544,7 @@ def run_repair_round(
         # The original persisted evidence remains authoritative: a crop cannot
         # erase a spatial mismatch, low confidence or other content risk.
         confidence_values = [
-            crop_confidences[label]
-            for label in verdict.supporters
-            if label in crop_confidences
+            crop_confidences[label] for label in verdict.supporters if label in crop_confidences
         ]
         if risk.min_confidence is not None:
             confidence_values.append(risk.min_confidence)
@@ -566,11 +561,7 @@ def run_repair_round(
                 if citation not in evidence:
                     evidence.append(citation)
         evidence.append(f"consensus:{verdict.rationale}")
-        actor = (
-            DecisionActor.VLM
-            if _VLM_LABEL in verdict.supporters
-            else DecisionActor.AUTOMATIC
-        )
+        actor = DecisionActor.VLM if _VLM_LABEL in verdict.supporters else DecisionActor.AUTOMATIC
         try:
             store.append_decision(
                 project_id=project_id,
@@ -676,12 +667,8 @@ def progress(
     actors = store.latest_decision_actors(project_id)
     if not include_page_furniture:
         furniture_pairs = _furniture_pair_keys(store, project_id, furniture)
-        actors = {
-            key: actor for key, actor in actors.items() if key not in furniture_pairs
-        }
-    automatic = sum(
-        1 for actor in actors.values() if actor == DecisionActor.AUTOMATIC.value
-    )
+        actors = {key: actor for key, actor in actors.items() if key not in furniture_pairs}
+    automatic = sum(1 for actor in actors.values() if actor == DecisionActor.AUTOMATIC.value)
     vlm = sum(1 for actor in actors.values() if actor == DecisionActor.VLM.value)
     human = sum(1 for actor in actors.values() if actor == DecisionActor.HUMAN.value)
     return ProgressReport(

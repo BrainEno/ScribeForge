@@ -23,7 +23,7 @@ def _image_stats(image: Image.Image) -> dict:
     n = len(data)
     mean = sum(data) / n
     variance = sum((v - mean) ** 2 for v in data) / n
-    std = variance ** 0.5
+    std = variance**0.5
     dark = sum(1 for v in data if v < 128)
     min_v = min(data)
     max_v = max(data)
@@ -63,10 +63,7 @@ def full_analysis(pdf_path: str, *, sample_pages: list[int] | None = None, dpi: 
 
         # Detect full-page image: high std but very low dark pixel ratio
         # suggests a colored/photographic page rather than text
-        is_full_page_image = (
-            stats["std_brightness"] > 30
-            and stats["dark_pixel_ratio"] < 0.01
-        )
+        is_full_page_image = stats["std_brightness"] > 30 and stats["dark_pixel_ratio"] < 0.01
 
         entry = {
             "page_index": idx,

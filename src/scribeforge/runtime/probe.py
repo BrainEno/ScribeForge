@@ -54,11 +54,15 @@ def _ram_mb(*, timeout_seconds: float = 10) -> int | None:
 def _nvidia_profile(
     command: Sequence[str] | None = None, *, timeout_seconds: float = 10
 ) -> tuple[str, str, int] | None:
-    argv = list(command) if command is not None else [
-        "nvidia-smi",
-        "--query-gpu=name,driver_version,memory.total",
-        "--format=csv,noheader,nounits",
-    ]
+    argv = (
+        list(command)
+        if command is not None
+        else [
+            "nvidia-smi",
+            "--query-gpu=name,driver_version,memory.total",
+            "--format=csv,noheader,nounits",
+        ]
+    )
     try:
         completed = subprocess.run(
             argv,

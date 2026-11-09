@@ -66,9 +66,7 @@ def _write(tmp_path: Path, **case: object) -> Path:
     }
     payload.update(case)
     path = tmp_path / "manifest.json"
-    path.write_text(
-        json.dumps({"schema_version": 1, "cases": [payload]}), encoding="utf-8"
-    )
+    path.write_text(json.dumps({"schema_version": 1, "cases": [payload]}), encoding="utf-8")
     return path
 
 

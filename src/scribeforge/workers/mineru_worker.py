@@ -118,9 +118,7 @@ def extract_page(raw: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
                 entry["confidence"] = min(max(float(score), 0.0), 1.0)
             lines.append(entry)
         if len(lines) > start:
-            reported_blocks.append(
-                block_document(block_label, block_box, start, len(lines))
-            )
+            reported_blocks.append(block_document(block_label, block_box, start, len(lines)))
     return lines, reported_blocks
 
 

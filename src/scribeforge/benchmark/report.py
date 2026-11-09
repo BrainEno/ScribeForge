@@ -44,9 +44,7 @@ def _interval_text(interval: tuple[float, float] | None) -> str:
     return f" [{interval[0]:.4f}, {interval[1]:.4f}]"
 
 
-def _macro_rate(
-    rate: float | None, values: Sequence[float], *, confidence: float
-) -> str:
+def _macro_rate(rate: float | None, values: Sequence[float], *, confidence: float) -> str:
     if rate is None:
         return "N/A"
     return f"{rate:.4f}{_interval_text(mean_confidence_interval(values, confidence=confidence))}"
@@ -72,9 +70,7 @@ def _case_wer(case: CaseScore, *, confidence: float) -> str:
     if case.word_errors is not None and case.reference_words is not None:
         counts = f"{case.word_errors} / {case.reference_words} words, "
         interval = _interval_text(
-            wilson_score_interval(
-                case.word_errors, case.reference_words, confidence=confidence
-            )
+            wilson_score_interval(case.word_errors, case.reference_words, confidence=confidence)
         )
     else:
         counts = ""
@@ -91,9 +87,7 @@ def _micro_rate(
 ) -> str:
     if rate is None or errors is None or reference_units is None:
         return "N/A"
-    interval = _interval_text(
-        wilson_score_interval(errors, reference_units, confidence=confidence)
-    )
+    interval = _interval_text(wilson_score_interval(errors, reference_units, confidence=confidence))
     return f"{rate:.4f} ({errors} / {reference_units}){interval}"
 
 
@@ -132,10 +126,7 @@ def _direction_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
     lines = [
         "## Results by writing direction",
         "",
-        (
-            "| Variant | Direction | Cases | Mean CER | Unresolved pairs "
-            "| Reading-order errors |"
-        ),
+        ("| Variant | Direction | Cases | Mean CER | Unresolved pairs | Reading-order errors |"),
         "| --- | --- | ---: | ---: | ---: | ---: |",
     ]
     for report in reports:
@@ -308,8 +299,8 @@ def render_report(
         ),
         (
             "- Chinese WER above 1.0 has no recognition meaning: with whitespace "
-            "\"words\", an unsegmented Chinese line is one giant token, so a single "
-            "inserted line can add more edits than the reference \"words\". That is a "
+            '"words", an unsegmented Chinese line is one giant token, so a single '
+            'inserted line can add more edits than the reference "words". That is a '
             "tokenizer artifact, not recognition quality, which is why those cases "
             "report N/A. Wherever WER is applicable, a value above 1.0 simply means "
             "insertions outnumber reference words."

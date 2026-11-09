@@ -68,7 +68,8 @@ def _add_page(
 ) -> None:
     store.add_page(project_id, page_index, str(raster), 40, 60)
     lines = tuple(
-        OCRLine(text, BoundingBox(0.1, 0.1 + 0.1 * index, 0.5, 0.05)) for index, text in enumerate(texts)
+        OCRLine(text, BoundingBox(0.1, 0.1 + 0.1 * index, 0.5, 0.05))
+        for index, text in enumerate(texts)
     )
     primary = store.record_ocr(project_id, PageOCRResult(page_index, "primary", "1.0", lines))
     secondary = store.record_ocr(project_id, PageOCRResult(page_index, "secondary", "1.0", lines))
@@ -318,7 +319,11 @@ def test_a_plate_stays_with_the_chapter_whose_page_it_is() -> None:
     plate = _image(2, _PNG, PageImageRole.FIGURE)
     book = VerifiedBook(
         "V.",
-        (VerifiedPage(1, ("第一章正文。",)), VerifiedPage(2, ()), VerifiedPage(3, ("第二章正文。",))),
+        (
+            VerifiedPage(1, ("第一章正文。",)),
+            VerifiedPage(2, ()),
+            VerifiedPage(3, ("第二章正文。",)),
+        ),
         chapters=(VerifiedChapter("第一章", 1, 1), VerifiedChapter("第二章", 1, 3)),
         images=(plate,),
     )
@@ -570,6 +575,7 @@ def test_the_real_cover_of_the_benchmark_scan_becomes_the_epub_cover(
 
 # ------------------------------------------------------------- reader acceptance
 
+
 #: Structural acceptance of what a reading system (Readium / epub.js / a library
 #: grid) needs: a navigable table of contents, manifest properties for cover and
 #: nav, and every spine document reachable from the navigation.
@@ -598,7 +604,9 @@ def test_epub_is_reader_acceptable() -> None:
 
 
 @pytest.mark.parametrize("role", [PageRole.COVER, PageRole.PLATE, PageRole.BODY])
-def test_assembly_refuses_replaced_image_with_recorded_digest(tmp_path: Path, role: PageRole) -> None:
+def test_assembly_refuses_replaced_image_with_recorded_digest(
+    tmp_path: Path, role: PageRole
+) -> None:
     store, project_id = _store(tmp_path)
     raster = _png(tmp_path / "pages" / "0.png", "black")
     _add_page(store, project_id, 0, (), raster=raster)
@@ -666,7 +674,15 @@ def test_assembly_keeps_legacy_page_without_digest_exportable(tmp_path: Path) ->
     assert image.sha256 == hashlib.sha256(image.data).hexdigest()
 
 
-@pytest.mark.parametrize("missing_column", ["page_asset_sha256", "page_asset_byte_size", "page_asset_parameters_json", "page_asset_version"])
+@pytest.mark.parametrize(
+    "missing_column",
+    [
+        "page_asset_sha256",
+        "page_asset_byte_size",
+        "page_asset_parameters_json",
+        "page_asset_version",
+    ],
+)
 def test_export_image_rejects_partial_evidence_even_when_pixels_are_unchanged(
     tmp_path: Path, missing_column: str
 ) -> None:

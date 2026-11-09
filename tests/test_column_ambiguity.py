@@ -88,9 +88,7 @@ def test_near_equal_column_mappings_become_structural_alternatives() -> None:
 def test_column_ambiguity_round_trips_and_cannot_be_vlm_or_machine_accepted(
     tmp_path: Path,
 ) -> None:
-    store, project_id, verification_id, _, _, alignment = _persisted_column_ambiguity(
-        tmp_path
-    )
+    store, project_id, verification_id, _, _, alignment = _persisted_column_ambiguity(tmp_path)
     store.record_vlm_review(
         verification_id,
         VLMReading(0, 0, "local-vlm", "fixture", "ambiguous body", False),

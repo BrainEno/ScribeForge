@@ -62,10 +62,7 @@ def _package_xml(
     normalization: str,
 ) -> str:
     items = [
-        (
-            '<item id="nav" href="nav.xhtml" '
-            'media-type="application/xhtml+xml" properties="nav"/>'
-        )
+        ('<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>')
     ]
     flow = build_flow(book, layout=layout)
     spine: list[str] = []
@@ -84,11 +81,7 @@ def _package_xml(
         )
     # EPUB 2 readers (and most library grids) only look at this meta name; EPUB 3
     # uses the manifest ``cover-image`` property, so both are written.
-    cover_meta = (
-        ""
-        if cover is None
-        else f'<meta name="cover" content="{_image_item_id(cover)}"/>'
-    )
+    cover_meta = "" if cover is None else f'<meta name="cover" content="{_image_item_id(cover)}"/>'
     creator = "" if author is None else f"<dc:creator>{escape(author)}</dc:creator>"
     return (
         XML_DECL
@@ -122,8 +115,7 @@ def _nav_entries(book: VerifiedBook, layout: str) -> str:
     flow = build_flow(book, layout=layout)
     if flow.layout == "page":
         return "".join(
-            f'<li><a href="{document.file_name}">'
-            f"{escape(document.title)}</a></li>"
+            f'<li><a href="{document.file_name}">{escape(document.title)}</a></li>'
             for document in flow.documents
         )
 
@@ -134,9 +126,7 @@ def _nav_entries(book: VerifiedBook, layout: str) -> str:
     parts: list[str] = []
     stack: list[int] = []
     for document in flow.documents:
-        link = (
-            f'<li><a href="{document.file_name}">{escape(document.title)}</a>'
-        )
+        link = f'<li><a href="{document.file_name}">{escape(document.title)}</a>'
         level = max(1, document.level)
         while stack and level < stack[-1]:
             parts.append("</li></ol>")
@@ -190,10 +180,7 @@ def _figure_xhtml(image: VerifiedImage) -> str:
     this page has no OCR text by definition.
     """
 
-    img = (
-        f'<img src="{_image_href(image)}" '
-        f"alt={quoteattr(image.alt)}/>"
-    )
+    img = f'<img src="{_image_href(image)}" alt={quoteattr(image.alt)}/>'
     if image.caption:
         return (
             f'<figure class="page-image">{img}'
@@ -291,9 +278,7 @@ def build_epub(
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         write_zip_entry(archive, "mimetype", _MIMETYPE, zipfile.ZIP_STORED)
-        write_zip_entry(
-            archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED
-        )
+        write_zip_entry(archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED)
         write_zip_entry(
             archive,
             "OEBPS/content.opf",

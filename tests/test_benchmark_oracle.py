@@ -109,9 +109,7 @@ def test_pipeline_ceiling_preserves_every_line_it_is_given(tmp_path: Path) -> No
     primary.register(root / "page.png", "甲乙丙\n丁戊己\n")
     secondary.register(root / "page.png", "甲乙丙\n丁戊己\n")
 
-    report = run_pipeline_benchmark(
-        manifest, root, primary, secondary, label="oracle-ceiling"
-    )
+    report = run_pipeline_benchmark(manifest, root, primary, secondary, label="oracle-ceiling")
 
     assert report.engine == "oracle-ceiling"
     assert report.cases[0].cer == 0.0
@@ -145,7 +143,9 @@ def test_cli_oracle_ceiling_writes_both_variants(tmp_path: Path) -> None:
     # Each variant has an overall, a manifest-tag and a language row.
     assert text.count("| N/A (0 / 1) | N/A |") == 6
     assert (
-        text.count("| case-1 | zh | body | 0.0000 (0 / 5 chars) [0.0000, 0.4345] | N/A (`not-applicable`) |")
+        text.count(
+            "| case-1 | zh | body | 0.0000 (0 / 5 chars) [0.0000, 0.4345] | N/A (`not-applicable`) |"
+        )
         == 2
     )
     # The oracle variant declares reference geometry, so its spatial counts are
@@ -281,9 +281,7 @@ def test_real_vertical_corpus_cer_is_sensitive_to_column_order() -> None:
         text = (VERTICAL_CORPUS / case.ground_truth).read_text(encoding="utf-8")
         reversed_text = "\n".join(reversed(text.splitlines()))
         for engine in (primary, secondary):
-            engine.register(
-                image, reversed_text, direction=PageDirection.VERTICAL_RL
-            )
+            engine.register(image, reversed_text, direction=PageDirection.VERTICAL_RL)
 
     report = run_pipeline_benchmark(
         manifest, VERTICAL_CORPUS, primary, secondary, label="oracle-ceiling"
@@ -325,7 +323,9 @@ def test_geometry_alone_detects_vertical_on_the_real_corpus() -> None:
         assert detect_page_direction(undeclared) is PageDirection.VERTICAL_RL, case.id
 
 
-def test_oracle_resolves_isolated_copy_by_content_and_refuses_ambiguous_images(tmp_path: Path) -> None:
+def test_oracle_resolves_isolated_copy_by_content_and_refuses_ambiguous_images(
+    tmp_path: Path,
+) -> None:
     import shutil
 
     original = tmp_path / "original.png"

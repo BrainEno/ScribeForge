@@ -125,8 +125,12 @@ def process_page(
         image_width = prepared.width
         image_height = prepared.height
 
-    frame = capture_frame(Path(image_path), "preprocessed" if preprocess is not None else "original",
-                          image_width, image_height)
+    frame = capture_frame(
+        Path(image_path),
+        "preprocessed" if preprocess is not None else "original",
+        image_width,
+        image_height,
+    )
 
     primary_name = primary_engine.name
     secondary_name = secondary_engine.name
@@ -198,9 +202,7 @@ def process_page(
         alignment = align_pages(primary, secondary)
         risks = assess_page(alignment, primary, secondary)
         candidates = review_candidates(alignment, risks, primary, secondary)
-        store.record_verification(
-            primary_run_id, secondary_run_id, alignment, risks, candidates
-        )
+        store.record_verification(primary_run_id, secondary_run_id, alignment, risks, candidates)
 
     verification_id = _run_stage(
         store,
@@ -230,13 +232,20 @@ def process_page(
             if not record.candidates:
                 return
             plans = plan_review_crops(record.candidates, image_width, image_height)
-            crop_paths = materialize_review_crops(Path(image_path), plans, crops_dir, immutable=True)
+            crop_paths = materialize_review_crops(
+                Path(image_path), plans, crops_dir, immutable=True
+            )
             verification_frame(store, project_id, page, verification_id)
-            crop_inputs = {plan.pair_index: crop_evidence(crop_paths[plan.pair_index], plan,
-                           verified_frame, verification_id) for plan in plans}
+            crop_inputs = {
+                plan.pair_index: crop_evidence(
+                    crop_paths[plan.pair_index], plan, verified_frame, verification_id
+                )
+                for plan in plans
+            }
             state = SQLiteVLMReviewState(store, verification_id, expected_page=page)
-            review_pending_candidates(record.candidates, crop_paths, reviewer, state,
-                                      crop_inputs=crop_inputs)
+            review_pending_candidates(
+                record.candidates, crop_paths, reviewer, state, crop_inputs=crop_inputs
+            )
             verification_frame(store, project_id, page, verification_id)
 
         vlm_review_count = _run_stage(
@@ -312,9 +321,7 @@ def process_book(
             # active owner's work. Let the CLI report this as a retryable conflict.
             raise
         except Exception as exc:  # noqa: BLE001 - one bad page must not stop the book
-            failed_pages.append(
-                (page.page_index, str(exc).strip() or type(exc).__name__)
-            )
+            failed_pages.append((page.page_index, str(exc).strip() or type(exc).__name__))
 
     raise_if_cancelled()
     rounds: tuple[RoundReport, ...] = ()
@@ -325,8 +332,7 @@ def process_book(
         rounds = repair_book(
             store,
             project_id,
-            readers=repair_readers
-            or _repair_readers(primary_engine, secondary_engine),
+            readers=repair_readers or _repair_readers(primary_engine, secondary_engine),
             crops_dir=crops_dir / "repair",
             reviewer=reviewer,
             settings=repair,

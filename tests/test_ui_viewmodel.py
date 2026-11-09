@@ -193,8 +193,7 @@ def test_viewmodel_can_include_page_furniture_and_confirm_it_explicitly(
     assert decision_id > 0
     assert store.latest_decision(project_id, furniture_row.page_index, furniture_row.pair_index)
     assert (
-        store.load_ocr_run(store.latest_engine_run(project_id, 0, "primary")).lines[0].text
-        == "V."
+        store.load_ocr_run(store.latest_engine_run(project_id, 0, "primary")).lines[0].text == "V."
     )
 
 
@@ -341,7 +340,6 @@ def test_render_detail_shows_an_accepted_human_reading(tmp_path: Path) -> None:
     assert "accepted '鸦'" in text.splitlines()
 
 
-
 def test_resolve_review_row_records_the_literal_decision_and_removes_queue_item(
     tmp_path: Path,
 ) -> None:
@@ -368,11 +366,8 @@ def test_resolve_review_row_rejects_a_stale_queue_item(tmp_path: Path) -> None:
         resolve_review_row(store, project_id, row, "different")
 
 
-
 def test_render_conflict_side_highlights_substitution_without_rewriting_text() -> None:
-    conflict = AlignmentConflict(
-        ConflictKind.SUBSTITUTION, "X", "Y", 2, 3, 2, 3
-    )
+    conflict = AlignmentConflict(ConflictKind.SUBSTITUTION, "X", "Y", 2, 3, 2, 3)
 
     rendered = render_conflict_side("abXcd", (conflict,), primary=True)
 
@@ -383,9 +378,7 @@ def test_render_conflict_side_highlights_substitution_without_rewriting_text() -
 
 
 def test_render_conflict_side_marks_an_empty_insertion_side() -> None:
-    conflict = AlignmentConflict(
-        ConflictKind.INSERTION, "", "b", 1, 1, 1, 2
-    )
+    conflict = AlignmentConflict(ConflictKind.INSERTION, "", "b", 1, 1, 1, 2)
 
     primary = render_conflict_side("acd", (conflict,), primary=True)
     secondary = render_conflict_side("abcd", (conflict,), primary=False)
@@ -408,19 +401,14 @@ def test_render_conflict_side_preserves_original_conflict_indices_when_sorted() 
 
     rendered = render_conflict_side("aXb，c", conflicts, primary=True)
 
-    assert [
-        (span.start, span.end, span.kind, span.conflict_index)
-        for span in rendered.spans
-    ] == [
+    assert [(span.start, span.end, span.kind, span.conflict_index) for span in rendered.spans] == [
         (1, 2, ConflictKind.SUBSTITUTION, 1),
         (3, 4, ConflictKind.PUNCTUATION, 0),
     ]
 
 
 def test_render_conflict_side_marks_punctuation_and_unmatched_lines() -> None:
-    punctuation = AlignmentConflict(
-        ConflictKind.PUNCTUATION, "，", "。", 1, 2, 1, 2
-    )
+    punctuation = AlignmentConflict(ConflictKind.PUNCTUATION, "，", "。", 1, 2, 1, 2)
 
     rendered = render_conflict_side("甲，乙", (punctuation,), primary=True)
     missing = render_conflict_side(None, (punctuation,), primary=False)

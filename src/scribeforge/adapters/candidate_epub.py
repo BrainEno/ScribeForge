@@ -149,9 +149,7 @@ def build_candidate_epub(
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         write_zip_entry(archive, "mimetype", _MIMETYPE, zipfile.ZIP_STORED)
-        write_zip_entry(
-            archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED
-        )
+        write_zip_entry(archive, "META-INF/container.xml", _container_xml(), zipfile.ZIP_DEFLATED)
         write_zip_entry(
             archive,
             "OEBPS/content.opf",
@@ -211,10 +209,7 @@ def _check_candidate_epub(data: bytes, book: OcrCandidateBook) -> None:
             for page in book.pages:
                 name = f"OEBPS/{_page_name(page.page_index)}"
                 root = ElementTree.fromstring(archive.read(name))
-                actual = tuple(
-                    element.text or ""
-                    for element in root.iter(f"{{{_XHTML_NS}}}p")
-                )
+                actual = tuple(element.text or "" for element in root.iter(f"{{{_XHTML_NS}}}p"))
                 if actual != page.lines:
                     raise ValueError(
                         f"candidate EPUB integrity mismatch on source page {page.page_index}"

@@ -40,7 +40,6 @@ def test_linux_runtime_falls_back_for_relative_xdg_data_home(tmp_path: Path) -> 
     assert root == tmp_path / ".local" / "share" / "ScribeForge" / "runtime"
 
 
-
 def test_existing_project_runtime_state_is_preserved(tmp_path: Path) -> None:
     store_root = tmp_path / "book.scribeforge"
     legacy = store_root / "runtime"

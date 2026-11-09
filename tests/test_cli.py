@@ -72,16 +72,12 @@ class FakeReviewer:
     pair unresolved and test the wrong path.
     """
 
-    def transcribe_crop(
-        self, image_path: str, page_index: int, pair_index: int
-    ) -> VLMReading:
+    def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
         return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "鸦", False)
 
 
 class UncertainReviewer:
-    def transcribe_crop(
-        self, image_path: str, page_index: int, pair_index: int
-    ) -> VLMReading:
+    def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
         return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "maybe", True)
 
 
@@ -119,7 +115,9 @@ def test_parser_requires_a_command() -> None:
         run([])
 
 
-def test_process_command_imports_and_orchestrates(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_process_command_imports_and_orchestrates(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     book = _book(tmp_path)
     store_dir = tmp_path / "store"
 
@@ -151,7 +149,9 @@ def test_process_command_defaults_store_next_to_book(tmp_path: Path) -> None:
     assert (tmp_path / "book.scribeforge" / "project.sqlite3").exists()
 
 
-def test_process_command_reports_partial_failure(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_process_command_reports_partial_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     book = _book(tmp_path)
 
     code = run(
@@ -165,7 +165,9 @@ def test_process_command_reports_partial_failure(tmp_path: Path, capsys: pytest.
     assert "page 0: engine crashed" in captured.out
 
 
-def test_process_command_reports_pairs_needing_review(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_process_command_reports_pairs_needing_review(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     book = _book(tmp_path)
 
     code = run(
@@ -179,7 +181,9 @@ def test_process_command_reports_pairs_needing_review(tmp_path: Path, capsys: py
     assert "1 pair(s) need review" in captured.out
 
 
-def test_process_command_rejects_missing_book(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_process_command_rejects_missing_book(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     code = run(
         ["process", str(tmp_path / "nope.pdf"), "--store", str(tmp_path / "store")],
         engine_factory=_factory(),
@@ -190,7 +194,9 @@ def test_process_command_rejects_missing_book(tmp_path: Path, capsys: pytest.Cap
     assert "not found" in captured.err.lower()
 
 
-def test_process_command_rejects_unsupported_source(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_process_command_rejects_unsupported_source(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     book = tmp_path / "scan.tiff"
     book.write_bytes(b"not really an image")
 
@@ -215,6 +221,7 @@ def test_process_command_is_resumable_across_runs(tmp_path: Path) -> None:
     projects = store.list_projects()
     assert len(projects) == 1
     assert [page.page_index for page in store.list_pages(projects[0].id)] == [0]
+
 
 def test_process_rejects_a_different_pdf_for_an_existing_store(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -271,7 +278,9 @@ def test_process_resolves_relative_source_paths_before_persisting(
     assert project.source_uri == str(book.resolve())
 
 
-def test_process_command_fails_when_runtime_not_installed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_process_command_fails_when_runtime_not_installed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     book = _book(tmp_path)
 
     code = run(
@@ -290,7 +299,9 @@ def test_process_command_fails_when_runtime_not_installed(tmp_path: Path, capsys
     assert "not ready" in captured.err.lower()
 
 
-def test_status_reports_jobs_after_processing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_status_reports_jobs_after_processing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     book = _book(tmp_path)
     store_dir = tmp_path / "store"
     run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
@@ -305,15 +316,19 @@ def test_status_reports_jobs_after_processing(tmp_path: Path, capsys: pytest.Cap
     assert "primary_ocr [page 0] succeeded" in captured.out
     assert "review queued: 0" in captured.out
 
+
 def test_status_json_reports_page_progress_and_review_counts(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     book = _book(tmp_path)
     store_dir = tmp_path / "store"
-    assert run(
-        ["process", str(book), "--store", str(store_dir)],
-        engine_factory=_factory(),
-    ) == 0
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir)],
+            engine_factory=_factory(),
+        )
+        == 0
+    )
     capsys.readouterr()
 
     code = run(["status", "--store", str(store_dir), "--json"])
@@ -338,10 +353,13 @@ def test_status_json_includes_failed_job_details(
 ) -> None:
     book = _book(tmp_path)
     store_dir = tmp_path / "store"
-    assert run(
-        ["process", str(book), "--store", str(store_dir)],
-        engine_factory=_factory(secondary=False),
-    ) == 1
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir)],
+            engine_factory=_factory(secondary=False),
+        )
+        == 1
+    )
     capsys.readouterr()
 
     code = run(["status", "--store", str(store_dir), "--json"])
@@ -375,10 +393,13 @@ def test_status_json_exposes_the_running_page_and_stage(
 ) -> None:
     book = _book(tmp_path)
     store_dir = tmp_path / "store"
-    assert run(
-        ["process", str(book), "--store", str(store_dir)],
-        engine_factory=_factory(),
-    ) == 0
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir)],
+            engine_factory=_factory(),
+        )
+        == 0
+    )
     store = SQLiteStore(store_dir / "project.sqlite3")
     project = store.list_projects()[0]
     store.add_page(project.id, 1, str(book.resolve()), 80, 120)
@@ -391,12 +412,12 @@ def test_status_json_exposes_the_running_page_and_stage(
     captured = capsys.readouterr()
     assert code == 0
     project_json = json.loads(captured.out)["projects"][0]
-    assert project_json["active_jobs"] == [
-        {"stage": "primary_ocr", "page_index": 1, "attempts": 1}
-    ]
+    assert project_json["active_jobs"] == [{"stage": "primary_ocr", "page_index": 1, "attempts": 1}]
 
 
-def test_status_handles_store_without_projects(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_status_handles_store_without_projects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     store_dir = tmp_path / "store"
     SQLiteStore(store_dir / "project.sqlite3").initialize()
 
@@ -467,9 +488,7 @@ def test_export_cli_passes_page_furniture_choice(
     store.create_project("Book", "book.pdf", "hash")
     captured: list[bool] = []
 
-    def assemble(
-        _store: SQLiteStore, _project_id: int, *, include_page_furniture: bool
-    ) -> None:
+    def assemble(_store: SQLiteStore, _project_id: int, *, include_page_furniture: bool) -> None:
         captured.append(include_page_furniture)
         raise UnresolvedContentError(unverified_pages=(), unresolved_pairs=())
 
@@ -571,9 +590,7 @@ def test_cancel_control_reads_versioned_json_lines(monkeypatch: pytest.MonkeyPat
         cli_module.sys,
         "stdin",
         io.StringIO(
-            "not-json\n"
-            '{"schema_version":2,"type":"cancel"}\n'
-            '{"schema_version":1,"type":"cancel"}\n'
+            'not-json\n{"schema_version":2,"type":"cancel"}\n{"schema_version":1,"type":"cancel"}\n'
         ),
     )
 
@@ -676,7 +693,7 @@ def test_stdin_cancellation_stops_worker_and_cli_retry_succeeds(
                     name,
                     "--started",
                     str(started),
-                    *( ["--hold"] if hold else [] ),
+                    *(["--hold"] if hold else []),
                 ]
                 return SubprocessOCREngine(name, command, timeout_seconds=10)
 
@@ -787,10 +804,13 @@ def test_review_json_returns_machine_readable_evidence_and_page_assets(
 ) -> None:
     book = _book(tmp_path)
     store_dir = tmp_path / "store"
-    assert run(
-        ["process", str(book), "--store", str(store_dir)],
-        engine_factory=_factory(reviewer=UncertainReviewer()),
-    ) == 0
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir)],
+            engine_factory=_factory(reviewer=UncertainReviewer()),
+        )
+        == 0
+    )
     capsys.readouterr()
 
     code = run(["review", "--store", str(store_dir), "--json"])
@@ -927,9 +947,7 @@ def test_resolve_records_and_clears_a_human_decision(
     )
     capsys.readouterr()
 
-    code = run(
-        ["resolve", "--store", str(store_dir), "--page", "0", "--pair", "0", "--text", "鸦"]
-    )
+    code = run(["resolve", "--store", str(store_dir), "--page", "0", "--pair", "0", "--text", "鸦"])
 
     captured = capsys.readouterr()
     assert code == 0
@@ -953,15 +971,16 @@ def test_resolve_targets_the_selected_project_in_a_multi_project_store(
     second_book = tmp_path / "second.png"
     Image.new("RGB", (80, 120), "white").save(second_book)
     store_dir = tmp_path / "store"
-    assert run(
-        ["process", str(first_book), "--store", str(store_dir)],
-        engine_factory=_factory(reviewer=UncertainReviewer()),
-    ) == 0
+    assert (
+        run(
+            ["process", str(first_book), "--store", str(store_dir)],
+            engine_factory=_factory(reviewer=UncertainReviewer()),
+        )
+        == 0
+    )
     store = SQLiteStore(store_dir / "project.sqlite3")
     first_project_id = store.list_projects()[0].id
-    second_project_id = store.create_project(
-        "second", str(second_book.resolve()), "f" * 64
-    )
+    second_project_id = store.create_project("second", str(second_book.resolve()), "f" * 64)
     store.add_page(second_project_id, 0, str(second_book.resolve()), 80, 120)
     outcome = process_book(
         store,
@@ -1005,9 +1024,7 @@ def test_resolve_rejects_unknown_pair(tmp_path: Path, capsys: pytest.CaptureFixt
     run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
     capsys.readouterr()
 
-    code = run(
-        ["resolve", "--store", str(store_dir), "--page", "0", "--pair", "9", "--text", "x"]
-    )
+    code = run(["resolve", "--store", str(store_dir), "--page", "0", "--pair", "9", "--text", "x"])
 
     captured = capsys.readouterr()
     assert code == 2
@@ -1016,7 +1033,17 @@ def test_resolve_rejects_unknown_pair(tmp_path: Path, capsys: pytest.CaptureFixt
 
 def test_resolve_rejects_missing_store(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code = run(
-        ["resolve", "--store", str(tmp_path / "missing"), "--page", "0", "--pair", "0", "--text", "x"]
+        [
+            "resolve",
+            "--store",
+            str(tmp_path / "missing"),
+            "--page",
+            "0",
+            "--pair",
+            "0",
+            "--text",
+            "x",
+        ]
     )
 
     captured = capsys.readouterr()
@@ -1030,9 +1057,7 @@ def test_resolve_rejects_a_store_without_projects(
     store_dir = tmp_path / "store"
     SQLiteStore(store_dir / "project.sqlite3").initialize()
 
-    code = run(
-        ["resolve", "--store", str(store_dir), "--page", "0", "--pair", "0", "--text", "x"]
-    )
+    code = run(["resolve", "--store", str(store_dir), "--page", "0", "--pair", "0", "--text", "x"])
 
     captured = capsys.readouterr()
     assert code == 2
@@ -1048,9 +1073,7 @@ def test_export_writes_an_epub_from_decided_content(
     run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
     capsys.readouterr()
 
-    code = run(
-        ["export", "--store", str(store_dir), "--out", str(out_path), "--language", "zh"]
-    )
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path), "--language", "zh"])
 
     captured = capsys.readouterr()
     assert code == 0
@@ -1293,12 +1316,8 @@ def test_export_blocks_on_unresolved_pairs(
     assert not out_path.exists()
 
 
-def test_export_rejects_missing_store(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    code = run(
-        ["export", "--store", str(tmp_path / "missing"), "--out", str(tmp_path / "o.epub")]
-    )
+def test_export_rejects_missing_store(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    code = run(["export", "--store", str(tmp_path / "missing"), "--out", str(tmp_path / "o.epub")])
 
     captured = capsys.readouterr()
     assert code == 2
@@ -1732,18 +1751,14 @@ def test_export_rejects_an_invalid_modified_timestamp(
     assert not out_path.exists()
 
 
-def test_export_rejects_a_blank_title(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_export_rejects_a_blank_title(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     book = _book(tmp_path)
     store_dir = tmp_path / "store"
     out_path = tmp_path / "out.epub"
     run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
     capsys.readouterr()
 
-    code = run(
-        ["export", "--store", str(store_dir), "--out", str(out_path), "--title", "   "]
-    )
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path), "--title", "   "])
 
     captured = capsys.readouterr()
     assert code == 2
@@ -1805,9 +1820,7 @@ def _benchmark_factory(
     return factory
 
 
-def test_benchmark_requires_a_manifest(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_benchmark_requires_a_manifest(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out_path = tmp_path / "report.md"
 
     code = run(
@@ -2098,7 +2111,6 @@ def test_default_benchmark_engine_factory_rejects_an_unknown_backend(
         default_benchmark_engine_factory(tmp_path / "runtime", ("tesseract",))
 
 
-
 def test_relink_source_accepts_identical_bytes_and_preserves_existing_evidence(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -2107,7 +2119,9 @@ def test_relink_source_accepts_identical_bytes_and_preserves_existing_evidence(
     moved.write_bytes(original.read_bytes())
     store_dir = tmp_path / "book-store"
 
-    assert run(["process", str(original), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    assert (
+        run(["process", str(original), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    )
     store = SQLiteStore(store_dir / "project.sqlite3")
     before = store.list_projects()[0]
     before_pages = store.list_pages(before.id)
@@ -2139,7 +2153,9 @@ def test_relink_source_rejects_different_content_without_modifying_project(
     Image.new("RGB", (82, 121), "black").save(changed)
     store_dir = tmp_path / "book-store"
 
-    assert run(["process", str(original), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    assert (
+        run(["process", str(original), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    )
     store = SQLiteStore(store_dir / "project.sqlite3")
     before = store.list_projects()[0]
     before_pages = store.list_pages(before.id)
@@ -2202,7 +2218,6 @@ def test_relink_source_rejects_multi_project_store(
     assert [project.title for project in store.list_projects()] == ["One", "Two"]
 
 
-
 def test_runtime_status_json_reports_managed_backend_state_read_only(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -2256,9 +2271,7 @@ def test_runtime_status_json_reports_missing_backends(
     monkeypatch.setattr(runtime_probe, "_nvidia_profile", lambda *, timeout_seconds: None)
     monkeypatch.setattr(runtime_probe, "_ram_mb", lambda *, timeout_seconds: None)
 
-    code = run(
-        ["runtime-status", "--runtime-root", str(runtime_root), "--json"]
-    )
+    code = run(["runtime-status", "--runtime-root", str(runtime_root), "--json"])
 
     captured = capsys.readouterr()
     assert code == 0
@@ -2267,7 +2280,6 @@ def test_runtime_status_json_reports_missing_backends(
     assert report["backends"]["mineru"]["state"] == "missing"
     assert report["backends"]["paddleocr"]["state"] == "missing"
     assert report["backends"]["mineru"]["environment_exists"] is False
-
 
 
 def test_benchmark_include_pipeline_reports_conservative_unresolved_pairs(
@@ -2327,9 +2339,7 @@ def test_alignment_eval_writes_markdown_report_for_labelled_fixtures(
     from scribeforge.cli import run
 
     out_path = tmp_path / "alignment_report.md"
-    code = run(
-        ["alignment-eval", "--fixtures", str(_ALIGNMENT_FIXTURES), "--out", str(out_path)]
-    )
+    code = run(["alignment-eval", "--fixtures", str(_ALIGNMENT_FIXTURES), "--out", str(out_path)])
 
     assert code == 0
     report = out_path.read_text(encoding="utf-8")
@@ -2472,7 +2482,6 @@ def test_process_requires_vlm_endpoint_and_model_together(
     assert not (tmp_path / "store" / "project.sqlite3").exists()
 
 
-
 def test_process_uses_explicitly_configured_vlm_reviewer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2554,7 +2563,6 @@ def test_benchmark_include_vlm_adds_variant_d(
     assert "| dual-engine+vlm |" in report
 
 
-
 def test_process_requires_configured_api_key_environment_variable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2583,7 +2591,6 @@ def test_process_requires_configured_api_key_environment_variable(
     assert not (tmp_path / "store" / "project.sqlite3").exists()
 
 
-
 def test_vlm_check_runs_explicit_crop_diagnostic_and_emits_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -2591,11 +2598,11 @@ def test_vlm_check_runs_explicit_crop_diagnostic_and_emits_json(
     calls: list[tuple[str, int, int]] = []
 
     class RecordingReviewer:
-        def transcribe_crop(
-            self, image_path: str, page_index: int, pair_index: int
-        ) -> VLMReading:
+        def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
             calls.append((image_path, page_index, pair_index))
-            return VLMReading(page_index, pair_index, "fixture-model", "fixture-v1", "sample", False)
+            return VLMReading(
+                page_index, pair_index, "fixture-model", "fixture-v1", "sample", False
+            )
 
     monkeypatch.setattr(
         "scribeforge.cli.OpenAICompatibleVLMReviewer",
@@ -2661,9 +2668,7 @@ def test_vlm_check_rejects_missing_image_before_constructing_reviewer(
     def unexpected_constructor(**_kwargs: object) -> FakeReviewer:
         pytest.fail("reviewer must not be configured or called when the image is missing")
 
-    monkeypatch.setattr(
-        "scribeforge.cli.OpenAICompatibleVLMReviewer", unexpected_constructor
-    )
+    monkeypatch.setattr("scribeforge.cli.OpenAICompatibleVLMReviewer", unexpected_constructor)
 
     code = run(
         [
@@ -2694,16 +2699,13 @@ def test_vlm_check_requires_explicit_endpoint_and_model(
     assert "vlm-endpoint and --vlm-model are required" in captured.err
 
 
-
 def test_vlm_check_fails_closed_when_the_endpoint_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     image = _book(tmp_path)
 
     class BrokenReviewer:
-        def transcribe_crop(
-            self, image_path: str, page_index: int, pair_index: int
-        ) -> VLMReading:
+        def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
             raise RuntimeError("synthetic endpoint timeout")
 
     monkeypatch.setattr(
@@ -2735,9 +2737,7 @@ def test_vlm_check_reports_blank_text_as_partial_not_success(
     image = _book(tmp_path)
 
     class BlankReviewer:
-        def transcribe_crop(
-            self, image_path: str, page_index: int, pair_index: int
-        ) -> VLMReading:
+        def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
             return VLMReading(page_index, pair_index, "fixture-model", "fixture-v1", "  ", False)
 
     monkeypatch.setattr(
@@ -2763,7 +2763,6 @@ def test_vlm_check_reports_blank_text_as_partial_not_success(
     assert report["status"] == "blank"
     assert report["text"] == "  "
     assert report["uncertain"] is False
-
 
 
 def test_benchmark_rejects_manifest_paths_that_escape_corpus_root_before_starting_engines(
@@ -2809,9 +2808,7 @@ class CropAwareEngine(FakeEngine):
         if "-read-" in Path(image_path).name:
             self.crop_calls += 1
             box = BoundingBox(0.1, 0.1, 0.8, 0.02)
-            return PageOCRResult(
-                page_index, self._name, "1.0", (OCRLine(self._crop_text, box),)
-            )
+            return PageOCRResult(page_index, self._name, "1.0", (OCRLine(self._crop_text, box),))
         return super().analyze_page(image_path, page_index)
 
 
@@ -2965,9 +2962,7 @@ class LowConfidenceEngine(FakeEngine):
     def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
         box = BoundingBox(0.1, 0.1, 0.8, 0.02)
         token = OCRToken(self._text, 0.5, box)
-        return PageOCRResult(
-            page_index, self.name, "1.0", (OCRLine(self._text, box, (token,)),)
-        )
+        return PageOCRResult(page_index, self.name, "1.0", (OCRLine(self._text, box, (token,)),))
 
 
 def _custom_factory(primary, secondary, reviewer: object = None):
@@ -3234,25 +3229,19 @@ def test_confirm_rejects_an_unknown_page(
     run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
     capsys.readouterr()
 
-    code = run(
-        ["confirm", "--store", str(store_dir), "--page", "7", "--reason", "blank"]
-    )
+    code = run(["confirm", "--store", str(store_dir), "--page", "7", "--reason", "blank"])
 
     assert code == 2
     assert "no page 7" in capsys.readouterr().err
 
 
-def test_confirm_requires_a_reason(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_confirm_requires_a_reason(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     book = _book(tmp_path)
     store_dir = tmp_path / "store"
     run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory())
     capsys.readouterr()
 
-    code = run(
-        ["confirm", "--store", str(store_dir), "--page", "0", "--reason", "   "]
-    )
+    code = run(["confirm", "--store", str(store_dir), "--page", "0", "--reason", "   "])
 
     assert code == 2
     assert "--reason must not be empty" in capsys.readouterr().err
@@ -3331,16 +3320,13 @@ def test_strict_acceptance_refuses_an_unspot_checked_export(
     assert not out_path.exists()
 
 
-
 class GuessingEngine(FakeEngine):
     """An engine that reports 0.1 confidence: it is telling us it cannot read."""
 
     def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
         box = BoundingBox(0.1, 0.1, 0.8, 0.02)
         token = OCRToken(self._text, 0.1, box)
-        return PageOCRResult(
-            page_index, self.name, "1.0", (OCRLine(self._text, box, (token,)),)
-        )
+        return PageOCRResult(page_index, self.name, "1.0", (OCRLine(self._text, box, (token,)),))
 
 
 def test_export_names_the_reason_a_pair_is_blocked(
@@ -3442,16 +3428,32 @@ def test_process_and_repair_keep_unrepresentable_text_blocked_from_export(
     def factory(runtime_root: Path) -> Engines:
         return Engines(FakeEngine("primary", "\ufffd"), FakeEngine("secondary", "\ufffd"))
 
-    run(["process", str(book), "--store", str(store_dir), "--repair-rounds", "1"],
-        engine_factory=factory)
+    run(
+        ["process", str(book), "--store", str(store_dir), "--repair-rounds", "1"],
+        engine_factory=factory,
+    )
     capsys.readouterr()
     store = SQLiteStore(store_dir / "project.sqlite3")
     project_id = store.list_projects()[0].id
     assert store.latest_decision(project_id, 0, 0) is None
-    assert run(["repair", "--store", str(store_dir), "--repair-rounds", "1"],
-               engine_factory=factory) == 1
-    assert run(["export", "--store", str(store_dir), "--out", str(tmp_path / "blocked.epub"),
-                "--title", "Book"]) != 0
+    assert (
+        run(["repair", "--store", str(store_dir), "--repair-rounds", "1"], engine_factory=factory)
+        == 1
+    )
+    assert (
+        run(
+            [
+                "export",
+                "--store",
+                str(store_dir),
+                "--out",
+                str(tmp_path / "blocked.epub"),
+                "--title",
+                "Book",
+            ]
+        )
+        != 0
+    )
     assert not (tmp_path / "blocked.epub").exists()
 
 
@@ -3500,8 +3502,13 @@ def test_process_image_uses_verified_snapshot_if_original_changes_during_import(
         return ChangedSource()
 
     monkeypatch.setattr(cli_module, "open_page_source", change_original_before_render)
-    assert run(["process", str(book), "--store", str(store_dir), "--no-preprocess"],
-               engine_factory=_factory()) == 0
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir), "--no-preprocess"],
+            engine_factory=_factory(),
+        )
+        == 0
+    )
     store = SQLiteStore(store_dir / "project.sqlite3")
     project = store.list_projects()[0]
     page = store.list_pages(project.id)[0]
@@ -3541,8 +3548,13 @@ def test_process_pdf_keeps_every_page_bound_to_same_snapshot(
 
     monkeypatch.setattr(PdfPageSource, "render_page", change_original_after_first)
     store_dir = tmp_path / "store"
-    assert run(["process", str(book), "--store", str(store_dir), "--no-preprocess"],
-               engine_factory=_factory()) == 0
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir), "--no-preprocess"],
+            engine_factory=_factory(),
+        )
+        == 0
+    )
     store = SQLiteStore(store_dir / "project.sqlite3")
     project = store.list_projects()[0]
     pages = store.list_pages(project.id)
@@ -3640,13 +3652,21 @@ def test_cancelled_snapshot_does_not_modify_an_owned_import_job(
     store_dir.mkdir()
     owner = SQLiteStore(store_dir / "project.sqlite3")
     owner.initialize()
-    pid = owner.create_project("book", str(book.resolve()), hashlib.sha256(book.read_bytes()).hexdigest())
+    pid = owner.create_project(
+        "book", str(book.resolve()), hashlib.sha256(book.read_bytes()).hexdigest()
+    )
     job_id = owner.ensure_job(pid, JobStage.IMPORT)
     owner.start_job(job_id)
     monkeypatch.setattr(cli_module, "_start_cancel_control", lambda token: token.cancel())
     try:
-        assert run(["process", str(book), "--store", str(store_dir), "--cancelable"],
-                   engine_factory=_factory(), stdout=io.StringIO()) == 130
+        assert (
+            run(
+                ["process", str(book), "--store", str(store_dir), "--cancelable"],
+                engine_factory=_factory(),
+                stdout=io.StringIO(),
+            )
+            == 130
+        )
         current = owner.load_job(job_id)
         assert current.state.value == "running"
         assert current.attempts == 1
@@ -3676,8 +3696,11 @@ def test_rehash_pages_reports_concurrent_evidence_change_without_clobbering(
     def concurrent_record(path: Path) -> tuple[str, int]:
         digest = measure(path)
         with closing(sqlite3.connect(root / "project.sqlite3")) as db, db:
-            db.execute("UPDATE pages SET page_asset_sha256=?, page_asset_byte_size=14, "
-                       "page_asset_version=1 WHERE id=?", (concurrent_hash, page_id))
+            db.execute(
+                "UPDATE pages SET page_asset_sha256=?, page_asset_byte_size=14, "
+                "page_asset_version=1 WHERE id=?",
+                (concurrent_hash, page_id),
+            )
         return digest
 
     monkeypatch.setattr(storage, "_measure_page_asset", concurrent_record)
@@ -3711,10 +3734,29 @@ def test_export_refuses_replaced_recorded_cover_preserving_existing_output(
     source = _book_with_ink(tmp_path)
     root = tmp_path / "store"
     output = tmp_path / "out.epub"
-    assert run(["process", str(source), "--store", str(root)],
-               engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary"))) == 0
-    assert run(["confirm", "--store", str(root), "--page", "0", "--kind", "non_text",
-                "--reason", "checked illustration"]) == 0
+    assert (
+        run(
+            ["process", str(source), "--store", str(root)],
+            engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary")),
+        )
+        == 0
+    )
+    assert (
+        run(
+            [
+                "confirm",
+                "--store",
+                str(root),
+                "--page",
+                "0",
+                "--kind",
+                "non_text",
+                "--reason",
+                "checked illustration",
+            ]
+        )
+        == 0
+    )
     store = SQLiteStore(root / "project.sqlite3")
     project = store.list_projects()[0]
     page = store.list_pages(project.id)[0]
@@ -3773,11 +3815,12 @@ def test_audit_cli_reports_partial_page_evidence_as_error(
     pid = store.create_project("book", "book.pdf", "hash")
     image = tmp_path / "page.png"
     image.write_bytes(b"page")
-    store.add_page(pid, 0, str(image), 10, 20,
-                   page_asset=PageAssetEvidence.from_bytes(b"page"))
+    store.add_page(pid, 0, str(image), 10, 20, page_asset=PageAssetEvidence.from_bytes(b"page"))
     with sqlite3.connect(root / "project.sqlite3") as db:
         db.execute("UPDATE pages SET page_asset_byte_size=NULL")
     assert run(["audit", "--store", str(root), "--json"]) == 1
     report = json.loads(capsys.readouterr().out)
-    assert any(item["code"] == "page_asset_evidence_invalid" and item["severity"] == "error"
-               for item in report["findings"])
+    assert any(
+        item["code"] == "page_asset_evidence_invalid" and item["severity"] == "error"
+        for item in report["findings"]
+    )

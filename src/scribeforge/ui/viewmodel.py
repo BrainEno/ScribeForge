@@ -152,9 +152,7 @@ class ReviewRow:
             f"score={self.score:.2f} reasons={reasons}"
         )
         return (
-            label
-            if self.furniture_reason is None
-            else f"{label} furniture={self.furniture_reason}"
+            label if self.furniture_reason is None else f"{label} furniture={self.furniture_reason}"
         )
 
 
@@ -171,9 +169,7 @@ def load_library(store: SQLiteStore) -> tuple[LibraryEntry, ...]:
                 page_count=len(store.list_pages(project.id)),
                 review_queued=len(review_queue(store, project.id)),
                 failed_jobs=sum(
-                    1
-                    for job in store.list_jobs(project.id)
-                    if job.state is JobState.FAILED
+                    1 for job in store.list_jobs(project.id) if job.state is JobState.FAILED
                 ),
             )
         )
@@ -211,9 +207,7 @@ def load_review_rows(
             reasons=tuple(reason.value for reason in item.reasons),
             furniture_reason=item.furniture_reason,
         )
-        for item in review_queue(
-            store, project_id, include_page_furniture=include_page_furniture
-        )
+        for item in review_queue(store, project_id, include_page_furniture=include_page_furniture)
     )
 
 
@@ -239,9 +233,7 @@ def resolve_review_row(
         )
     ):
         raise ValueError("review item is no longer queued")
-    return record_human_decision(
-        store, project_id, row.page_index, row.pair_index, selected_text
-    )
+    return record_human_decision(store, project_id, row.page_index, row.pair_index, selected_text)
 
 
 def load_detail(
@@ -281,9 +273,7 @@ class PairView:
         return f"{page}, {crop}"
 
 
-def page_image_path(
-    store: SQLiteStore, project_id: int, page_index: int
-) -> Path | None:
+def page_image_path(store: SQLiteStore, project_id: int, page_index: int) -> Path | None:
     """Absolute path of a page's immutable raster asset, when it still exists."""
 
     for page in store.list_pages(project_id):
@@ -307,12 +297,17 @@ def load_pair_view(
     frame_kind = "unknown"
     trusted_crop = None
     try:
-        page = next(page for page in store.list_pages(project_id) if page.page_index == row.page_index)
+        page = next(
+            page for page in store.list_pages(project_id) if page.page_index == row.page_index
+        )
         verification_id = store.latest_verification_id(project_id, row.page_index)
         frame, frame_image = verification_frame(store, project_id, page, verification_id)
         frame_kind = frame.kind
-        reviews = [review for review in store.list_vlm_reviews(verification_id)
-                   if review.pair_index == row.pair_index]
+        reviews = [
+            review
+            for review in store.list_vlm_reviews(verification_id)
+            if review.pair_index == row.pair_index
+        ]
         if reviews:
             evidence = verified_vlm_crop(store, verification_id, frame, reviews[-1])
             trusted_crop = Path(evidence.crop_path)

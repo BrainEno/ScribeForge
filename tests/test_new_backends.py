@@ -44,9 +44,7 @@ def test_paddle_vl_maps_regions_to_lines_and_blocks() -> None:
         },
     )
 
-    lines, blocks, direction = paddle_vl_worker.extract_page(
-        payload, width=1000, height=1000
-    )
+    lines, blocks, direction = paddle_vl_worker.extract_page(payload, width=1000, height=1000)
 
     assert [line["text"] for line in lines] == ["第一列", "第二列"]
     # Reading order is the model's own region order, not re-sorted geometry.
@@ -243,9 +241,7 @@ def test_surya_document_reaches_the_domain_as_block_only_evidence() -> None:
         "engine_version": "0.14",
         "page_index": 0,
         "lines": [],
-        "blocks": [
-            {"type": "figure", "box": [0.1, 0.2, 0.3, 0.4], "line_start": 0, "line_end": 0}
-        ],
+        "blocks": [{"type": "figure", "box": [0.1, 0.2, 0.3, 0.4], "line_start": 0, "line_end": 0}],
     }
 
     result = engine.parse_document(document, 0)
@@ -328,9 +324,7 @@ def test_surya_worker_main_emits_block_only_evidence(
         )
 
     monkeypatch.setattr(protocol.subprocess, "run", fake_run)
-    monkeypatch.setattr(
-        "sys.argv", ["surya_worker.py", "--image", str(page), "--page-index", "0"]
-    )
+    monkeypatch.setattr("sys.argv", ["surya_worker.py", "--image", str(page), "--page-index", "0"])
 
     surya_worker.main()
 

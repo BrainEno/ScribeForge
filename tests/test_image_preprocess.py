@@ -73,9 +73,7 @@ def _text_page(
         array[mask] = rng.integers(0, 90, int(mask.sum()), dtype=np.uint8)
         image = Image.fromarray(array, mode="L")
     if skew:
-        image = image.rotate(
-            skew, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=255
-        )
+        image = image.rotate(skew, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=255)
     return image
 
 
@@ -134,9 +132,7 @@ def test_settings_reject_impossible_parameters() -> None:
     with pytest.raises(ValueError, match="border_threshold"):
         PreprocessSettings(border_threshold=256)
     with pytest.raises(ValueError, match="must not repeat"):
-        PreprocessSettings(
-            operations=(PreprocessOperation.DESKEW, PreprocessOperation.DESKEW)
-        )
+        PreprocessSettings(operations=(PreprocessOperation.DESKEW, PreprocessOperation.DESKEW))
 
 
 def test_passthrough_settings_apply_no_operations() -> None:
@@ -343,12 +339,8 @@ def test_clean_page_skips_restoration_it_does_not_need() -> None:
 
 
 def test_shadowed_page_gets_deshadow_but_a_faded_one_gets_contrast() -> None:
-    shadowed, shadow_outcome = apply_preprocess(
-        _png(_text_page(shadow=True)), default_settings()
-    )
-    faded, faded_outcome = apply_preprocess(
-        _png(_text_page(faded=True)), default_settings()
-    )
+    shadowed, shadow_outcome = apply_preprocess(_png(_text_page(shadow=True)), default_settings())
+    faded, faded_outcome = apply_preprocess(_png(_text_page(faded=True)), default_settings())
 
     assert PreprocessOperation.DESHADOW in shadow_outcome.applied
     assert PreprocessOperation.CONTRAST in faded_outcome.applied
@@ -381,9 +373,7 @@ def test_a_straight_page_is_measured_but_not_rotated() -> None:
 def test_explicit_denoise_is_honoured_even_on_a_clean_page() -> None:
     """Denoising is off by default but an operator request is never second-guessed."""
 
-    settings = PreprocessSettings(
-        operations=(PreprocessOperation.DENOISE,), denoise_size=3
-    )
+    settings = PreprocessSettings(operations=(PreprocessOperation.DENOISE,), denoise_size=3)
 
     _, outcome = apply_preprocess(_png(_text_page()), settings)
 

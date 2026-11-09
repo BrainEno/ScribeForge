@@ -328,9 +328,7 @@ def _store_with_run(tmp_path: Path, pages: list[PageOCRResult]) -> tuple[SQLiteS
     store.initialize()
     project_id = store.create_project("V.", "v.pdf", "hash")
     for result in pages:
-        store.add_page(
-            project_id, result.page_index, f"page-{result.page_index:03d}.png", 100, 150
-        )
+        store.add_page(project_id, result.page_index, f"page-{result.page_index:03d}.png", 100, 150)
         store.record_ocr(project_id, result)
     return store, project_id
 
@@ -377,9 +375,7 @@ def test_structure_round_trips_through_the_store(tmp_path: Path) -> None:
 
 
 def test_persisting_structure_replaces_rather_than_accumulates(tmp_path: Path) -> None:
-    store, project_id = _store_with_run(
-        tmp_path, [_numbered_page("1", 0), _numbered_page("2", 1)]
-    )
+    store, project_id = _store_with_run(tmp_path, [_numbered_page("1", 0), _numbered_page("2", 1)])
     structure = build_book_structure(store, project_id, engine="fixture")
     persist_book_structure(store, project_id, structure)
 

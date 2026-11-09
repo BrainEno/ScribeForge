@@ -568,8 +568,14 @@ def test_modifying_model_cannot_corrupt_saved_crop_artifact(
     store = SQLiteStore(tmp_path / "db.sqlite3")
     store.initialize()
     pid, page = project(store, tmp_path, "one", "white")
-    process_page(store, pid, page, primary_engine=Engine("a", "甲"),
-                 secondary_engine=Engine("b", "乙"), crops_dir=tmp_path / "crops")
+    process_page(
+        store,
+        pid,
+        page,
+        primary_engine=Engine("a", "甲"),
+        secondary_engine=Engine("b", "乙"),
+        crops_dir=tmp_path / "crops",
+    )
 
     passed_paths: list[Path] = []
 
@@ -594,8 +600,13 @@ def test_modifying_model_cannot_corrupt_saved_crop_artifact(
     error = RuntimeError if crash else ValueError
     match = "worker crashed" if crash else "crop.*changed"
     with pytest.raises(error, match=match):
-        run_repair_round(store, pid, readers=(RepairReader("c", engine),),
-                         reviewer=reviewer, crops_dir=tmp_path / "repair")
+        run_repair_round(
+            store,
+            pid,
+            readers=(RepairReader("c", engine),),
+            reviewer=reviewer,
+            crops_dir=tmp_path / "repair",
+        )
     assert passed_paths and all(not path.exists() for path in passed_paths)
     saved_crops = list((tmp_path / "repair").glob("*.png"))
     assert saved_crops
@@ -621,7 +632,10 @@ def test_shared_preprocessing_directory_preserves_other_project_frame(tmp_path: 
     assert a.image_path.read_bytes() == original
     assert a.outcome.output_sha256 != b.outcome.output_sha256
     assert store.load_preprocess(first, 0).output_sha256 == a.outcome.output_sha256
-    assert preprocess_page(store, first, page1, PreprocessSettings(), assets_dir=directory).image_path == a.image_path
+    assert (
+        preprocess_page(store, first, page1, PreprocessSettings(), assets_dir=directory).image_path
+        == a.image_path
+    )
 
 
 def test_preprocessing_cannot_overwrite_source_or_existing_temporary_file(tmp_path: Path) -> None:
@@ -637,8 +651,9 @@ def test_preprocessing_cannot_overwrite_source_or_existing_temporary_file(tmp_pa
     temp = tmp_path / ".page-00000-pre.png.tmp"
     temp.write_bytes(b"previous evidence")
     store.add_page(pid, 0, str(source), 100, 100)
-    result = preprocess_page(store, pid, store.list_pages(pid)[0], PreprocessSettings(),
-                             assets_dir=tmp_path)
+    result = preprocess_page(
+        store, pid, store.list_pages(pid)[0], PreprocessSettings(), assets_dir=tmp_path
+    )
     assert result.image_path != source
     assert source.read_bytes() == before
     assert temp.read_bytes() == b"previous evidence"

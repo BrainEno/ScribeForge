@@ -12,9 +12,7 @@ from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime.paths import default_runtime_root
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-_DEFAULT_IMAGE = (
-    _REPOSITORY_ROOT / "benchmark" / "corpus" / "guji" / "images" / "page_001.png"
-)
+_DEFAULT_IMAGE = _REPOSITORY_ROOT / "benchmark" / "corpus" / "guji" / "images" / "page_001.png"
 _RUN_REAL_SMOKE = os.environ.get("SCRIBEFORGE_RUN_PADDLE_SMOKE") == "1"
 
 
@@ -48,11 +46,7 @@ def test_real_pp_ocrv4_worker_emits_native_word_geometry() -> None:
         )
 
     image_value = os.environ.get("SCRIBEFORGE_PADDLE_SMOKE_IMAGE")
-    image_path = (
-        Path(image_value).expanduser().resolve()
-        if image_value
-        else _DEFAULT_IMAGE
-    )
+    image_path = Path(image_value).expanduser().resolve() if image_value else _DEFAULT_IMAGE
     if not image_path.is_file():
         pytest.fail(f"PaddleOCR smoke image does not exist: {image_path}")
 
@@ -61,9 +55,7 @@ def test_real_pp_ocrv4_worker_emits_native_word_geometry() -> None:
     environment.update(runtime_environment(layout))
     base_path = environment.get("PATH", "")
     environment["PATH"] = (
-        f"{paddleocr_cli.parent}{os.pathsep}{base_path}"
-        if base_path
-        else str(paddleocr_cli.parent)
+        f"{paddleocr_cli.parent}{os.pathsep}{base_path}" if base_path else str(paddleocr_cli.parent)
     )
 
     result = subprocess.run(
@@ -119,8 +111,7 @@ def test_real_pp_ocrv4_worker_emits_native_word_geometry() -> None:
             assert isinstance(box, list) and len(box) == 4
             x, y, width, height = box
             assert all(
-                isinstance(value, (int, float)) and not isinstance(value, bool)
-                for value in box
+                isinstance(value, (int, float)) and not isinstance(value, bool) for value in box
             )
             assert 0.0 <= x <= 1.0 and 0.0 <= y <= 1.0
             assert 0.0 < width <= 1.0 and 0.0 < height <= 1.0

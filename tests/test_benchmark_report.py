@@ -110,9 +110,7 @@ def test_render_report_discloses_ground_truth_review_status_and_note() -> None:
 
 
 def test_render_report_does_not_infer_ground_truth_review_status() -> None:
-    text = render_report(
-        (_report("oracle"),), corpus="c", manifest_sha256="h", generated_at="t"
-    )
+    text = render_report((_report("oracle"),), corpus="c", manifest_sha256="h", generated_at="t")
 
     assert "- ground-truth review: `not declared`" in text.splitlines()
 
@@ -138,9 +136,7 @@ def test_render_report_marks_a_case_without_tags() -> None:
         aggregate=report.aggregate,
     )
 
-    text = render_report(
-        (untagged,), corpus="m.json", manifest_sha256="abc123", generated_at="t"
-    )
+    text = render_report((untagged,), corpus="m.json", manifest_sha256="abc123", generated_at="t")
 
     assert "| case-1 | en | - | 0.0000 |" in text
 
@@ -198,9 +194,7 @@ def test_report_splits_cer_by_writing_direction() -> None:
 
 
 def test_report_omits_the_direction_table_for_a_single_direction() -> None:
-    text = render_report(
-        [_report("mineru")], corpus="c", manifest_sha256="h", generated_at="now"
-    )
+    text = render_report([_report("mineru")], corpus="c", manifest_sha256="h", generated_at="now")
 
     assert "Results by writing direction" not in text
 
@@ -257,9 +251,7 @@ def test_report_explains_what_chinese_wer_above_one_means() -> None:
         cases=(chinese,),
         aggregate=aggregate_case_scores((chinese,)),
     )
-    text = render_report(
-        (report,), corpus="c", manifest_sha256="h", generated_at="now"
-    )
+    text = render_report((report,), corpus="c", manifest_sha256="h", generated_at="now")
 
     # The semantics section states why whitespace WER on Chinese would exceed
     # 1.0 (one giant token per line) and that this is a tokenizer artifact, so
@@ -288,9 +280,7 @@ def test_all_not_applicable_wer_still_discloses_zero_applicable_cases() -> None:
         aggregate=aggregate_case_scores((chinese,)),
     )
 
-    text = render_report(
-        (report,), corpus="c", manifest_sha256="h", generated_at="now"
-    )
+    text = render_report((report,), corpus="c", manifest_sha256="h", generated_at="now")
 
     assert report.aggregate.mean_wer is None
     assert "| ocr | 1 | 0.2500 | N/A | N/A (0 / 1) | N/A |" in text
@@ -371,9 +361,7 @@ def test_micro_wer_uses_applicable_cases_and_counts_are_all_or_nothing() -> None
     assert applicable.micro_wer == 1 / 2
     assert applicable.wer_case_count == 1
 
-    missing_character_count = replace(
-        english, case_id="legacy-cer", character_errors=None
-    )
+    missing_character_count = replace(english, case_id="legacy-cer", character_errors=None)
     partial = aggregate_case_scores((english, missing_character_count))
     assert partial.micro_cer is None
     assert partial.micro_wer == 2 / 4
@@ -390,9 +378,15 @@ def test_micro_wer_uses_applicable_cases_and_counts_are_all_or_nothing() -> None
         manifest_sha256="h",
         generated_at="now",
     )
-    assert "| ocr | (untagged) | 2 | 0.5000 [0.5000, 0.5000] | 0.5000 (3 / 6) [0.1876, 0.8124] |" in text
+    assert (
+        "| ocr | (untagged) | 2 | 0.5000 [0.5000, 0.5000] | 0.5000 (3 / 6) [0.1876, 0.8124] |"
+        in text
+    )
     assert "| english | en | - | 0.5000 (1 / 2 chars) [0.0945, 0.9055] |" in text
-    assert "| chinese | zh-Hant | - | 0.5000 (2 / 4 chars) [0.1500, 0.8500] | N/A (`not-applicable`) |" in text
+    assert (
+        "| chinese | zh-Hant | - | 0.5000 (2 / 4 chars) [0.1500, 0.8500] | N/A (`not-applicable`) |"
+        in text
+    )
 
 
 def test_report_renders_confidence_intervals_for_macro_and_micro_rates() -> None:
@@ -431,9 +425,7 @@ def test_report_renders_confidence_intervals_for_macro_and_micro_rates() -> None
     assert "| small | en | body | 0.5000 (1 / 2 chars) [0.0945, 0.9055] |" in text
     assert "| large | en | dense | 0.0100 (1 / 100 chars) [0.0018, 0.0545] |" in text
     # Tag strata carry the same intervals.
-    assert (
-        "| ocr | body | 1 | 0.5000 | 0.5000 (1 / 2) [0.0945, 0.9055] |" in text
-    )
+    assert "| ocr | body | 1 | 0.5000 | 0.5000 (1 / 2) [0.0945, 0.9055] |" in text
     assert "95% CI" in text
     assert "Wilson" in text
 

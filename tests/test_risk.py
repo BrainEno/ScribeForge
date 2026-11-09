@@ -47,12 +47,8 @@ def test_low_confidence_is_risky_even_when_engines_agree() -> None:
 
 def test_line_confidence_triggers_review_when_tokens_are_unknown() -> None:
     box = BoundingBox(0.1, 0.1, 0.8, 0.05)
-    primary = _page(
-        "mineru", OCRLine("同一句。", box, tokens=None, confidence=0.55)
-    )
-    secondary = _page(
-        "paddleocr", OCRLine("同一句。", box, tokens=None, confidence=0.60)
-    )
+    primary = _page("mineru", OCRLine("同一句。", box, tokens=None, confidence=0.55))
+    secondary = _page("paddleocr", OCRLine("同一句。", box, tokens=None, confidence=0.60))
     alignment = align_pages(primary, secondary)
 
     risk = assess_page(alignment, primary, secondary)[0]
@@ -74,7 +70,9 @@ def test_punctuation_disagreement_scores_below_text_substitution() -> None:
     text_a = _page("mineru", _line("乌鸦", 0.1))
     text_b = _page("paddleocr", _line("鸟鸦", 0.1))
 
-    punctuation = assess_page(align_pages(punctuation_a, punctuation_b), punctuation_a, punctuation_b)[0]
+    punctuation = assess_page(
+        align_pages(punctuation_a, punctuation_b), punctuation_a, punctuation_b
+    )[0]
     substitution = assess_page(align_pages(text_a, text_b), text_a, text_b)[0]
 
     assert punctuation.score < substitution.score
@@ -122,9 +120,9 @@ def test_review_crop_uses_line_boxes_not_oversized_block_box() -> None:
     alignment = align_pages(primary, secondary)
     risks = assess_page(alignment, primary, secondary)
     candidate = review_candidates(alignment, risks, primary, secondary)[0]
-    crop = plan_review_crops(
-        (candidate,), page_width=1000, page_height=1600, padding_fraction=0
-    )[0].box
+    crop = plan_review_crops((candidate,), page_width=1000, page_height=1600, padding_fraction=0)[
+        0
+    ].box
     block_pixel_area = int(block_box.width * 1000) * int(block_box.height * 1600)
 
     assert candidate.crop.x == primary_line_box.x

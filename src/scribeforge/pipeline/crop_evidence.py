@@ -74,7 +74,9 @@ def verified_vlm_crop(
     """Validate the binding and bytes before reusing or displaying a VLM crop."""
     evidence = store.load_vlm_crop_input(review.id)
     if evidence is None:
-        raise ValueError("VLM crop input is unknown for legacy evidence; re-import into a new project")
+        raise ValueError(
+            "VLM crop input is unknown for legacy evidence; re-import into a new project"
+        )
     if (
         evidence.frame_sha256 != frame.sha256
         or evidence.verification_id != verification_id

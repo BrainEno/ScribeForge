@@ -60,9 +60,7 @@ def test_latest_schema_contains_resumable_jobs_table(tmp_path: Path) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         tables = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
 
     assert version == 15
@@ -208,12 +206,8 @@ def test_writer_lock_is_scoped_to_a_project_not_the_whole_database(
     store, first_project_id = _store(tmp_path)
     second_project_id = store.create_project("Second book", "second.pdf", "second-hash")
     store.add_page(second_project_id, 0, "second/000001.png", 1000, 1600)
-    first_job = store.ensure_job(
-        first_project_id, JobStage.PRIMARY_OCR, page_index=0
-    )
-    second_job = store.ensure_job(
-        second_project_id, JobStage.PRIMARY_OCR, page_index=0
-    )
+    first_job = store.ensure_job(first_project_id, JobStage.PRIMARY_OCR, page_index=0)
+    second_job = store.ensure_job(second_project_id, JobStage.PRIMARY_OCR, page_index=0)
 
     store.start_job(first_job)
     store.start_job(second_job)
@@ -243,12 +237,12 @@ def test_running_job_remains_resumable_after_store_reopens(tmp_path: Path) -> No
     reopened.initialize()
 
     jobs = reopened.list_resumable_jobs(project_id)
-    assert [(job.id, job.state, job.attempts) for job in jobs] == [
-        (job_id, JobState.RUNNING, 1)
-    ]
+    assert [(job.id, job.state, job.attempts) for job in jobs] == [(job_id, JobState.RUNNING, 1)]
 
 
-def test_project_import_job_is_idempotent_and_page_stages_require_page_scope(tmp_path: Path) -> None:
+def test_project_import_job_is_idempotent_and_page_stages_require_page_scope(
+    tmp_path: Path,
+) -> None:
     store, project_id = _store(tmp_path)
 
     first = store.ensure_job(project_id, JobStage.IMPORT)
@@ -296,10 +290,15 @@ def test_v3_database_migrates_to_latest_without_losing_project(tmp_path: Path) -
 
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
-        assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
-        assert connection.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='jobs'"
-        ).fetchone()[0] == 1
+        assert (
+            connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='jobs'"
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_v4_database_migrates_to_latest_keeping_jobs_and_adding_preprocess(
@@ -350,16 +349,22 @@ def test_v4_database_migrates_to_latest_keeping_jobs_and_adding_preprocess(
         assert row["state"] == "failed"
         assert row["attempts"] == 2
         assert row["last_error"] == "engine crashed"
-        assert connection.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='page_preprocess'"
-        ).fetchone()[0] == 1
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='page_preprocess'"
+            ).fetchone()[0]
+            == 1
+        )
         # The scope-uniqueness index must survive the rebuild.
-        assert connection.execute(
-            """
+        assert (
+            connection.execute(
+                """
             SELECT COUNT(*) FROM sqlite_master
             WHERE type='index' AND name='uq_jobs_scope_stage'
             """
-        ).fetchone()[0] == 1
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_v5_database_migrates_to_v6_adding_structure_tables(tmp_path: Path) -> None:
@@ -385,18 +390,12 @@ def test_v5_database_migrates_to_v6_adding_structure_tables(tmp_path: Path) -> N
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
         names = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
         assert {"page_structure", "chapters", "ocr_blocks"} <= names
         # Direction and confidence arrive as columns on existing tables.
-        run_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(engine_runs)")
-        }
-        line_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(ocr_lines)")
-        }
+        run_columns = {row[1] for row in connection.execute("PRAGMA table_info(engine_runs)")}
+        line_columns = {row[1] for row in connection.execute("PRAGMA table_info(ocr_lines)")}
         assert "direction" in run_columns
         assert "confidence" in line_columns
 

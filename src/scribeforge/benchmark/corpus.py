@@ -32,9 +32,7 @@ class CorpusFingerprint:
     corpus_sha256: str
 
 
-def _resolve_corpus_path(
-    root: Path, value: str, label: str
-) -> tuple[Path | None, str | None]:
+def _resolve_corpus_path(root: Path, value: str, label: str) -> tuple[Path | None, str | None]:
     """Resolve a manifest file reference and reject anything outside root."""
 
     if not value.strip():
@@ -106,9 +104,7 @@ def fingerprint_corpus(
     )
 
 
-def validate_corpus(
-    manifest: BenchmarkManifest, root: Path
-) -> tuple[CorpusProblem, ...]:
+def validate_corpus(manifest: BenchmarkManifest, root: Path) -> tuple[CorpusProblem, ...]:
     """Return every unsafe, missing, or empty image/ground-truth reference."""
 
     if not manifest.cases:
@@ -117,9 +113,7 @@ def validate_corpus(
     corpus_root = root.resolve()
     problems: list[CorpusProblem] = []
     for case in manifest.cases:
-        image, image_problem = _resolve_corpus_path(
-            corpus_root, case.image, "image"
-        )
+        image, image_problem = _resolve_corpus_path(corpus_root, case.image, "image")
         if image_problem is not None:
             problems.append(CorpusProblem(case.id, image_problem))
         elif image is not None:
@@ -128,9 +122,7 @@ def validate_corpus(
             elif image.stat().st_size == 0:
                 problems.append(CorpusProblem(case.id, f"empty image: {case.image}"))
 
-        truth, truth_problem = _resolve_corpus_path(
-            corpus_root, case.ground_truth, "ground truth"
-        )
+        truth, truth_problem = _resolve_corpus_path(corpus_root, case.ground_truth, "ground truth")
         if truth_problem is not None:
             problems.append(CorpusProblem(case.id, truth_problem))
         elif truth is not None:

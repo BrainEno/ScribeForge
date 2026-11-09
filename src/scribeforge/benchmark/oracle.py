@@ -124,11 +124,15 @@ class OracleEngine(OCREngine):
                 digest = file_sha256(key)
             except OSError as exc:
                 raise KeyError(f"oracle engine has no reference text for {image_path}") from exc
-            matches = {self._texts[path] for path, known in self._digests.items() if known == digest}
+            matches = {
+                self._texts[path] for path, known in self._digests.items() if known == digest
+            }
             if not matches:
                 raise KeyError(f"oracle engine has no reference text for {image_path}")
             if len(matches) != 1:
-                raise ValueError(f"ambiguous oracle reference for identical image bytes: {image_path}")
+                raise ValueError(
+                    f"ambiguous oracle reference for identical image bytes: {image_path}"
+                )
             texts, direction = matches.pop()
         return PageOCRResult(
             page_index,

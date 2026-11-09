@@ -25,5 +25,7 @@ def verified_source_snapshot(source: Path, expected_sha256: str) -> Iterator[Pat
                 output_file.write(chunk)
         raise_if_cancelled()
         if digest.hexdigest() != expected_sha256 or file_sha256(snapshot) != expected_sha256:
-            raise ValueError("source SHA-256 changed while preparing import; restore the recorded source")
+            raise ValueError(
+                "source SHA-256 changed while preparing import; restore the recorded source"
+            )
         yield snapshot

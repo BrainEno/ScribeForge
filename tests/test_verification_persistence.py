@@ -40,9 +40,7 @@ def test_latest_schema_contains_verification_tables(tmp_path: Path) -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         tables = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
 
     assert version == 15
@@ -136,7 +134,9 @@ def test_v1_database_migrates_without_losing_existing_project(tmp_path: Path) ->
 
     with sqlite3.connect(path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
-        assert connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+        assert (
+            connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
+        )
 
 
 def _vertical_line(text: str, x: float) -> OCRLine:
@@ -176,9 +176,7 @@ def test_declared_vertical_direction_survives_storage(tmp_path: Path) -> None:
     alignment = align_pages(declared, secondary)
     risks = assess_page(alignment, declared, secondary)
 
-    verification_id = store.record_verification(
-        primary_id, secondary_id, alignment, risks, ()
-    )
+    verification_id = store.record_verification(primary_id, secondary_id, alignment, risks, ())
     restored = store.load_verification(verification_id)
 
     assert restored.alignment.direction is PageDirection.VERTICAL_RL
@@ -191,9 +189,7 @@ def test_undeclared_direction_is_not_restored_as_a_declaration(tmp_path: Path) -
     alignment = align_pages(primary, secondary)
     risks = assess_page(alignment, primary, secondary)
 
-    verification_id = store.record_verification(
-        primary_id, secondary_id, alignment, risks, ()
-    )
+    verification_id = store.record_verification(primary_id, secondary_id, alignment, risks, ())
 
     with sqlite3.connect(tmp_path / "project.sqlite3") as connection:
         stored = connection.execute(

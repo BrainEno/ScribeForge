@@ -191,20 +191,14 @@ class VerifiedBook:
         seen: set[int] = set()
         for image in self.images:
             if image.page_index not in pages:
-                raise ValueError(
-                    f"image for page {image.page_index} is not part of the book"
-                )
+                raise ValueError(f"image for page {image.page_index} is not part of the book")
             if image.page_index in seen:
                 raise ValueError(f"page {image.page_index} carries two images")
             seen.add(image.page_index)
         for page in self.pages:
             if page.lines and page.page_index in seen:
                 matched: VerifiedImage | None = next(
-                    (
-                        img
-                        for img in self.images
-                        if img.page_index == page.page_index
-                    ),
+                    (img for img in self.images if img.page_index == page.page_index),
                     None,
                 )
                 # A plate may carry one line of OCR text as its caption; any
@@ -215,9 +209,7 @@ class VerifiedBook:
                     or len(page.lines) != 1
                     or page.lines[0] != matched.caption
                 ):
-                    raise ValueError(
-                        f"page {page.page_index} has both accepted text and an image"
-                    )
+                    raise ValueError(f"page {page.page_index} has both accepted text and an image")
 
     @property
     def cover_image(self) -> VerifiedImage | None:

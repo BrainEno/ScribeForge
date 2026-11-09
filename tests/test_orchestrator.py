@@ -78,16 +78,12 @@ class FakeReviewer:
     pair unresolved and test the wrong thing.
     """
 
-    def transcribe_crop(
-        self, image_path: str, page_index: int, pair_index: int
-    ) -> VLMReading:
+    def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
         return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "鸦", False)
 
 
 class UncertainReviewer:
-    def transcribe_crop(
-        self, image_path: str, page_index: int, pair_index: int
-    ) -> VLMReading:
+    def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
         return VLMReading(page_index, pair_index, "fake-vlm", "1.0", "maybe", True)
 
 
@@ -155,16 +151,24 @@ def test_process_page_resumes_without_recomputing_succeeded_stages(tmp_path: Pat
     primary, secondary = _engines()
 
     first = process_page(
-        store, project_id, page,
-        primary_engine=primary, secondary_engine=secondary,
-        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+        store,
+        project_id,
+        page,
+        primary_engine=primary,
+        secondary_engine=secondary,
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     # Every stage already succeeded: engines must not be invoked again.
     second = process_page(
-        store, project_id, page,
-        primary_engine=ExplodingEngine("primary"), secondary_engine=ExplodingEngine("secondary"),
-        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+        store,
+        project_id,
+        page,
+        primary_engine=ExplodingEngine("primary"),
+        secondary_engine=ExplodingEngine("secondary"),
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     assert second.primary_run_id == first.primary_run_id
@@ -189,9 +193,13 @@ def test_process_page_resumes_interrupted_running_stage(tmp_path: Path) -> None:
     store.initialize()
 
     process_page(
-        store, project_id, page,
-        primary_engine=primary, secondary_engine=secondary,
-        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+        store,
+        project_id,
+        page,
+        primary_engine=primary,
+        secondary_engine=secondary,
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     job = store.load_job(running_id)
@@ -204,9 +212,7 @@ def test_process_book_does_not_misreport_an_owned_job_as_a_failed_page(
 ) -> None:
     owner_store, project_id = _store(tmp_path)
     page = _seed_page(owner_store, project_id, tmp_path)
-    owned_job = owner_store.ensure_job(
-        project_id, JobStage.PRIMARY_OCR, page_index=page.page_index
-    )
+    owned_job = owner_store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=page.page_index)
     owner_store.start_job(owned_job)
 
     contender_store = SQLiteStore(tmp_path / "project.sqlite3")
@@ -232,10 +238,13 @@ def test_process_page_skips_vlm_when_engines_agree(tmp_path: Path) -> None:
     page = _seed_page(store, project_id, tmp_path)
 
     outcome = process_page(
-        store, project_id, page,
+        store,
+        project_id,
+        page,
         primary_engine=FakeEngine("primary", "鸦"),
         secondary_engine=FakeEngine("secondary", "鸦"),
-        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     assert outcome.vlm_review_count == 0
@@ -248,7 +257,9 @@ def test_process_page_without_reviewer_defers_vlm_stage(tmp_path: Path) -> None:
     page = _seed_page(store, project_id, tmp_path)
 
     outcome = process_page(
-        store, project_id, page,
+        store,
+        project_id,
+        page,
         primary_engine=FakeEngine("primary", "鸦"),
         secondary_engine=FakeEngine("secondary", "雅"),
         crops_dir=tmp_path / "crops",
@@ -264,10 +275,13 @@ def test_process_page_records_automatic_decision_when_engines_agree(tmp_path: Pa
     page = _seed_page(store, project_id, tmp_path)
 
     outcome = process_page(
-        store, project_id, page,
+        store,
+        project_id,
+        page,
         primary_engine=FakeEngine("primary", "鸦"),
         secondary_engine=FakeEngine("secondary", "鸦"),
-        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     assert outcome.decision_count == 1
@@ -283,10 +297,13 @@ def test_process_page_records_vlm_decision_from_confident_review(tmp_path: Path)
     page = _seed_page(store, project_id, tmp_path)
 
     outcome = process_page(
-        store, project_id, page,
+        store,
+        project_id,
+        page,
         primary_engine=FakeEngine("primary", "鸦"),
         secondary_engine=FakeEngine("secondary", "雅"),
-        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     assert outcome.decision_count == 1
@@ -302,10 +319,13 @@ def test_process_page_queues_uncertain_review_for_humans(tmp_path: Path) -> None
     page = _seed_page(store, project_id, tmp_path)
 
     outcome = process_page(
-        store, project_id, page,
+        store,
+        project_id,
+        page,
         primary_engine=FakeEngine("primary", "鸦"),
         secondary_engine=FakeEngine("secondary", "雅"),
-        reviewer=UncertainReviewer(), crops_dir=tmp_path / "crops",
+        reviewer=UncertainReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     assert outcome.decision_count == 0
@@ -319,9 +339,12 @@ def test_process_book_isolates_failed_page_and_resumes(tmp_path: Path) -> None:
 
     primary, secondary = _engines()
     book = process_book(
-        store, project_id,
-        primary_engine=primary, secondary_engine=ExplodingEngine("secondary"),
-        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+        store,
+        project_id,
+        primary_engine=primary,
+        secondary_engine=ExplodingEngine("secondary"),
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     assert book.failed_pages == ((0, "engine crashed"),)
@@ -331,9 +354,12 @@ def test_process_book_isolates_failed_page_and_resumes(tmp_path: Path) -> None:
 
     # The failed page is retryable; a healthy secondary engine completes it.
     resumed = process_book(
-        store, project_id,
-        primary_engine=primary, secondary_engine=secondary,
-        reviewer=FakeReviewer(), crops_dir=tmp_path / "crops",
+        store,
+        project_id,
+        primary_engine=primary,
+        secondary_engine=secondary,
+        reviewer=FakeReviewer(),
+        crops_dir=tmp_path / "crops",
     )
 
     assert resumed.failed_pages == ()
@@ -411,9 +437,7 @@ def test_cancelled_page_is_failed_retryable_and_preserves_prior_evidence(
             crops_dir=tmp_path / "crops",
         )
 
-    cancelled_job = store.load_job(
-        store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=1)
-    )
+    cancelled_job = store.load_job(store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=1))
     secondary_job = store.load_job(
         store.ensure_job(project_id, JobStage.SECONDARY_OCR, page_index=1)
     )
@@ -542,9 +566,7 @@ def test_preprocess_is_idempotent_and_never_double_rotates(tmp_path: Path) -> No
     page = _seed_page(store, project_id, tmp_path)
     settings = PreprocessSettings(operations=(PreprocessOperation.DESHADOW,))
 
-    first = preprocess_page(
-        store, project_id, page, settings, assets_dir=tmp_path / "preprocessed"
-    )
+    first = preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
     first_bytes = first.image_path.read_bytes()
     second = preprocess_page(
         store, project_id, page, settings, assets_dir=tmp_path / "preprocessed"
@@ -566,9 +588,7 @@ def test_preprocess_rebuilds_when_the_raster_was_deleted(tmp_path: Path) -> None
     store, project_id = _store(tmp_path)
     page = _seed_page(store, project_id, tmp_path)
     settings = PreprocessSettings(operations=(PreprocessOperation.DESHADOW,))
-    first = preprocess_page(
-        store, project_id, page, settings, assets_dir=tmp_path / "preprocessed"
-    )
+    first = preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
     first.image_path.unlink()
 
     rebuilt = preprocess_page(
@@ -694,12 +714,18 @@ def test_preprocess_rejects_changed_settings_on_resume(tmp_path: Path) -> None:
 
     store, project_id = _store(tmp_path)
     page = _seed_page(store, project_id, tmp_path)
-    first = preprocess_page(store, project_id, page, PreprocessSettings(),
-                            assets_dir=tmp_path / "preprocessed")
+    first = preprocess_page(
+        store, project_id, page, PreprocessSettings(), assets_dir=tmp_path / "preprocessed"
+    )
     before = first.image_path.read_bytes()
     with pytest.raises(ValueError, match="settings"):
-        preprocess_page(store, project_id, page, PreprocessSettings(max_skew_degrees=5),
-                        assets_dir=tmp_path / "preprocessed")
+        preprocess_page(
+            store,
+            project_id,
+            page,
+            PreprocessSettings(max_skew_degrees=5),
+            assets_dir=tmp_path / "preprocessed",
+        )
     assert first.image_path.read_bytes() == before
 
 
@@ -760,7 +786,9 @@ def test_preprocess_rebuild_refuses_file_created_during_processing(
     assert store.load_job(job).state is JobState.FAILED
     first.image_path.unlink()
     monkeypatch.undo()
-    rebuilt = preprocess_page(store, project_id, page, settings, assets_dir=tmp_path / "preprocessed")
+    rebuilt = preprocess_page(
+        store, project_id, page, settings, assets_dir=tmp_path / "preprocessed"
+    )
     assert rebuilt.image_path == first.image_path
     assert rebuilt.outcome.output_sha256 == first.outcome.output_sha256
 
@@ -805,8 +833,9 @@ def test_preprocess_rejects_changed_recorded_source_bytes_directly(
     source = tmp_path / "source.png"
     Image.new("RGB", (100, 150), "white").save(source)
     original = source.read_bytes()
-    store.add_page(project_id, 0, str(source), 100, 150,
-                   page_asset=PageAssetEvidence.from_bytes(original))
+    store.add_page(
+        project_id, 0, str(source), 100, 150, page_asset=PageAssetEvidence.from_bytes(original)
+    )
     page = store.list_pages(project_id)[0]
     directory = tmp_path / "preprocessed"
     settings = PreprocessSettings()
@@ -837,8 +866,14 @@ def test_preprocess_checks_the_actual_bytes_read_after_source_verification(
     store, project_id = _store(tmp_path)
     source = tmp_path / "source.png"
     Image.new("RGB", (100, 150), "white").save(source)
-    store.add_page(project_id, 0, str(source), 100, 150,
-                   page_asset=PageAssetEvidence.from_bytes(source.read_bytes()))
+    store.add_page(
+        project_id,
+        0,
+        str(source),
+        100,
+        150,
+        page_asset=PageAssetEvidence.from_bytes(source.read_bytes()),
+    )
     page = store.list_pages(project_id)[0]
     verifier = preprocessing.verify_page_asset
 

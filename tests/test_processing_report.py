@@ -45,12 +45,8 @@ def _finish_job(
 
 def _verification(store: SQLiteStore, project_id: int, page_index: int) -> int:
     lines = tuple(OCRLine(text, BoundingBox(0.1, 0.1, 0.8, 0.1)) for text in ("甲", "乙"))
-    primary = store.record_ocr(
-        project_id, PageOCRResult(page_index, "primary", "1", lines)
-    )
-    secondary = store.record_ocr(
-        project_id, PageOCRResult(page_index, "secondary", "1", lines)
-    )
+    primary = store.record_ocr(project_id, PageOCRResult(page_index, "primary", "1", lines))
+    secondary = store.record_ocr(project_id, PageOCRResult(page_index, "secondary", "1", lines))
     alignment = PageAlignment(
         page_index,
         "primary",
@@ -274,9 +270,7 @@ def test_report_cli_selects_one_project_and_emits_stable_json(
     store, project_id = _project(tmp_path)
     jobs_before = store.list_jobs(project_id)
 
-    code = run(
-        ["report", "--store", str(tmp_path), "--project", str(project_id), "--json"]
-    )
+    code = run(["report", "--store", str(tmp_path), "--project", str(project_id), "--json"])
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)

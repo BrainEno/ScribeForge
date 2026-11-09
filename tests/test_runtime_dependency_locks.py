@@ -95,17 +95,13 @@ def test_paddle_lock_matches_selected_cpu_or_cuda_wheel(tmp_path: Path) -> None:
             assert acceleration in lock.name
             assert lock.is_file()
             expected = "paddlepaddle-gpu==" if acceleration != "cpu" else "paddlepaddle=="
-            assert any(
-                entry.startswith(expected) for entry in _locked_requirements(lock)
-            )
+            assert any(entry.startswith(expected) for entry in _locked_requirements(lock))
 
 
 def test_frozen_backend_packages_and_smoke_checks_all_runtime_locks() -> None:
     root = Path(__file__).resolve().parents[1]
     spec = (root / "packaging" / "scribeforge_backend.spec").read_text(encoding="utf-8")
-    smoke = (root / ".github" / "workflows" / "windows-desktop.yml").read_text(
-        encoding="utf-8"
-    )
+    smoke = (root / ".github" / "workflows" / "windows-desktop.yml").read_text(encoding="utf-8")
 
     assert 'SOURCE / "scribeforge" / "runtime" / "locks"' in spec
     assert '"worker-src/scribeforge/runtime/locks"' in spec
@@ -116,14 +112,12 @@ def test_frozen_backend_packages_and_smoke_checks_all_runtime_locks() -> None:
 def test_frozen_backend_collects_and_checks_opencc_conversion_data() -> None:
     root = Path(__file__).resolve().parents[1]
     spec = (root / "packaging" / "scribeforge_backend.spec").read_text(encoding="utf-8")
-    smoke = (root / ".github" / "workflows" / "windows-desktop.yml").read_text(
-        encoding="utf-8"
-    )
+    smoke = (root / ".github" / "workflows" / "windows-desktop.yml").read_text(encoding="utf-8")
 
     assert 'collect_all("opencc")' in spec
     assert "opencc_datas" in spec
     assert "opencc_binaries" in spec
     assert "opencc_hidden_imports" in spec
-    assert 'opencc/clib/share/opencc' in smoke
+    assert "opencc/clib/share/opencc" in smoke
     assert "t2s.json" in smoke
     assert "TSCharacters.ocd2" in smoke

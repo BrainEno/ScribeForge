@@ -42,18 +42,14 @@ def test_subprocess_adapter_runs_preflight_before_worker(tmp_path) -> None:
     marker = tmp_path / "ran"
     script = tmp_path / "worker.py"
     script.write_text(
-        "import pathlib, sys\n"
-        f"pathlib.Path({str(marker)!r}).write_text('ran')\n"
-        "sys.exit(1)\n",
+        f"import pathlib, sys\npathlib.Path({str(marker)!r}).write_text('ran')\nsys.exit(1)\n",
         encoding="utf-8",
     )
 
     def preflight() -> None:
         raise RuntimeError("backend not ready")
 
-    engine = SubprocessOCREngine(
-        "fixture", [sys.executable, str(script)], preflight=preflight
-    )
+    engine = SubprocessOCREngine("fixture", [sys.executable, str(script)], preflight=preflight)
 
     with pytest.raises(RuntimeError, match="backend not ready"):
         engine.analyze_page(str(tmp_path / "page.png"), 0)
@@ -109,8 +105,7 @@ def test_adapter_parses_contract_v2_blocks_and_direction() -> None:
         "direction": "vertical-rl",
         "lines": [
             {"text": "V．", "box": [0.8, 0.02, 0.1, 0.03], "tokens": []},
-            {"text": "第一行", "box": [0.7, 0.1, 0.05, 0.8], "tokens": [],
-             "confidence": 0.55},
+            {"text": "第一行", "box": [0.7, 0.1, 0.05, 0.8], "tokens": [], "confidence": 0.55},
         ],
         "blocks": [
             {"type": "header", "box": [0.8, 0.02, 0.1, 0.03], "line_start": 0, "line_end": 1},
@@ -223,8 +218,7 @@ def test_adapter_maps_unknown_block_labels_instead_of_failing() -> None:
         "page_index": 0,
         "lines": [{"text": "甲", "box": [0.1, 0.1, 0.5, 0.05], "tokens": []}],
         "blocks": [
-            {"type": "some_new_label", "box": [0.1, 0.1, 0.5, 0.05],
-             "line_start": 0, "line_end": 1}
+            {"type": "some_new_label", "box": [0.1, 0.1, 0.5, 0.05], "line_start": 0, "line_end": 1}
         ],
     }
 
@@ -242,9 +236,7 @@ def test_adapter_rejects_a_block_range_beyond_reported_lines() -> None:
         "engine_version": "1.0",
         "page_index": 0,
         "lines": [{"text": "甲", "box": [0.1, 0.1, 0.5, 0.05], "tokens": []}],
-        "blocks": [
-            {"type": "text", "box": [0.1, 0.1, 0.5, 0.05], "line_start": 0, "line_end": 9}
-        ],
+        "blocks": [{"type": "text", "box": [0.1, 0.1, 0.5, 0.05], "line_start": 0, "line_end": 9}],
     }
 
     with pytest.raises(ValueError, match="block line range exceeds"):
@@ -274,9 +266,7 @@ def test_worker_timeout_kills_its_process_tree(tmp_path) -> None:
     worker, child_started, child_survived = _worker_that_leaves_a_child(tmp_path)
     image = tmp_path / "page.png"
     image.write_bytes(b"x")
-    engine = SubprocessOCREngine(
-        "fixture", [sys.executable, str(worker)], timeout_seconds=0.7
-    )
+    engine = SubprocessOCREngine("fixture", [sys.executable, str(worker)], timeout_seconds=0.7)
     started = time.monotonic()
 
     with pytest.raises(OCREngineTimeoutError, match=r"page 1.*0\.7"):
@@ -293,9 +283,7 @@ def test_cancel_signal_kills_ocr_worker_process_tree(tmp_path) -> None:
     image = tmp_path / "page.png"
     image.write_bytes(b"x")
     token = CancellationToken()
-    engine = SubprocessOCREngine(
-        "fixture", [sys.executable, str(worker)], timeout_seconds=5
-    )
+    engine = SubprocessOCREngine("fixture", [sys.executable, str(worker)], timeout_seconds=5)
     timer = Timer(0.7, token.cancel)
     timer.start()
 

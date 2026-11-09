@@ -115,18 +115,12 @@ def _choose_text(group: Sequence[Reading], prefer: Sequence[str]) -> str:
         candidates,
         key=lambda text: (
             -counts[text],
-            min(
-                order.get(reading.reader, len(order))
-                for reading in group
-                if reading.text == text
-            ),
+            min(order.get(reading.reader, len(order)) for reading in group if reading.text == text),
         ),
     )
 
 
-def consensus(
-    readings: Sequence[Reading], *, prefer: Sequence[str] = ()
-) -> Consensus:
+def consensus(readings: Sequence[Reading], *, prefer: Sequence[str] = ()) -> Consensus:
     """Return the agreed text, or an unsettled verdict explaining why not.
 
     ``prefer`` orders readers for the case where an agreement group contains more

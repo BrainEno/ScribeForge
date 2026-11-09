@@ -200,9 +200,7 @@ class SubprocessOCREngine:
                 OCRToken(
                     text=str(token["text"]),
                     confidence=(
-                        None
-                        if token.get("confidence") is None
-                        else float(token["confidence"])
+                        None if token.get("confidence") is None else float(token["confidence"])
                     ),
                     box=cls._box(token["box"]),
                 )
@@ -235,9 +233,7 @@ def _run_worker_process(
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
         process_options: dict[str, Any] = {}
         if os.name == "nt":
-            process_options["creationflags"] = getattr(
-                subprocess, "CREATE_NEW_PROCESS_GROUP", 0
-            )
+            process_options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         else:
             process_options["start_new_session"] = True
         process = subprocess.Popen(

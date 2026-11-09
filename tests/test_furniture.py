@@ -151,9 +151,7 @@ def test_a_running_head_that_looks_like_a_roman_numeral_is_still_removed() -> No
     """A repeated V. stays a running head, not a stationary folio sequence."""
 
     pages = {
-        index: _page(
-            [_line("V.", y=0.02, height=0.012), _line("正文", y=0.2)], page_index=index
-        )
+        index: _page([_line("V.", y=0.02, height=0.012), _line("正文", y=0.2)], page_index=index)
         for index in range(3)
     }
 
@@ -231,7 +229,9 @@ def test_variant_forms_of_a_running_head_count_as_the_same_text() -> None:
 
     pages: dict[int, PageOCRResult] = {}
     for index, head in enumerate(["說", "说", "説", "說", "说"]):
-        pages[index] = _page([_line(head, y=0.02, height=0.012), _line("正文", y=0.2)], page_index=index)
+        pages[index] = _page(
+            [_line(head, y=0.02, height=0.012), _line("正文", y=0.2)], page_index=index
+        )
 
     detected = furniture_line_indexes(pages)
 
@@ -418,17 +418,22 @@ def test_assembly_excludes_furniture_and_can_preserve_it(tmp_path: Path) -> None
         adjudicate_verification(store, project_id, verification_id)
 
     filtered = assemble_verified_content(store, project_id)
-    preserved = assemble_verified_content(
-        store, project_id, include_page_furniture=True
-    )
+    preserved = assemble_verified_content(store, project_id, include_page_furniture=True)
 
     assert [page.lines for page in filtered.pages] == [("正文。",)] * 6
     assert len(filtered.dropped_furniture) == 12
     assert {item.text for item in filtered.dropped_furniture} == {
-        "V.", "3", "4", "5", "6", "7", "8"
+        "V.",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
     }
     assert {item.reason for item in filtered.dropped_furniture} == {
-        REASON_REPEATED_IN_MARGIN, REASON_PAGE_NUMBER
+        REASON_REPEATED_IN_MARGIN,
+        REASON_PAGE_NUMBER,
     }
     assert [page.lines for page in preserved.pages] == [
         ("V.", "正文。", str(page_index + 3)) for page_index in range(6)

@@ -52,9 +52,7 @@ def test_a_tie_between_two_supported_groups_stays_open() -> None:
 
 
 def test_glyph_variant_readings_count_as_agreement_but_keep_literal_text() -> None:
-    verdict = consensus(
-        [Reading("a", "为"), Reading("b", "爲")], prefer=["a", "b"]
-    )
+    verdict = consensus([Reading("a", "为"), Reading("b", "爲")], prefer=["a", "b"])
 
     assert verdict.settled
     # Agreement is measured on the folded form; the accepted characters are one
@@ -99,9 +97,7 @@ def test_no_usable_reading_reports_why() -> None:
 
 
 def test_prefer_order_picks_the_spelling_when_variants_agree() -> None:
-    verdict = consensus(
-        [Reading("late", "爲"), Reading("early", "为")], prefer=["early", "late"]
-    )
+    verdict = consensus([Reading("late", "爲"), Reading("early", "为")], prefer=["early", "late"])
 
     assert verdict.text == "为"
 
@@ -121,22 +117,26 @@ def test_a_reading_must_name_its_reader() -> None:
 
 
 def test_multiple_attempts_from_one_source_are_only_one_vote() -> None:
-    verdict = consensus([
-        Reading("page-a", "鸦", source="ocr:a"),
-        Reading("crop-a", "鸦", source="ocr:a"),
-        Reading("page-b", "雅", source="ocr:b"),
-        Reading("crop-b", "蛙", source="ocr:b"),
-    ])
+    verdict = consensus(
+        [
+            Reading("page-a", "鸦", source="ocr:a"),
+            Reading("crop-a", "鸦", source="ocr:a"),
+            Reading("page-b", "雅", source="ocr:b"),
+            Reading("crop-b", "蛙", source="ocr:b"),
+        ]
+    )
     assert not verdict.settled
     assert verdict.rationale == "single_reader"
 
 
 def test_independent_sources_vote_once_but_all_supporting_attempts_are_cited() -> None:
-    verdict = consensus([
-        Reading("page-a", "鸦", source="ocr:a"),
-        Reading("crop-a", "鸦", source="ocr:a"),
-        Reading("page-b", "雅", source="ocr:b"),
-        Reading("crop-b", "鸦", source="ocr:b"),
-    ])
+    verdict = consensus(
+        [
+            Reading("page-a", "鸦", source="ocr:a"),
+            Reading("crop-a", "鸦", source="ocr:a"),
+            Reading("page-b", "雅", source="ocr:b"),
+            Reading("crop-b", "鸦", source="ocr:b"),
+        ]
+    )
     assert verdict.settled
     assert verdict.supporters == ("page-a", "crop-a", "crop-b")

@@ -66,9 +66,7 @@ def _staging_directories(root: Path) -> list[Path]:
 
 
 @pytest.mark.parametrize("fail_on", ["install", "python"])
-def test_failed_install_or_health_preserves_old_environment(
-    tmp_path: Path, fail_on: str
-) -> None:
+def test_failed_install_or_health_preserves_old_environment(tmp_path: Path, fail_on: str) -> None:
     final = _old_environment(tmp_path)
     plan, executor = _plan(tmp_path, fail_on=fail_on)
     manager = RuntimeManager(tmp_path, executor)
@@ -114,9 +112,7 @@ def test_publish_failure_restores_old_environment(
     events = []
 
     with pytest.raises(RuntimeInstallError, match="paddleocr:publish"):
-        RuntimeManager(tmp_path, executor, on_event=events.append).repair(
-            plan, "paddleocr"
-        )
+        RuntimeManager(tmp_path, executor, on_event=events.append).repair(plan, "paddleocr")
 
     assert any(event.step == "publish" and event.state == "failed" for event in events)
     assert (final / "marker.txt").read_text(encoding="utf-8") == "old-v1"

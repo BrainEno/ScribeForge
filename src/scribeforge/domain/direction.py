@@ -67,9 +67,7 @@ def detect_page_direction(result: PageOCRResult) -> PageDirection | None:
     # line order runs from the right edge towards the left. Detecting that keeps
     # the reading order honest for the rarer left-to-right vertical layouts.
     centres = [
-        line.box.x + line.box.width / 2
-        for line in lines
-        if line.box.height >= line.box.width
+        line.box.x + line.box.width / 2 for line in lines if line.box.height >= line.box.width
     ]
     if len(centres) >= 2 and centres[0] > centres[-1]:
         return PageDirection.VERTICAL_RL
@@ -93,11 +91,7 @@ def resolve_page_direction(
     3. Otherwise fall back to geometry, then to the horizontal default.
     """
 
-    declared = [
-        result
-        for result in (primary, secondary)
-        if result.direction_declared
-    ]
+    declared = [result for result in (primary, secondary) if result.direction_declared]
     vertical = [result.direction for result in declared if result.direction.is_vertical]
     if vertical:
         # Two engines may both see vertical columns but disagree about which way

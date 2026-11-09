@@ -158,9 +158,7 @@ def evaluate_alignment_sample(
                 cross_column_errors += 1
 
     risks = assess_page(alignment, sample.primary, sample.secondary)
-    review_count = len(
-        review_candidates(alignment, risks, sample.primary, sample.secondary)
-    )
+    review_count = len(review_candidates(alignment, risks, sample.primary, sample.secondary))
 
     return SampleEvaluation(
         name=sample.name,
@@ -169,9 +167,7 @@ def evaluate_alignment_sample(
         false_negative=len(expected - actual),
         reading_order_errors=reading_order_errors,
         cross_column_errors=cross_column_errors,
-        unresolved_ambiguities=sum(
-            pair.status is AlignmentStatus.AMBIGUOUS for pair in pairs
-        ),
+        unresolved_ambiguities=sum(pair.status is AlignmentStatus.AMBIGUOUS for pair in pairs),
         one_to_many=sum(
             len(pair.primary_line_indexes) == 1 and len(pair.secondary_line_indexes) > 1
             for pair in regular
@@ -268,9 +264,7 @@ def load_alignment_samples(path: Path) -> tuple[AlignmentSample, ...]:
                     )
                     for group in expected_groups_raw
                 ),
-                primary_columns=tuple(
-                    str(row.get("column", "body")) for row in item["primary"]
-                ),
+                primary_columns=tuple(str(row.get("column", "body")) for row in item["primary"]),
                 secondary_columns=tuple(
                     str(row.get("column", "body")) for row in item["secondary"]
                 ),

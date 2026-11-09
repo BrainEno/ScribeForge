@@ -145,8 +145,7 @@ def parse_cjk_numeral(text: str) -> int | None:
 
     cleaned = text.strip()
     if not cleaned or any(
-        character not in _CJK_DIGITS and character not in _CJK_UNITS
-        for character in cleaned
+        character not in _CJK_DIGITS and character not in _CJK_UNITS for character in cleaned
     ):
         return None
     if len(cleaned) > 6:
@@ -190,9 +189,7 @@ class PageStructure:
 
     page_index: int
     role: PageRole = PageRole.UNKNOWN
-    label: PageLabel = field(
-        default_factory=lambda: PageLabel("", NumberingScheme.NONE, None)
-    )
+    label: PageLabel = field(default_factory=lambda: PageLabel("", NumberingScheme.NONE, None))
     #: Measured share of non-background pixels, when the raster could be read.
     #: The only evidence that separates "blank leaf" from "full-page illustration"
     #: without guessing (issues #87 and #74).
@@ -231,13 +228,13 @@ def parse_page_label(raw: str) -> PageLabel:
     # Front-matter roman numbering does not run into the hundreds, and mixed case
     # ("MiX") is a word or a running head rather than a folio. "mix" *is* a
     # canonical roman numeral (1009) but no book numbers a page that way.
-    if roman is not None and 0 < roman <= 100 and text.strip().isupper() != (
-        text.strip().islower()
+    if (
+        roman is not None
+        and 0 < roman <= 100
+        and text.strip().isupper() != (text.strip().islower())
     ):
         scheme = (
-            NumberingScheme.ROMAN_UPPER
-            if text.strip().isupper()
-            else NumberingScheme.ROMAN_LOWER
+            NumberingScheme.ROMAN_UPPER if text.strip().isupper() else NumberingScheme.ROMAN_LOWER
         )
         return PageLabel(text.strip(), scheme, roman)
 
@@ -317,9 +314,7 @@ class BookStructure:
         """The deepest chapter that contains ``page_index``."""
 
         containing = [
-            chapter
-            for chapter in self.chapters
-            if chapter.start_page_index <= page_index
+            chapter for chapter in self.chapters if chapter.start_page_index <= page_index
         ]
         return containing[-1] if containing else None
 
@@ -331,17 +326,17 @@ class BookStructure:
             for other in self.chapters
             if other.start_page_index > chapter.start_page_index
         ]
-        end = (min(later) - 1) if later else max(
-            (page.page_index for page in self.pages), default=chapter.start_page_index
+        end = (
+            (min(later) - 1)
+            if later
+            else max((page.page_index for page in self.pages), default=chapter.start_page_index)
         )
         return chapter.start_page_index, max(chapter.start_page_index, end)
 
     def labels_by_page(self) -> Mapping[int, str]:
         """Display label per physical page, falling back to the physical index."""
 
-        return MappingProxyType(
-            {page.page_index: page.display_label for page in self.pages}
-        )
+        return MappingProxyType({page.page_index: page.display_label for page in self.pages})
 
     def printed_labels_by_page(self) -> Mapping[int, str]:
         """Printed labels only, omitting pages the book never numbered.
@@ -360,9 +355,7 @@ class BookStructure:
         )
 
     def blank_pages(self) -> tuple[int, ...]:
-        return tuple(
-            page.page_index for page in self.pages if page.role is PageRole.BLANK
-        )
+        return tuple(page.page_index for page in self.pages if page.role is PageRole.BLANK)
 
 
 #: Ink coverage above which a textless page is a plate rather than a blank leaf.
@@ -386,6 +379,7 @@ BLANK_INK_RATIO = 0.01
 #: 94%, which is why a first page like that is a cover whatever its caption says.
 COVER_INK_RATIO = 0.5
 
+
 #: Evidence for one page, as the whole-book classifier sees it.
 @dataclass(frozen=True, slots=True)
 class RoleEvidence:
@@ -397,9 +391,7 @@ class RoleEvidence:
 
     page_index: int
     lines: tuple[str, ...] = ()
-    label: PageLabel = field(
-        default_factory=lambda: PageLabel("", NumberingScheme.NONE, None)
-    )
+    label: PageLabel = field(default_factory=lambda: PageLabel("", NumberingScheme.NONE, None))
     ink_ratio: float | None = None
     headings: tuple[str, ...] = ()
 
@@ -499,9 +491,7 @@ def _number_words() -> str:
 
 _PART_PATTERN = re.compile(rf"^第[{_number_words()}]{{1,4}}[卷部篇编]")
 _CHAPTER_PATTERN = re.compile(rf"^第[{_number_words()}]{{1,4}}章")
-_SECTION_PATTERN = re.compile(
-    rf"^(第[{_number_words()}]{{1,4}}节|[{_number_words()}]{{1,4}}、)"
-)
+_SECTION_PATTERN = re.compile(rf"^(第[{_number_words()}]{{1,4}}节|[{_number_words()}]{{1,4}}、)")
 _APPENDIX_PATTERN = re.compile(r"^(附录|后记|译后记|跋|尾声|索引|致谢)")
 
 
@@ -530,7 +520,9 @@ def parse_toc_entry(line: str) -> TocEntry | None:
     if not raw or len(raw) < 3:
         return None
     # The page number must be the last token, optionally behind leader dots.
-    match = re.search(r"([0-9]{1,4}|[ivxlcdmIVXLCDM]{1,7}|[〇零一二三四五六七八九十百]{1,4})[.．·…・]?$", raw)
+    match = re.search(
+        r"([0-9]{1,4}|[ivxlcdmIVXLCDM]{1,7}|[〇零一二三四五六七八九十百]{1,4})[.．·…・]?$", raw
+    )
     if match is None:
         return None
     page_text = match.group(1)
@@ -546,7 +538,10 @@ def parse_toc_entry(line: str) -> TocEntry | None:
     # The page number must be separated from the title, or "1923年" style prose
     # tails become folios.
     gap = raw[match.start() :].lstrip()
-    if gap and not any(character in _TOC_LEADER or character.isspace() for character in raw[match.start() - 1 : match.start()]):
+    if gap and not any(
+        character in _TOC_LEADER or character.isspace()
+        for character in raw[match.start() - 1 : match.start()]
+    ):
         return None
     return TocEntry(title=title, printed_label=page_text, kind=toc_entry_kind(title))
 
@@ -640,9 +635,7 @@ def classify_page_roles(pages: Sequence[RoleEvidence]) -> Mapping[int, PageRole]
     first_on_scan = ordered[0].page_index if ordered else None
     for page in ordered:
         if not page.is_textual:
-            role = detect_page_roles(
-                page.page_index, text=page.text, ink_ratio=page.ink_ratio
-            )
+            role = detect_page_roles(page.page_index, text=page.text, ink_ratio=page.ink_ratio)
             if role is PageRole.PLATE and page.page_index == first_on_scan:
                 # A scanned cover is a picture: the engines read no text from the
                 # artwork, so ink alone cannot tell it from a plate. The one fact
@@ -706,9 +699,7 @@ def map_toc_chapters(
     by_label: dict[tuple[NumberingScheme, int], list[TocPage]] = {}
     for page in pages:
         if page.label.is_numbered and page.label.sequence is not None:
-            by_label.setdefault(
-                (page.label.scheme, page.label.sequence), []
-            ).append(page)
+            by_label.setdefault((page.label.scheme, page.label.sequence), []).append(page)
 
     chapters: list[Chapter] = []
     unmapped: list[TocEntry] = []
@@ -727,9 +718,7 @@ def map_toc_chapters(
             for page in by_label.get((label.scheme, label.sequence), [])
             if page.page_index not in used and page.headings
         ]
-        matched = [
-            page for page in candidates if _title_matches(entry.title, page.headings)
-        ]
+        matched = [page for page in candidates if _title_matches(entry.title, page.headings)]
         pool = matched or (candidates if len(candidates) == 1 else [])
         if not pool:
             unmapped.append(entry)

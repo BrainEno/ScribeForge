@@ -32,9 +32,7 @@ def _model_plan(root: Path) -> RuntimePlan:
         environment_dir=root / "envs" / "mineru",
         acceleration="cpu",
         steps=(),
-        model_steps=(
-            InstallStep("download", ("tool", "download"), timeout_seconds=12.5),
-        ),
+        model_steps=(InstallStep("download", ("tool", "download"), timeout_seconds=12.5),),
     )
     return RuntimePlan(root, (backend,))
 
@@ -76,9 +74,7 @@ def test_manager_uses_step_deadline_and_supports_explicit_override(tmp_path: Pat
     assert executor.timeouts == [pytest.approx(12.5, abs=0.1)]
 
     override = TimeoutRecorder()
-    RuntimeManager(tmp_path, override, timeout_seconds=3.5).repair(
-        _model_plan(tmp_path), "mineru"
-    )
+    RuntimeManager(tmp_path, override, timeout_seconds=3.5).repair(_model_plan(tmp_path), "mineru")
     assert override.timeouts == [pytest.approx(3.5, abs=0.1)]
 
 

@@ -108,7 +108,10 @@ class PageAssetEvidence:
 
 
 def parse_page_asset_evidence(
-    sha256: object, byte_size: object, parameters_json: object, version: object,
+    sha256: object,
+    byte_size: object,
+    parameters_json: object,
+    version: object,
 ) -> PageAssetEvidence | None:
     """Parse stored evidence; only four NULLs mean an unknown legacy raster."""
     fields = (sha256, byte_size, parameters_json, version)

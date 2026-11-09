@@ -20,9 +20,7 @@ class RenderedPage:
     #: How these bytes came to exist: DPI, renderer name and version, source
     #: format. Stored with the page so a later audit can explain a raster it did
     #: not produce, rather than only noticing that it changed.
-    render_parameters: Mapping[str, Any] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
+    render_parameters: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         if self.page_index < 0:

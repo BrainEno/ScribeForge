@@ -24,8 +24,14 @@ def test_planner_prefetches_and_verifies_mineru_standard_models(tmp_path: Path) 
     plan = build_runtime_plan(profile, RuntimeLayout(tmp_path))
     mineru = plan.backend("mineru")
 
-    assert any(step.argv[1:5] == ("models", "download", "--tier", "standard") for step in mineru.model_steps)
-    assert any(step.argv[1:5] == ("models", "verify", "--tier", "standard") for step in mineru.health_checks)
+    assert any(
+        step.argv[1:5] == ("models", "download", "--tier", "standard")
+        for step in mineru.model_steps
+    )
+    assert any(
+        step.argv[1:5] == ("models", "verify", "--tier", "standard")
+        for step in mineru.health_checks
+    )
     mineru_environment = dict(mineru.environment)
     assert mineru_environment["MINERU_HOME"].startswith(str(tmp_path))
     assert mineru_environment["MINERU_MODEL_SOURCE"] == "local"

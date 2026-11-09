@@ -25,9 +25,7 @@ PITCH = 0.028
 MEASURE = 28
 
 
-def _line(
-    text: str, index: int, *, indent: int = 0, role: LineRole = LineRole.BODY
-) -> TextLine:
+def _line(text: str, index: int, *, indent: int = 0, role: LineRole = LineRole.BODY) -> TextLine:
     """One visual line at the given row; ``indent`` shifts it in characters."""
 
     char_width = (RIGHT - LEFT) / MEASURE
@@ -39,8 +37,7 @@ def _line(
 
 def _page(*lines: TextLine) -> tuple[str, ...]:
     return tuple(
-        paragraph.text
-        for paragraph in assemble_paragraphs(lines, PageDirection.HORIZONTAL_LR)
+        paragraph.text for paragraph in assemble_paragraphs(lines, PageDirection.HORIZONTAL_LR)
     )
 
 

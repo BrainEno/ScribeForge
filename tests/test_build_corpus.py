@@ -90,9 +90,7 @@ def test_builder_renders_real_pages_and_blocks_scoring_until_transcribed(
     problems = validate_corpus(loaded, out)
 
     # Empty transcriptions are the point: a page cannot score against itself.
-    assert {problem.problem.split(":")[0] for problem in problems} == {
-        "ground truth is blank"
-    }
+    assert {problem.problem.split(":")[0] for problem in problems} == {"ground truth is blank"}
 
     (out / "ground_truth" / "t-010.txt").write_text("甲\n", encoding="utf-8")
     (out / "ground_truth" / "t-014.txt").write_text("乙\n", encoding="utf-8")

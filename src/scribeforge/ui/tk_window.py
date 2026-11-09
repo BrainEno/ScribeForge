@@ -34,9 +34,7 @@ from scribeforge.ui.viewmodel import (
 class ScribeForgeWindow:
     """Keyboard-first review shell over immutable OCR evidence."""
 
-    def __init__(
-        self, root: tk.Tk, store: SQLiteStore, *, crops_dir: Path | None = None
-    ) -> None:
+    def __init__(self, root: tk.Tk, store: SQLiteStore, *, crops_dir: Path | None = None) -> None:
         self._root = root
         self._store = store
         self._crops_dir = crops_dir
@@ -98,22 +96,27 @@ class ScribeForgeWindow:
         choice_row = ttk.Frame(decision_frame)
         choice_row.pack(fill="x", padx=4, pady=(4, 2))
         self.primary_button = ttk.Button(
-            choice_row, text="Use primary [1]",
+            choice_row,
+            text="Use primary [1]",
             command=lambda: self._accept_reading("primary"),
         )
         self.primary_button.pack(side="left", padx=(0, 4))
         self.secondary_button = ttk.Button(
-            choice_row, text="Use secondary [2]",
+            choice_row,
+            text="Use secondary [2]",
             command=lambda: self._accept_reading("secondary"),
         )
         self.secondary_button.pack(side="left", padx=(0, 4))
         self.vlm_button = ttk.Button(
-            choice_row, text="Use VLM [3]",
+            choice_row,
+            text="Use VLM [3]",
             command=lambda: self._accept_reading("vlm"),
         )
         self.vlm_button.pack(side="left", padx=(0, 4))
         self.next_button = ttk.Button(
-            choice_row, text="Next pair [n]", command=self._select_next_pair,
+            choice_row,
+            text="Next pair [n]",
+            command=self._select_next_pair,
         )
         self.next_button.pack(side="left")
         focus_row = ttk.Frame(decision_frame)
@@ -144,7 +147,9 @@ class ScribeForgeWindow:
         self.custom_entry = ttk.Entry(edit_row)
         self.custom_entry.pack(side="left", fill="x", expand=True, padx=(0, 4))
         self.save_button = ttk.Button(
-            edit_row, text="Save [Ctrl+Enter]", command=self._save_custom,
+            edit_row,
+            text="Save [Ctrl+Enter]",
+            command=self._save_custom,
         )
         self.save_button.pack(side="right")
 
@@ -319,9 +324,7 @@ class ScribeForgeWindow:
     def _show_pair(self, row: ReviewRow) -> None:
         if self._project_id is None:
             return
-        view = load_pair_view(
-            self._store, self._project_id, row, crops_dir=self._crops_dir
-        )
+        view = load_pair_view(self._store, self._project_id, row, crops_dir=self._crops_dir)
         self._current_row = row
         self._current_detail = view.detail
         self._current_page_image = view.frame_image
@@ -329,7 +332,9 @@ class ScribeForgeWindow:
         self.custom_entry.delete(0, "end")
         detail_text = render_detail(view.detail)
         if view.detail.crop_path is not None and view.trusted_crop_image is None:
-            detail_text = detail_text.replace(f"crop {view.detail.crop_path}", "crop unavailable or unverified")
+            detail_text = detail_text.replace(
+                f"crop {view.detail.crop_path}", "crop unavailable or unverified"
+            )
         self._set_detail(detail_text)
         self._render_comparison(view.detail)
         self._show_image(
@@ -374,9 +379,7 @@ class ScribeForgeWindow:
         )
         self.secondary_button.configure(
             state=(
-                "normal"
-                if detail is not None and detail.secondary_text is not None
-                else "disabled"
+                "normal" if detail is not None and detail.secondary_text is not None else "disabled"
             )
         )
         self.vlm_button.configure(
@@ -390,9 +393,7 @@ class ScribeForgeWindow:
         )
         self.focus_secondary_button.configure(
             state=(
-                "normal"
-                if detail is not None and detail.secondary_box is not None
-                else "disabled"
+                "normal" if detail is not None and detail.secondary_box is not None else "disabled"
             )
         )
 
@@ -454,8 +455,7 @@ class ScribeForgeWindow:
         self.refresh()
         remaining = len(load_review_rows(self._store, project_id))
         self.status.configure(
-            text=f"accepted page {row.page_index} pair {row.pair_index}; "
-            f"{remaining} pair(s) remain"
+            text=f"accepted page {row.page_index} pair {row.pair_index}; {remaining} pair(s) remain"
         )
 
     def _shortcut_save(self) -> str:
@@ -586,9 +586,7 @@ class ScribeForgeWindow:
         self._photos[holder] = photo
         holder.configure(image=photo)
         focus_note = "" if focus_label is None or focus_box is None else f" — {focus_label}"
-        caption.configure(
-            text=f"{path}  ({preview.width}×{preview.height}){focus_note}"
-        )
+        caption.configure(text=f"{path}  ({preview.width}×{preview.height}){focus_note}")
 
     def _clear_images(self, page_note: str, crop_note: str) -> None:
         self._show_image(
@@ -610,12 +608,8 @@ class ScribeForgeWindow:
 
     def _render_comparison(self, detail: ReviewDetail) -> None:
         """Render stored alignment offsets in two read-only, side-by-side panes."""
-        primary = render_conflict_side(
-            detail.primary_text, detail.conflicts, primary=True
-        )
-        secondary = render_conflict_side(
-            detail.secondary_text, detail.conflicts, primary=False
-        )
+        primary = render_conflict_side(detail.primary_text, detail.conflicts, primary=True)
+        secondary = render_conflict_side(detail.secondary_text, detail.conflicts, primary=False)
         self._selected_conflict_index = None
         self._comparison_presentations = {
             "primary": primary,
@@ -644,6 +638,7 @@ class ScribeForgeWindow:
             if side is not None:
                 index_tag = f"conflict-index-{span.conflict_index}"
                 widget.tag_add(index_tag, start, end)
+
                 def on_conflict_click(
                     event: object,
                     selected_side: str = side,

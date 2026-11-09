@@ -94,9 +94,7 @@ def assess_page(
         kinds = {conflict.kind for conflict in pair.conflicts}
 
         substitutions = [
-            conflict
-            for conflict in pair.conflicts
-            if conflict.kind is ConflictKind.SUBSTITUTION
+            conflict for conflict in pair.conflicts if conflict.kind is ConflictKind.SUBSTITUTION
         ]
         content_score = 0.0
         if substitutions:
@@ -124,9 +122,7 @@ def assess_page(
         left = _lines(primary, pair.primary_line_indexes)
         right = _lines(secondary, pair.secondary_line_indexes)
         confidences = [
-            value
-            for value in (_confidence(line) for line in (*left, *right))
-            if value is not None
+            value for value in (_confidence(line) for line in (*left, *right)) if value is not None
         ]
         if confidences and min(confidences) < 0.80:
             score += 0.25

@@ -169,9 +169,7 @@ def word_error_counts(
     return _edit_distance(reference_words, hypothesis_words), len(reference_words)
 
 
-def word_error_rate(
-    reference: str, hypothesis: str, *, language: str = "en"
-) -> float | None:
+def word_error_rate(reference: str, hypothesis: str, *, language: str = "en") -> float | None:
     counts = word_error_counts(reference, hypothesis, language=language)
     return None if counts is None else error_rate_from_counts(*counts)
 
@@ -188,9 +186,7 @@ def punctuation_accuracy(reference: str, hypothesis: str) -> float:
     return max(0.0, 1.0 - _edit_distance(expected, actual) / len(expected))
 
 
-def reading_order_errors(
-    reference: Sequence[str], hypothesis: Sequence[str]
-) -> int:
+def reading_order_errors(reference: Sequence[str], hypothesis: Sequence[str]) -> int:
     """Count pairwise order inversions among exactly matched lines.
 
     Unmatched lines are excluded: omissions and insertions are measured
@@ -262,9 +258,7 @@ def _similar_line_pairs(
     return pairs
 
 
-def line_error_metrics(
-    reference: Sequence[str], hypothesis: Sequence[str]
-) -> LineErrorMetrics:
+def line_error_metrics(reference: Sequence[str], hypothesis: Sequence[str]) -> LineErrorMetrics:
     """Preserve strict LCS counts and add clearly-scoped changed-line evidence.
 
     Exact LCS unmatched lines are considered for one-to-one pairing by
@@ -285,7 +279,12 @@ def line_error_metrics(
     unmatched_hypothesis: list[str] = []
     i, j = rows, cols
     while i or j:
-        if i and j and reference[i - 1] == hypothesis[j - 1] and table[i][j] == table[i - 1][j - 1] + 1:
+        if (
+            i
+            and j
+            and reference[i - 1] == hypothesis[j - 1]
+            and table[i][j] == table[i - 1][j - 1] + 1
+        ):
             i -= 1
             j -= 1
         elif j and (not i or table[i][j - 1] >= table[i - 1][j]):

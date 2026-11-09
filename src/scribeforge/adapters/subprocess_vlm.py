@@ -15,9 +15,7 @@ class SubprocessVLMReviewer:
         self._model = model
         self._command = tuple(command)
 
-    def transcribe_crop(
-        self, image_path: str, page_index: int, pair_index: int
-    ) -> VLMReading:
+    def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
         completed = subprocess.run(
             [
                 *self._command,

@@ -75,16 +75,18 @@ def _group(pair: LineAlignment) -> tuple[tuple[int, ...], tuple[int, ...]]:
     return pair.primary_line_indexes, pair.secondary_line_indexes
 
 
-def _labelled_groups(fixture: dict[str, object], key: str = "expected_groups") -> set[
-    tuple[tuple[int, ...], tuple[int, ...]]
-]:
+def _labelled_groups(
+    fixture: dict[str, object], key: str = "expected_groups"
+) -> set[tuple[tuple[int, ...], tuple[int, ...]]]:
     return {
         (tuple(item["primary"]), tuple(item["secondary"]))
         for item in fixture.get(key, [])  # type: ignore[union-attr]
     }
 
 
-def _sample(fixture: dict[str, object], primary: PageOCRResult, secondary: PageOCRResult) -> AlignmentSample:
+def _sample(
+    fixture: dict[str, object], primary: PageOCRResult, secondary: PageOCRResult
+) -> AlignmentSample:
     return AlignmentSample(
         name=str(fixture["name"]),
         primary=primary,
@@ -94,10 +96,12 @@ def _sample(fixture: dict[str, object], primary: PageOCRResult, secondary: PageO
             for item in fixture.get("expected_groups", [])  # type: ignore[union-attr]
         ),
         primary_columns=tuple(
-            str(row["column"]) for row in fixture["primary"]  # type: ignore[index]
+            str(row["column"])
+            for row in fixture["primary"]  # type: ignore[index]
         ),
         secondary_columns=tuple(
-            str(row["column"]) for row in fixture["secondary"]  # type: ignore[index]
+            str(row["column"])
+            for row in fixture["secondary"]  # type: ignore[index]
         ),
         expect_ambiguity=bool(fixture.get("expected_ambiguities")),
     )
@@ -180,10 +184,7 @@ def test_close_scores_expose_original_line_alternatives_without_pairing() -> Non
     assert {
         (alternative.primary_line_indexes, alternative.secondary_line_indexes)
         for alternative in pair.ambiguity.alternatives
-    } == {
-        (tuple(item["primary"]), tuple(item["secondary"]))
-        for item in expected["alternatives"]
-    }
+    } == {(tuple(item["primary"]), tuple(item["secondary"])) for item in expected["alternatives"]}
 
 
 def test_alignment_is_deterministic_including_ambiguity() -> None:
@@ -230,7 +231,10 @@ def test_multiline_alignment_and_ambiguity_round_trip_without_text_loss(
     project_id = store.create_project("Book", "book.pdf", "hash")
     store.add_page(project_id, 0, "page.png", 1000, 2000)
 
-    for fixture in (_FIXTURES[0], next(item for item in _FIXTURES if item.get("expected_ambiguities"))):
+    for fixture in (
+        _FIXTURES[0],
+        next(item for item in _FIXTURES if item.get("expected_ambiguities")),
+    ):
         primary, secondary = _pages(fixture)
         primary_id = store.record_ocr(project_id, primary)
         secondary_id = store.record_ocr(project_id, secondary)
@@ -285,9 +289,7 @@ def test_multiline_decision_cites_the_whole_group_not_only_scalar_anchors(
     secondary_id = store.record_ocr(project_id, secondary)
     alignment = align_pages(primary, secondary)
     risks = assess_page(alignment, primary, secondary)
-    verification_id = store.record_verification(
-        primary_id, secondary_id, alignment, risks, ()
-    )
+    verification_id = store.record_verification(primary_id, secondary_id, alignment, risks, ())
 
     outcome = adjudicate_verification(store, project_id, verification_id)
     decision = store.latest_decision(project_id, 0, 0)
@@ -400,9 +402,7 @@ def test_missing_new_membership_evidence_fails_closed(tmp_path: Path) -> None:
     secondary_id = store.record_ocr(project_id, secondary)
     alignment = align_pages(primary, secondary)
     risks = assess_page(alignment, primary, secondary)
-    verification_id = store.record_verification(
-        primary_id, secondary_id, alignment, risks, ()
-    )
+    verification_id = store.record_verification(primary_id, secondary_id, alignment, risks, ())
 
     with sqlite3.connect(tmp_path / "project.sqlite3") as connection:
         connection.execute("DELETE FROM alignment_line_members WHERE side = 'secondary'")

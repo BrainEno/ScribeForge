@@ -460,7 +460,9 @@ def _matched_profiles(
         return None
 
     similarity = similarity_for_comparison(primary.text, secondary.text)
-    if (len(primary.indexes) > 1 or len(secondary.indexes) > 1) and similarity < _MIN_MULTI_SIMILARITY:
+    if (
+        len(primary.indexes) > 1 or len(secondary.indexes) > 1
+    ) and similarity < _MIN_MULTI_SIMILARITY:
         return None
     spatial_score = max(0.0, 1.0 - distance / max_cross_axis_distance)
     extra_boundaries = len(primary.indexes) + len(secondary.indexes) - 2
@@ -600,12 +602,14 @@ def _with_close_score_ambiguity(
     best_candidates = set(best.candidates)
     second_candidates = set(second.candidates)
     changed = best_candidates ^ second_candidates
-    alternatives = [candidate for candidate in changed if candidate.primary_line_indexes and candidate.secondary_line_indexes]
+    alternatives = [
+        candidate
+        for candidate in changed
+        if candidate.primary_line_indexes and candidate.secondary_line_indexes
+    ]
     if len(alternatives) < 2:
         return best.candidates
-    changed_primary = {
-        index for candidate in changed for index in candidate.primary_line_indexes
-    }
+    changed_primary = {index for candidate in changed for index in candidate.primary_line_indexes}
     changed_secondary = {
         index for candidate in changed for index in candidate.secondary_line_indexes
     }
@@ -694,8 +698,7 @@ def _improve_local_crossings(
             secondary.lines[second.secondary_line_indexes[0]],
         ]
         if not (
-            _internally_adjacent(primary_lines, 0.0)
-            and _internally_adjacent(secondary_lines, 0.0)
+            _internally_adjacent(primary_lines, 0.0) and _internally_adjacent(secondary_lines, 0.0)
         ):
             result.append(first)
             index += 1
@@ -718,9 +721,7 @@ def _improve_local_crossings(
         )
         improvement = float("-inf")
         if crossed_first is not None and crossed_second is not None:
-            improvement = (
-                crossed_first.score + crossed_second.score - first.score - second.score
-            )
+            improvement = crossed_first.score + crossed_second.score - first.score - second.score
         if improvement > ambiguity_margin:
             assert crossed_first is not None and crossed_second is not None
             result.extend((crossed_first, crossed_second))
@@ -863,9 +864,7 @@ def _pair_columns(
                 secondary.lines[index].text for index in secondary_indexes
             )
             primary_box = _union_boxes([primary.lines[index] for index in primary_indexes])
-            secondary_box = _union_boxes(
-                [secondary.lines[index] for index in secondary_indexes]
-            )
+            secondary_box = _union_boxes([secondary.lines[index] for index in secondary_indexes])
             distance = abs(
                 _box_cross_center(primary_box, direction)
                 - _box_cross_center(secondary_box, direction)
@@ -894,16 +893,8 @@ def _pair_columns(
             ),
         )
         alternatives = tuple(candidate_evidence[index] for index in order)
-        component_primary = {
-            index
-            for edge in candidates
-            for index in primary_columns[edge[0]]
-        }
-        component_secondary = {
-            index
-            for edge in candidates
-            for index in secondary_columns[edge[1]]
-        }
+        component_primary = {index for edge in candidates for index in primary_columns[edge[0]]}
+        component_secondary = {index for edge in candidates for index in secondary_columns[edge[1]]}
         affected_primary = tuple(
             sorted(
                 component_primary,
@@ -957,9 +948,7 @@ def _pair_columns(
                 options.append((values[i][j - 1] - 2.5, 0, (i, j - 1, "secondary")))
             if not options:
                 continue
-            score, _preference, best_move = max(
-                options, key=lambda option: (option[0], option[1])
-            )
+            score, _preference, best_move = max(options, key=lambda option: (option[0], option[1]))
             values[i][j] = score
             moves[i][j] = best_move
 
@@ -985,9 +974,7 @@ def _line_alignment(
     primary_indexes = candidate.primary_line_indexes
     secondary_indexes = candidate.secondary_line_indexes
     primary_text = assemble_group_text(primary.lines[index].text for index in primary_indexes)
-    secondary_text = assemble_group_text(
-        secondary.lines[index].text for index in secondary_indexes
-    )
+    secondary_text = assemble_group_text(secondary.lines[index].text for index in secondary_indexes)
     if primary_indexes and secondary_indexes:
         conflicts = _diff_text(primary_text, secondary_text)
     elif primary_indexes:
@@ -1057,7 +1044,9 @@ def align_pages(
     if ambiguity_margin < 0:
         raise ValueError("ambiguity margin must be non-negative")
 
-    page_direction = direction if direction is not None else resolve_page_direction(primary, secondary)
+    page_direction = (
+        direction if direction is not None else resolve_page_direction(primary, secondary)
+    )
     primary_columns = _group_line_indexes_into_columns(primary.lines, page_direction)
     secondary_columns = _group_line_indexes_into_columns(secondary.lines, page_direction)
     paired_columns, column_ambiguities = _pair_columns(
@@ -1081,7 +1070,10 @@ def align_pages(
         secondary_order = tuple(
             sorted(
                 secondary_column,
-                key=lambda index: (*reading_order_key(secondary.lines[index], page_direction), index),
+                key=lambda index: (
+                    *reading_order_key(secondary.lines[index], page_direction),
+                    index,
+                ),
             )
         )
         best, second = _two_best_paths(
@@ -1124,7 +1116,9 @@ def align_pages(
     order = sorted(
         range(len(pairs)),
         key=lambda index: (
-            *reading_order_key(_pair_reference_line(pairs[index], primary, secondary), page_direction),
+            *reading_order_key(
+                _pair_reference_line(pairs[index], primary, secondary), page_direction
+            ),
             pairs[index].primary_line_indexes,
             pairs[index].secondary_line_indexes,
         ),

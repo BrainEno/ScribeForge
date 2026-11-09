@@ -15,9 +15,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 _RESAMPLE = Image.Resampling.LANCZOS
 
 
-def load_preview(
-    path: Path, *, box: tuple[int, int], upscale: bool = False
-) -> Image.Image:
+def load_preview(path: Path, *, box: tuple[int, int], upscale: bool = False) -> Image.Image:
     """Open an image as an RGB preview fitted into ``box``.
 
     ``upscale`` enlarges small crops so the reviewer can read them; without it a

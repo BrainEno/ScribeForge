@@ -56,10 +56,13 @@ def create_project_backup(
 @contextmanager
 def _backup_project_locks(database: Path) -> Iterator[None]:
     """Hold every existing project's cooperative writer lock through publication."""
+
     def project_ids() -> tuple[int, ...]:
         try:
             with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as db:
-                return tuple(int(row[0]) for row in db.execute("SELECT id FROM projects ORDER BY id"))
+                return tuple(
+                    int(row[0]) for row in db.execute("SELECT id FROM projects ORDER BY id")
+                )
         except sqlite3.Error as exc:
             raise ProjectBackupError(f"could not inspect project locks: {exc}") from exc
 
@@ -74,7 +77,9 @@ def _backup_project_locks(database: Path) -> Iterator[None]:
                 "project has a running job or active writer; wait for processing to finish before backup"
             ) from exc
         if project_ids() != before:
-            raise ProjectBackupError("project list changed during backup; retry after processing stops")
+            raise ProjectBackupError(
+                "project list changed during backup; retry after processing stops"
+            )
         yield
 
 
@@ -94,7 +99,9 @@ def _create_locked_backup(
         file_map: dict[str, Path] = {"project.sqlite3": snapshot}
         for candidate in sorted(root.rglob("*")):
             if candidate.is_symlink():
-                raise ProjectBackupError(f"project store contains a symlink; backup refused: {candidate}")
+                raise ProjectBackupError(
+                    f"project store contains a symlink; backup refused: {candidate}"
+                )
             if not candidate.is_file():
                 continue
             relative = candidate.relative_to(root).as_posix()
@@ -151,11 +158,11 @@ def _create_locked_backup(
             )
             live_warnings = Counter(
                 (finding.code, finding.message)
-                for finding in audit.findings if finding.severity == "warning"
+                for finding in audit.findings
+                if finding.severity == "warning"
             )
             archived_warnings = Counter(
-                (finding["code"], finding["message"])
-                for finding in validation["audit_warnings"]
+                (finding["code"], finding["message"]) for finding in validation["audit_warnings"]
             )
             if live_warnings != archived_warnings:
                 raise ProjectBackupError(
@@ -219,7 +226,9 @@ def restore_project_backup(backup_path: Path, target_path: Path) -> dict[str, An
     if target.exists():
         raise FileExistsError(f"restore destination already exists: {target}")
     if target == archive_path or target.is_relative_to(archive_path):
-        raise ProjectBackupError("restore destination must be a directory separate from the backup file")
+        raise ProjectBackupError(
+            "restore destination must be a directory separate from the backup file"
+        )
 
     manifest, files, total_bytes, _integrity, _fk_violations = _verify_archive(archive_path)
     return _restore_verified_archive(archive_path, target, manifest, files, total_bytes)
@@ -256,9 +265,7 @@ def _restore_verified_archive(
         _remap_page_assets(database, stage, archived_names)
         _remap_project_sources(database, stage, manifest["sources"])
         audit = audit_project_store(stage)
-        blocking = [
-            finding for finding in audit.findings if finding.severity in {"fatal", "error"}
-        ]
+        blocking = [finding for finding in audit.findings if finding.severity in {"fatal", "error"}]
         if blocking:
             detail = "; ".join(f"{item.code}: {item.message}" for item in blocking)
             raise ProjectBackupError(f"restored project failed integrity checks: {detail}")
@@ -302,19 +309,19 @@ def _snapshot_database(source_path: Path, destination_path: Path) -> None:
     _validate_sqlite_database(destination_path)
 
 
-
 def _assert_no_running_jobs(connection: sqlite3.Connection) -> None:
     table_exists = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='jobs'"
     ).fetchone()
     if table_exists is not None:
-        running = int(connection.execute(
-            "SELECT COUNT(*) FROM jobs WHERE state = 'running'"
-        ).fetchone()[0])
+        running = int(
+            connection.execute("SELECT COUNT(*) FROM jobs WHERE state = 'running'").fetchone()[0]
+        )
         if running:
             raise ProjectBackupError(
                 f"project has {running} running job(s); wait for processing to finish before backup"
             )
+
 
 def _verify_archive(
     archive_path: Path,
@@ -472,12 +479,7 @@ def _validate_source_records(database: Path, sources: list[dict[str, Any]]) -> N
 
 
 def _validate_archive_path(value: str) -> None:
-    if (
-        not value
-        or "\\" in value
-        or value.startswith(("/", "\\"))
-        or ":" in value
-    ):
+    if not value or "\\" in value or value.startswith(("/", "\\")) or ":" in value:
         raise ProjectBackupError(f"unsafe archive path: {value!r}")
     path = PurePosixPath(value)
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
@@ -528,16 +530,22 @@ def _validate_portable_path_collisions(names: Iterable[str]) -> None:
                 )
 
 
-def _remap_page_assets(database: Path, destination_root: Path, archive_names: Iterable[str]) -> None:
+def _remap_page_assets(
+    database: Path, destination_root: Path, archive_names: Iterable[str]
+) -> None:
     internal_assets = [
-        name for name in archive_names if name.startswith("assets/") and len(PurePosixPath(name).parts) > 1
+        name
+        for name in archive_names
+        if name.startswith("assets/") and len(PurePosixPath(name).parts) > 1
     ]
     preprocessed_assets = [
-        name for name in archive_names
+        name
+        for name in archive_names
         if name.startswith("preprocessed/") and len(PurePosixPath(name).parts) > 1
     ]
     crop_assets = [
-        name for name in archive_names
+        name
+        for name in archive_names
         if name.startswith("crops/") and len(PurePosixPath(name).parts) > 1
     ]
     if not internal_assets and not preprocessed_assets and not crop_assets:
@@ -567,13 +575,20 @@ def _remap_page_assets(database: Path, destination_root: Path, archive_names: It
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='page_preprocess'"
             ).fetchone()
             if preprocess_exists:
-                rows = connection.execute("SELECT page_id, output_image FROM page_preprocess").fetchall()
+                rows = connection.execute(
+                    "SELECT page_id, output_image FROM page_preprocess"
+                ).fetchall()
                 for page_id, original in rows:
                     normalized = str(original).replace("\\", "/").lstrip("./")
-                    matches = [name for name in preprocessed_assets
-                               if normalized == name or normalized.endswith("/" + name)]
+                    matches = [
+                        name
+                        for name in preprocessed_assets
+                        if normalized == name or normalized.endswith("/" + name)
+                    ]
                     if len(matches) == 1:
-                        restored_path = str((destination_root / PurePosixPath(matches[0])).resolve())
+                        restored_path = str(
+                            (destination_root / PurePosixPath(matches[0])).resolve()
+                        )
                         connection.execute(
                             "UPDATE page_preprocess SET output_image = ? WHERE page_id = ?",
                             (restored_path, int(page_id)),
@@ -587,10 +602,15 @@ def _remap_page_assets(database: Path, destination_root: Path, archive_names: It
                         f"SELECT id, crop_path FROM {table}"
                     ).fetchall():
                         normalized = str(original).replace("\\", "/").lstrip("./")
-                        matches = [name for name in crop_assets
-                                   if normalized == name or normalized.endswith("/" + name)]
+                        matches = [
+                            name
+                            for name in crop_assets
+                            if normalized == name or normalized.endswith("/" + name)
+                        ]
                         if len(matches) == 1:
-                            restored_path = str((destination_root / PurePosixPath(matches[0])).resolve())
+                            restored_path = str(
+                                (destination_root / PurePosixPath(matches[0])).resolve()
+                            )
                             connection.execute(
                                 f"UPDATE {table} SET crop_path = ? WHERE id = ?",
                                 (restored_path, int(row_id)),
@@ -652,7 +672,6 @@ def _stream_file_to_zip(
             size += len(chunk)
     if size != expected_size or digest.hexdigest() != expected_sha256:
         raise ProjectBackupError(f"project file changed while backing up: {source_path}")
-
 
 
 def _prepare_source_files(
@@ -748,9 +767,10 @@ def _validate_page_asset_references(database: Path, archive_names: set[str]) -> 
     references: list[tuple[str, str, str]] = []
     try:
         with closing(sqlite3.connect(database)) as connection:
-            tables = {row[0] for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )}
+            tables = {
+                row[0]
+                for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
             for table, column, directory, label in (
                 ("pages", "source_image", "assets", "page image"),
                 ("page_preprocess", "output_image", "preprocessed", "preprocessed image"),
@@ -767,7 +787,8 @@ def _validate_page_asset_references(database: Path, archive_names: set[str]) -> 
     for original, directory, label in references:
         normalized = original.replace("\\", "/").lstrip("./")
         matches = [
-            name for name in archive_names
+            name
+            for name in archive_names
             if name.startswith(directory + "/")
             and len(PurePosixPath(name).parts) > 1
             and (normalized == name or normalized.endswith("/" + name))

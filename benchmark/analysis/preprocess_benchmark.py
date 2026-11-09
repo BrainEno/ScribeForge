@@ -83,9 +83,7 @@ def _degrade(image: Image.Image, name: str) -> Image.Image:
 
     if name.startswith("skew-") and name.endswith("deg"):
         degrees = float(name.split("-")[1].removesuffix("deg"))
-        return gray.rotate(
-            degrees, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=255
-        )
+        return gray.rotate(degrees, resample=Image.Resampling.BICUBIC, expand=False, fillcolor=255)
 
     if name == "spine-shadow":
         width, height = gray.size
@@ -94,9 +92,9 @@ def _degrade(image: Image.Image, name: str) -> Image.Image:
         for x in range(width):
             value = int(255 * (0.55 + 0.45 * min(1.0, x / (width * 0.6))))
             draw.line([(x, 0), (x, height)], fill=value)
-        product = np.asarray(gray, dtype=np.float32) * np.asarray(
-            gradient, dtype=np.float32
-        ) / 255.0
+        product = (
+            np.asarray(gray, dtype=np.float32) * np.asarray(gradient, dtype=np.float32) / 255.0
+        )
         return Image.fromarray(np.clip(product, 0, 255).astype(np.uint8), mode="L")
 
     if name == "faded":
@@ -143,14 +141,10 @@ def evaluate_page(image_path: Path, variants: tuple[Variant, ...]) -> list[dict]
             if variant.operations is None
             else replace(
                 settings,
-                operations=tuple(
-                    PreprocessOperation(name) for name in variant.operations
-                ),
+                operations=tuple(PreprocessOperation(name) for name in variant.operations),
             )
         )
-        data, outcome = apply_preprocess(
-            buffer.getvalue(), variant_settings, page_index=0
-        )
+        data, outcome = apply_preprocess(buffer.getvalue(), variant_settings, page_index=0)
         with Image.open(io.BytesIO(data)) as corrected_image:
             corrected = corrected_image.convert("L")
         corrected_sep = _separability(np.asarray(corrected, dtype=np.float32))
@@ -188,9 +182,7 @@ def summarize(rows: list[dict]) -> dict:
 
     summary: dict[str, dict] = {}
     for variant, group in by_variant.items():
-        detected_ops = sorted(
-            {operation for row in group for operation in row["applied"]}
-        )
+        detected_ops = sorted({operation for row in group for operation in row["applied"]})
         summary[variant] = {
             "pages": len(group),
             "operations_seen": detected_ops,
@@ -209,14 +201,12 @@ def summarize(rows: list[dict]) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--json", type=Path, default=ANALYSIS_DIR / "preprocess_measurements.json"
-    )
+    parser.add_argument("--json", type=Path, default=ANALYSIS_DIR / "preprocess_measurements.json")
     args = parser.parse_args(argv)
 
     images = sorted((CORPUS_DIR / "images").glob("*.png"))
     if not images:
-        print(f"no corpus images under {CORPUS_DIR/'images'}; run the corpus extraction first")
+        print(f"no corpus images under {CORPUS_DIR / 'images'}; run the corpus extraction first")
         return 2
 
     rows: list[dict] = []

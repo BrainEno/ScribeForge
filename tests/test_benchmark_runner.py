@@ -48,11 +48,7 @@ def test_runner_records_language_tags_and_timing(tmp_path: Path) -> None:
     (tmp_path / "truth.txt").write_text("你好,世界。", encoding="utf-8")
     manifest = BenchmarkManifest(
         1,
-        (
-            BenchmarkCase(
-                "case-1", "page.png", "truth.txt", "zh", ("body", "punctuation")
-            ),
-        ),
+        (BenchmarkCase("case-1", "page.png", "truth.txt", "zh", ("body", "punctuation")),),
     )
     ticks = iter((10.0, 12.5))
 

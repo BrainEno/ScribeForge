@@ -149,8 +149,10 @@ class PageRecord:
 
     def asset_evidence(self) -> PageAssetEvidence | None:
         return parse_page_asset_evidence(
-            self.page_asset_sha256, self.page_asset_byte_size,
-            self.page_asset_parameters_json, self.page_asset_version,
+            self.page_asset_sha256,
+            self.page_asset_byte_size,
+            self.page_asset_parameters_json,
+            self.page_asset_version,
         )
 
 
@@ -245,9 +247,7 @@ class SQLiteStore:
         and accidentally create two simultaneous owners.
         """
 
-        database_identity = os.fsencode(
-            os.path.normcase(str(self._path.resolve()))
-        )
+        database_identity = os.fsencode(os.path.normcase(str(self._path.resolve())))
         database_key = hashlib.sha256(database_identity).hexdigest()
         return (
             Path(tempfile.gettempdir())
@@ -271,9 +271,7 @@ class SQLiteStore:
                     handle.flush()
                 handle.seek(0)
                 windows_locking = cast(Any, msvcrt)
-                windows_locking.locking(
-                    handle.fileno(), windows_locking.LK_NBLCK, 1
-                )
+                windows_locking.locking(handle.fileno(), windows_locking.LK_NBLCK, 1)
             else:
                 import fcntl
 
@@ -308,9 +306,7 @@ class SQLiteStore:
 
                 handle.seek(0)
                 windows_locking = cast(Any, msvcrt)
-                windows_locking.locking(
-                    handle.fileno(), windows_locking.LK_UNLCK, 1
-                )
+                windows_locking.locking(handle.fileno(), windows_locking.LK_UNLCK, 1)
             else:
                 import fcntl
 
@@ -1095,10 +1091,14 @@ class SQLiteStore:
         if found is None:
             return None
         if require_missing and found["page_asset_sha256"] is not None:
-            raise PageAssetError(f"page {page_id} evidence changed during rehash; retry after audit")
+            raise PageAssetError(
+                f"page {page_id} evidence changed during rehash; retry after audit"
+            )
         existing = parse_page_asset_evidence(
-            found["page_asset_sha256"], found["page_asset_byte_size"],
-            found["page_asset_parameters_json"], found["page_asset_version"],
+            found["page_asset_sha256"],
+            found["page_asset_byte_size"],
+            found["page_asset_parameters_json"],
+            found["page_asset_version"],
         )
         path = Path(str(found["source_image"])).expanduser()
         if not path.is_file():
@@ -1119,7 +1119,9 @@ class SQLiteStore:
                     "restore it from a verified backup instead of rehashing"
                 )
             if existing.byte_size != byte_size:
-                raise PageAssetError(f"page {page_id} recorded evidence is incomplete or inconsistent")
+                raise PageAssetError(
+                    f"page {page_id} recorded evidence is incomplete or inconsistent"
+                )
             return existing
         if _measure_page_asset(path) != (actual, byte_size):
             raise PageAssetError(f"page {page_id} raster changed during rehash; retry after audit")
@@ -1258,9 +1260,7 @@ class SQLiteStore:
                 raise KeyError(f"unknown OCR run for engine {engine} on page {page_index}")
             return int(row["id"])
 
-    def list_scoped_run_ids(
-        self, project_id: int, page_index: int, scope: str
-    ) -> tuple[int, ...]:
+    def list_scoped_run_ids(self, project_id: int, page_index: int, scope: str) -> tuple[int, ...]:
         """Return the runs of one region of a page, oldest first.
 
         Region scopes are how a repair round's re-reads stay distinguishable from
@@ -1286,9 +1286,7 @@ class SQLiteStore:
             ).fetchall()
             return tuple(int(row["id"]) for row in rows)
 
-    def latest_decision_actors(
-        self, project_id: int
-    ) -> dict[tuple[int, int], str]:
+    def latest_decision_actors(self, project_id: int) -> dict[tuple[int, int], str]:
         """Return the newest decision actor for every decided page pair.
 
         Used to report how much of a book was accepted without a human: the
@@ -1314,8 +1312,7 @@ class SQLiteStore:
                 (project_id,),
             ).fetchall()
             return {
-                (int(row["page_index"]), int(row["pair_index"])): str(row["actor"])
-                for row in rows
+                (int(row["page_index"]), int(row["pair_index"])): str(row["actor"]) for row in rows
             }
 
     def latest_verification_id(self, project_id: int, page_index: int) -> int:
@@ -1344,7 +1341,9 @@ class SQLiteStore:
                 raise KeyError(f"unknown verification run for page {page_index}")
             verification_id = int(row["id"])
             findings = inspect_latest_decisions(
-                connection, int(row["page_id"]), verification_id,
+                connection,
+                int(row["page_id"]),
+                verification_id,
                 multiple_runs=int(row["run_count"]) > 1,
             )
             for decision, status in findings:
@@ -1419,9 +1418,7 @@ class SQLiteStore:
         with self._connection() as connection:
             self._require_project(connection, project_id)
             page_id = (
-                None
-                if page_index is None
-                else self._page_id(connection, project_id, page_index)
+                None if page_index is None else self._page_id(connection, project_id, page_index)
             )
             connection.execute(
                 """
@@ -1456,12 +1453,8 @@ class SQLiteStore:
             project_id = self.load_job(job_id).project_id
             if project_id in self._writer_locks:
                 active_job_id = self._active_job_ids[project_id]
-                raise JobAlreadyRunningError(
-                    f"this store already owns running job {active_job_id}"
-                )
-            self._writer_locks[project_id] = self._acquire_project_writer_lock(
-                project_id
-            )
+                raise JobAlreadyRunningError(f"this store already owns running job {active_job_id}")
+            self._writer_locks[project_id] = self._acquire_project_writer_lock(project_id)
             try:
                 with self._connection() as connection:
                     current = self._job_record(self._job_row(connection, job_id))
@@ -1484,13 +1477,8 @@ class SQLiteStore:
                 raise
 
     def _require_job_owner(self, job_id: int, project_id: int) -> None:
-        if (
-            project_id not in self._writer_locks
-            or self._active_job_ids.get(project_id) != job_id
-        ):
-            raise JobOwnershipError(
-                f"this store does not own running job {job_id}"
-            )
+        if project_id not in self._writer_locks or self._active_job_ids.get(project_id) != job_id:
+            raise JobOwnershipError(f"this store does not own running job {job_id}")
 
     def complete_job(self, job_id: int) -> JobRecord:
         with self._ownership_guard:
@@ -1659,9 +1647,7 @@ class SQLiteStore:
             )
             return page_id
 
-    def load_preprocess(
-        self, project_id: int, page_index: int
-    ) -> PreprocessRecord | None:
+    def load_preprocess(self, project_id: int, page_index: int) -> PreprocessRecord | None:
         """Return the stored preprocessing evidence, or ``None`` if absent."""
 
         with self._connection() as connection:
@@ -1809,9 +1795,7 @@ class SQLiteStore:
             label = PageLabel(
                 printed_label=str(row["printed_label"] or ""),
                 scheme=scheme,
-                sequence=(
-                    None if row["sequence_number"] is None else int(row["sequence_number"])
-                ),
+                sequence=(None if row["sequence_number"] is None else int(row["sequence_number"])),
                 sequence_ordinal=(
                     None if row["sequence_ordinal"] is None else int(row["sequence_ordinal"])
                 ),
@@ -1819,15 +1803,9 @@ class SQLiteStore:
             pages.append(
                 PageStructure(
                     page_index=int(row["page_index"]),
-                    role=(
-                        PageRole.UNKNOWN
-                        if row["role"] is None
-                        else PageRole(str(row["role"]))
-                    ),
+                    role=(PageRole.UNKNOWN if row["role"] is None else PageRole(str(row["role"]))),
                     label=label,
-                    ink_ratio=(
-                        None if row["ink_ratio"] is None else float(row["ink_ratio"])
-                    ),
+                    ink_ratio=(None if row["ink_ratio"] is None else float(row["ink_ratio"])),
                 )
             )
 
@@ -1845,7 +1823,11 @@ class SQLiteStore:
         return BookStructure(tuple(pages), chapters)
 
     def record_ocr(
-        self, project_id: int, result: PageOCRResult, *, scope: str | None = None,
+        self,
+        project_id: int,
+        result: PageOCRResult,
+        *,
+        scope: str | None = None,
         frame: OCRInputFrame | None = None,
         crop_input: CropInputEvidence | None = None,
         expected_page: PageRecord | None = None,
@@ -1950,8 +1932,9 @@ class SQLiteStore:
             ).fetchone()
             if row is None:
                 return None
-            return OCRInputFrame(str(row["kind"]), str(row["sha256"]),
-                                 int(row["width"]), int(row["height"]))
+            return OCRInputFrame(
+                str(row["kind"]), str(row["sha256"]), int(row["width"]), int(row["height"])
+            )
 
     def load_ocr_run(self, run_id: int) -> PageOCRResult:
         with self._connection() as connection:
@@ -2066,9 +2049,7 @@ class SQLiteStore:
             )
 
     @staticmethod
-    def _engine_evidence(
-        connection: sqlite3.Connection, run_id: int
-    ) -> sqlite3.Row:
+    def _engine_evidence(connection: sqlite3.Connection, run_id: int) -> sqlite3.Row:
         row = connection.execute(
             """
             SELECT engine_runs.id, engine_runs.page_id, engine_runs.engine,
@@ -2153,9 +2134,12 @@ class SQLiteStore:
             self._validate_verification(
                 connection, primary, secondary, alignment, risks, candidates
             )
-            if connection.execute(
-                "SELECT 1 FROM decisions WHERE page_id = ? LIMIT 1", (primary["page_id"],)
-            ).fetchone() is not None:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM decisions WHERE page_id = ? LIMIT 1", (primary["page_id"],)
+                ).fetchone()
+                is not None
+            ):
                 raise ValueError(
                     "verification cannot be replaced after decisions exist; create a new project"
                 )
@@ -2220,9 +2204,7 @@ class SQLiteStore:
                             pair.ambiguity.score_margin,
                         ),
                     )
-                    for alternative_index, alternative in enumerate(
-                        pair.ambiguity.alternatives
-                    ):
+                    for alternative_index, alternative in enumerate(pair.ambiguity.alternatives):
                         alternative_cursor = connection.execute(
                             """
                             INSERT INTO alignment_alternatives(
@@ -2379,9 +2361,7 @@ class SQLiteStore:
             indexes: dict[str, tuple[int, ...]] = {"primary": (), "secondary": ()}
             for side in ("primary", "secondary"):
                 indexes[side] = tuple(
-                    int(member["line_index"])
-                    for member in member_rows
-                    if member["side"] == side
+                    int(member["line_index"]) for member in member_rows if member["side"] == side
                 )
             alternatives.append(
                 AlignmentAlternative(
@@ -2457,9 +2437,7 @@ class SQLiteStore:
                     for conflict in conflict_rows
                 )
                 primary_scalar = (
-                    None
-                    if row["primary_line_index"] is None
-                    else int(row["primary_line_index"])
+                    None if row["primary_line_index"] is None else int(row["primary_line_index"])
                 )
                 secondary_scalar = (
                     None
@@ -2538,8 +2516,7 @@ class SQLiteStore:
                     pair_index=alignment_ids[int(row["alignment_id"])],
                     score=float(row["score"]),
                     reasons=tuple(
-                        RiskReason(value)
-                        for value in self._json_strings(row["reasons_json"])
+                        RiskReason(value) for value in self._json_strings(row["reasons_json"])
                     ),
                     crop=BoundingBox(
                         float(row["crop_x"]),
@@ -2640,9 +2617,12 @@ class SQLiteStore:
         crop_input: CropInputEvidence | None = None,
         expected_page: PageRecord | None = None,
     ) -> int:
-        if crop_input is not None and (crop_input.verification_id != verification_id or
-                crop_input.pair_index != reading.pair_index or crop_input.crop_path != crop_path or
-                crop_input.crop_sha256 != crop_sha256):
+        if crop_input is not None and (
+            crop_input.verification_id != verification_id
+            or crop_input.pair_index != reading.pair_index
+            or crop_input.crop_path != crop_path
+            or crop_input.crop_sha256 != crop_sha256
+        ):
             raise ValueError("VLM crop evidence does not match reading")
         if not crop_path.strip():
             raise ValueError("VLM review crop path is required")
@@ -2683,35 +2663,63 @@ class SQLiteStore:
             return review_id
 
     @staticmethod
-    def _insert_crop_input(connection: sqlite3.Connection, evidence: CropInputEvidence, *,
-                           ocr_run_id: int | None = None, vlm_review_id: int | None = None) -> None:
-        row = connection.execute("""SELECT v.page_id, f.sha256, f.width, f.height,
+    def _insert_crop_input(
+        connection: sqlite3.Connection,
+        evidence: CropInputEvidence,
+        *,
+        ocr_run_id: int | None = None,
+        vlm_review_id: int | None = None,
+    ) -> None:
+        row = connection.execute(
+            """SELECT v.page_id, f.sha256, f.width, f.height,
                     f.kind, f2.sha256 AS second_sha256, f2.width AS second_width,
                     f2.height AS second_height, f2.kind AS second_kind
             FROM verification_runs v
             JOIN ocr_input_frames f ON f.run_id = v.primary_run_id
             JOIN ocr_input_frames f2 ON f2.run_id = v.secondary_run_id
             JOIN alignments a ON a.verification_run_id = v.id AND a.pair_index = ?
-            WHERE v.id = ?""", (evidence.pair_index, evidence.verification_id)).fetchone()
-        if row is None or row["sha256"] != evidence.frame_sha256 or (
-            row["sha256"], row["width"], row["height"], row["kind"]
-        ) != (row["second_sha256"], row["second_width"], row["second_height"], row["second_kind"]):
+            WHERE v.id = ?""",
+            (evidence.pair_index, evidence.verification_id),
+        ).fetchone()
+        if (
+            row is None
+            or row["sha256"] != evidence.frame_sha256
+            or (row["sha256"], row["width"], row["height"], row["kind"])
+            != (row["second_sha256"], row["second_width"], row["second_height"], row["second_kind"])
+        ):
             raise ValueError("crop frame does not match verification evidence")
-        if evidence.x + evidence.width > int(row["width"]) or evidence.y + evidence.height > int(row["height"]):
+        if evidence.x + evidence.width > int(row["width"]) or evidence.y + evidence.height > int(
+            row["height"]
+        ):
             raise ValueError("crop geometry exceeds frame")
         if ocr_run_id is not None:
-            run = connection.execute("SELECT page_id, scope FROM engine_runs WHERE id = ?", (ocr_run_id,)).fetchone()
+            run = connection.execute(
+                "SELECT page_id, scope FROM engine_runs WHERE id = ?", (ocr_run_id,)
+            ).fetchone()
             if run is None or run["page_id"] != row["page_id"]:
                 raise ValueError("crop OCR run page does not match verification page")
             if run["scope"] != f"pair:{evidence.pair_index}":
                 raise ValueError("crop OCR scope does not match verification pair")
-        connection.execute("""INSERT INTO crop_input_evidence
+        connection.execute(
+            """INSERT INTO crop_input_evidence
             (ocr_run_id, vlm_review_id, verification_id, pair_index, frame_sha256,
              crop_sha256, crop_path, x, y, width, height, scale)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (ocr_run_id, vlm_review_id, evidence.verification_id, evidence.pair_index,
-             evidence.frame_sha256, evidence.crop_sha256, evidence.crop_path,
-             evidence.x, evidence.y, evidence.width, evidence.height, evidence.scale))
+            (
+                ocr_run_id,
+                vlm_review_id,
+                evidence.verification_id,
+                evidence.pair_index,
+                evidence.frame_sha256,
+                evidence.crop_sha256,
+                evidence.crop_path,
+                evidence.x,
+                evidence.y,
+                evidence.width,
+                evidence.height,
+                evidence.scale,
+            ),
+        )
 
     def load_vlm_crop_input(self, review_id: int) -> CropInputEvidence | None:
         with self._connection() as connection:
@@ -2721,9 +2729,16 @@ class SQLiteStore:
             if row is None:
                 return None
             return CropInputEvidence(
-                int(row["verification_id"]), int(row["pair_index"]), str(row["frame_sha256"]),
-                str(row["crop_sha256"]), str(row["crop_path"]), int(row["x"]), int(row["y"]),
-                int(row["width"]), int(row["height"]), int(row["scale"]),
+                int(row["verification_id"]),
+                int(row["pair_index"]),
+                str(row["frame_sha256"]),
+                str(row["crop_sha256"]),
+                str(row["crop_path"]),
+                int(row["x"]),
+                int(row["y"]),
+                int(row["width"]),
+                int(row["height"]),
+                int(row["scale"]),
             )
 
     def list_vlm_reviews(self, verification_id: int) -> tuple[VLMReviewRecord, ...]:
@@ -2830,9 +2845,7 @@ class SQLiteStore:
                     kind=str(row["kind"]),
                     actor=str(row["actor"]),
                     reason=str(row["reason"]),
-                    ink_ratio=(
-                        None if row["ink_ratio"] is None else float(row["ink_ratio"])
-                    ),
+                    ink_ratio=(None if row["ink_ratio"] is None else float(row["ink_ratio"])),
                     created_at=str(row["created_at"]),
                 )
                 for row in rows
@@ -2864,9 +2877,7 @@ class SQLiteStore:
                     kind=str(row["kind"]),
                     actor=str(row["actor"]),
                     reason=str(row["reason"]),
-                    ink_ratio=(
-                        None if row["ink_ratio"] is None else float(row["ink_ratio"])
-                    ),
+                    ink_ratio=(None if row["ink_ratio"] is None else float(row["ink_ratio"])),
                     created_at=str(row["created_at"]),
                 )
             return latest
@@ -2898,7 +2909,11 @@ class SQLiteStore:
         if risk_score is not None and not 0.0 <= risk_score <= 1.0:
             raise ValueError("risk score must be between 0 and 1")
         with self._connection() as connection:
-            if expected_page is not None or expected_verification_id is not None or require_undecided:
+            if (
+                expected_page is not None
+                or expected_verification_id is not None
+                or require_undecided
+            ):
                 connection.execute("BEGIN IMMEDIATE")
             if expected_page is not None:
                 self._require_current_page(connection, project_id, expected_page)
@@ -2921,11 +2936,17 @@ class SQLiteStore:
                     raise ValueError("verification changed; reload the latest page verification")
                 refs = [ref for ref in evidence_refs if ref.startswith("verification_run:")]
                 if refs != [f"verification_run:{expected_verification_id}"]:
-                    raise ValueError("verification citation does not match the expected verification")
-            if require_undecided and connection.execute(
-                "SELECT 1 FROM decisions WHERE page_id = ? AND pair_index = ? LIMIT 1",
-                (page_id, pair_index),
-            ).fetchone() is not None:
+                    raise ValueError(
+                        "verification citation does not match the expected verification"
+                    )
+            if (
+                require_undecided
+                and connection.execute(
+                    "SELECT 1 FROM decisions WHERE page_id = ? AND pair_index = ? LIMIT 1",
+                    (page_id, pair_index),
+                ).fetchone()
+                is not None
+            ):
                 raise DecisionAlreadyExists("a decision already exists for this page and pair")
             cursor = connection.execute(
                 """
@@ -2971,9 +2992,7 @@ class SQLiteStore:
                     actor=str(row["actor"]),
                     evidence_refs=self._json_strings(row["evidence_refs_json"]),
                     created_at=str(row["created_at"]),
-                    risk_score=(
-                        None if row["risk_score"] is None else float(row["risk_score"])
-                    ),
+                    risk_score=(None if row["risk_score"] is None else float(row["risk_score"])),
                     risk_reasons=self._json_strings(row["risk_reasons_json"]),
                 )
                 for row in rows
@@ -3008,8 +3027,6 @@ class SQLiteStore:
                 actor=str(row["actor"]),
                 evidence_refs=self._json_strings(row["evidence_refs_json"]),
                 created_at=str(row["created_at"]),
-                risk_score=(
-                    None if row["risk_score"] is None else float(row["risk_score"])
-                ),
+                risk_score=(None if row["risk_score"] is None else float(row["risk_score"])),
                 risk_reasons=self._json_strings(row["risk_reasons_json"]),
             )

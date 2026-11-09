@@ -39,9 +39,7 @@ def test_windows_runner_executes_production_setup_and_real_smoke_command(
     def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         commands.append((argv, kwargs))
         if argv[:3] == ["scribeforge", "setup", "--json"]:
-            return subprocess.CompletedProcess(
-                argv, 0, stdout='{"success": true}\n', stderr=""
-            )
+            return subprocess.CompletedProcess(argv, 0, stdout='{"success": true}\n', stderr="")
         assert argv[:3] == [sys.executable, "-m", "pytest"]
         environment = kwargs["env"]
         assert isinstance(environment, dict)

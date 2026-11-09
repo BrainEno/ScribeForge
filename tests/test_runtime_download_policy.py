@@ -59,8 +59,7 @@ def test_install_model_and_health_steps_have_distinct_overall_deadlines(
 
     for backend in plan.backends:
         assert all(
-            step.timeout_seconds == DEFAULT_INSTALL_STEP_TIMEOUT_SECONDS
-            for step in backend.steps
+            step.timeout_seconds == DEFAULT_INSTALL_STEP_TIMEOUT_SECONDS for step in backend.steps
         )
         assert all(
             step.timeout_seconds == DEFAULT_MODEL_STEP_TIMEOUT_SECONDS

@@ -33,10 +33,10 @@ ScribeForge 的导出只读取“已接受的决策层”。在引入本闸门�
 
 ```python
 AcceptancePolicy(
-    max_content_risk=0.34,   # content_score 高于此值 → 机器不得接受
-    min_confidence=0.30,     # 最差读数的置信度低于此值 → 机器不得接受
+    max_content_risk=0.34,  # content_score 高于此值 → 机器不得接受
+    min_confidence=0.30,  # 最差读数的置信度低于此值 → 机器不得接受
     blocking_reasons={UNICODE_ANOMALY, SPATIAL_MISMATCH, ALIGNMENT_AMBIGUITY},
-    spot_check_risk=0.25,    # 已接受但达到此值 → 值得抽查
+    spot_check_risk=0.25,  # 已接受但达到此值 → 值得抽查
 )
 ```
 

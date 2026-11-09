@@ -137,9 +137,7 @@ def aggregate_case_scores(
         elapsed_seconds=total_seconds,
         pages_per_minute=60.0 * count / total_seconds if total_seconds > 0 else 0.0,
         accepted_pairs=(
-            sum(score.accepted_pairs or 0 for score in scores)
-            if include_decision_counts
-            else None
+            sum(score.accepted_pairs or 0 for score in scores) if include_decision_counts else None
         ),
         unresolved_pairs=(
             sum(score.unresolved_pairs or 0 for score in scores)
@@ -149,9 +147,7 @@ def aggregate_case_scores(
         wer_case_count=len(applicable_wer),
         changed_lines=sum(score.changed_lines for score in scores),
         character_errors=(
-            sum(score.character_errors or 0 for score in scores)
-            if complete_characters
-            else None
+            sum(score.character_errors or 0 for score in scores) if complete_characters else None
         ),
         reference_characters=(
             sum(score.reference_characters or 0 for score in scores)
@@ -159,9 +155,7 @@ def aggregate_case_scores(
             else None
         ),
         word_errors=(
-            sum(score.word_errors or 0 for score in applicable_scores)
-            if complete_words
-            else None
+            sum(score.word_errors or 0 for score in applicable_scores) if complete_words else None
         ),
         reference_words=(
             sum(score.reference_words or 0 for score in applicable_scores)
@@ -200,24 +194,18 @@ def run_benchmark(
 
     scores: list[CaseScore] = []
     for page_index, case in enumerate(manifest.cases):
-        reference = scoring_text(
-            (root / case.ground_truth).read_text(encoding="utf-8")
-        )
+        reference = scoring_text((root / case.ground_truth).read_text(encoding="utf-8"))
         started = clock()
         result = engine.analyze_page(str(root / case.image), page_index)
         elapsed = clock() - started
         hypothesis = scoring_text(page_text(result))
         reference_lines = reference.splitlines()
         hypothesis_lines = hypothesis.splitlines()
-        reference_boxes = (
-            None if reference_layout is None else reference_layout.get(case.id)
-        )
+        reference_boxes = None if reference_layout is None else reference_layout.get(case.id)
         spatial = (
             None
             if reference_boxes is None or len(reference_boxes) != len(reference_lines)
-            else spatial_line_metrics(
-                reference_boxes, [line.box for line in result.lines]
-            )
+            else spatial_line_metrics(reference_boxes, [line.box for line in result.lines])
         )
         line_metrics = line_error_metrics(reference_lines, hypothesis_lines)
         character_counts = character_error_counts(reference, hypothesis)
@@ -228,11 +216,7 @@ def run_benchmark(
                 language=case.language,
                 tags=case.tags,
                 cer=error_rate_from_counts(*character_counts),
-                wer=(
-                    None
-                    if word_counts is None
-                    else error_rate_from_counts(*word_counts)
-                ),
+                wer=(None if word_counts is None else error_rate_from_counts(*word_counts)),
                 word_tokenizer=word_tokenizer_for_language(case.language),
                 character_errors=character_counts[0],
                 reference_characters=character_counts[1],

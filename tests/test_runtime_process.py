@@ -99,9 +99,7 @@ def test_install_command_timeout_kills_its_process_tree(tmp_path: Path) -> None:
     started = time.monotonic()
 
     with pytest.raises(RuntimeCommandTimeoutError, match=r"0\.7 seconds"):
-        SubprocessExecutor().run(
-            (sys.executable, str(worker)), timeout_seconds=0.7
-        )
+        SubprocessExecutor().run((sys.executable, str(worker)), timeout_seconds=0.7)
 
     assert time.monotonic() - started < 4
     assert child_started.exists()

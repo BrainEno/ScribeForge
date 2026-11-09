@@ -33,9 +33,7 @@ class FakeReviewer:
     same text, so the fake has to agree with ``mineru`` to exercise variant D.
     """
 
-    def transcribe_crop(
-        self, image_path: str, page_index: int, pair_index: int
-    ) -> VLMReading:
+    def transcribe_crop(self, image_path: str, page_index: int, pair_index: int) -> VLMReading:
         assert Path(image_path).is_file()
         return VLMReading(page_index, pair_index, "fake-vlm", "1", "left", False)
 

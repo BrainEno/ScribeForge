@@ -69,8 +69,7 @@ class SyntheticEngine:
             # "clean page" path looks like: every pair is auto-accepted.
             text = f"P{page_index:04d}L{line_index:02d}" + "字" * self._text_offset
             tokens = tuple(
-                OCRToken(text="字", confidence=0.99, box=box)
-                for _ in range(TOKENS_PER_LINE)
+                OCRToken(text="字", confidence=0.99, box=box) for _ in range(TOKENS_PER_LINE)
             )
             lines.append(OCRLine(text=text, box=box, tokens=tokens))
         return PageOCRResult(
@@ -124,15 +123,11 @@ def measure_import(
 
     source = PdfPageSource(pdf_path, dpi=dpi)
     if page_count > source.page_count:
-        raise ValueError(
-            f"requested {page_count} pages but {pdf_path} has {source.page_count}"
-        )
+        raise ValueError(f"requested {page_count} pages but {pdf_path} has {source.page_count}")
 
     store = SQLiteStore(work_dir / "project.sqlite3")
     store.initialize()
-    project_id = store.create_project(
-        pdf_path.stem, str(pdf_path.resolve()), "0" * 64
-    )
+    project_id = store.create_project(pdf_path.stem, str(pdf_path.resolve()), "0" * 64)
 
     class _Limited:
         """Expose only the first N pages of a real PdfPageSource."""
@@ -234,9 +229,7 @@ def measure_pipeline(page_count: int, work_dir: Path) -> PipelineMeasurement:
     )
     docx_seconds = time.perf_counter() - started
 
-    decisions = sum(
-        outcome_page.decision_count for outcome_page in outcome.pages
-    )
+    decisions = sum(outcome_page.decision_count for outcome_page in outcome.pages)
 
     return PipelineMeasurement(
         page_count=page_count,
@@ -266,9 +259,7 @@ def main() -> None:
     }
 
     with TemporaryDirectory(prefix="scribeforge-scale-import-") as tmp:
-        import_measurement = measure_import(
-            args.pdf, args.import_pages, Path(tmp)
-        )
+        import_measurement = measure_import(args.pdf, args.import_pages, Path(tmp))
         report["import_40_pages_300dpi"] = import_measurement.as_dict()
 
     with TemporaryDirectory(prefix="scribeforge-scale-pipeline-") as tmp:

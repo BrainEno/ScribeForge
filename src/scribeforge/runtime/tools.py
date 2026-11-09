@@ -96,10 +96,7 @@ def ensure_uv_executable(
         raise RuntimeToolMissing("the uv lock contains an invalid SHA-256 digest")
 
     download = _download_bytes if asset_downloader is None else asset_downloader
-    url = (
-        "https://github.com/astral-sh/uv/releases/download/"
-        f"{lock.version}/{lock.asset_name}"
-    )
+    url = f"https://github.com/astral-sh/uv/releases/download/{lock.version}/{lock.asset_name}"
     archive = download(url)
     expected_digest = lock.sha256.lower()
     actual_digest = hashlib.sha256(archive).hexdigest()
@@ -141,9 +138,7 @@ def _asset_name(os_name: str, architecture: str) -> str:
 
 
 def _download_bytes(url: str) -> bytes:
-    request = urllib.request.Request(
-        url, headers={"User-Agent": "ScribeForge-runtime-bootstrap"}
-    )
+    request = urllib.request.Request(url, headers={"User-Agent": "ScribeForge-runtime-bootstrap"})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             length = response.headers.get("Content-Length")
@@ -175,7 +170,9 @@ def _extract_uv_binary(archive: bytes, asset_name: str, executable_name: str) ->
                 if not zip_candidates:
                     raise RuntimeToolMissing("the verified uv archive contains no executable")
                 if len(zip_candidates) != 1:
-                    raise RuntimeToolMissing("the verified uv archive contains ambiguous executables")
+                    raise RuntimeToolMissing(
+                        "the verified uv archive contains ambiguous executables"
+                    )
                 return package.read(zip_candidates[0])
         with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as package:
             tar_candidates = [

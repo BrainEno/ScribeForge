@@ -679,10 +679,7 @@ def variant_groups_in(texts: Iterable[str]) -> Mapping[str, tuple[str, ...]]:
                 observed.setdefault(canonical, set()).add(character)
                 observed[canonical].add(canonical)
     return MappingProxyType(
-        {
-            canonical: tuple(sorted(characters))
-            for canonical, characters in observed.items()
-        }
+        {canonical: tuple(sorted(characters)) for canonical, characters in observed.items()}
     )
 
 

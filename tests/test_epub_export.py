@@ -82,7 +82,9 @@ def test_package_metadata_and_spine_follow_page_order() -> None:
     assert opf.find("o:metadata/o:meta", _OPF_NS).text == "2026-10-20T12:00:00Z"  # type: ignore[union-attr]
     itemrefs = [item.get("idref") for item in opf.findall("o:spine/o:itemref", _OPF_NS)]
     assert itemrefs == ["page-0", "page-1"]
-    manifest = {item.get("id"): item.get("href") for item in opf.findall("o:manifest/o:item", _OPF_NS)}
+    manifest = {
+        item.get("id"): item.get("href") for item in opf.findall("o:manifest/o:item", _OPF_NS)
+    }
     assert manifest["nav"] == "nav.xhtml"
     assert manifest["page-0"] == "page-000001.xhtml"
     assert manifest["page-1"] == "page-000002.xhtml"
@@ -143,9 +145,7 @@ def test_build_is_deterministic() -> None:
 
 
 def test_modified_timestamp_is_normalized_to_utc() -> None:
-    shifted = datetime(
-        2026, 10, 20, 14, 0, 0, tzinfo=timezone(timedelta(hours=2))
-    )
+    shifted = datetime(2026, 10, 20, 14, 0, 0, tzinfo=timezone(timedelta(hours=2)))
 
     archive = _archive(_build(modified=shifted))
 
@@ -229,9 +229,7 @@ def test_build_rejects_an_identifier_that_xml_cannot_represent() -> None:
 def test_build_accepts_xml_whitespace_characters() -> None:
     book = VerifiedBook("Title", (VerifiedPage(0, ("a\tb", "c\nd")),))
 
-    archive = _archive(
-        build_epub(book, identifier="urn:test", language="zh", modified=_MODIFIED)
-    )
+    archive = _archive(build_epub(book, identifier="urn:test", language="zh", modified=_MODIFIED))
 
     page = _parse(archive, "OEBPS/page-000001.xhtml")
     paragraphs = [element.text or "" for element in page.findall(".//x:p", _XHTML_NS)]

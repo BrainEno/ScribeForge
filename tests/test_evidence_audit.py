@@ -244,9 +244,11 @@ def test_backup_rejects_references_to_unarchived_external_evidence(
         original = Path(store.load_preprocess(pid, 0).output_image)
     elif kind == "region_crop":
         with sqlite3.connect(root / "project.sqlite3") as db:
-            original = Path(db.execute(
-                "SELECT crop_path FROM crop_input_evidence WHERE ocr_run_id IS NOT NULL"
-            ).fetchone()[0])
+            original = Path(
+                db.execute(
+                    "SELECT crop_path FROM crop_input_evidence WHERE ocr_run_id IS NOT NULL"
+                ).fetchone()[0]
+            )
     else:
         original = Path(store.list_vlm_reviews(result.verification_id)[0].crop_path)
     external = tmp_path / "external" / original.name
@@ -256,13 +258,17 @@ def test_backup_rejects_references_to_unarchived_external_evidence(
         if kind == "preprocessed":
             db.execute("UPDATE page_preprocess SET output_image=?", (str(external),))
         else:
-            db.execute("UPDATE vlm_reviews SET crop_path=? WHERE crop_path=?",
-                       (str(external), str(original)))
+            db.execute(
+                "UPDATE vlm_reviews SET crop_path=? WHERE crop_path=?",
+                (str(external), str(original)),
+            )
             if kind == "legacy_crop":
                 db.execute("DELETE FROM crop_input_evidence WHERE crop_path=?", (str(original),))
             else:
-                db.execute("UPDATE crop_input_evidence SET crop_path=? WHERE crop_path=?",
-                           (str(external), str(original)))
+                db.execute(
+                    "UPDATE crop_input_evidence SET crop_path=? WHERE crop_path=?",
+                    (str(external), str(original)),
+                )
     assert not [f for f in audit_project_store(root).findings if f.severity in {"error", "fatal"}]
     archive = tmp_path / "backup.zip"
     with pytest.raises(ProjectBackupError, match="missing or ambiguously maps"):
@@ -277,8 +283,11 @@ def test_backup_refuses_evidence_changed_after_live_audit(
     from scribeforge import project_backup
 
     root, store, pid, result = prepared(tmp_path)
-    path = (Path(store.load_preprocess(pid, 0).output_image) if kind == "frame"
-            else Path(store.list_vlm_reviews(result.verification_id)[0].crop_path))
+    path = (
+        Path(store.load_preprocess(pid, 0).output_image)
+        if kind == "frame"
+        else Path(store.list_vlm_reviews(result.verification_id)[0].crop_path)
+    )
     snapshot = project_backup._snapshot_database
 
     def snapshot_then_change(source: Path, destination: Path) -> None:
@@ -317,9 +326,7 @@ def test_backup_rejects_snapshot_with_different_audit_warnings(
 
 
 @pytest.mark.parametrize("directory", ["preprocessed", "crops"])
-def test_verify_backup_rejects_omitted_referenced_evidence(
-    tmp_path: Path, directory: str
-) -> None:
+def test_verify_backup_rejects_omitted_referenced_evidence(tmp_path: Path, directory: str) -> None:
     import json
     import zipfile
 
@@ -336,8 +343,9 @@ def test_verify_backup_rejects_omitted_referenced_evidence(
     create_project_backup(root, good)
     with zipfile.ZipFile(good) as archive:
         manifest = json.loads(archive.read("manifest.json"))
-        removed = next(item["path"] for item in manifest["files"]
-                       if item["path"].startswith(directory + "/"))
+        removed = next(
+            item["path"] for item in manifest["files"] if item["path"].startswith(directory + "/")
+        )
         manifest["files"] = [item for item in manifest["files"] if item["path"] != removed]
         with zipfile.ZipFile(incomplete, "w") as target:
             for name in archive.namelist():
@@ -351,7 +359,9 @@ def test_verify_backup_rejects_omitted_referenced_evidence(
     assert not (tmp_path / "restore").exists()
 
 
-def test_valid_backup_restores_evidence_without_the_original_store_or_source(tmp_path: Path) -> None:
+def test_valid_backup_restores_evidence_without_the_original_store_or_source(
+    tmp_path: Path,
+) -> None:
     import shutil
 
     from scribeforge.project_backup import create_project_backup, restore_project_backup
@@ -468,7 +478,9 @@ def test_verify_backup_rejects_missing_source_manifest_mapping(tmp_path: Path) -
         manifest = json.loads(source.read("manifest.json"))
         manifest["sources"] = []
         for name in source.namelist():
-            target.writestr(name, json.dumps(manifest) if name == "manifest.json" else source.read(name))
+            target.writestr(
+                name, json.dumps(manifest) if name == "manifest.json" else source.read(name)
+            )
     with pytest.raises(ProjectBackupError, match="source.*project"):
         verify_project_backup(incomplete)
 
@@ -484,8 +496,11 @@ def test_verify_backup_works_offline_and_reports_stable_warning_paths(
 
     root, _, pid, _ = prepared(tmp_path)
     with closing(sqlite3.connect(root / "project.sqlite3")) as db, db:
-        db.execute("UPDATE pages SET page_asset_sha256=NULL, page_asset_byte_size=NULL, "
-                   "page_asset_parameters_json=NULL, page_asset_version=NULL WHERE project_id=?", (pid,))
+        db.execute(
+            "UPDATE pages SET page_asset_sha256=NULL, page_asset_byte_size=NULL, "
+            "page_asset_parameters_json=NULL, page_asset_version=NULL WHERE project_id=?",
+            (pid,),
+        )
     archive = tmp_path / "legacy.zip"
     create_project_backup(root, archive)
     shutil.rmtree(root)
@@ -495,8 +510,9 @@ def test_verify_backup_works_offline_and_reports_stable_warning_paths(
     monkeypatch.setattr(tempfile, "tempdir", str(scratch))
     before = archive.read_bytes()
     result = verify_project_backup(archive)
-    warning = next(item for item in result["audit_warnings"]
-                   if item["code"] == "page_asset_evidence_missing")
+    warning = next(
+        item for item in result["audit_warnings"] if item["code"] == "page_asset_evidence_missing"
+    )
     assert warning["path"] == "archive:/assets/page.png"
     assert result["healthy"] is True
     assert not list(scratch.iterdir())

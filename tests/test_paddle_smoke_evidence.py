@@ -85,8 +85,9 @@ def test_record_real_smoke_evidence_uses_production_model_layout(
     files = {item["path"]: item for item in report["models"][0]["files"]}
     assert set(files) == set(payloads)
     assert files["inference.pdiparams"]["sha256"] == hashlib.sha256(weight).hexdigest()
-    assert report["lock_file"]["sha256"] == hashlib.sha256(
-        b"locked requirements\nsecond=1\n"
-    ).hexdigest()
+    assert (
+        report["lock_file"]["sha256"]
+        == hashlib.sha256(b"locked requirements\nsecond=1\n").hexdigest()
+    )
     assert json.loads((evidence_dir / "model-evidence.json").read_text()) == report
     assert (evidence_dir / "runtime-state.json").read_text() == '{"state": "ready"}\n'
