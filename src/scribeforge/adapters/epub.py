@@ -1,26 +1,31 @@
+"""Trusted EPUB export: accepted decisions only.
+
+This module renders a verified book into content documents and delegates the
+actual package assembly to the single shared builder in
+:mod:`scribeforge.adapters.epub_builder` (the ``unverified=False`` mode), then
+runs the book-level integrity check. The candidate exporter is the same
+builder in its ``unverified=True`` downgrade mode, so the two layers cannot
+drift apart (#72).
+"""
+
 from __future__ import annotations
 
-import io
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
+from scribeforge.adapters import epub_builder
+from scribeforge.adapters.epub_builder import EpubDocument, EpubImage
 from scribeforge.adapters.export_check import check_epub
 from scribeforge.adapters.export_common import (
     IMAGES_DIR,
-    MIMETYPE,
     XML_DECL,
-    container_xml,
-    epub_image_name,
     format_modified,
     validate_book_text,
     validate_identifier,
     validate_language,
     validate_normalization_policy,
     write_atomic,
-    write_zip_bytes,
-    write_zip_entry,
 )
 from scribeforge.domain.content import VerifiedBook, VerifiedImage
 from scribeforge.domain.flow import (
@@ -31,122 +36,8 @@ from scribeforge.domain.flow import (
 )
 from scribeforge.domain.paragraphs import LineRole
 
-_OPF_NS = "http://www.idpf.org/2007/opf"
-_XHTML_NS = "http://www.w3.org/1999/xhtml"
 _EPUB_NS = "http://www.idpf.org/2007/ops"
-_DC_NS = "http://purl.org/dc/elements/1.1/"
-#: Where page rasters live inside the package. One directory keeps the manifest
-#: and the integrity check's "every image is referenced once" rule simple.
-
-
-def _package_xml(
-    book: VerifiedBook,
-    *,
-    identifier: str,
-    language: str,
-    modified: str,
-    author: str | None,
-    layout: str,
-    normalization: str,
-) -> str:
-    items = [
-        ('<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>')
-    ]
-    flow = build_flow(book, layout=layout)
-    spine: list[str] = []
-    for document in flow.documents:
-        items.append(
-            f'<item id="{document.item_id}" href="{document.file_name}" '
-            'media-type="application/xhtml+xml"/>'
-        )
-        spine.append(f'<itemref idref="{document.item_id}"/>')
-    cover = book.cover_image
-    for image in book.images:
-        properties = ' properties="cover-image"' if image is cover else ""
-        items.append(
-            f'<item id="{_image_item_id(image)}" href="{_image_href(image)}" '
-            f'media-type="{image.media_type}"{properties}/>'
-        )
-    # EPUB 2 readers (and most library grids) only look at this meta name; EPUB 3
-    # uses the manifest ``cover-image`` property, so both are written.
-    cover_meta = "" if cover is None else f'<meta name="cover" content="{_image_item_id(cover)}"/>'
-    creator = "" if author is None else f"<dc:creator>{escape(author)}</dc:creator>"
-    return (
-        XML_DECL
-        + "\n"
-        + f'<package xmlns="{_OPF_NS}" version="3.0" unique-identifier="book-id" '
-        + 'prefix="scribeforge: https://github.com/BrainEno/ScribeForge/normalization#">'
-        + f'<metadata xmlns:dc="{_DC_NS}">'
-        + f'<dc:identifier id="book-id">{escape(identifier)}</dc:identifier>'
-        + f"<dc:title>{escape(book.title)}</dc:title>"
-        + creator
-        + f"<dc:language>{escape(language)}</dc:language>"
-        + f'<meta property="dcterms:modified">{modified}</meta>'
-        + f'<meta property="scribeforge:normalization">{escape(normalization)}</meta>'
-        + cover_meta
-        + "</metadata>"
-        + f"<manifest>{''.join(items)}</manifest>"
-        + f"<spine>{''.join(spine)}</spine>"
-        + "</package>\n"
-    )
-
-
-def _nav_entries(book: VerifiedBook, layout: str) -> str:
-    """Nested table of contents built from the flow documents.
-
-    Without a chapter tree a 562-page book exports as 562 flat entries called
-    "Page 1".."Page 562", which is not a table of contents at all. When chapters
-    exist the nav mirrors their levels; the per-page list is kept only as the
-    fallback for a book whose structure has not been derived yet.
-    """
-
-    flow = build_flow(book, layout=layout)
-    if flow.layout == "page":
-        return "".join(
-            f'<li><a href="{document.file_name}">{escape(document.title)}</a></li>'
-            for document in flow.documents
-        )
-
-    # Emit nested lists with an explicit stack of open levels. Building the
-    # closing tags by string arithmetic on levels is easy to get wrong, and the
-    # first attempt produced a mismatched-tag XHTML that the export integrity
-    # check caught — which is exactly why that check exists.
-    parts: list[str] = []
-    stack: list[int] = []
-    for document in flow.documents:
-        link = f'<li><a href="{document.file_name}">{escape(document.title)}</a>'
-        level = max(1, document.level)
-        while stack and level < stack[-1]:
-            parts.append("</li></ol>")
-            stack.pop()
-        if not stack:
-            parts.append("<ol>")
-            stack.append(level)
-            parts.append(link)
-        elif level == stack[-1]:
-            parts.append("</li>")
-            parts.append(link)
-        else:
-            parts.append("<ol>")
-            stack.append(level)
-            parts.append(link)
-    while stack:
-        parts.append("</li></ol>")
-        stack.pop()
-    return "".join(parts)
-
-
-def _nav_xhtml(book: VerifiedBook, language: str, layout: str) -> str:
-    lang = quoteattr(language)
-    entries = _nav_entries(book, layout)
-    return (
-        XML_DECL
-        + "\n<!DOCTYPE html>\n"
-        + f'<html xmlns="{_XHTML_NS}" xmlns:epub="{_EPUB_NS}" lang={lang} xml:lang={lang}>'
-        + "<head><title>Contents</title></head>"
-        + f'<body><nav epub:type="toc" id="toc"><h1>Contents</h1>{entries}</nav></body>'
-        + "</html>\n"
-    )
+_XHTML_NS = "http://www.w3.org/1999/xhtml"
 
 
 def _image_item_id(image: VerifiedImage) -> str:
@@ -261,49 +152,39 @@ def build_epub(
     validate_language(language)
     normalization = validate_normalization_policy(normalization)
     validate_book_text(book, author=author)
-    modified_text = format_modified(modified)
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as archive:
-        write_zip_entry(archive, "mimetype", MIMETYPE, zipfile.ZIP_STORED)
-        write_zip_entry(archive, "META-INF/container.xml", container_xml(), zipfile.ZIP_DEFLATED)
-        write_zip_entry(
-            archive,
-            "OEBPS/content.opf",
-            _package_xml(
-                book,
-                identifier=identifier,
-                language=language,
-                modified=modified_text,
-                author=author,
-                layout=layout,
-                normalization=normalization,
-            ),
-            zipfile.ZIP_DEFLATED,
+    flow = build_flow(book, layout=layout)
+    documents = [
+        EpubDocument(
+            item_id=document.item_id,
+            file_name=document.file_name,
+            xhtml=_document_xhtml(document, language),
+            nav_label=document.title,
+            nav_level=max(1, document.level),
         )
-        write_zip_entry(
-            archive,
-            "OEBPS/nav.xhtml",
-            _nav_xhtml(book, language, layout),
-            zipfile.ZIP_DEFLATED,
+        for document in flow.documents
+    ]
+    images = [
+        EpubImage(
+            item_id=_image_item_id(image),
+            href=_image_href(image),
+            media_type=image.media_type,
+            data=image.data,
+            cover=image is book.cover_image,
         )
-        for document in build_flow(book, layout=layout).documents:
-            write_zip_entry(
-                archive,
-                f"OEBPS/{document.file_name}",
-                _document_xhtml(document, language),
-                zipfile.ZIP_DEFLATED,
-            )
-        # Page rasters are already compressed, so storing them keeps the archive
-        # deterministic and avoids spending CPU to grow PNGs by a few bytes.
-        for image in book.images:
-            write_zip_bytes(
-                archive,
-                epub_image_name(image),
-                image.data,
-                zipfile.ZIP_STORED,
-            )
-    data = buffer.getvalue()
+        for image in book.images
+    ]
+    data = epub_builder.build_epub_package(
+        title=book.title,
+        identifier=identifier,
+        language=language,
+        modified=format_modified(modified),
+        author=author,
+        normalization=normalization,
+        documents=documents,
+        images=images,
+        unverified=False,
+    )
     check_epub(data, book, layout=layout)
     return data
 
