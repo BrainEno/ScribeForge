@@ -1642,11 +1642,15 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                 uncertain = "true" if detail.vlm_uncertain else "false"
                 print(f'    vlm="{detail.vlm_text}" uncertain={uncertain}', file=out)
             trusted_crop_path = None
+            text_frame_kind = "unknown"
+            text_frame_image: str | None = None
             try:
                 verification_id = store.latest_verification_id(project.id, item.page_index)
-                frame, _ = verification_frame(
+                frame, path = verification_frame(
                     store, project.id, pages[item.page_index], verification_id
                 )
+                text_frame_kind = frame.kind
+                text_frame_image = str(path)
                 reviews = [
                     review
                     for review in store.list_vlm_reviews(verification_id)
@@ -1657,7 +1661,14 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                         store, verification_id, frame, reviews[-1]
                     ).crop_path
             except (ValueError, OSError, KeyError):
+                # Legacy or corrupt evidence must not be represented as a known frame.
                 pass
+            # Boxes and crops are coordinates in the OCR frame, which may be the
+            # preprocessed raster rather than the original scan (#124): say so
+            # explicitly instead of letting a reviewer misread the frame.
+            print(
+                f"    frame={text_frame_kind} frame_image={text_frame_image or 'unknown'}", file=out
+            )
             print(f"    crop={trusted_crop_path or 'none'}", file=out)
     return EXIT_OK
 
