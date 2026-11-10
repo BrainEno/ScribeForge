@@ -455,3 +455,106 @@ def test_single_batch_uncited_decision_is_audited_as_unknown_and_preserved(tmp_p
         for f in verify_project_backup(archive)["audit_warnings"]
     )
     assert store.list_decisions(project, 0, 0)[0].evidence_refs == ()
+
+
+def test_audit_scopes_historical_multibatch_and_uncited_decisions(tmp_path: Path) -> None:
+    # #150: a historical database (created before the forward write guard) with
+    # a multi-batch page and a legacy uncited decision must be fully audited:
+    # ambiguous bindings and unknown provenance are both reported, and the raw
+    # evidence is preserved untouched.
+    from scribeforge.domain.alignment import (
+        AlignmentConflict,
+        ConflictKind,
+        LineAlignment,
+        PageAlignment,
+    )
+    from scribeforge.domain.ocr import PageOCRResult
+    from scribeforge.domain.risk import PairRisk, RiskReason
+
+    store_dir = tmp_path / "Book.scribeforge"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    project_id = store.create_project("Book", "book.pdf", "hash")
+    store.add_page(project_id, 0, "pages/0.png", 100, 200)
+    store.add_page(project_id, 1, "pages/1.png", 100, 200)
+
+    def line(text: str, y: float) -> object:
+        from scribeforge.domain.ocr import BoundingBox, OCRLine
+
+        return OCRLine(text, BoundingBox(0.1, y, 0.5, 0.05))
+
+    primary = store.record_ocr(
+        project_id, PageOCRResult(0, "primary", "1.0", (line("鸦", 0.1), line("乙", 0.5)))
+    )
+    secondary = store.record_ocr(
+        project_id, PageOCRResult(0, "secondary", "1.0", (line("雅", 0.1), line("乙", 0.5)))
+    )
+    alignment = PageAlignment(
+        0,
+        "primary",
+        "secondary",
+        (
+            LineAlignment(
+                0,
+                0,
+                0.5,
+                0.0,
+                (AlignmentConflict(ConflictKind.SUBSTITUTION, "鸦", "雅", 0, 1, 0, 1),),
+            ),
+            LineAlignment(1, 1, 1.0, 0.0, ()),
+        ),
+    )
+    risks = (PairRisk(0, 0.5, (RiskReason.TEXT_DISAGREEMENT,)), PairRisk(1, 0.0, ()))
+    old = store.record_verification(primary, secondary, alignment, risks, ())
+    # Second batch with swapped pair semantics (what older versions allowed).
+    store.record_verification(
+        primary,
+        secondary,
+        PageAlignment(0, "primary", "secondary", tuple(reversed(alignment.pairs))),
+        risks,
+        (),
+    )
+    # Stale-cited decision on the multi-batch page -> ambiguous.
+    store.append_decision(
+        project_id=project_id,
+        page_index=0,
+        pair_index=1,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=(f"verification_run:{old}",),
+    )
+    # Legacy decision with no verification citation on the single-batch page.
+    primary1 = store.record_ocr(project_id, PageOCRResult(1, "primary", "1.0", (line("一", 0.1),)))
+    secondary1 = store.record_ocr(
+        project_id, PageOCRResult(1, "secondary", "1.0", (line("一", 0.1),))
+    )
+    single = store.record_verification(
+        primary1,
+        secondary1,
+        PageAlignment(1, "primary", "secondary", (LineAlignment(0, 0, 1.0, 0.0, ()),)),
+        (PairRisk(0, 0.0, ()),),
+        (),
+    )
+    store.append_decision(
+        project_id=project_id,
+        page_index=1,
+        pair_index=0,
+        selected_text="一",
+        actor="human",
+        evidence_refs=(),
+    )
+
+    report = audit_project_store(store_dir)
+    by_code: dict[str, list[str]] = {}
+    for finding in report.findings:
+        by_code.setdefault(finding.code, []).append(finding.message)
+    assert any(
+        "page 1" in m and "pair 1" in m for m in by_code.get("decision_verification_ambiguous", [])
+    )
+    assert any(
+        "page 2" in m and "unknown" in m for m in by_code.get("decision_verification_unknown", [])
+    )
+    # Recovery path: raw decisions remain readable and are not rewritten.
+    assert store.list_decisions(project_id, 0, 1)[0].selected_text == "乙"
+    assert store.load_verification(old).alignment.pairs[1].primary_line_index == 1
+    assert store.load_verification(single) is not None

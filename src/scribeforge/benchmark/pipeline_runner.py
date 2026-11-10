@@ -104,7 +104,9 @@ def run_pipeline_benchmark(
             accepted_pairs = 0
             unresolved_pairs = 0
             for pair_index in range(len(verification.alignment.pairs)):
-                decision = store.latest_decision(project_id, 0, pair_index)
+                decision = store.latest_decision_for_verification(
+                    project_id, 0, pair_index, verification_id=verification_id
+                )
                 if decision is None:
                     unresolved_pairs += 1
                     continue

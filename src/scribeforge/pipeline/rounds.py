@@ -286,7 +286,12 @@ def _open_pairs(
             )
             if furniture_reason is not None and not include_page_furniture:
                 continue
-            if store.latest_decision(project_id, page.page_index, pair_index) is None:
+            if (
+                store.latest_decision_for_verification(
+                    project_id, page.page_index, pair_index, verification_id=verification_id
+                )
+                is None
+            ):
                 refs.append(
                     PairRef(
                         page.page_index,
@@ -412,7 +417,13 @@ def run_repair_round(
         if page is None:
             skipped.append(ref)
             continue
-        if store.latest_decision(project_id, ref.page_index, ref.pair_index) is not None:
+        verification_id = store.latest_verification_id(project_id, ref.page_index)
+        if (
+            store.latest_decision_for_verification(
+                project_id, ref.page_index, ref.pair_index, verification_id=verification_id
+            )
+            is not None
+        ):
             already_decided.append(ref)
             continue
         scope = region_scope(ref.pair_index)
@@ -438,7 +449,6 @@ def run_repair_round(
             verify_page_asset(
                 Path(page.source_image), page_evidence, what=f"page {ref.page_index} source image"
             )
-        verification_id = store.latest_verification_id(project_id, ref.page_index)
         frame, frame_path = verification_frame(store, project_id, page, verification_id)
         padding, scale = settings.escalation(attempts)
         plan = plan_region_read(
@@ -531,7 +541,12 @@ def run_repair_round(
                     "source:vlm",
                 )
 
-        if store.latest_decision(project_id, ref.page_index, ref.pair_index) is not None:
+        if (
+            store.latest_decision_for_verification(
+                project_id, ref.page_index, ref.pair_index, verification_id=verification_id
+            )
+            is not None
+        ):
             already_decided.append(ref)
             continue
         verdict: Consensus = consensus(readings, prefer=order)

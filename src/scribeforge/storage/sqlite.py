@@ -3030,3 +3030,84 @@ class SQLiteStore:
                 risk_score=(None if row["risk_score"] is None else float(row["risk_score"])),
                 risk_reasons=self._json_strings(row["risk_reasons_json"]),
             )
+
+    def latest_decision_for_verification(
+        self, project_id: int, page_index: int, pair_index: int, *, verification_id: int
+    ) -> DecisionRecord | None:
+        """Newest decision for a page pair, but only if safely bound to one run.
+
+        Fail closed (#150): the run and the decision are examined in the same
+        read snapshot. Raises when ``verification_id`` is not the page's latest
+        run, or when the newest decision cannot be attributed to it (no
+        alignment row for the pair in this run, malformed or conflicting
+        citations). A legacy decision with no citation is returned only when the
+        page has exactly one verification run, where pair semantics cannot have
+        changed; in a multi-run page it is ambiguous and rejected. Raw history
+        stays readable through :meth:`list_decisions` and is never rewritten.
+        """
+
+        with self._connection() as connection:
+            connection.execute("BEGIN")
+            self._require_project(connection, project_id)
+            page_id = self._page_id(connection, project_id, page_index)
+            run = connection.execute(
+                "SELECT page_id FROM verification_runs WHERE id = ?", (verification_id,)
+            ).fetchone()
+            if run is None or int(run["page_id"]) != page_id:
+                raise ValueError(
+                    f"verification {verification_id} does not belong to "
+                    f"project {project_id} page {page_index}"
+                )
+            latest = connection.execute(
+                "SELECT MAX(id) FROM verification_runs WHERE page_id = ?", (page_id,)
+            ).fetchone()[0]
+            if latest != verification_id:
+                raise ValueError("verification changed; reload the latest page verification")
+            run_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM verification_runs WHERE page_id = ?", (page_id,)
+                ).fetchone()[0]
+            )
+            row = connection.execute(
+                """
+                SELECT id, selected_text, actor, evidence_refs_json, created_at,
+                       risk_score, risk_reasons_json
+                FROM decisions
+                WHERE page_id = ? AND pair_index = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (page_id, pair_index),
+            ).fetchone()
+            if row is None:
+                return None
+            alignment = connection.execute(
+                "SELECT 1 FROM alignments WHERE verification_run_id = ? AND pair_index = ?",
+                (verification_id, pair_index),
+            ).fetchone()
+            try:
+                decoded = json.loads(str(row["evidence_refs_json"]))
+                if not isinstance(decoded, list):
+                    raise TypeError("stored JSON list is invalid")
+                refs = [str(ref) for ref in decoded if str(ref).startswith("verification_run:")]
+            except (ValueError, TypeError):
+                refs = None
+            bound = refs is not None and refs == [f"verification_run:{verification_id}"]
+            legacy_single_run = refs == [] and run_count == 1
+            if alignment is None or not (bound or legacy_single_run):
+                raise ValueError(
+                    f"ambiguous verification batch for decision on project {project_id}, "
+                    f"page {page_index}, pair {pair_index}; "
+                    "preserve the history and create a new project for reprocessing"
+                )
+            return DecisionRecord(
+                id=int(row["id"]),
+                project_id=project_id,
+                page_index=page_index,
+                pair_index=pair_index,
+                selected_text=str(row["selected_text"]),
+                actor=str(row["actor"]),
+                evidence_refs=self._json_strings(row["evidence_refs_json"]),
+                created_at=str(row["created_at"]),
+                risk_score=(None if row["risk_score"] is None else float(row["risk_score"])),
+                risk_reasons=self._json_strings(row["risk_reasons_json"]),
+            )

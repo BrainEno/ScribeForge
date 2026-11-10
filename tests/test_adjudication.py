@@ -834,3 +834,53 @@ def test_single_batch_explicitly_invalid_decision_cannot_be_used(tmp_path: Path,
         f.code == "decision_verification_ambiguous" and f"decision {decision}" in f.message
         for f in report.findings
     )
+
+
+def test_latest_decision_for_verification_binds_reads_to_one_batch(tmp_path: Path) -> None:
+    store, project, old, new = _historical_batches(tmp_path)
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=1,
+        selected_text="乙",
+        actor="human",
+        evidence_refs=(f"verification_run:{old}",),
+    )
+    # The newest decision for pair 1 cites the OLD run: fail closed for the new one.
+    with pytest.raises(ValueError, match="ambiguous"):
+        store.latest_decision_for_verification(project, 0, 1, verification_id=new)
+    # A newer decision bound to the new run supersedes it and is returned.
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=1,
+        selected_text="雅",
+        actor="human",
+        evidence_refs=(f"verification_run:{new}",),
+    )
+    decision = store.latest_decision_for_verification(project, 0, 1, verification_id=new)
+    assert decision is not None and decision.selected_text == "雅"
+    # Asking for the stale run is refused, and raw history stays readable.
+    with pytest.raises(ValueError, match="(?i)verification"):
+        store.latest_decision_for_verification(project, 0, 1, verification_id=old)
+    assert [d.selected_text for d in store.list_decisions(project, 0, 1)] == ["乙", "雅"]
+    # A pair with no decisions reads as None, not as an invented binding.
+    assert store.latest_decision_for_verification(project, 0, 0, verification_id=new) is None
+
+
+def test_latest_decision_for_verification_tolerates_legacy_uncited_single_run(
+    tmp_path: Path,
+) -> None:
+    store, project, only, _, _ = _two_engine_page(tmp_path)
+    store.append_decision(
+        project_id=project,
+        page_index=0,
+        pair_index=0,
+        selected_text="旧决定",
+        actor="human",
+        evidence_refs=(),
+    )
+    decision = store.latest_decision_for_verification(project, 0, 0, verification_id=only)
+    assert decision is not None and decision.selected_text == "旧决定"
+    with pytest.raises((KeyError, ValueError), match="(?i)verification"):
+        store.latest_decision_for_verification(project, 0, 0, verification_id=only + 999)
