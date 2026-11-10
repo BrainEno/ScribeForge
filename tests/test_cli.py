@@ -3824,3 +3824,30 @@ def test_audit_cli_reports_partial_page_evidence_as_error(
         item["code"] == "page_asset_evidence_invalid" and item["severity"] == "error"
         for item in report["findings"]
     )
+
+
+def test_export_fails_closed_with_a_clean_error_on_ambiguous_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # #150: a historical multi-batch store must fail the export with exit 2 and
+    # a readable message, never a traceback and never a silently wrong EPUB.
+    store_dir = tmp_path / "store"
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    store.initialize()
+    store.create_project("Book", "book.pdf", "hash")
+    out_path = tmp_path / "out.epub"
+
+    def assemble(_store: SQLiteStore, _project_id: int, *, include_page_furniture: bool) -> None:
+        raise ValueError(
+            "ambiguous verification batch for decision on project 1, page 1, pair 2; "
+            "preserve the history and create a new project for reprocessing"
+        )
+
+    monkeypatch.setattr(cli_module, "assemble_verified_content", assemble)
+    code = run(["export", "--store", str(store_dir), "--out", str(out_path)], stdout=io.StringIO())
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "ambiguous" in captured.err.lower()
+    assert "Traceback" not in captured.err
+    assert not out_path.exists()

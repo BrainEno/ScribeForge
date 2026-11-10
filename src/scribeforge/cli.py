@@ -1835,6 +1835,11 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
     except PageImageError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
+    except ValueError as exc:
+        # Fail closed on ambiguous historical batches (#150): never export a
+        # decision that cannot be bound to the page's latest verification run.
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
 
     if not book.pages:
         print("error: no pages to export", file=sys.stderr)

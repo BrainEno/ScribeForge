@@ -136,6 +136,7 @@ def _evidence_refs(
 @dataclass(frozen=True, slots=True)
 class _PairContext:
     record: VerificationRecord
+    verification_id: int
     primary_text: str | None
     secondary_text: str | None
     reading: VLMReviewRecord | None
@@ -162,6 +163,7 @@ def _pair_context(
     candidate = next((item for item in record.candidates if item.pair_index == pair_index), None)
     return _PairContext(
         record=record,
+        verification_id=verification_id,
         primary_text=_line_text(primary, pair.primary_line_indexes),
         secondary_text=_line_text(secondary, pair.secondary_line_indexes),
         reading=_latest_readings(store.list_vlm_reviews(verification_id)).get(pair_index),
@@ -209,7 +211,12 @@ def adjudicate_verification(
     recorded = 0
 
     for pair_index, pair in enumerate(record.alignment.pairs):
-        if store.latest_decision(project_id, page_index, pair_index) is not None:
+        if (
+            store.latest_decision_for_verification(
+                project_id, page_index, pair_index, verification_id=verification_id
+            )
+            is not None
+        ):
             resolved.append(pair_index)
             continue
 
@@ -319,7 +326,12 @@ def review_queue(
             furniture_reason = _pair_furniture_reason(page_furniture, pair)
             if furniture_reason is not None and not include_page_furniture:
                 continue
-            if store.latest_decision(project_id, page.page_index, pair_index) is not None:
+            if (
+                store.latest_decision_for_verification(
+                    project_id, page.page_index, pair_index, verification_id=verification_id
+                )
+                is not None
+            ):
                 continue
             if _blank_pair(
                 _line_text(primary, pair.primary_line_indexes),
@@ -396,7 +408,9 @@ def review_detail(
             project_furniture(store, project_id).get(page_index, {}), pair
         )
     candidate = context.candidate
-    decision = store.latest_decision(project_id, page_index, pair_index)
+    decision = store.latest_decision_for_verification(
+        project_id, page_index, pair_index, verification_id=context.verification_id
+    )
     reading = context.reading
     return ReviewDetail(
         page_index=page_index,

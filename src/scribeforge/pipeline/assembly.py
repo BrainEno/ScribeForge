@@ -155,7 +155,9 @@ def assemble_verified_content(
         for pair_index in range(len(record.alignment.pairs)):
             pair = record.alignment.pairs[pair_index]
             furniture_reason = _pair_furniture(page_furniture, pair)
-            decision = store.latest_decision(project_id, page.page_index, pair_index)
+            decision = store.latest_decision_for_verification(
+                project_id, page.page_index, pair_index, verification_id=verification_id
+            )
             if furniture_reason is not None:
                 # A running head is not content: it must not be exported, and its
                 # missing decision must not block the book from assembling.
