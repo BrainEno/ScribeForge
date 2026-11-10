@@ -348,9 +348,9 @@ def render_report(
             f"| Macro WER (applicable / total, {ci}) | Micro WER (edits / words, {ci}) | Punctuation "
             "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
             "| Spatial Missing | Spatial Extra | Reading-order errors "
-            "| Accepted pairs | Unresolved pairs | Elapsed s | Pages/min |"
+            "| Accepted pairs | Unresolved pairs | False-accepted pairs | Elapsed s | Pages/min |"
         ),
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:  | ---: |",
     ]
     for report in reports:
         aggregate = report.aggregate
@@ -369,6 +369,7 @@ def render_report(
             f"{aggregate.reading_order_errors} | "
             f"{aggregate.accepted_pairs if aggregate.accepted_pairs is not None else '-'} | "
             f"{aggregate.unresolved_pairs if aggregate.unresolved_pairs is not None else '-'} | "
+            f"{aggregate.false_accepted_pairs if aggregate.false_accepted_pairs is not None else '-'} | "
             f"{aggregate.elapsed_seconds:.3f} | {aggregate.pages_per_minute:.2f} |"
         )
 
@@ -391,9 +392,9 @@ def render_report(
                 "| Case | Language | Tags | CER | WER (tokenizer) | Punctuation "
                 "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
                 "| Spatial Missing | Spatial Extra | Reading-order errors "
-                "| Accepted pairs | Unresolved pairs | Seconds |"
+                "| Accepted pairs | Unresolved pairs | False-accepted pairs | Seconds |"
             ),
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:  | ---: |",
         ]
         for case in report.cases:
             tags = ",".join(case.tags) if case.tags else "-"
@@ -407,6 +408,7 @@ def render_report(
                 f"{case.reading_order_errors} | "
                 f"{case.accepted_pairs if case.accepted_pairs is not None else '-'} | "
                 f"{case.unresolved_pairs if case.unresolved_pairs is not None else '-'} | "
+                f"{case.false_accepted_pairs if case.false_accepted_pairs is not None else '-'} | "
                 f"{case.elapsed_seconds:.3f} |"
             )
         lines.append("")
