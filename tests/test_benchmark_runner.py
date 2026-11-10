@@ -121,3 +121,53 @@ def test_runner_counts_spatial_lines_only_with_declared_reference_geometry(
     assert (report.aggregate.spatial_missing_lines, report.aggregate.spatial_extra_lines) == (1, 1)
     # Strict LCS counts stay text-based and independent of geometry.
     assert (report.cases[0].missing_lines, report.cases[0].extra_lines) == (1, 1)
+
+
+def test_chinese_case_end_to_end_reports_cer_and_marks_a_one_char_error_as_changed(
+    tmp_path: Path,
+) -> None:
+    """#80 runtime regression: Chinese WER is N/A with an explanation, and a
+    one-character line difference is Changed, never a missing line."""
+
+    from scribeforge.benchmark.report import render_report
+
+    class OneCharOffEngine:
+        name = "one-char-off"
+
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            # Both ground-truth lines, the first with one substituted character.
+            return PageOCRResult(
+                page_index=page_index,
+                engine=self.name,
+                engine_version="1",
+                lines=(
+                    OCRLine("你好,世界。", BoundingBox(0, 0, 1, 0.5)),
+                    OCRLine("第二行文字", BoundingBox(0, 0.5, 1, 0.5)),
+                ),
+            )
+
+    (tmp_path / "page.png").write_bytes(b"fixture")
+    (tmp_path / "truth.txt").write_text("你好，世界。\n第二行文字", encoding="utf-8")
+    manifest = BenchmarkManifest(
+        1,
+        (BenchmarkCase("case-1", "page.png", "truth.txt", "zh-Hant", ("body",)),),
+    )
+
+    report = run_benchmark(manifest, tmp_path, OneCharOffEngine())
+    case = report.cases[0]
+    # Whitespace tokenization is not applicable to Chinese: WER is N/A, CER is primary.
+    assert case.wer is None
+    assert case.word_tokenizer == "not-applicable"
+    assert case.word_errors is None and case.reference_words is None
+    assert (case.character_errors, case.reference_characters) == (1, 12)
+    # The one-character difference is a changed line, not a missing/extra line.
+    assert (case.missing_lines, case.extra_lines, case.changed_lines) == (1, 1, 1)
+    assert (case.net_missing_lines, case.net_extra_lines) == (0, 0)
+
+    text = render_report((report,), corpus="c", manifest_sha256="h", generated_at="now")
+    # The report explains what a Chinese WER above 1.0 would mean and why it is N/A.
+    assert "tokenizer artifact" in text
+    assert "N/A (`not-applicable`)" in text
+    # Per-case row shows the raw CER counts and the changed-line evidence.
+    assert "1 / 12 chars" in text
+    assert "| 1 | 1 | 1 | 0 | 0 |" in text
