@@ -3851,3 +3851,53 @@ def test_export_fails_closed_with_a_clean_error_on_ambiguous_history(
     assert "ambiguous" in captured.err.lower()
     assert "Traceback" not in captured.err
     assert not out_path.exists()
+
+
+def test_review_text_labels_the_preprocessed_coordinate_frame(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # #124: the plain-text review display must say which frame the OCR boxes
+    # belong to, so a reviewer never reads preprocessed-frame coordinates as
+    # if they were original-scan coordinates.
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir)],
+            engine_factory=_factory(reviewer=UncertainReviewer()),
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    code = run(["review", "--store", str(store_dir)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "frame=preprocessed" in captured.out
+    assert "frame_image=" in captured.out
+    assert "preprocessed" in captured.out.split("frame_image=", 1)[1].splitlines()[0]
+
+
+def test_review_text_labels_the_original_frame_when_preprocessing_is_disabled(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir), "--no-preprocess"],
+            engine_factory=_factory(reviewer=UncertainReviewer()),
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    code = run(["review", "--store", str(store_dir)])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "frame=original" in captured.out
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    page = store.list_pages(store.list_projects()[0].id)[0]
+    assert page.source_image in captured.out.split("frame_image=", 1)[1].splitlines()[0]
