@@ -101,9 +101,11 @@ def run_pipeline_benchmark(
             verification_id = store.latest_verification_id(project_id, 0)
             verification = store.load_verification(verification_id)
             accepted_text: list[str] = []
+            accepted_entries: list[tuple[int, str]] = []
             accepted_pairs = 0
             unresolved_pairs = 0
-            for pair_index in range(len(verification.alignment.pairs)):
+            pair_count = len(verification.alignment.pairs)
+            for pair_index in range(pair_count):
                 decision = store.latest_decision_for_verification(
                     project_id, 0, pair_index, verification_id=verification_id
                 )
@@ -112,9 +114,20 @@ def run_pipeline_benchmark(
                     continue
                 accepted_pairs += 1
                 accepted_text.append(decision.selected_text)
+                accepted_entries.append((pair_index, decision.selected_text))
 
             hypothesis = scoring_text("\n".join(accepted_text))
             reference_lines = reference.splitlines()
+            # A false accept is only measurable when alignment pairs map
+            # one-to-one onto the reference lines; otherwise the count stays
+            # None so it is never silently read as zero.
+            false_accepted_pairs: int | None = None
+            if pair_count == len(reference_lines) and reference_lines:
+                false_accepted_pairs = sum(
+                    1
+                    for pair_index, text in accepted_entries
+                    if scoring_text(text) != reference_lines[pair_index]
+                )
             hypothesis_lines = hypothesis.splitlines()
             line_metrics = line_error_metrics(reference_lines, hypothesis_lines)
             character_counts = character_error_counts(reference, hypothesis)
@@ -139,6 +152,7 @@ def run_pipeline_benchmark(
                     elapsed_seconds=elapsed,
                     accepted_pairs=accepted_pairs,
                     unresolved_pairs=unresolved_pairs,
+                    false_accepted_pairs=false_accepted_pairs,
                     direction=case.direction,
                 )
             )

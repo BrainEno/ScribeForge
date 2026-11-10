@@ -99,6 +99,40 @@ Disputed pairs can also be re-read before they are scored as unresolved:
 harness does not enable repair rounds, so variant C/D numbers stay comparable with
 earlier runs; the repair yield per corpus is not measured yet.
 
+## Synthetic variant comparison (measured, reproducible — not OCR accuracy) (#81)
+
+Variants A–D above need real OCR runtimes. To make the *benefit* of the
+dual-engine pipeline (C) and the VLM review (D) measurable today, a
+deterministic synthetic comparison runs all four variants over a generated
+corpus (`scribeforge.benchmark.variants`): 6 pages × 8 lines, the primary
+engine misreads line indexes 1 and 5 on every page, the secondary engine and
+the scripted VLM read the reference verbatim. Anyone can reproduce the exact
+numbers:
+
+```bash
+python benchmark/analysis/variant_comparison.py
+```
+
+The regression test `tests/test_benchmark_variants.py` (`pytest -m benchmark`)
+asserts the same relationships, so the numbers below cannot silently drift.
+
+| Variant | Cases | Macro CER | Micro CER | Accepted pairs | Unresolved pairs | False-accepted pairs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A — `mineru` (scripted, errs) | 6 | 0.0063 | 0.0063 | — | — | — |
+| B — `paddleocr` (scripted, perfect) | 6 | 0.0000 | 0.0000 | — | — | — |
+| C — dual-engine decisions | 6 | 0.2508 | 0.2508 | 36 | 12 | **0** |
+| D — C + corroborating VLM | 6 | **0.0000** | 0.0000 | 48 | 0 | **0** |
+
+Reading (mechanism, not OCR quality): a single engine that errs emits wrong
+text (A's CER is nonzero and every wrong line is a false accept a human would
+never catch). The dual-engine pipeline never accepts a disputed line —
+false-accepted pairs are 0 — but leaves those 12 pairs unresolved, which is
+the measured human-review burden and shows up as missing lines in C's CER.
+Variant D resolves exactly those disputes toward the engine the VLM
+corroborates, recovering CER 0 with still zero false accepts. The report now
+renders a False-accepted pairs column for every pipeline variant so this
+tradeoff is visible in real C/D runs too.
+
 ## Pipeline text loss ceiling (measured end to end, not OCR accuracy)
 
 `--oracle-ceiling` replays the corpus ground truth through two oracle engines and

@@ -36,6 +36,10 @@ class CaseScore:
     elapsed_seconds: float
     accepted_pairs: int | None = None
     unresolved_pairs: int | None = None
+    #: Accepted decisions whose text differs from the case's reference line.
+    #: Only computed when alignment pairs map one-to-one onto reference lines;
+    #: ``None`` means the count was not measurable and must not be read as zero.
+    false_accepted_pairs: int | None = None
     direction: str | None = None
     changed_lines: int = 0
     word_tokenizer: str = "whitespace-v1"
@@ -70,6 +74,7 @@ class AggregateScore:
     pages_per_minute: float
     accepted_pairs: int | None = None
     unresolved_pairs: int | None = None
+    false_accepted_pairs: int | None = None
     wer_case_count: int = 0
     changed_lines: int = 0
     character_errors: int | None = None
@@ -142,6 +147,16 @@ def aggregate_case_scores(
         unresolved_pairs=(
             sum(score.unresolved_pairs or 0 for score in scores)
             if include_decision_counts
+            else None
+        ),
+        false_accepted_pairs=(
+            sum(
+                false_accepted
+                for false_accepted in (score.false_accepted_pairs for score in scores)
+                if false_accepted is not None
+            )
+            if include_decision_counts
+            and all(score.false_accepted_pairs is not None for score in scores)
             else None
         ),
         wer_case_count=len(applicable_wer),
