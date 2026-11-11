@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -60,33 +61,53 @@ def adjudicate_pair(
 ) -> PairAdjudication:
     """Turn a verified pair into an accepted-text decision from cited evidence.
 
-    Independent agreement is accepted automatically, including agreement that
-    differs only by glyph variant (the primary engine's characters are kept
-    verbatim). A confident, non-blank VLM reading is accepted only when one of the
-    engines reads the same text: a vision model that disagrees with *both* engines
-    is a third opinion, not a corroboration, and self-reported confidence is not
-    evidence (issue #76). Everything else stays unresolved for human review.
-    Source OCR text is never rewritten by this rule.
+    Thin wrapper over :func:`adjudicate_readings` kept for the two-engine call
+    sites; the N-engine rule below is the single source of truth.
     """
 
-    if primary_text is None and secondary_text is None:
+    return adjudicate_readings([primary_text, secondary_text], vlm, risk=risk, policy=policy)
+
+
+def adjudicate_readings(
+    engine_texts: Sequence[str | None],
+    vlm: VLMReading | None,
+    *,
+    risk: PairRisk | None = None,
+    policy: AcceptancePolicy = DEFAULT_POLICY,
+) -> PairAdjudication:
+    """Adjudicate one aligned line across *N* engines (issue #90).
+
+    Pure rule, no I/O:
+
+    - All engines that produced text agree exactly → accept (``engines_agree``).
+    - All produced texts differ only by glyph variant → accept the *first*
+      engine's literal characters (``variant_agreement``); source OCR text is
+      never folded or "corrected".
+    - Otherwise, cluster texts by variant equivalence; a cluster held by at
+      least two engines wins (``majority_agreement``) and keeps the first
+      literal text of that cluster. With three engines this is 2-of-3; with two
+      it degenerates to the historical ``variant_agreement``/``engines_agree``.
+    - A confident, non-blank VLM reading corroborating *any* engine (exact or
+      variant-only) is accepted as the VLM actor (``vlm_confident``). A VLM
+      reading that matches nothing is a third opinion, not a corroboration
+      (``vlm_uncorroborated``); uncertain/blank VLM never resolves.
+    - Everything else — including three-way disagreement — stays queued for a
+      human (``engines_disagree`` / ``missing_engine_text`` / ``no_engine_text``).
+
+    Whatever a rule accepts still passes the acceptance gate unchanged.
+    """
+
+    present = [text for text in engine_texts if text is not None]
+    if not present:
         return PairAdjudication(None, None, "no_engine_text")
 
-    if primary_text is not None and primary_text == secondary_text:
-        return _gated(primary_text, DecisionActor.AUTOMATIC, "engines_agree", risk, policy)
-
-    if (
-        primary_text is not None
-        and secondary_text is not None
-        and is_variant_only_difference(primary_text, secondary_text)
-    ):
-        # The engines agree on the text modulo orthography. Accept the primary
-        # engine's literal characters — never a folded or "corrected" form — and
-        # record why, so the choice is reviewable rather than silent.
-        return _gated(primary_text, DecisionActor.AUTOMATIC, "variant_agreement", risk, policy)
+    agreement = _engine_agreement(present)
+    if agreement is not None:
+        text, rationale = agreement
+        return _gated(text, DecisionActor.AUTOMATIC, rationale, risk, policy)
 
     if vlm is None:
-        if primary_text is None or secondary_text is None:
+        if len(present) < 2:
             return PairAdjudication(None, None, "missing_engine_text")
         return PairAdjudication(None, None, "engines_disagree")
 
@@ -94,15 +115,45 @@ def adjudicate_pair(
         return PairAdjudication(None, None, "vlm_uncertain")
     if not vlm.text.strip():
         return PairAdjudication(None, None, "vlm_blank")
-    engine_texts = [text for text in (primary_text, secondary_text) if text is not None]
-    if not any(
-        vlm.text == text or is_variant_only_difference(vlm.text, text) for text in engine_texts
-    ):
-        # A third reading that matches nothing is the *most* suspicious case: two
-        # engines and a model all disagree, so there is no independent agreement to
-        # accept, only three claims. It goes to a person.
+    if not any(vlm.text == text or is_variant_only_difference(vlm.text, text) for text in present):
+        # A reading that matches no engine is the *most* suspicious case: there is
+        # no independent agreement to accept, only competing claims. It goes to a
+        # person.
         return PairAdjudication(None, None, "vlm_uncorroborated")
     return _gated(vlm.text, DecisionActor.VLM, "vlm_confident", risk, policy)
+
+
+def _engine_agreement(present: list[str]) -> tuple[str, str] | None:
+    """Return ``(text, rationale)`` when the engines' texts form an accept cluster.
+
+    Exact-equal texts group trivially; otherwise texts that differ only by glyph
+    variant cluster together. The first literal text of the winning group is
+    kept verbatim. ``None`` when no group reaches agreement (fewer than two
+    engines in every cluster).
+    """
+
+    groups: list[list[int]] = []
+    for index, text in enumerate(present):
+        for group in groups:
+            representative = present[group[0]]
+            if text == representative or is_variant_only_difference(text, representative):
+                group.append(index)
+                break
+        else:
+            groups.append([index])
+    if not groups:
+        return None
+    best = max(groups, key=len)
+    if len(best) < 2:
+        return None
+    first = present[best[0]]
+    if len(best) == len(present):
+        # Every engine sits in the same cluster: exact agreement when all are
+        # identical, variant-only agreement otherwise.
+        if all(text == first for text in present):
+            return first, "engines_agree"
+        return first, "variant_agreement"
+    return first, "majority_agreement"
 
 
 def _gated(
