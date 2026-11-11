@@ -261,3 +261,24 @@ recognition accuracy on representative scans.
 - Synthetic fixtures prove the stated rules and evidence integrity, not arbitrary scan
   quality or real-engine accuracy. Real representative scans remain necessary before
   claiming production OCR accuracy.
+
+## N-engine adjudication rule (multi-engine roadmap, issue #90)
+
+`scribeforge.domain.decisions.adjudicate_readings` generalizes the two-engine
+`adjudicate_pair` to any number of engines as a pure function over the engines'
+texts plus an optional VLM reading:
+
+- all engines agree exactly → accept (`engines_agree`);
+- all texts differ only by glyph variant → accept the **first** engine's literal
+  characters, never a folded form (`variant_agreement`);
+- otherwise texts cluster by variant equivalence and a cluster held by ≥2
+  engines wins (`majority_agreement`, first literal of the cluster kept);
+- a confident, non-blank VLM reading corroborating *any* engine is accepted as
+  the VLM actor (`vlm_confident`); one matching nothing is a third opinion and
+  stays queued (`vlm_uncorroborated`);
+- everything else — including three-way disagreement — stays queued for a human.
+
+Whatever a rule accepts still passes the acceptance gate unchanged.
+`adjudicate_pair` is a thin wrapper over `adjudicate_readings` so existing
+two-engine behavior is bit-identical (pinned by
+`tests/test_multi_engine_adjudication.py`).
