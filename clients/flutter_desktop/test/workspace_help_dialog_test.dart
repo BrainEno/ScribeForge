@@ -25,8 +25,8 @@ void main() {
     expect(find.text('使用帮助'), findsOneWidget);
     // Workflow steps.
     expect(find.textContaining('开始处理'), findsOneWidget);
-    expect(find.textContaining('复核'), findsOneWidget);
-    expect(find.textContaining('导出'), findsOneWidget);
+    expect(find.textContaining('复核快捷键'), findsOneWidget);
+    expect(find.textContaining('导出 EPUB/DOCX'), findsOneWidget);
     // Review shortcuts.
     expect(find.textContaining('Alt+←/→'), findsOneWidget);
     expect(find.textContaining('Ctrl+J'), findsOneWidget);
