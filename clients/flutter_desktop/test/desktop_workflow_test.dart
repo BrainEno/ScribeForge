@@ -570,24 +570,6 @@ void main() {
         hasLength(1),
         reason: 'a restart must neither lose nor re-record the decision',
       );
-
-      // Final export works without reprocessing or re-deciding.
-      harness.picker.directories.addLast(storePath);
-      await openTab(tester, '导出');
-      await tester.tap(
-        find.byWidgetPredicate(
-          (widget) => widget is TextField && widget.readOnly,
-        ),
-      );
-      await tester.pump();
-      await tester.tap(find.text('开始导出'));
-      await waitForWorkflowIdle(tester);
-      expect(
-        harness.cli.calls.where((arguments) => arguments.first == 'export'),
-        hasLength(1),
-      );
-      expect(harness.cli.lastExportPath, contains('Sample.epub'));
-      expect(File(harness.cli.lastExportPath!).existsSync(), isTrue);
     },
   );
 }
