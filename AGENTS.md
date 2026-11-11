@@ -34,6 +34,9 @@ A slice is done only when:
 - type/lint checks pass (`ruff check .`, `ruff format --check .`, `mypy src`);
 - no source evidence is overwritten;
 - failure/retry behavior is defined;
+- failure paths of I/O-heavy modules (backup/restore, runtime tools, hardware
+  probe) are covered with injected fakes; the total coverage number must not
+  dilute them — per-module floors are enforced in CI (see ci.yml);
 - docs/schema are updated when contracts change;
 - no fake implementation is presented as working OCR.
 
