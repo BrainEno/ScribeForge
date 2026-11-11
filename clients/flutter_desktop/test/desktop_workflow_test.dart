@@ -738,7 +738,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('使用帮助'), findsOneWidget);
     expect(find.textContaining('Alt+←/→'), findsOneWidget);
-    expect(find.textContaining('Ctrl+Enter'), findsOneWidget);
+    expect(find.textContaining('Ctrl+Enter 记录人工决策'), findsOneWidget);
     await tester.tap(find.text('知道了'));
     await tester.pumpAndSettle();
     expect(find.text('使用帮助'), findsNothing);

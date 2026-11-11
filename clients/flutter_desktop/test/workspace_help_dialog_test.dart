@@ -32,7 +32,7 @@ void main() {
     expect(find.textContaining('Ctrl+J'), findsOneWidget);
     expect(find.textContaining('Ctrl+G'), findsOneWidget);
     expect(find.textContaining('Alt+1/2/3'), findsOneWidget);
-    expect(find.textContaining('Ctrl+Enter'), findsOneWidget);
+    expect(find.textContaining('Ctrl+Enter 记录人工决策'), findsOneWidget);
     // The safety rule: filling a candidate is not a decision.
     expect(find.textContaining('不会记录决策'), findsOneWidget);
 
