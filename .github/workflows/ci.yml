@@ -23,6 +23,11 @@ jobs:
         run: >-
           python -m pytest -m "not benchmark and not gpu" --maxfail=1
           --junitxml=core-tests.xml
+      - name: Enforce per-module coverage floors for failure-prone modules
+        run: >-
+          python -m coverage report
+          --include="*/project_backup.py,*/runtime/probe.py,*/runtime/tools.py"
+          --fail-under=85
       - name: Annotate core test failure
         if: failure()
         run: python .github/scripts/report_pytest_failure.py core-tests.xml

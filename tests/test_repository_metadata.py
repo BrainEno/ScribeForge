@@ -40,6 +40,17 @@ def test_contributing_references_the_agent_rules() -> None:
     assert "Apache" in text
 
 
+def test_agents_dod_requires_failure_path_coverage() -> None:
+    agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "failure paths" in agents, "DoD must require failure-path coverage"
+
+
+def test_ci_enforces_per_module_coverage_floors() -> None:
+    ci = (REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "fail-under" in ci
+    assert "project_backup.py" in ci and "runtime/probe.py" in ci
+
+
 def test_readme_points_to_the_license() -> None:
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "Apache License 2.0" in readme or "Apache-2.0" in readme
