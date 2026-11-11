@@ -118,24 +118,25 @@ def test_nvidia_profile_uses_the_injected_command(monkeypatch) -> None:
     assert seen == [["custom-smi", "--flag"]]
 
 
-def test_ram_mb_posix_sysconf_failure_returns_none(monkeypatch) -> None:
+def _force_posix(monkeypatch, sysconf) -> None:
     monkeypatch.setattr(probe.os, "name", "posix")
+    monkeypatch.setattr(probe.os, "sysconf", sysconf, raising=False)
 
+
+def test_ram_mb_posix_sysconf_failure_returns_none(monkeypatch) -> None:
     def broken_sysconf(name: str) -> int:
         raise OSError("no sysconf")
 
-    monkeypatch.setattr(probe.os, "sysconf", broken_sysconf)
+    _force_posix(monkeypatch, broken_sysconf)
 
     assert probe._ram_mb() is None
 
 
 def test_ram_mb_posix_sysconf_value_error_returns_none(monkeypatch) -> None:
-    monkeypatch.setattr(probe.os, "name", "posix")
-
     def broken_sysconf(name: str) -> int:
         raise ValueError("bad value")
 
-    monkeypatch.setattr(probe.os, "sysconf", broken_sysconf)
+    _force_posix(monkeypatch, broken_sysconf)
 
     assert probe._ram_mb() is None
 
@@ -176,10 +177,13 @@ def test_ram_mb_unknown_os_returns_none(monkeypatch) -> None:
     assert probe._ram_mb() is None
 
 
-def test_ram_mb_posix_returns_real_memory(monkeypatch) -> None:
-    monkeypatch.setattr(probe.os, "name", "posix")
-    ram = probe._ram_mb()
-    assert ram is not None and ram > 0
+def test_ram_mb_posix_computes_memory_from_sysconf(monkeypatch) -> None:
+    def fake_sysconf(name: str) -> int:
+        return {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": 2_000_000}[name]
+
+    _force_posix(monkeypatch, fake_sysconf)
+
+    assert probe._ram_mb() == 4096 * 2_000_000 // (1024 * 1024)
 
 
 def test_probe_hardware_rejects_nonpositive_timeout() -> None:
