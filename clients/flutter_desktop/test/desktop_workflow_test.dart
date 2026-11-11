@@ -618,6 +618,60 @@ void main() {
       expect(find.text('未检测到 Python 3'), findsNothing);
     },
   );
+
+  testWidgets('the next-step banner walks review then export after import', (
+    tester,
+  ) async {
+    await createHarness(tester);
+    String banner() => (tester.widget(
+      find.byKey(const ValueKey('next-step-message')),
+    ) as Text).data!;
+
+    // Fresh app: nothing imported yet.
+    expect(banner(), contains('导入一本'));
+
+    await importBook(tester);
+    await waitForWorkflowIdle(tester);
+
+    // A source is selected but no project status yet: go process first.
+    expect(banner(), contains('去处理'));
+    await tester.tap(find.byKey(const ValueKey('next-step-action')));
+    await tester.pump();
+    expect(find.text('开始处理'), findsOneWidget);
+    await tester.tap(find.text('开始处理'));
+    await waitForWorkflowIdle(tester);
+
+    // The fake backend now reports OCR done with one queued review.
+    expect(banner(), contains('1 项'));
+    await tester.tap(find.byKey(const ValueKey('next-step-action')));
+    await tester.pump();
+    expect(find.text('记录人工决策'), findsOneWidget);
+
+    await tester.tap(find.text('填入 OCR 1'));
+    await tester.tap(find.text('记录人工决策'));
+    await waitForWorkflowIdle(tester);
+    expect(banner(), contains('导出'));
+    await tester.tap(find.byKey(const ValueKey('next-step-action')));
+    await tester.pump();
+    expect(find.text('导出格式'), findsOneWidget);
+  });
+
+  testWidgets(
+    'the next-step banner offers one-click init when the runtime is missing',
+    (tester) async {
+      await createHarness(tester, runtimeReady: false);
+      String banner() => (tester.widget(
+        find.byKey(const ValueKey('next-step-message')),
+      ) as Text).data!;
+      expect(banner(), contains('初始化'));
+      await tester.tap(find.byKey(const ValueKey('next-step-action')));
+      await pumpUntil(
+        tester,
+        () => find.text('首次 OCR 运行时配置').evaluate().isNotEmpty,
+        description: 'the runtime setup dialog opened from the banner',
+      );
+    },
+  );
 }
 
 Map<String, Object?> _reviewItem(

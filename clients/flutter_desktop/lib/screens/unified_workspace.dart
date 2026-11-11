@@ -28,6 +28,88 @@ import 'project_safety_screen.dart';
 import 'runtime_setup_dialog.dart';
 import 'vlm_settings_dialog.dart';
 
+/// 主窗口"下一步"引导条可采取的操作。
+enum NextStepAction {
+  none,
+  configureBackend,
+  initEnvironment,
+  importBook,
+  relinkSource,
+  goProcess,
+  goReview,
+  goExport,
+}
+
+/// 一条"下一步"建议：一句中文说明 + 一个可点击操作。
+class NextStepGuidance {
+  const NextStepGuidance(this.action, this.message, {this.count});
+
+  final NextStepAction action;
+  final String message;
+  final int? count;
+}
+
+/// 由原始状态计算唯一的下一步建议（纯函数，便于穷举单测）。
+NextStepGuidance nextStepGuidance({
+  required bool backendChecked,
+  required bool backendLaunchFailed,
+  required bool runtimeSetupRequired,
+  required bool hasProject,
+  required bool hasSource,
+  required bool sourceMismatch,
+  required int pagesWithBothOcr,
+  required int pagesTotal,
+  required int reviewQueued,
+}) {
+  if (!backendChecked) {
+    return const NextStepGuidance(NextStepAction.none, '');
+  }
+  if (backendLaunchFailed) {
+    return const NextStepGuidance(
+      NextStepAction.configureBackend,
+      '命令行工具无法启动，请到「设置」检查命令行工具路径。',
+    );
+  }
+  if (runtimeSetupRequired) {
+    return const NextStepGuidance(
+      NextStepAction.initEnvironment,
+      '首次使用：请先初始化 OCR 环境，完成后即可导入并处理书籍。',
+    );
+  }
+  if (!hasProject && !hasSource) {
+    return const NextStepGuidance(
+      NextStepAction.importBook,
+      '导入一本 PDF 或图片书籍开始，或打开已有项目继续。',
+    );
+  }
+  if (sourceMismatch) {
+    return const NextStepGuidance(
+      NextStepAction.relinkSource,
+      '源文件与项目记录不匹配，请重新关联源文件（需 SHA-256 相同）。',
+    );
+  }
+  if (hasProject && pagesWithBothOcr < pagesTotal) {
+    return const NextStepGuidance(
+      NextStepAction.goProcess,
+      '还有页面未完成双引擎 OCR，去处理。',
+    );
+  }
+  if (!hasProject && hasSource) {
+    return const NextStepGuidance(NextStepAction.goProcess, '已选择源文件，去处理页面。');
+  }
+  if (reviewQueued > 0) {
+    return NextStepGuidance(
+      NextStepAction.goReview,
+      '复核队列还有 $reviewQueued 项待处理，去复核。',
+      count: reviewQueued,
+    );
+  }
+  return const NextStepGuidance(
+    NextStepAction.goExport,
+    '所有页面已完成复核，可以导出 EPUB / DOCX 了。',
+  );
+}
+
 /// 一体化书籍数字化工作台。
 ///
 /// 面向新手使用者：把「导入书籍 → 运行处理 → 复核决策 → 导出 EPUB/DOCX」
@@ -97,6 +179,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   bool _backendBusy = false;
   DesktopBackendResolution? _backendResolution;
   bool _backendConnected = false;
+  bool _runtimeChecked = false;
   Object? _backendLaunchError;
   bool _runtimeSetupActionRequired = false;
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
@@ -419,7 +502,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         _error = commandExited ? '读取运行时状态失败：$exc' : diagnosis.message;
       });
     } finally {
-      if (mounted) setState(() => _runtimeLoading = false);
+      if (mounted) {
+        setState(() {
+          _runtimeLoading = false;
+          _runtimeChecked = true;
+        });
+      }
     }
   }
 
@@ -1032,6 +1120,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       body: Column(
         children: <Widget>[
           _buildNoticeBar(),
+          _buildNextStepBar(),
           Expanded(
             child: Row(
               children: <Widget>[
@@ -1079,6 +1168,92 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   void _showInitialization() {
     setState(() => _selectedIndex = 6);
     if (_backendConnected) unawaited(_openRuntimeSetup(autoStart: true));
+  }
+
+  NextStepGuidance _nextStep() {
+    final status = _projectStatus;
+    return nextStepGuidance(
+      backendChecked: _runtimeChecked,
+      backendLaunchFailed: _backendLaunchError != null,
+      runtimeSetupRequired: _runtimeSetupActionRequired,
+      hasProject: status != null,
+      hasSource: _pdfPath != null,
+      sourceMismatch: _projectSourceMismatchMessage != null,
+      pagesWithBothOcr: status?.pagesWithBothOcrSuccess ?? 0,
+      pagesTotal: status?.pagesTotal ?? 0,
+      reviewQueued: status?.reviewQueued ?? 0,
+    );
+  }
+
+  Future<void> _runNextStepAction(NextStepAction action) async {
+    switch (action) {
+      case NextStepAction.none:
+        return;
+      case NextStepAction.configureBackend:
+        setState(() => _selectedIndex = 6);
+      case NextStepAction.initEnvironment:
+        _showInitialization();
+      case NextStepAction.importBook:
+        await _pickPdf();
+        if (mounted && _pdfPath != null) {
+          setState(() => _selectedIndex = 1);
+        }
+      case NextStepAction.relinkSource:
+        await _relinkSource();
+      case NextStepAction.goProcess:
+        setState(() => _selectedIndex = 1);
+      case NextStepAction.goReview:
+        setState(() => _selectedIndex = 2);
+      case NextStepAction.goExport:
+        setState(() => _selectedIndex = 4);
+    }
+  }
+
+  Widget _buildNextStepBar() {
+    final guidance = _nextStep();
+    if (guidance.action == NextStepAction.none) return const SizedBox.shrink();
+    final actionLabel = switch (guidance.action) {
+      NextStepAction.none => '',
+      NextStepAction.configureBackend => '去设置',
+      NextStepAction.initEnvironment => '一键初始化',
+      NextStepAction.importBook => '去导入',
+      NextStepAction.relinkSource => '去关联源文件',
+      NextStepAction.goProcess => '去处理',
+      NextStepAction.goReview => '去复核',
+      NextStepAction.goExport => '去导出',
+    };
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: Row(
+        children: <Widget>[
+          Icon(
+            Icons.lightbulb_outline,
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '下一步：${guidance.message}',
+              key: const ValueKey('next-step-message'),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          TextButton(
+            key: const ValueKey('next-step-action'),
+            onPressed: _busy
+                ? null
+                : () => unawaited(_runNextStepAction(guidance.action)),
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildNoticeBar() {

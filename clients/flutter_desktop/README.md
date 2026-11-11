@@ -57,6 +57,12 @@ If the CLI is not on `PATH`, either use **设置 → 后端环境（Python 虚�
 
 ## Guided workflow
 
+A persistent **下一步** banner under the notice bar always shows the single
+next action implied by the current state — configure the CLI (设置), one-click
+初始化环境 on first run, 导入书籍, 重新关联源文件, 去处理, 去复核, or 去导出 —
+with a button that jumps straight to the right page. The suggestion is computed
+by a pure function (`nextStepGuidance`) with exhaustive unit tests.
+
 1. **书籍** — Choose **导入书籍** for a PDF or page image. The default store is a sibling directory named `<source-stem>.scribeforge`. Choose **打开项目文件夹** to resume an existing single-book store.
 2. **处理** — Run `scribeforge process --cancelable`. The UI polls `status --json` while the command is active, showing pages with both OCR results, the active page/stage, job counts, and failed-page details. **取消处理** sends a versioned control message to the CLI; it stops the OCR worker and its descendants, marks an interrupted stage retryable, and preserves imported page images, completed OCR evidence, and human decisions. Worker deadlines default to 600 seconds per OCR invocation and can be configured with `--worker-timeout SECONDS`; worker stdout/stderr limits prevent unbounded log capture. Processing is resumable; rerunning reuses successful page evidence and retries incomplete/failed work. VLM review is off by default; only enabling it in **设置 → 视觉模型复核** passes the configured endpoint/model to the CLI.
 3. **复核** — Read both OCR candidates, any VLM reading and its uncertainty flag, risk reasons, and the crop (or original page image). Previous/next controls, **Alt+←/→**, and a one-based page jump move through the queue. **Ctrl+J** focuses the decision editor and **Ctrl+G** focuses page jump. Candidate buttons and **Alt+1/2/3** only fill text; **Ctrl+Enter** or **记录人工决策** explicitly calls `resolve`, appends a decision, and never overwrites source OCR.
