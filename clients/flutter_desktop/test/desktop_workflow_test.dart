@@ -490,6 +490,106 @@ void main() {
       hasLength(1),
     );
   });
+
+  testWidgets(
+    'a recorded decision survives an app restart and export stays unblocked',
+    (tester) async {
+      final harness = await createHarness(tester);
+      await importBook(tester);
+      await tester.tap(find.text('开始处理'));
+      await waitForWorkflowIdle(tester);
+
+      // Adjudicate the only queued pair from inside the main workspace.
+      await openTab(tester, '复核');
+      expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
+      await tester.tap(find.text('填入 OCR 1'));
+      await tester.tap(find.text('记录人工决策'));
+      await waitForWorkflowIdle(tester);
+      expect(
+        harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
+        hasLength(1),
+      );
+      expect(find.text('暂无待处理配对。'), findsOneWidget);
+
+      // Simulate an application restart: drop the widget tree and rebuild the
+      // workspace against the same on-disk project store.
+      final processCall = harness.cli.calls.singleWhere(
+        (arguments) => arguments.first == 'process',
+      );
+      final storePath = processCall[processCall.indexOf('--store') + 1];
+      harness.picker.directories.addLast(storePath);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UnifiedWorkspace(
+            cliExecutor: harness.cli,
+            backendResolver: DesktopBackendResolver(
+              fileExists: (_) async => false,
+            ),
+            filePicker: harness.picker,
+            settingsStore: _MemorySettingsStore(),
+            fileSystem: harness.cli.fileSystem,
+          ),
+        ),
+      );
+      await pumpUntil(
+        tester,
+        () =>
+            harness.cli.calls
+                .where((arguments) => arguments.first == 'runtime-status')
+                .length >= 2,
+        description: 'the restarted app backend health check',
+      );
+
+      await openTab(tester, '书籍');
+      await tester.tap(find.text('打开项目文件夹'));
+      await pumpUntil(
+        tester,
+        () =>
+            harness.cli.calls
+                .where(
+                  (arguments) =>
+                      arguments.first == 'status' &&
+                      arguments.contains(storePath),
+                )
+                .isNotEmpty,
+        description: 'the restarted app to reopen the project store',
+      );
+      await waitForWorkflowIdle(tester);
+
+      // The persisted decision keeps the queue empty after the restart.
+      await openTab(tester, '复核');
+      await pumpUntil(
+        tester,
+        () => find.text('暂无待处理配对。').evaluate().isNotEmpty,
+        description: 'the restarted review queue to settle',
+      );
+      expect(
+        harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
+        hasLength(1),
+        reason: 'a restart must neither lose nor re-record the decision',
+      );
+
+      // Final export works without reprocessing or re-deciding.
+      harness.picker.directories.addLast(storePath);
+      await openTab(tester, '导出');
+      await tester.tap(
+        find.byWidgetPredicate(
+          (widget) => widget is TextField && widget.readOnly,
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('开始导出'));
+      await waitForWorkflowIdle(tester);
+      expect(
+        harness.cli.calls.where((arguments) => arguments.first == 'export'),
+        hasLength(1),
+      );
+      expect(harness.cli.lastExportPath, contains('Sample.epub'));
+      expect(File(harness.cli.lastExportPath!).existsSync(), isTrue);
+    },
+  );
 }
 
 Map<String, Object?> _reviewItem(
