@@ -276,3 +276,19 @@ def test_loaded_fixtures_evaluate_to_full_accuracy() -> None:
     assert totals.reading_order_errors == 0
     assert totals.cross_column_errors == 0
     assert totals.false_positive == 0
+
+
+COMMITTED_REPORT = Path(__file__).parent.parent / "docs" / "alignment-eval-report.md"
+
+
+def test_committed_alignment_report_matches_a_fresh_run() -> None:
+    # #79 acceptance artifact: the measured match accuracy and order-error
+    # rates live in a committed report, and this guard fails if the file
+    # drifts from what the production renderer produces today.
+    samples = load_alignment_samples(FIXTURES)
+    report = render_alignment_report(evaluate_alignment_samples(samples))
+    assert COMMITTED_REPORT.is_file(), (
+        "docs/alignment-eval-report.md is missing; regenerate it with "
+        "`scribeforge alignment-eval --fixtures tests/fixtures/alignment_groundtruth.json`"
+    )
+    assert COMMITTED_REPORT.read_text(encoding="utf-8") == report
