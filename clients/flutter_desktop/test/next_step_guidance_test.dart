@@ -13,6 +13,7 @@ void main() {
       int pagesWithBothOcr = 0,
       int pagesTotal = 0,
       int reviewQueued = 0,
+      String? lastProjectStore,
     }) {
       return nextStepGuidance(
         backendChecked: backendChecked,
@@ -24,6 +25,7 @@ void main() {
         pagesWithBothOcr: pagesWithBothOcr,
         pagesTotal: pagesTotal,
         reviewQueued: reviewQueued,
+        lastProjectStore: lastProjectStore,
       );
     }
 
@@ -106,6 +108,42 @@ void main() {
     test('nothing to say while the backend status is not checked yet', () {
       final step = guidance(backendChecked: false);
       expect(step.action, NextStepAction.none);
+    });
+
+    test('a remembered project offers one-click resume before import', () {
+      final step = guidance(lastProjectStore: '/books/Sample.scribeforge');
+      expect(step.action, NextStepAction.resumeLastProject);
+      expect(step.message, contains('一键继续'));
+      expect(step.message, contains('/books/Sample.scribeforge'));
+    });
+
+    test('resume does not override an already open project', () {
+      final step = guidance(
+        hasProject: true,
+        pagesWithBothOcr: 5,
+        pagesTotal: 5,
+        lastProjectStore: '/books/Sample.scribeforge',
+      );
+      expect(step.action, NextStepAction.goExport);
+    });
+
+    test('resume does not override backend or setup problems', () {
+      expect(
+        guidance(backendLaunchFailed: true, lastProjectStore: '/x').action,
+        NextStepAction.configureBackend,
+      );
+      expect(
+        guidance(runtimeSetupRequired: true, lastProjectStore: '/x').action,
+        NextStepAction.initEnvironment,
+      );
+    });
+
+    test('a selected source wins over the remembered project', () {
+      final step = guidance(
+        hasSource: true,
+        lastProjectStore: '/books/Sample.scribeforge',
+      );
+      expect(step.action, NextStepAction.goProcess);
     });
   });
 }

@@ -34,6 +34,7 @@ enum NextStepAction {
   configureBackend,
   initEnvironment,
   importBook,
+  resumeLastProject,
   relinkSource,
   goProcess,
   goReview,
@@ -60,6 +61,7 @@ NextStepGuidance nextStepGuidance({
   required int pagesWithBothOcr,
   required int pagesTotal,
   required int reviewQueued,
+  String? lastProjectStore,
 }) {
   if (!backendChecked) {
     return const NextStepGuidance(NextStepAction.none, '');
@@ -74,6 +76,12 @@ NextStepGuidance nextStepGuidance({
     return const NextStepGuidance(
       NextStepAction.initEnvironment,
       '首次使用：请先初始化 OCR 环境，完成后即可导入并处理书籍。',
+    );
+  }
+  if (!hasProject && !hasSource && lastProjectStore != null) {
+    return NextStepGuidance(
+      NextStepAction.resumeLastProject,
+      '上次的项目还在：$lastProjectStore，一键继续。',
     );
   }
   if (!hasProject && !hasSource) {
@@ -180,6 +188,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   DesktopBackendResolution? _backendResolution;
   bool _backendConnected = false;
   bool _runtimeChecked = false;
+  String? _lastProjectStorePath;
   Object? _backendLaunchError;
   bool _runtimeSetupActionRequired = false;
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
@@ -294,6 +303,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final vlmSettings = await _settingsStore.loadVlmSettings();
     final backendPython = await _settingsStore.loadBackendPython();
     final backendSourcePath = await _settingsStore.loadBackendSourcePath();
+    final lastProjectStore = await _settingsStore.loadLastProjectStore();
     final resolution = await _backendResolver.resolve(executable);
     if (!mounted) return;
     setState(() {
@@ -302,6 +312,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _vlmSettings = vlmSettings;
       _backendPython = backendPython;
       _backendSourcePath = backendSourcePath;
+      _lastProjectStorePath = lastProjectStore;
     });
     await _refreshRuntimeStatus();
     await _refreshStatus();
@@ -604,8 +615,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _error = null;
       _notice = null;
     });
+    _rememberProjectStore(storePath);
     await _refreshStatus();
     await _refreshReviewQueue();
+  }
+
+  void _rememberProjectStore(String storePath) {
+    unawaited(_settingsStore.saveLastProjectStore(storePath));
   }
 
   Future<void> _openProject() async {
@@ -613,6 +629,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       dialogTitle: '选择 ScribeForge 项目文件夹',
     );
     if (!mounted || storePath == null) return;
+    await _openProjectAt(storePath);
+  }
+
+  /// Validates and loads the project store at [storePath]; shared by the
+  /// file picker and the one-click "继续上次项目" resume action.
+  Future<void> _openProjectAt(String storePath) async {
     final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
     if (!await _fileSystem.fileExists(databasePath)) {
       setState(() => _error = '所选文件夹中没有 ScribeForge 项目数据库。');
@@ -664,6 +686,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         _exportTitleController.text = projects.single.title;
         _selectedIndex = 0;
       });
+      _rememberProjectStore(storePath);
       await _refreshStatus();
       await _refreshReviewQueue();
     } catch (exc) {
@@ -1182,6 +1205,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       pagesWithBothOcr: status?.pagesWithBothOcrSuccess ?? 0,
       pagesTotal: status?.pagesTotal ?? 0,
       reviewQueued: status?.reviewQueued ?? 0,
+      lastProjectStore: _lastProjectStorePath,
     );
   }
 
@@ -1197,6 +1221,16 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         await _pickPdf();
         if (mounted && _pdfPath != null) {
           setState(() => _selectedIndex = 1);
+        }
+      case NextStepAction.resumeLastProject:
+        final lastStore = _lastProjectStorePath;
+        if (lastStore == null) return;
+        await _openProjectAt(lastStore);
+        if (mounted && _error != null) {
+          // The remembered store is gone; forget it so the banner falls
+          // back to the plain import guidance.
+          setState(() => _lastProjectStorePath = null);
+          unawaited(_settingsStore.saveLastProjectStore(''));
         }
       case NextStepAction.relinkSource:
         await _relinkSource();
@@ -1217,6 +1251,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       NextStepAction.configureBackend => '去设置',
       NextStepAction.initEnvironment => '一键初始化',
       NextStepAction.importBook => '去导入',
+      NextStepAction.resumeLastProject => '继续上次项目',
       NextStepAction.relinkSource => '去关联源文件',
       NextStepAction.goProcess => '去处理',
       NextStepAction.goReview => '去复核',
@@ -2199,6 +2234,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _error = null;
       _notice = '项目已恢复并载入工作台。';
     });
+    _rememberProjectStore(storePath);
     await _refreshStatus();
     if (!mounted) return;
     final restoredSourcePath = _projectStatus?.sourceUri;

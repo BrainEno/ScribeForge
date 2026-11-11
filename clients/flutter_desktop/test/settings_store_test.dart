@@ -21,6 +21,7 @@ void main() {
     expect(await store.loadCliExecutable(), 'scribeforge');
     expect(await store.loadBackendPython(), isEmpty);
     expect(await store.loadBackendSourcePath(), isEmpty);
+    expect(await store.loadLastProjectStore(), isNull);
     expect(store.settingsDirectory.path, temporary.path);
     final vlm = await store.loadVlmSettings();
     expect(vlm.enabled, isFalse);
@@ -29,6 +30,20 @@ void main() {
     expect(vlm.apiKeyEnvironmentVariable, isEmpty);
     expect(vlm.timeoutSeconds, 120);
     expect(vlm.allowRemote, isFalse);
+  });
+
+  test('persists the last project store across loads', () async {
+    final store = DesktopSettingsStore(directory: temporary);
+    await store.saveLastProjectStore('/books/Sample.scribeforge');
+
+    expect(
+      await DesktopSettingsStore(directory: temporary).loadLastProjectStore(),
+      '/books/Sample.scribeforge',
+    );
+
+    // An empty value clears the memory instead of persisting junk.
+    await store.saveLastProjectStore('   ');
+    expect(await store.loadLastProjectStore(), isNull);
   });
 
   test('persists the configured executable across loads', () async {
