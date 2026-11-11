@@ -1,4 +1,7 @@
+import subprocess
 from types import SimpleNamespace
+
+import pytest
 
 from scribeforge.runtime import probe
 from scribeforge.runtime.probe import parse_nvidia_smi
@@ -91,3 +94,98 @@ def test_probe_hardware_forwards_configurable_deadlines(monkeypatch) -> None:
 
     assert calls == [("gpu", 2.5), ("ram", 2.5)]
     assert profile.ram_mb == 8192
+
+
+def test_nvidia_profile_returns_none_on_nonzero_exit(monkeypatch) -> None:
+    def fake_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(1, ["nvidia-smi"])
+
+    monkeypatch.setattr(probe.subprocess, "run", fake_run)
+
+    assert probe._nvidia_profile(["nvidia-smi"]) is None
+
+
+def test_nvidia_profile_uses_the_injected_command(monkeypatch) -> None:
+    seen: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        seen.append(list(argv))
+        return SimpleNamespace(stdout="GPU, 1.0, 1024\n")
+
+    monkeypatch.setattr(probe.subprocess, "run", fake_run)
+
+    assert probe._nvidia_profile(["custom-smi", "--flag"]) == ("GPU", "1.0", 1024)
+    assert seen == [["custom-smi", "--flag"]]
+
+
+def _force_posix(monkeypatch, sysconf) -> None:
+    monkeypatch.setattr(probe.os, "name", "posix")
+    monkeypatch.setattr(probe.os, "sysconf", sysconf, raising=False)
+
+
+def test_ram_mb_posix_sysconf_failure_returns_none(monkeypatch) -> None:
+    def broken_sysconf(name: str) -> int:
+        raise OSError("no sysconf")
+
+    _force_posix(monkeypatch, broken_sysconf)
+
+    assert probe._ram_mb() is None
+
+
+def test_ram_mb_posix_sysconf_value_error_returns_none(monkeypatch) -> None:
+    def broken_sysconf(name: str) -> int:
+        raise ValueError("bad value")
+
+    _force_posix(monkeypatch, broken_sysconf)
+
+    assert probe._ram_mb() is None
+
+
+def test_ram_mb_windows_powershell_success(monkeypatch) -> None:
+    monkeypatch.setattr(probe.os, "name", "nt")
+
+    def fake_run(argv, **kwargs):
+        assert argv[0] == "powershell"
+        return SimpleNamespace(stdout="8192\n")
+
+    monkeypatch.setattr(probe.subprocess, "run", fake_run)
+
+    assert probe._ram_mb() == 8192
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        OSError("no powershell"),
+        subprocess.TimeoutExpired(cmd=["powershell"], timeout=10),
+    ],
+    ids=["oserror", "timeout"],
+)
+def test_ram_mb_windows_failure_returns_none(monkeypatch, failure: Exception) -> None:
+    monkeypatch.setattr(probe.os, "name", "nt")
+
+    def fake_run(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(probe.subprocess, "run", fake_run)
+
+    assert probe._ram_mb() is None
+
+
+def test_ram_mb_unknown_os_returns_none(monkeypatch) -> None:
+    monkeypatch.setattr(probe.os, "name", "plan9")
+    assert probe._ram_mb() is None
+
+
+def test_ram_mb_posix_computes_memory_from_sysconf(monkeypatch) -> None:
+    def fake_sysconf(name: str) -> int:
+        return {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": 2_000_000}[name]
+
+    _force_posix(monkeypatch, fake_sysconf)
+
+    assert probe._ram_mb() == 4096 * 2_000_000 // (1024 * 1024)
+
+
+def test_probe_hardware_rejects_nonpositive_timeout() -> None:
+    with pytest.raises(ValueError, match="timeout"):
+        probe.probe_hardware(timeout_seconds=0)

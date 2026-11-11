@@ -104,6 +104,59 @@ def test_verified_but_invalid_uv_archive_is_not_installed(
     assert not (tmp_path / "uv.exe").exists()
 
 
+def test_uv_download_returns_body_under_the_size_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        tools.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: _Response(b"tiny archive"),
+    )
+    assert tools._download_bytes("https://example.invalid/uv.zip") == b"tiny archive"
+
+
+def _linux_tarball(*, include_uv: bool = True, duplicate_uv: bool = False) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as package:
+        payload = b"linux uv binary"
+        for name in (["bin/uv"] if include_uv else []) + (["alt/uv"] if duplicate_uv else []):
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            package.addfile(info, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def _linux_lock(archive: bytes) -> UvAssetLock:
+    return UvAssetLock(
+        "0.13.7",
+        "uv-x86_64-unknown-linux-gnu.tar.gz",
+        hashlib.sha256(archive).hexdigest(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("archive", "message"),
+    [
+        (_linux_tarball(include_uv=False), "contains no executable"),
+        (_linux_tarball(duplicate_uv=True), "ambiguous executables"),
+    ],
+    ids=["tar-missing", "tar-ambiguous"],
+)
+def test_verified_but_invalid_linux_tarball_is_not_installed(
+    tmp_path: Path, archive: bytes, message: str
+) -> None:
+    with pytest.raises(RuntimeToolMissing, match=message):
+        ensure_uv_executable(
+            tmp_path,
+            "linux",
+            "x86_64",
+            which=lambda _: None,
+            release_lock=_linux_lock(archive),
+            asset_downloader=lambda _: archive,
+        )
+    assert not (tmp_path / "uv").exists()
+
+
 def test_locked_tarball_installs_private_uv(tmp_path: Path) -> None:
     binary = b"linux uv binary"
     buffer = io.BytesIO()
