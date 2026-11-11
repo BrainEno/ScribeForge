@@ -147,6 +147,7 @@ class BackendEnvironmentProvisioner {
     required String pythonExecutable,
     required String backendSourcePath,
     required String venvDirectory,
+    List<String> pythonArgs = const <String>[],
     void Function(String chunk)? onLog,
   }) async {
     final buffer = StringBuffer();
@@ -175,12 +176,9 @@ class BackendEnvironmentProvisioner {
     final paths = BackendVenvPaths(venvDirectory, operatingSystem: _os);
     final runner = _runner;
 
-    log(r'$ $pythonExecutable -m venv $venvDirectory');
-    var code = await runner(pythonExecutable, <String>[
-      '-m',
-      'venv',
-      venvDirectory,
-    ], onOutput: log);
+    final venvCommand = <String>[...pythonArgs, '-m', 'venv', venvDirectory];
+    log('\$ $pythonExecutable ${venvCommand.join(' ')}');
+    var code = await runner(pythonExecutable, venvCommand, onOutput: log);
     if (code != 0) {
       final error = '创建虚拟环境失败（退出码 $code），见上方日志。';
       return BackendProvisionResult(

@@ -14,7 +14,7 @@ A complete package contains `backend/scribeforge(.exe)` beside the Flutter appli
 
 - Flutter 3.47.7 stable (Dart 3.13+).
 - Windows, macOS, or Linux desktop development support.
-- For source-only development without a frozen side-by-side backend, no manual venv/pip commands are needed: open **设置 → 后端环境（Python 虚拟环境）**, choose the Python interpreter and the repository root (or let the client auto-detect it), then click **自动创建后端环境**. The client creates `backend-venv` under the settings directory, runs `pip install -e <repo root>` inside it, smoke-checks `scribeforge --help`, and points **命令行工具** at the resulting executable automatically.
+- For source-only development without a frozen side-by-side backend, no manual venv/pip commands are needed: open **设置 → 后端环境（Python 虚拟环境）** and click **自动创建后端环境**. The client auto-detects the system Python (trying the `py -3` launcher, `python3`, `python` and common install locations; if none is found it shows Chinese install guidance instead of a raw error), lets developers override the interpreter path and repository root manually, creates `backend-venv` under the settings directory, runs `pip install -e <repo root>` inside it, smoke-checks `scribeforge --help`, then automatically runs `setup` to download the OCR models, and finally points **命令行工具** at the resulting executable automatically. The whole flow is one click with Chinese progress dialogs; every step remains overridable for developers.
 
   The explicit **设置 → 命令行工具** override remains available for this mode. Without an override or bundle, PATH is a development fallback and is identified as such in Settings.
 
