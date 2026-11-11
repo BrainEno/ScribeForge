@@ -34,7 +34,7 @@ jobs:
         run: |
           dart format . >/dev/null 2>&1 || true
           git diff > format_diff.txt || true
-          python3 -c "import os; t=open('format_diff.txt',errors='replace').read(); print('::error title=TEMP format diff::' + t.replace('%','%25').replace(chr(10),'%0A')[:3800])"
+          python3 -c "import os; t=open('format_diff.txt',errors='replace').read(); chunks=[t[i:i+3000] for i in range(0,len(t),3000)]; [print('::error title=TEMP format diff part %d::' % (i//3000) + c.replace('%','%25').replace(chr(10),'%0A')) for i,c in enumerate(chunks)]"
       - name: TEMP upload format diff
         if: always()
         uses: actions/upload-artifact@v4
