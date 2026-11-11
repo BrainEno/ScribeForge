@@ -34,19 +34,13 @@ jobs:
         run: |
           dart format . >/dev/null 2>&1 || true
           git diff > format_diff.txt || true
-          python3 - <<'PY'
-          import json, os, urllib.request
-          text = open('format_diff.txt', errors='replace').read()
-          fence = chr(96) * 3
-          body = 'TEMP format diff:' + chr(10) + fence + chr(10) + text[-14000:] + chr(10) + fence
-          req = urllib.request.Request(
-            'https://api.github.com/repos/BrainEno/ScribeForge/issues/183/comments',
-            data=json.dumps({'body': body}).encode(),
-            headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
-                     'Accept': 'application/vnd.github+json'},
-            method='POST')
-          urllib.request.urlopen(req)
-          PY
+          python3 -c "import os; t=open('format_diff.txt',errors='replace').read(); print('::error title=TEMP format diff::' + t.replace('%','%25').replace(chr(10),'%0A')[:3800])"
+      - name: TEMP upload format diff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temp-format-diff
+          path: clients/flutter_desktop/format_diff.txt
       - name: Analyze Flutter client
         id: analyze
         shell: bash
