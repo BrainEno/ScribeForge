@@ -729,6 +729,20 @@ void main() {
       );
     },
   );
+
+  testWidgets('the app bar help button opens the Chinese help dialog', (
+    tester,
+  ) async {
+    await createHarness(tester);
+    await tester.tap(find.byKey(const ValueKey('help-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('使用帮助'), findsOneWidget);
+    expect(find.textContaining('Alt+←/→'), findsOneWidget);
+    expect(find.textContaining('Ctrl+Enter 记录人工决策'), findsOneWidget);
+    await tester.tap(find.text('知道了'));
+    await tester.pumpAndSettle();
+    expect(find.text('使用帮助'), findsNothing);
+  });
 }
 
 Map<String, Object?> _reviewItem(

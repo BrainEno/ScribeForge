@@ -57,6 +57,11 @@ If the CLI is not on `PATH`, either use **设置 → 后端环境（Python 虚�
 
 ## Guided workflow
 
+The app bar's help button (使用帮助) opens a dialog listing the standard
+workflow (导入书籍 → 开始处理 → 复核 → 导出), all review shortcuts
+(Alt+←/→, Ctrl+J/G, Alt+1/2/3, Ctrl+Enter) and the rule that filling a
+candidate is not a recorded decision.
+
 A persistent **下一步** banner under the notice bar always shows the single
 next action implied by the current state — configure the CLI (设置), one-click
 初始化环境 on first run, 导入书籍, 重新关联源文件, 去处理, 去复核, or 去导出 —
