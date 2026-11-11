@@ -567,11 +567,22 @@ void main() {
 
       // The persisted decision keeps the queue empty after the restart.
       await openTab(tester, '复核');
-      await pumpUntil(
-        tester,
-        () => find.text('暂无待处理配对。').evaluate().isNotEmpty,
-        description: 'the restarted review queue to settle',
-      );
+      try {
+        await pumpUntil(
+          tester,
+          () => find.text('暂无待处理配对。').evaluate().isNotEmpty,
+          description: 'the restarted review queue to settle',
+        );
+      } catch (error) {
+        final texts = find
+            .byType(Text)
+            .evaluate()
+            .map((w) => (w.widget as Text).data ?? '')
+            .toSet()
+            .join(' | ');
+        final calls = harness.cli.calls.map((c) => c.first).join(',');
+        fail('queue did not settle after restart. texts: $texts calls: $calls');
+      }
       expect(
         harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
         hasLength(1),
