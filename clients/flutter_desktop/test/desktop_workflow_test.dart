@@ -520,7 +520,7 @@ void main() {
         (arguments) => arguments.first == 'process',
       );
       final storePath = processCall[processCall.indexOf('--store') + 1];
-      harness.picker.directories.addLast(storePath);
+      harness.picker.directories.addFirst(storePath);
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       await tester.pump();
       await tester.pumpWidget(
@@ -543,11 +543,17 @@ void main() {
             2;
       }
 
+      var statusCallsBeforeRestart = 0;
+
       bool projectReopened() {
-        return harness.cli.calls.any(
-          (arguments) =>
-              arguments.first == 'status' && arguments.contains(storePath),
-        );
+        return harness.cli.calls
+                .where(
+                  (arguments) =>
+                      arguments.first == 'status' &&
+                      arguments.contains(storePath),
+                )
+                .length >
+            statusCallsBeforeRestart;
       }
 
       await pumpUntil(
@@ -555,6 +561,9 @@ void main() {
         runtimeCheckedTwice,
         description: 'the restarted app backend health check',
       );
+      statusCallsBeforeRestart = harness.cli.calls
+          .where((arguments) => arguments.first == 'status')
+          .length;
 
       await openTab(tester, '书籍');
       await tester.tap(find.text('打开项目文件夹'));
@@ -567,22 +576,11 @@ void main() {
 
       // The persisted decision keeps the queue empty after the restart.
       await openTab(tester, '复核');
-      try {
-        await pumpUntil(
-          tester,
-          () => find.text('暂无待处理配对。').evaluate().isNotEmpty,
-          description: 'the restarted review queue to settle',
-        );
-      } catch (error) {
-        final texts = find
-            .byType(Text)
-            .evaluate()
-            .map((w) => (w.widget as Text).data ?? '')
-            .toSet()
-            .join(' | ');
-        final calls = harness.cli.calls.map((c) => c.first).join(',');
-        fail('queue did not settle after restart. texts: $texts calls: $calls');
-      }
+      await pumpUntil(
+        tester,
+        () => find.text('暂无待处理配对。').evaluate().isNotEmpty,
+        description: 'the restarted review queue to settle',
+      );
       expect(
         harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
         hasLength(1),
