@@ -224,6 +224,11 @@ scribeforge alignment-eval --fixtures tests/fixtures/alignment_groundtruth.json 
 
 `--json` keeps stdout pure machine-readable JSON (the human summary goes to stderr).
 
+The measured rates are committed as a tracked artifact,
+[`alignment-eval-report.md`](alignment-eval-report.md), and
+`tests/test_alignment_eval.py::test_committed_alignment_report_matches_a_fresh_run`
+fails if that file ever drifts from a fresh production run.
+
 `tests/test_worker_alignment_contract.py` additionally passes raw MinerU middle JSON and
 Paddle recognition/PP-Structure-shaped JSON through the actual worker extraction
 functions, contract-v2 JSON serialization and the production adapter. It covers both
