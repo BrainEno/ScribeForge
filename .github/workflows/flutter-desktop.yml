@@ -28,6 +28,27 @@ jobs:
         run: flutter pub get
       - name: Format Dart source
         run: dart format --set-exit-if-changed .
+      - name: TEMP report format diff
+        if: failure()
+        shell: bash
+        run: |
+          dart format . >/dev/null 2>&1 || true
+          git diff > format_diff.txt || true
+          python3 - <<'PY'
+          import json, os, urllib.request
+          text = open('format_diff.txt', errors='replace').read()
+          body = 'TEMP format diff:
+```
+' + text[-14000:] + '
+```'
+          req = urllib.request.Request(
+            'https://api.github.com/repos/BrainEno/ScribeForge/issues/183/comments',
+            data=json.dumps({'body': body}).encode(),
+            headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                     'Accept': 'application/vnd.github+json'},
+            method='POST')
+          urllib.request.urlopen(req)
+          PY
       - name: Analyze Flutter client
         id: analyze
         shell: bash
