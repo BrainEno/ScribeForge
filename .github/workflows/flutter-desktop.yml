@@ -28,13 +28,6 @@ jobs:
         run: flutter pub get
       - name: Format Dart source
         run: dart format --set-exit-if-changed .
-      - name: TEMP report format diff
-        if: failure()
-        shell: bash
-        run: |
-          dart format . >/dev/null 2>&1 || true
-          git diff > format_diff.txt || true
-          python3 -c "t=open('format_diff.txt',errors='replace').read(); chunks=[t[i:i+3000] for i in range(0,len(t),3000)]; [print('::error file=chunk' + str(i) + '.txt,title=TEMPdiff::PART' + str(i) + '|' + c.replace('%','%25').replace(chr(10),'%0A')) for i,c in enumerate(chunks)]"
       - name: Analyze Flutter client
         id: analyze
         shell: bash

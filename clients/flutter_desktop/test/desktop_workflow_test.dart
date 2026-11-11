@@ -681,41 +681,38 @@ void main() {
     },
   );
 
-  testWidgets(
-    'a remembered project offers one-click resume on a cold start',
-    (tester) async {
-      final settings = _MemorySettingsStore();
-      await settings.saveLastProjectStore('/fake/store');
-      final harness = await createHarness(tester, settingsStore: settings);
-      harness.cli.fileSystem.addProjectStore('/fake/store');
-      String banner() => (tester.widget(
-        find.byKey(const ValueKey('next-step-message')),
-      ) as Text).data!;
+  testWidgets('a remembered project offers one-click resume on a cold start', (
+    tester,
+  ) async {
+    final settings = _MemorySettingsStore();
+    await settings.saveLastProjectStore('/fake/store');
+    final harness = await createHarness(tester, settingsStore: settings);
+    harness.cli.fileSystem.addProjectStore('/fake/store');
+    String banner() => (tester.widget(
+      find.byKey(const ValueKey('next-step-message')),
+    ) as Text).data!;
 
-      await pumpUntil(
-        tester,
-        () => find
-            .byKey(const ValueKey('next-step-message'))
-            .evaluate()
-            .isNotEmpty,
-        description: 'the next-step banner to appear',
-      );
-      expect(banner(), contains('一键继续'));
+    await pumpUntil(
+      tester,
+      () =>
+          find.byKey(const ValueKey('next-step-message')).evaluate().isNotEmpty,
+      description: 'the next-step banner to appear',
+    );
+    expect(banner(), contains('一键继续'));
 
-      await tester.tap(find.byKey(const ValueKey('next-step-action')));
-      await pumpUntil(
-        tester,
-        () => harness.cli.calls.any(
-          (arguments) =>
-              arguments.first == 'status' && arguments.contains('/fake/store'),
-        ),
-        description: 'the remembered project store to be reopened',
-      );
-      await waitForWorkflowIdle(tester);
-      // The project is open now, so the banner moved on to the review queue.
-      expect(banner(), contains('1 项'));
-    },
-  );
+    await tester.tap(find.byKey(const ValueKey('next-step-action')));
+    await pumpUntil(
+      tester,
+      () => harness.cli.calls.any(
+        (arguments) =>
+            arguments.first == 'status' && arguments.contains('/fake/store'),
+      ),
+      description: 'the remembered project store to be reopened',
+    );
+    await waitForWorkflowIdle(tester);
+    // The project is open now, so the banner moved on to the review queue.
+    expect(banner(), contains('1 项'));
+  });
 
   testWidgets(
     'importing a book remembers its project store for the next launch',
