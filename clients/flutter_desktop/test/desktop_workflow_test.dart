@@ -633,7 +633,15 @@ void main() {
     await importBook(tester);
     await waitForWorkflowIdle(tester);
 
-    // The fake backend reports OCR done with one queued review.
+    // A source is selected but no project status yet: go process first.
+    expect(banner(), contains('去处理'));
+    await tester.tap(find.byKey(const ValueKey('next-step-action')));
+    await tester.pump();
+    expect(find.text('开始处理'), findsOneWidget);
+    await tester.tap(find.text('开始处理'));
+    await waitForWorkflowIdle(tester);
+
+    // The fake backend now reports OCR done with one queued review.
     expect(banner(), contains('1 项'));
     await tester.tap(find.byKey(const ValueKey('next-step-action')));
     await tester.pump();
