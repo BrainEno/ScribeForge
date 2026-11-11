@@ -17,6 +17,7 @@ import '../services/candidate_comparison_store.dart';
 import '../services/cli_executor.dart';
 import '../services/cli_runner.dart';
 import '../services/desktop_file_picker.dart';
+import '../services/python_locator.dart';
 import '../services/settings_store.dart';
 import '../services/workspace_file_system.dart';
 import '../theme/scribe_theme.dart';
@@ -49,6 +50,7 @@ class UnifiedWorkspace extends StatefulWidget {
     this.fileSystem,
     this.backendResolver,
     this.backendProvisioner,
+    this.pythonLocator,
   });
 
   final ScribeForgeCliExecutor? cliExecutor;
@@ -57,6 +59,7 @@ class UnifiedWorkspace extends StatefulWidget {
   final DesktopSettingsStore? settingsStore;
   final WorkspaceFileSystem? fileSystem;
   final BackendEnvironmentProvisioner? backendProvisioner;
+  final PythonLocator? pythonLocator;
 
   @override
   State<UnifiedWorkspace> createState() => _UnifiedWorkspaceState();
@@ -87,6 +90,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   late final DesktopFilePicker _filePicker;
   late final WorkspaceFileSystem _fileSystem;
   late final BackendEnvironmentProvisioner _provisioner;
+  late final PythonLocator _pythonLocator;
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
   String _backendPython = '';
   String _backendSourcePath = '';
@@ -179,6 +183,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _fileSystem = widget.fileSystem ?? const IoWorkspaceFileSystem();
     _provisioner =
         widget.backendProvisioner ?? const BackendEnvironmentProvisioner();
+    _pythonLocator =
+        widget.pythonLocator ??
+        PythonLocator(environment: Platform.environment);
     _loadSettings();
   }
 
@@ -2233,7 +2240,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Python 解释器：${_backendPython.isEmpty ? '未设置（将使用 python3）' : _backendPython}',
+              'Python 解释器：${_backendPython.isEmpty ? '未设置（将自动检测系统 Python）' : _backendPython}',
               style: const TextStyle(fontSize: 12),
             ),
             Text(
@@ -2298,10 +2305,42 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   Future<void> _provisionBackendEnvironment() async {
     var python = _backendPython.trim();
+    var pythonArgs = <String>[];
     if (python.isEmpty) {
-      final value = await _promptString('Python 解释器路径', 'python3');
-      if (value == null || value.trim().isEmpty) return;
-      python = value.trim();
+      // #184: never ask a novice for a path — probe the system first.
+      setState(() => _backendBusy = true);
+      final detected = await _pythonLocator.detect();
+      if (!mounted) return;
+      setState(() => _backendBusy = false);
+      if (detected == null) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('未检测到 Python 3'),
+            content: const SingleChildScrollView(
+              child: Text(
+                '已自动尝试 py -3、python3、python 以及常见安装路径，均未找到可用的 Python 3。\n\n'
+                '请安装 Python 3.10 或更高版本后重试：\n'
+                '• Windows：winget install Python.Python.3.12，或从 python.org 安装并勾选 '
+                '“Add python.exe to PATH”\n'
+                '• macOS：brew install python@3.12\n'
+                '• Linux：sudo apt install python3 python3-venv\n\n'
+                '也可以点击“选择 Python 解释器”手动指定已有安装的路径（高级用户）。',
+              ),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('知道了'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      python = detected.executable;
+      pythonArgs = detected.arguments;
+      setState(() => _notice = '自动检测到系统 Python：${detected.label}');
     }
     var sourcePath = _backendSourcePath.trim();
     if (sourcePath.isEmpty) {
@@ -2328,6 +2367,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final venvDirectory = _backendVenvDirectory;
     final result = await _provisioner.provision(
       pythonExecutable: python,
+      pythonArgs: pythonArgs,
       backendSourcePath: sourcePath,
       venvDirectory: venvDirectory,
     );
@@ -2356,6 +2396,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     );
     if (!result.ok) return;
 
+    // #184: one click must also fetch the OCR models, so run `setup`
+    // through the freshly installed CLI right after the venv is ready.
+    await _downloadModelsWith(result.cliExecutable);
+
     await _settingsStore.saveCliExecutable(result.cliExecutable);
     final resolution = await _backendResolver.resolve(result.cliExecutable);
     if (!mounted) return;
@@ -2367,6 +2411,53 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     await _refreshRuntimeStatus();
     await _refreshStatus();
     await _refreshReviewQueue();
+  }
+
+  /// Runs `setup` through the freshly installed CLI so the OCR models are
+  /// downloaded without any command-line step (#184). Never throws: the
+  /// outcome is reported in a Chinese dialog and the captured log.
+  Future<bool> _downloadModelsWith(String cliExecutable) async {
+    setState(() => _backendBusy = true);
+    final buffer = StringBuffer();
+    var exitCode = -1;
+    Object? failure;
+    try {
+      exitCode = await _cliExecutor.run(
+        executable: cliExecutable,
+        arguments: ScribeForgeCli.setupArguments(),
+        onOutput: buffer.write,
+        onError: buffer.write,
+      );
+    } on Object catch (exc) {
+      failure = exc;
+    }
+    if (!mounted) return false;
+    setState(() => _backendBusy = false);
+    final ok = failure == null && exitCode == 0;
+    final title = ok ? '模型下载完成' : '模型下载未完成';
+    final message = ok
+        ? 'OCR 模型已下载完成，可以直接开始处理书籍。'
+        : '模型下载未完成（退出码 $exitCode${failure == null ? '' : '，$failure'}）。\n'
+              '后端环境已就绪；可以在“运行时配置 (setup)”中重试下载模型。';
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Text(
+            '$message\n\n${buffer.toString().trim()}',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+    return ok;
   }
 
   /// 简单的文本输入对话框。

@@ -137,6 +137,31 @@ void main() {
       },
     );
 
+    test('passes launcher arguments through to the venv command', () async {
+      final calls = <List<String>>[];
+      final cli = '/settings/backend-venv/bin/scribeforge';
+      final provisioner = provisionerFor(
+        calls: calls,
+        existingFiles: {'/repo/pyproject.toml': true, cli: true},
+      );
+
+      final result = await provisioner.provision(
+        pythonExecutable: 'py',
+        pythonArgs: const <String>['-3'],
+        backendSourcePath: '/repo',
+        venvDirectory: '/settings/backend-venv',
+      );
+
+      expect(result.ok, isTrue);
+      expect(calls.first, <String>[
+        'py',
+        '-3',
+        '-m',
+        'venv',
+        '/settings/backend-venv',
+      ]);
+    });
+
     test('fails closed when pip install exits non-zero', () async {
       final calls = <List<String>>[];
       final provisioner = provisionerFor(

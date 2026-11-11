@@ -62,9 +62,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
   DesktopVlmSettings _settingsFromFields() {
     final timeout = double.tryParse(_timeoutController.text.trim());
     if (timeout == null || !timeout.isFinite || timeout <= 0) {
-      throw const FormatException(
-        'Timeout must be a number greater than zero.',
-      );
+      throw const FormatException('超时时间必须是大于 0 的数字。');
     }
     return DesktopVlmSettings(
       enabled: _enabled,
@@ -82,9 +80,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
     try {
       settings = _settingsFromFields();
       if (!settings.isConfigured) {
-        throw const FormatException(
-          'Enter both an endpoint and a model to test.',
-        );
+        throw const FormatException('请输入接口地址和模型名称后再测试。');
       }
     } on FormatException catch (error) {
       setState(() => _testOutput = error.message);
@@ -99,7 +95,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
 
     setState(() {
       _testing = true;
-      _testOutput = 'Testing the configured model with the selected image…';
+      _testOutput = '正在用所选图片测试模型…';
     });
     final output = StringBuffer();
     void append(String chunk) {
@@ -117,22 +113,16 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
         onOutput: append,
         onError: append,
       );
-      append('\n\nExit code: $exitCode');
+      append('\n\n退出码：$exitCode');
       if (exitCode == 0) {
-        append(
-          '\nPreflight succeeded. This output has not been saved as a decision.',
-        );
+        append('\n预检成功。本次输出不会保存为裁决结果。');
       } else if (exitCode == 1) {
-        append(
-          '\nThe model response was uncertain or blank; check the sample crop and prompt.',
-        );
+        append('\n模型返回不确定或为空；请检查示例裁切图与提示词。');
       } else {
-        append(
-          '\nPreflight failed. Check endpoint, model, environment token and transport settings.',
-        );
+        append('\n预检失败。请检查接口地址、模型、环境变量令牌与网络设置。');
       }
     } on Object catch (error) {
-      append('\nCould not start VLM preflight: $error');
+      append('\n无法启动 VLM 预检：$error');
     } finally {
       if (mounted) setState(() => _testing = false);
     }
@@ -144,7 +134,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
       children: [
         Icon(Icons.visibility_outlined),
         SizedBox(width: 10),
-        Text('VLM review settings'),
+        Text('视觉模型（VLM）复核设置'),
       ],
     ),
     content: SizedBox(
@@ -162,44 +152,41 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                 onChanged: _testing
                     ? null
                     : (value) => setState(() => _enabled = value),
-                title: const Text('Enable VLM review during OCR'),
-                subtitle: const Text(
-                  'When enabled, OCR conflicts can be checked by the configured vision model.',
-                ),
+                title: const Text('在 OCR 时启用 VLM 复核'),
+                subtitle: const Text('启用后，OCR 冲突可交由所配置的视觉模型检查。'),
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _endpointController,
                 decoration: const InputDecoration(
-                  labelText: 'OpenAI-compatible endpoint',
+                  labelText: 'OpenAI 兼容接口地址',
                   hintText: 'http://127.0.0.1:1234/v1',
-                  helperText:
-                      'Local loopback endpoints are allowed by default.',
+                  helperText: '默认允许本机回环地址（127.0.0.1 / localhost）。',
                 ),
                 validator: (value) =>
                     _enabled && (value == null || value.trim().isEmpty)
-                    ? 'Enter an endpoint when VLM review is enabled.'
+                    ? '启用 VLM 复核时必须填写接口地址。'
                     : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _modelController,
                 decoration: const InputDecoration(
-                  labelText: 'Vision model',
+                  labelText: '视觉模型名称',
                   hintText: 'local-vision-model',
                 ),
                 validator: (value) =>
                     _enabled && (value == null || value.trim().isEmpty)
-                    ? 'Enter a model name when VLM review is enabled.'
+                    ? '启用 VLM 复核时必须填写模型名称。'
                     : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _apiKeyEnvironmentController,
                 decoration: const InputDecoration(
-                  labelText: 'API key environment variable (optional)',
+                  labelText: 'API 密钥环境变量名（可选）',
                   hintText: 'SCRIBE_VLM_TOKEN',
-                  helperText: 'Only the variable name is saved. Set the actual secret in the environment before launching the app.',
+                  helperText: '只保存变量名。真正的密钥请在启动应用前通过环境变量设置，不要写入界面。',
                 ),
               ),
               const SizedBox(height: 12),
@@ -208,13 +195,11 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
-                  labelText: 'Request timeout (seconds)',
-                ),
+                decoration: const InputDecoration(labelText: '请求超时（秒）'),
                 validator: (value) {
                   final timeout = double.tryParse(value?.trim() ?? '');
                   if (timeout == null || !timeout.isFinite || timeout <= 0) {
-                    return 'Enter a timeout greater than zero.';
+                    return '请输入大于 0 的超时秒数。';
                   }
                   return null;
                 },
@@ -226,15 +211,15 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                 onChanged: _testing
                     ? null
                     : (value) => setState(() => _allowRemote = value ?? false),
-                title: const Text('Allow remote HTTPS endpoint'),
+                title: const Text('允许远程 HTTPS 接口'),
                 subtitle: const Text(
-                  'Only enable this when you intend to send review-crop images to that service. Remote HTTP is refused.',
+                  '仅当你确实要把复核裁切图发送到该服务时才启用。纯 HTTP 的远程地址会被拒绝。',
                 ),
                 controlAffinity: ListTileControlAffinity.leading,
               ),
               const SizedBox(height: 4),
               const Text(
-                'Preflight sends only the image you explicitly choose. It does not open the project database and never saves the result as accepted text.',
+                '预检只发送你明确选择的那张图片，不会打开项目数据库，也不会把结果保存为已采纳文本。',
                 style: TextStyle(fontSize: 12, color: Color(0xFF68766F)),
               ),
               const SizedBox(height: 12),
@@ -256,9 +241,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.fact_check_outlined),
-                label: Text(
-                  _testing ? 'Testing endpoint…' : 'Test with image…',
-                ),
+                label: Text(_testing ? '正在测试接口…' : '用图片测试…'),
               ),
               if (_testOutput != null) ...[
                 const SizedBox(height: 8),
@@ -289,7 +272,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
     actions: [
       TextButton(
         onPressed: _testing ? null : () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
+        child: const Text('取消'),
       ),
       FilledButton(
         onPressed: _testing
@@ -302,7 +285,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                   setState(() => _testOutput = error.message);
                 }
               },
-        child: const Text('Save'),
+        child: const Text('保存'),
       ),
     ],
   );

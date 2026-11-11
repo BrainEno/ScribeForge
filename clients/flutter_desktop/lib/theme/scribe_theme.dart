@@ -38,6 +38,17 @@ abstract final class ScribeRadii {
 
 /// Material 3 theme shared by all desktop screens and dialogs.
 abstract final class ScribeTheme {
+  /// System CJK fonts tried in order, so Chinese UI text never renders as
+  /// tofu on machines whose default font lacks CJK glyphs (#184).
+  static const List<String> cjkFontFallback = <String>[
+    'Noto Sans CJK SC',
+    'Noto Sans SC',
+    'Microsoft YaHei',
+    'PingFang SC',
+    'WenQuanYi Micro Hei',
+    'sans-serif',
+  ];
+
   static final ThemeData light = _buildLightTheme();
 
   static ThemeData _buildLightTheme() {
@@ -76,7 +87,7 @@ abstract final class ScribeTheme {
         bodyMedium: TextStyle(color: ScribePalette.ink, height: 1.4),
         bodySmall: TextStyle(color: ScribePalette.mutedInk, height: 1.4),
         labelSmall: TextStyle(color: ScribePalette.mutedInk),
-      ),
+      ).apply(fontFamilyFallback: cjkFontFallback),
       cardTheme: const CardThemeData(
         color: ScribePalette.paper,
         elevation: 0,

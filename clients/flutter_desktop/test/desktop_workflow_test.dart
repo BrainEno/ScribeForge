@@ -11,6 +11,7 @@ import 'package:scribeforge_desktop/screens/unified_workspace.dart';
 import 'package:scribeforge_desktop/services/backend_resolver.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
 import 'package:scribeforge_desktop/services/desktop_file_picker.dart';
+import 'package:scribeforge_desktop/services/python_locator.dart';
 import 'package:scribeforge_desktop/services/settings_store.dart';
 import 'package:scribeforge_desktop/services/workspace_file_system.dart';
 
@@ -36,6 +37,7 @@ void main() {
     bool runtimeReady = true,
     Object? runtimeError,
     String processError = 'simulated fatal processing failure',
+    PythonLocator? pythonLocator,
   }) async {
     late Directory root;
     await tester.runAsync(() async {
@@ -88,6 +90,7 @@ void main() {
           filePicker: picker,
           settingsStore: _MemorySettingsStore(),
           fileSystem: fileSystem,
+          pythonLocator: pythonLocator,
         ),
       ),
     );
@@ -386,28 +389,28 @@ void main() {
     await tester.tap(find.text('配置 VLM 复核'));
     await pumpUntil(
       tester,
-      () => find.text('Enable VLM review during OCR').evaluate().isNotEmpty,
+      () => find.text('在 OCR 时启用 VLM 复核').evaluate().isNotEmpty,
       description: 'the VLM settings dialog',
     );
 
     final enabledSwitch = find.ancestor(
-      of: find.text('Enable VLM review during OCR'),
+      of: find.text('在 OCR 时启用 VLM 复核'),
       matching: find.byType(SwitchListTile),
     );
     expect(tester.widget<SwitchListTile>(enabledSwitch).value, isFalse);
-    await tester.tap(find.text('Enable VLM review during OCR'));
+    await tester.tap(find.text('在 OCR 时启用 VLM 复核'));
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'OpenAI-compatible endpoint'),
+      find.widgetWithText(TextFormField, 'OpenAI 兼容接口地址'),
       'http://127.0.0.1:1234/v1',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Vision model'),
+      find.widgetWithText(TextFormField, '视觉模型名称'),
       'fixture-vision',
     );
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('保存'));
     await pumpUntil(
       tester,
-      () => find.text('Save').evaluate().isEmpty,
+      () => find.text('保存').evaluate().isEmpty,
       description: 'the VLM settings dialog to close',
     );
 
@@ -490,6 +493,131 @@ void main() {
       hasLength(1),
     );
   });
+
+  testWidgets(
+    'a recorded decision survives an app restart and export stays unblocked',
+    (tester) async {
+      final harness = await createHarness(tester);
+      await importBook(tester);
+      await tester.tap(find.text('开始处理'));
+      await waitForWorkflowIdle(tester);
+
+      // Adjudicate the only queued pair from inside the main workspace.
+      await openTab(tester, '复核');
+      expect(find.text('第 1 页 · 第 1 组'), findsOneWidget);
+      await tester.tap(find.text('填入 OCR 1'));
+      await tester.tap(find.text('记录人工决策'));
+      await waitForWorkflowIdle(tester);
+      expect(
+        harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
+        hasLength(1),
+      );
+      expect(find.text('暂无待处理配对。'), findsOneWidget);
+
+      // Simulate an application restart: drop the widget tree and rebuild the
+      // workspace against the same on-disk project store.
+      final processCall = harness.cli.calls.singleWhere(
+        (arguments) => arguments.first == 'process',
+      );
+      final storePath = processCall[processCall.indexOf('--store') + 1];
+      harness.picker.directories.addFirst(storePath);
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UnifiedWorkspace(
+            cliExecutor: harness.cli,
+            backendResolver: DesktopBackendResolver(
+              fileExists: (_) async => false,
+            ),
+            filePicker: harness.picker,
+            settingsStore: _MemorySettingsStore(),
+            fileSystem: harness.cli.fileSystem,
+          ),
+        ),
+      );
+      bool runtimeCheckedTwice() {
+        return harness.cli.calls
+                .where((arguments) => arguments.first == 'runtime-status')
+                .length >=
+            2;
+      }
+
+      var statusCallsBeforeRestart = 0;
+
+      bool projectReopened() {
+        return harness.cli.calls
+                .where(
+                  (arguments) =>
+                      arguments.first == 'status' &&
+                      arguments.contains(storePath),
+                )
+                .length >
+            statusCallsBeforeRestart;
+      }
+
+      await pumpUntil(
+        tester,
+        runtimeCheckedTwice,
+        description: 'the restarted app backend health check',
+      );
+      statusCallsBeforeRestart = harness.cli.calls
+          .where((arguments) => arguments.first == 'status')
+          .length;
+
+      await openTab(tester, '书籍');
+      await tester.tap(find.text('打开项目文件夹'));
+      await pumpUntil(
+        tester,
+        projectReopened,
+        description: 'the restarted app to reopen the project store',
+      );
+      await waitForWorkflowIdle(tester);
+
+      // The persisted decision keeps the queue empty after the restart.
+      await openTab(tester, '复核');
+      await pumpUntil(
+        tester,
+        () => find.text('暂无待处理配对。').evaluate().isNotEmpty,
+        description: 'the restarted review queue to settle',
+      );
+      expect(
+        harness.cli.calls.where((arguments) => arguments.first == 'resolve'),
+        hasLength(1),
+        reason: 'a restart must neither lose nor re-record the decision',
+      );
+    },
+  );
+
+  testWidgets(
+    'one-click backend setup auto-detects Python and shows Chinese guidance '
+    'when none is installed',
+    (tester) async {
+      final harness = await createHarness(
+        tester,
+        pythonLocator: PythonLocator(
+          operatingSystem: 'linux',
+          probe: (executable, arguments) async => null,
+        ),
+      );
+      await openTab(tester, '设置');
+      await tester.tap(find.byKey(const ValueKey('provision-backend-button')));
+      await pumpUntil(
+        tester,
+        () => find.text('未检测到 Python 3').evaluate().isNotEmpty,
+        description: 'the Chinese no-Python guidance dialog',
+      );
+      expect(find.textContaining('请安装 Python 3.10'), findsOneWidget);
+      // Nothing was provisioned or invoked behind the user's back.
+      expect(
+        harness.cli.calls.where((arguments) => arguments.first == 'setup'),
+        isEmpty,
+      );
+      await tester.tap(find.text('知道了'));
+      await tester.pumpAndSettle();
+      expect(find.text('未检测到 Python 3'), findsNothing);
+    },
+  );
 }
 
 Map<String, Object?> _reviewItem(
