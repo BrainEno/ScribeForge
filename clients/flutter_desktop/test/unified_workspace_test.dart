@@ -181,6 +181,7 @@ class _MemorySettingsStore extends DesktopSettingsStore {
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   String _backendPython = '';
   String _backendSourcePath = '';
+  String? _lastProjectStore;
 
   @override
   Future<String> loadCliExecutable() async =>
@@ -200,6 +201,15 @@ class _MemorySettingsStore extends DesktopSettingsStore {
   @override
   Future<void> saveBackendSourcePath(String sourcePath) async {
     _backendSourcePath = sourcePath;
+  }
+
+  @override
+  Future<String?> loadLastProjectStore() async => _lastProjectStore;
+
+  @override
+  Future<void> saveLastProjectStore(String storePath) async {
+    final value = storePath.trim();
+    _lastProjectStore = value.isEmpty ? null : value;
   }
 
   @override
