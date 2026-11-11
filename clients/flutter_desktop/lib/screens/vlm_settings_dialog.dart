@@ -62,9 +62,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
   DesktopVlmSettings _settingsFromFields() {
     final timeout = double.tryParse(_timeoutController.text.trim());
     if (timeout == null || !timeout.isFinite || timeout <= 0) {
-      throw const FormatException(
-        '超时时间必须是大于 0 的数字。',
-      );
+      throw const FormatException('超时时间必须是大于 0 的数字。');
     }
     return DesktopVlmSettings(
       enabled: _enabled,
@@ -82,9 +80,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
     try {
       settings = _settingsFromFields();
       if (!settings.isConfigured) {
-        throw const FormatException(
-          '请输入接口地址和模型名称后再测试。',
-        );
+        throw const FormatException('请输入接口地址和模型名称后再测试。');
       }
     } on FormatException catch (error) {
       setState(() => _testOutput = error.message);
@@ -119,17 +115,11 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
       );
       append('\n\n退出码：$exitCode');
       if (exitCode == 0) {
-        append(
-          '\n预检成功。本次输出不会保存为裁决结果。',
-        );
+        append('\n预检成功。本次输出不会保存为裁决结果。');
       } else if (exitCode == 1) {
-        append(
-          '\n模型返回不确定或为空；请检查示例裁切图与提示词。',
-        );
+        append('\n模型返回不确定或为空；请检查示例裁切图与提示词。');
       } else {
-        append(
-          '\n预检失败。请检查接口地址、模型、环境变量令牌与网络设置。',
-        );
+        append('\n预检失败。请检查接口地址、模型、环境变量令牌与网络设置。');
       }
     } on Object catch (error) {
       append('\n无法启动 VLM 预检：$error');
@@ -163,9 +153,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                     ? null
                     : (value) => setState(() => _enabled = value),
                 title: const Text('在 OCR 时启用 VLM 复核'),
-                subtitle: const Text(
-                  '启用后，OCR 冲突可交由所配置的视觉模型检查。',
-                ),
+                subtitle: const Text('启用后，OCR 冲突可交由所配置的视觉模型检查。'),
               ),
               const SizedBox(height: 8),
               TextFormField(
@@ -173,8 +161,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                 decoration: const InputDecoration(
                   labelText: 'OpenAI 兼容接口地址',
                   hintText: 'http://127.0.0.1:1234/v1',
-                  helperText:
-                      '默认允许本机回环地址（127.0.0.1 / localhost）。',
+                  helperText: '默认允许本机回环地址（127.0.0.1 / localhost）。',
                 ),
                 validator: (value) =>
                     _enabled && (value == null || value.trim().isEmpty)
@@ -208,9 +195,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
-                  labelText: '请求超时（秒）',
-                ),
+                decoration: const InputDecoration(labelText: '请求超时（秒）'),
                 validator: (value) {
                   final timeout = double.tryParse(value?.trim() ?? '');
                   if (timeout == null || !timeout.isFinite || timeout <= 0) {
@@ -256,9 +241,7 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.fact_check_outlined),
-                label: Text(
-                  _testing ? '正在测试接口…' : '用图片测试…',
-                ),
+                label: Text(_testing ? '正在测试接口…' : '用图片测试…'),
               ),
               if (_testOutput != null) ...[
                 const SizedBox(height: 8),

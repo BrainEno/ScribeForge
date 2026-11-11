@@ -16,8 +16,10 @@ class DetectedPython {
   }
 }
 
-typedef PythonProbe =
-    Future<String?> Function(String executable, List<String> arguments);
+typedef PythonProbe = Future<String?> Function(
+  String executable,
+  List<String> arguments,
+);
 
 /// Finds a usable Python 3 interpreter on the user's machine.
 ///
@@ -80,10 +82,10 @@ class PythonLocator {
   Future<DetectedPython?> detect() async {
     final runProbe = probe ?? _defaultProbe;
     for (final (executable, arguments) in candidates()) {
-      final versionLine = await runProbe(
-        executable,
-        <String>[...arguments, '--version'],
-      );
+      final versionLine = await runProbe(executable, <String>[
+        ...arguments,
+        '--version',
+      ]);
       if (versionLine != null) {
         return DetectedPython(executable, arguments, versionLine);
       }

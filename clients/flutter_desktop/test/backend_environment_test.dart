@@ -153,10 +153,13 @@ void main() {
       );
 
       expect(result.ok, isTrue);
-      expect(
-        calls.first,
-        <String>['py', '-3', '-m', 'venv', '/settings/backend-venv'],
-      );
+      expect(calls.first, <String>[
+        'py',
+        '-3',
+        '-m',
+        'venv',
+        '/settings/backend-venv',
+      ]);
     });
 
     test('fails closed when pip install exits non-zero', () async {

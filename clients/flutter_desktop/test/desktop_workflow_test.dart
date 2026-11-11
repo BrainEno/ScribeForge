@@ -538,8 +538,9 @@ void main() {
       );
       bool runtimeCheckedTwice() {
         return harness.cli.calls
-            .where((arguments) => arguments.first == 'runtime-status')
-            .length >= 2;
+                .where((arguments) => arguments.first == 'runtime-status')
+                .length >=
+            2;
       }
 
       bool projectReopened() {
