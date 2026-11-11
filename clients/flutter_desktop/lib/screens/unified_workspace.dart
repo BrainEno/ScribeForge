@@ -23,6 +23,7 @@ import '../services/workspace_file_system.dart';
 import '../theme/scribe_theme.dart';
 import '../widgets/review_alignment_evidence.dart';
 import '../widgets/review_keyboard_shortcuts.dart';
+import '../widgets/workspace_help_dialog.dart';
 import 'candidate_comparison_screen.dart';
 import 'project_safety_screen.dart';
 import 'runtime_setup_dialog.dart';
@@ -1122,6 +1123,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       appBar: AppBar(
         title: Text(_navTitles[_selectedIndex]),
         actions: <Widget>[
+          IconButton(
+            key: const ValueKey('help-button'),
+            icon: const Icon(Icons.help_outline),
+            tooltip: '使用帮助',
+            onPressed: () => showWorkspaceHelpDialog(context),
+          ),
           if (_busy)
             const Padding(
               padding: EdgeInsets.all(8),
