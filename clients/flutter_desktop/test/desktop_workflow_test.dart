@@ -619,45 +619,42 @@ void main() {
     },
   );
 
-  testWidgets(
-    'the next-step banner walks review then export after import',
-    (tester) async {
-      await createHarness(tester);
-      String banner() =>
-          (tester.widget(find.byKey(const ValueKey('next-step-message')))
-                  as Text)
-              .data!;
+  testWidgets('the next-step banner walks review then export after import', (
+    tester,
+  ) async {
+    await createHarness(tester);
+    String banner() => (tester.widget(
+      find.byKey(const ValueKey('next-step-message')),
+    ) as Text).data!;
 
-      // Fresh app: nothing imported yet.
-      expect(banner(), contains('导入一本'));
+    // Fresh app: nothing imported yet.
+    expect(banner(), contains('导入一本'));
 
-      await importBook(tester);
-      await waitForWorkflowIdle(tester);
+    await importBook(tester);
+    await waitForWorkflowIdle(tester);
 
-      // The fake backend reports OCR done with one queued review.
-      expect(banner(), contains('1 项'));
-      await tester.tap(find.byKey(const ValueKey('next-step-action')));
-      await tester.pump();
-      expect(find.text('记录人工决策'), findsOneWidget);
+    // The fake backend reports OCR done with one queued review.
+    expect(banner(), contains('1 项'));
+    await tester.tap(find.byKey(const ValueKey('next-step-action')));
+    await tester.pump();
+    expect(find.text('记录人工决策'), findsOneWidget);
 
-      await tester.tap(find.text('填入 OCR 1'));
-      await tester.tap(find.text('记录人工决策'));
-      await waitForWorkflowIdle(tester);
-      expect(banner(), contains('导出'));
-      await tester.tap(find.byKey(const ValueKey('next-step-action')));
-      await tester.pump();
-      expect(find.text('导出格式'), findsOneWidget);
-    },
-  );
+    await tester.tap(find.text('填入 OCR 1'));
+    await tester.tap(find.text('记录人工决策'));
+    await waitForWorkflowIdle(tester);
+    expect(banner(), contains('导出'));
+    await tester.tap(find.byKey(const ValueKey('next-step-action')));
+    await tester.pump();
+    expect(find.text('导出格式'), findsOneWidget);
+  });
 
   testWidgets(
     'the next-step banner offers one-click init when the runtime is missing',
     (tester) async {
       await createHarness(tester, runtimeReady: false);
-      String banner() =>
-          (tester.widget(find.byKey(const ValueKey('next-step-message')))
-                  as Text)
-              .data!;
+      String banner() => (tester.widget(
+        find.byKey(const ValueKey('next-step-message')),
+      ) as Text).data!;
       expect(banner(), contains('初始化'));
       await tester.tap(find.byKey(const ValueKey('next-step-action')));
       await pumpUntil(

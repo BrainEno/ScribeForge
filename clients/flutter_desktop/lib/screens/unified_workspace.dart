@@ -95,10 +95,7 @@ NextStepGuidance nextStepGuidance({
     );
   }
   if (!hasProject && hasSource) {
-    return const NextStepGuidance(
-      NextStepAction.goProcess,
-      '已选择源文件，去处理页面。',
-    );
+    return const NextStepGuidance(NextStepAction.goProcess, '已选择源文件，去处理页面。');
   }
   if (reviewQueued > 0) {
     return NextStepGuidance(
