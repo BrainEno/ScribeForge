@@ -105,6 +105,26 @@ class DesktopSettingsStore {
     await _writeSettings(settings);
   }
 
+  /// Last successfully opened project store directory, if any remembered.
+  Future<String?> loadLastProjectStore() async {
+    final settings = await _readSettings();
+    final value = settings['last_project_store'];
+    return value is String && value.trim().isNotEmpty ? value.trim() : null;
+  }
+
+  /// Remember [storePath] as the last opened project; an empty value clears
+  /// the memory (used when the remembered store turns out to be gone).
+  Future<void> saveLastProjectStore(String storePath) async {
+    final value = storePath.trim();
+    final settings = await _readSettings();
+    if (value.isEmpty) {
+      settings.remove('last_project_store');
+    } else {
+      settings['last_project_store'] = value;
+    }
+    await _writeSettings(settings);
+  }
+
   Future<DesktopVlmSettings> loadVlmSettings() async {
     final settings = await _readSettings();
     return DesktopVlmSettings.fromJson(settings['vlm_settings']);

@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/screens/unified_workspace.dart';
 import 'package:scribeforge_desktop/services/backend_resolver.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
+import 'package:scribeforge_desktop/services/cli_runner.dart';
 import 'package:scribeforge_desktop/services/desktop_file_picker.dart';
 import 'package:scribeforge_desktop/services/python_locator.dart';
 import 'package:scribeforge_desktop/services/settings_store.dart';
@@ -38,6 +39,7 @@ void main() {
     Object? runtimeError,
     String processError = 'simulated fatal processing failure',
     PythonLocator? pythonLocator,
+    DesktopSettingsStore? settingsStore,
   }) async {
     late Directory root;
     await tester.runAsync(() async {
@@ -76,6 +78,7 @@ void main() {
       processError: processError,
     );
 
+    final settings = settingsStore ?? _MemorySettingsStore();
     tester.view.physicalSize = const Size(1440, 1100);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -88,7 +91,7 @@ void main() {
             fileExists: (_) async => false,
           ),
           filePicker: picker,
-          settingsStore: _MemorySettingsStore(),
+          settingsStore: settings,
           fileSystem: fileSystem,
           pythonLocator: pythonLocator,
         ),
@@ -102,7 +105,12 @@ void main() {
       description: 'the initial backend health check',
     );
     await tester.pump();
-    return _Harness(source: source, picker: picker, cli: cli);
+    return _Harness(
+      source: source,
+      picker: picker,
+      cli: cli,
+      settingsStore: settings,
+    );
   }
 
   Future<void> openTab(WidgetTester tester, String title) async {
@@ -672,6 +680,58 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'a remembered project offers one-click resume on a cold start',
+    (tester) async {
+      final settings = _MemorySettingsStore();
+      await settings.saveLastProjectStore('/fake/store');
+      final harness = await createHarness(tester, settingsStore: settings);
+      harness.cli.fileSystem.addProjectStore('/fake/store');
+      String banner() => (tester.widget(
+        find.byKey(const ValueKey('next-step-message')),
+      ) as Text).data!;
+
+      await pumpUntil(
+        tester,
+        () => find
+            .byKey(const ValueKey('next-step-message'))
+            .evaluate()
+            .isNotEmpty,
+        description: 'the next-step banner to appear',
+      );
+      expect(banner(), contains('一键继续'));
+
+      await tester.tap(find.byKey(const ValueKey('next-step-action')));
+      await pumpUntil(
+        tester,
+        () => harness.cli.calls.any(
+          (arguments) =>
+              arguments.first == 'status' && arguments.contains('/fake/store'),
+        ),
+        description: 'the remembered project store to be reopened',
+      );
+      await waitForWorkflowIdle(tester);
+      // The project is open now, so the banner moved on to the review queue.
+      expect(banner(), contains('1 项'));
+    },
+  );
+
+  testWidgets(
+    'importing a book remembers its project store for the next launch',
+    (tester) async {
+      final settings = _MemorySettingsStore();
+      final harness = await createHarness(tester, settingsStore: settings);
+      expect(await settings.loadLastProjectStore(), isNull);
+
+      await importBook(tester);
+      await waitForWorkflowIdle(tester);
+      expect(
+        await settings.loadLastProjectStore(),
+        ScribeForgeCli.defaultStorePath(harness.source.path),
+      );
+    },
+  );
 }
 
 Map<String, Object?> _reviewItem(
@@ -696,11 +756,13 @@ class _Harness {
     required this.source,
     required this.picker,
     required this.cli,
+    required this.settingsStore,
   });
 
   final File source;
   final _FakeDesktopFilePicker picker;
   final _FakeCliExecutor cli;
+  final DesktopSettingsStore settingsStore;
 }
 
 class _MemorySettingsStore extends DesktopSettingsStore {
@@ -710,6 +772,7 @@ class _MemorySettingsStore extends DesktopSettingsStore {
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   String _backendPython = '';
   String _backendSourcePath = '';
+  String? _lastProjectStore;
 
   @override
   Future<String> loadCliExecutable() async => _cliExecutable;
@@ -733,6 +796,15 @@ class _MemorySettingsStore extends DesktopSettingsStore {
   @override
   Future<void> saveCliExecutable(String executable) async {
     _cliExecutable = executable;
+  }
+
+  @override
+  Future<String?> loadLastProjectStore() async => _lastProjectStore;
+
+  @override
+  Future<void> saveLastProjectStore(String storePath) async {
+    final value = storePath.trim();
+    _lastProjectStore = value.isEmpty ? null : value;
   }
 
   @override
