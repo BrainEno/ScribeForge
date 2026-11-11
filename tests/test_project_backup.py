@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import stat
 import zipfile
 from pathlib import Path
 
@@ -546,3 +547,248 @@ finally:
     assert other.load_job(job_id).attempts == 0
     other.start_job(job_id)
     other.fail_job(job_id, "test cleanup")
+
+
+def _rewrite_archive(
+    archive: Path,
+    output: Path,
+    *,
+    manifest: bytes | None = None,
+    drop: tuple[str, ...] = (),
+    extra_entries: tuple[tuple[str, bytes, int], ...] = (),
+    duplicate: str | None = None,
+) -> None:
+    with zipfile.ZipFile(archive, "r") as source:
+        members = {info.filename: source.read(info.filename) for info in source.infolist()}
+    if manifest is not None:
+        members["manifest.json"] = manifest
+    for name in drop:
+        members.pop(name, None)
+    with zipfile.ZipFile(output, "w") as target:
+        for name, data in members.items():
+            target.writestr(name, data)
+        for name, data, mode in extra_entries:
+            info = zipfile.ZipInfo(name)
+            info.external_attr = mode << 16
+            target.writestr(info, data)
+        if duplicate is not None:
+            target.writestr(duplicate, members[duplicate])
+
+
+def _manifest_of(archive: Path) -> dict:
+    with zipfile.ZipFile(archive, "r") as source:
+        return json.loads(source.read("manifest.json"))
+
+
+def _valid_archive(tmp_path: Path) -> Path:
+    store_dir, _ = _prepared_store(tmp_path)
+    archive = tmp_path / "backups" / "Book.zip"
+    create_project_backup(store_dir, archive)
+    return archive
+
+
+def test_verification_rejects_missing_archive_file(tmp_path: Path) -> None:
+    with pytest.raises(ProjectBackupError, match="backup archive not found"):
+        verify_project_backup(tmp_path / "nope.zip")
+
+
+def test_verification_rejects_directory_entries(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(
+        archive,
+        forged,
+        extra_entries=(("assets/", b"", 0o40755),),
+    )
+    with pytest.raises(ProjectBackupError, match="must not contain directory entries"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_duplicate_member_names(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(archive, forged, duplicate="assets/page-000001.png")
+    with pytest.raises(ProjectBackupError, match="duplicate paths"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_symlink_entries(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(
+        archive,
+        forged,
+        extra_entries=(("assets/link.png", b"target", stat.S_IFLNK | 0o777),),
+    )
+    with pytest.raises(ProjectBackupError, match="symlink"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_missing_manifest(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(archive, forged, drop=("manifest.json",))
+    with pytest.raises(ProjectBackupError, match="manifest is missing"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_invalid_json_manifest(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(archive, forged, manifest=b"{not json")
+    with pytest.raises(ProjectBackupError, match="manifest is invalid"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_unsupported_manifest_format(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    manifest = _manifest_of(archive)
+    manifest["format"] = "someone-elses-backup"
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(archive, forged, manifest=json.dumps(manifest).encode())
+    with pytest.raises(ProjectBackupError, match="unsupported or invalid"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_members_missing_from_manifest(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(archive, forged, drop=("crops/review-crop.png",))
+    with pytest.raises(ProjectBackupError, match="do not match the backup manifest"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_manifest_without_project_database(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    manifest = _manifest_of(archive)
+    manifest["files"] = [f for f in manifest["files"] if f["path"] != "project.sqlite3"]
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(
+        archive,
+        forged,
+        manifest=json.dumps(manifest).encode(),
+        drop=("project.sqlite3",),
+    )
+    with pytest.raises(ProjectBackupError, match="project.sqlite3"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_source_record_hash_mismatch(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    manifest = _manifest_of(archive)
+    manifest["sources"][0]["sha256"] = "0" * 64
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(archive, forged, manifest=json.dumps(manifest).encode())
+    with pytest.raises(ProjectBackupError, match="does not match archived bytes"):
+        verify_project_backup(forged)
+
+
+def test_verification_rejects_manifest_size_mismatch(tmp_path: Path) -> None:
+    archive = _valid_archive(tmp_path)
+    manifest = _manifest_of(archive)
+    for record in manifest["files"]:
+        if record["path"] == "assets/page-000001.png":
+            record["size"] = record["size"] + 1
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(archive, forged, manifest=json.dumps(manifest).encode())
+    with pytest.raises(ProjectBackupError, match="size mismatch"):
+        verify_project_backup(forged)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        (lambda m: m.update(files=[]), "invalid file count"),
+        (lambda m: m.update(files=["not-a-dict"]), "invalid file record"),
+        (
+            lambda m: m["files"][0].update(path=42),
+            "non-string file path",
+        ),
+        (
+            lambda m: m["files"][0].update(path="manifest.json"),
+            "cannot list itself",
+        ),
+        (
+            lambda m: m["files"][0].update(size=-1),
+            "invalid file size",
+        ),
+        (
+            lambda m: m["files"][0].update(sha256="xyz"),
+            "invalid SHA-256",
+        ),
+        (
+            lambda m: m.update(files=m["files"] + [m["files"][0]]),
+            "duplicate file paths",
+        ),
+        (
+            lambda m: m["sources"][0].update(project_id=0),
+            "invalid source record",
+        ),
+    ],
+)
+def test_verification_rejects_malformed_manifest_records(
+    tmp_path: Path, mutation, match: str
+) -> None:
+    archive = _valid_archive(tmp_path)
+    manifest = _manifest_of(archive)
+    mutation(manifest)
+    forged = tmp_path / "forged.zip"
+    _rewrite_archive(archive, forged, manifest=json.dumps(manifest).encode())
+    with pytest.raises(ProjectBackupError, match=match):
+        verify_project_backup(forged)
+
+
+def test_remap_project_sources_rejects_hash_mismatch(tmp_path: Path) -> None:
+    database = tmp_path / "project.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE projects (id INTEGER PRIMARY KEY, source_uri TEXT, source_sha256 TEXT)"
+        )
+        connection.execute("INSERT INTO projects VALUES (1, '/old/Book.pdf', ?)", ("a" * 64,))
+    with pytest.raises(ProjectBackupError, match="does not match a restored project"):
+        project_backup._remap_project_sources(
+            database,
+            tmp_path / "new",
+            [
+                {
+                    "archive_path": "source/project-1/Book.pdf",
+                    "project_id": 1,
+                    "sha256": "b" * 64,
+                }
+            ],
+        )
+
+
+def test_validate_sqlite_database_rejects_non_project_store(tmp_path: Path) -> None:
+    database = tmp_path / "plain.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE unrelated (id INTEGER PRIMARY KEY)")
+    with pytest.raises(ProjectBackupError, match="not a ScribeForge project store"):
+        project_backup._validate_sqlite_database(database)
+
+
+def test_remap_page_assets_relocates_crop_evidence_paths(tmp_path: Path) -> None:
+    database = tmp_path / "project.sqlite3"
+    old_root = tmp_path / "old"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE pages (id INTEGER PRIMARY KEY, source_image TEXT)")
+        connection.execute("CREATE TABLE vlm_reviews (id INTEGER PRIMARY KEY, crop_path TEXT)")
+        connection.execute(
+            "CREATE TABLE crop_input_evidence (id INTEGER PRIMARY KEY, crop_path TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO vlm_reviews VALUES (1, ?)",
+            (str(old_root / "crops" / "c1.png"),),
+        )
+        connection.execute(
+            "INSERT INTO crop_input_evidence VALUES (1, ?)",
+            (str(old_root / "crops" / "c2.png"),),
+        )
+    project_backup._remap_page_assets(database, tmp_path / "new", {"crops/c1.png", "crops/c2.png"})
+    with sqlite3.connect(database) as connection:
+        vlm_path = connection.execute("SELECT crop_path FROM vlm_reviews WHERE id = 1").fetchone()
+        crop_path = connection.execute(
+            "SELECT crop_path FROM crop_input_evidence WHERE id = 1"
+        ).fetchone()
+    assert vlm_path == (str((tmp_path / "new" / "crops" / "c1.png").resolve()),)
+    assert crop_path == (str((tmp_path / "new" / "crops" / "c2.png").resolve()),)
