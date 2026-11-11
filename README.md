@@ -279,3 +279,9 @@ Do not spend first-milestone effort on accounts, cloud sync, payments, collabora
 The first milestone exists to prove one thing:
 
 > A difficult scanned literary book can be converted into structured text while preserving evidence and surfacing every unresolved uncertainty efficiently.
+
+## License
+
+ScribeForge is released under the **Apache License 2.0** — see [LICENSE](LICENSE).
+Released versions are anchored by git tags and documented in [CHANGELOG.md](CHANGELOG.md)
+(current: v0.1.0).
