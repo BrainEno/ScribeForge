@@ -21,8 +21,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from typing_extensions import Self
-
 from scribeforge.observability import redact_text
 
 
@@ -67,7 +65,7 @@ class EventLog:
         with self._lock:
             self._closed = True
 
-    def __enter__(self) -> Self:
+    def __enter__(self) -> EventLog:  # noqa: PYI034 - typing_extensions is dev-only; 3.10-safe
         return self
 
     def __exit__(self, *exc_info: object) -> None:
