@@ -534,6 +534,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional JSONL event log from 'process --events-file'; its summary is appended.",
     )
 
+    events = subparsers.add_parser(
+        "events",
+        help="Analyze a JSONL pipeline event log (from 'process --events-file') into a bottleneck report.",
+    )
+    events.add_argument("file", type=Path, help="Event log JSONL file to analyze.")
+    events.add_argument("--json", action="store_true", help="Emit stable JSON instead of Markdown.")
+    events.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="How many slowest pages to list (default: 10).",
+    )
+
     structure = subparsers.add_parser(
         "structure",
         help="Derive page roles, printed page numbers and chapters from stored OCR evidence.",
@@ -839,6 +852,8 @@ def run(
         return _status(args, out)
     if args.command == "report":
         return _processing_report(args, out)
+    if args.command == "events":
+        return _events_report(args, out)
     if args.command == "structure":
         return _structure(args, out)
     if args.command == "relink-source":
@@ -1363,6 +1378,29 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                 file=out,
             )
     return EXIT_OK
+
+
+def _events_report(args: argparse.Namespace, out: TextIO) -> int:
+    from scribeforge.pipeline.event_analysis import (
+        analyze_events,
+        events_json,
+        parse_events,
+        render_events_markdown,
+    )
+
+    if not args.file.is_file():
+        print(f"error: event log not found: {args.file}", file=sys.stderr)
+        return EXIT_FATAL
+    if args.top < 1:
+        print("error: --top must be >= 1", file=sys.stderr)
+        return EXIT_FATAL
+    with args.file.open("r", encoding="utf-8") as handle:
+        analysis = analyze_events(parse_events(handle))
+    if args.json:
+        print(events_json(analysis, top=args.top), file=out, end="")
+    else:
+        print(render_events_markdown(analysis, top=args.top), file=out, end="")
+    return 0
 
 
 def _processing_report(args: argparse.Namespace, out: TextIO) -> int:

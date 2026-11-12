@@ -39,3 +39,19 @@ Event kinds: `book_started` (pages, effective max_workers, gpu_memory_mib),
 The file is truncated at the start of each run, every line is redacted like
 the text log, and the sink is thread-safe because page events are emitted
 from pool workers.
+
+`stage_finished` (stage, page_index, elapsed_seconds) is emitted for every
+executed page stage, so per-engine timings are recoverable; skipped
+(already-succeeded) stages emit nothing.
+
+## Analyzing an event log
+
+```bash
+scribeforge events run.jsonl                 # Markdown bottleneck report
+scribeforge events run.jsonl --json --top 20 # stable JSON, top-20 slowest pages
+```
+
+The report (`src/scribeforge/pipeline/event_analysis.py`) aggregates event
+counts, per-stage totals/means with the bottleneck stage called out, the
+slowest pages, failure reasons, in-flight pages at the end of the trace, and
+book-level elapsed time. Malformed lines (a crash mid-write) are skipped.

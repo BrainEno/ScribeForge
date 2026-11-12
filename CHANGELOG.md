@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Event-log analysis (issue #69): `process --events-file` traces now include
+  per-stage `stage_finished` events, and the new `scribeforge events <file>
+  [--json] [--top N]` command renders a bottleneck report (per-stage
+  totals/means with the slowest engine called out, slowest pages, failure
+  reasons, book elapsed) via `scribeforge.pipeline.event_analysis`.
+
 - Structured JSONL pipeline events (issue #69): `process --events-file PATH`
   writes `book_started` / `page_started` / `page_finished` / `page_failed` /
   `book_finished` / `book_aborted` lines with page-level elapsed seconds and

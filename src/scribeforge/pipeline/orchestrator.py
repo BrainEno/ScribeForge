@@ -72,23 +72,35 @@ def _run_stage(
     page_index: int,
     compute: Callable[[], None],
     resolve: Callable[[], T],
+    *,
+    event_log: EventLog | None = None,
 ) -> T:
     """Drive one page-scoped stage, skipping it when it already succeeded.
 
     A stage persists its evidence before returning; on failure it records the
     error so the stage stays resumable and does not invalidate the whole book.
+    When ``event_log`` is given, a ``stage_finished`` event carries the wall
+    time of the executed stage (skipped stages emit nothing).
     """
 
     raise_if_cancelled()
     job_id = store.ensure_job(project_id, stage, page_index=page_index)
     if store.load_job(job_id).state is not JobState.SUCCEEDED:
         store.start_job(job_id)
+        stage_started = time.monotonic()
         try:
             compute()
         except Exception as exc:
             store.fail_job(job_id, str(exc).strip() or type(exc).__name__)
             raise
         store.complete_job(job_id)
+        if event_log is not None:
+            event_log.emit(
+                "stage_finished",
+                stage=stage.value,
+                page_index=page_index,
+                elapsed_seconds=round(time.monotonic() - stage_started, 6),
+            )
     return resolve()
 
 
@@ -102,6 +114,7 @@ def process_page(
     reviewer: VLMReviewer | None = None,
     crops_dir: Path,
     preprocess: PreprocessSettings | None = None,
+    event_log: EventLog | None = None,
 ) -> PageOutcome:
     """Run every remaining pipeline stage for one page, resumably and page-granular."""
 
@@ -185,6 +198,7 @@ def process_page(
         page_index,
         compute_primary,
         lambda: store.latest_engine_run(project_id, page_index, primary_name),
+        event_log=event_log,
     )
 
     if store.load_ocr_frame(primary_run_id) != frame:
@@ -200,6 +214,7 @@ def process_page(
         page_index,
         compute_secondary,
         lambda: store.latest_engine_run(project_id, page_index, secondary_name),
+        event_log=event_log,
     )
 
     if store.load_ocr_frame(secondary_run_id) != frame:
@@ -220,6 +235,7 @@ def process_page(
         page_index,
         compute_verify,
         lambda: store.latest_verification_id(project_id, page_index),
+        event_log=event_log,
     )
 
     verified_frame, _ = verification_frame(store, project_id, page, verification_id)
@@ -264,6 +280,7 @@ def process_page(
             page_index,
             compute_vlm,
             lambda: len(store.reviewed_pair_indexes(verification_id)),
+            event_log=event_log,
         )
 
     validate_vlm_evidence()
@@ -325,6 +342,7 @@ def _run_one_page(
             reviewer=reviewer,
             crops_dir=crops_dir,
             preprocess=preprocess,
+            event_log=event_log,
         )
     except (ProcessingCancelled, JobAlreadyRunningError):
         # A busy project is not a failed page: another process still owns its
