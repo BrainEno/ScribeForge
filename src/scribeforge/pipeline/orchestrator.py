@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import os
 import shutil
 import tempfile
@@ -357,17 +358,28 @@ def _run_pages_parallel(
     pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="scribeforge-page")
     try:
         for index, page in enumerate(pages):
-            future = pool.submit(
-                _run_one_page,
-                store,
-                project_id,
-                page,
-                primary_engine=primary_engine,
-                secondary_engine=secondary_engine,
-                reviewer=reviewer,
-                crops_dir=crops_dir,
-                preprocess=preprocess,
-            )
+            # Pool workers start with an empty context, so the cancellation
+            # ContextVar would be invisible to them; run each page inside a copy
+            # of the caller's context so cancellation propagates to every page.
+            context = contextvars.copy_context()
+            page = pages[index]
+
+            def task(
+                ctx: contextvars.Context = context, p: PageRecord = page
+            ) -> tuple[PageOutcome | None, tuple[int, str] | None]:
+                return ctx.run(
+                    _run_one_page,
+                    store,
+                    project_id,
+                    p,
+                    primary_engine=primary_engine,
+                    secondary_engine=secondary_engine,
+                    reviewer=reviewer,
+                    crops_dir=crops_dir,
+                    preprocess=preprocess,
+                )
+
+            future = pool.submit(task)
             submitted[future] = index
         for future, index in submitted.items():
             # ProcessingCancelled / JobAlreadyRunningError propagate unchanged,
