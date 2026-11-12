@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Benchmark corpus quality gate (issues #62/#68): new
+  `scribeforge.benchmark.quality_gate` module checks a manifest for minimum
+  size, per-language coverage (zh/en/ja >= 8 pages each), vertical Japanese and
+  two-column English samples, duplicate images and empty ground truth. Run via
+  `scribeforge benchmark --check-only` (Markdown or `--quality-json` report,
+  exit 2 on blocking issues); rendered benchmark reports embed the same
+  coverage warnings.
+
 - GPU memory-budget scheduling for page parallelism (issue #70):
   `process --gpu-memory-mib <MiB>` caps the page worker count so in-flight
   pages fit the budget (`min(--workers, budget // per-page VRAM)`); engines may

@@ -4,6 +4,15 @@ This directory contains manifests and small redistributable fixtures only. Do no
 
 The first real benchmark should contain 30–50 representative pages with manually verified ground truth spanning clear/poor scans, chapter starts, punctuation, footnotes, images, headers/footers, and Chinese/English/Japanese samples.
 
+## Quality gate
+
+`scribeforge benchmark --manifest <m.json> --out <gate.md> --check-only` runs the
+corpus quality gate without scoring any engine (add `--quality-json` for JSON).
+It fails (exit 2) when the corpus is below 30 pages, misses a required language
+(zh/en/ja), has fewer than 8 pages per required language, lacks a vertical
+Japanese sample, or reuses an image path. The same coverage warnings are embedded
+in every rendered benchmark report under "Corpus coverage warnings".
+
 ## Current corpus
 
 | Path | Content |
