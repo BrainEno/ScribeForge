@@ -236,11 +236,15 @@ class SQLiteStore:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._ownership_guard = threading.RLock()
-        self._writer_locks: dict[int, BinaryIO] = {}
-        self._active_job_ids: dict[int, int] = {}
+        # Writer locks are keyed by (project_id, page_index): page jobs run under
+        # a page-granular lock (issue #70), while book-level stages (page_index
+        # None) keep the project-wide lock. Both use the same OS lock file
+        # namespace, so cross-process ownership still conflicts.
+        self._writer_locks: dict[tuple[int, int | None], BinaryIO] = {}
+        self._active_job_ids: dict[tuple[int, int | None], int] = {}
 
-    def _project_writer_lock_path(self, project_id: int) -> Path:
-        """Return a stable OS-lock path for one project, outside its assets.
+    def _writer_lock_path(self, project_id: int, page_index: int | None) -> Path:
+        """Return a stable OS-lock path for one lock scope, outside the assets.
 
         The lock file is intentionally persistent. Unlinking a lock file while
         another process has it open can give a third process a different inode
@@ -249,16 +253,16 @@ class SQLiteStore:
 
         database_identity = os.fsencode(os.path.normcase(str(self._path.resolve())))
         database_key = hashlib.sha256(database_identity).hexdigest()
-        return (
-            Path(tempfile.gettempdir())
-            / "scribeforge"
-            / "job-locks"
-            / database_key
-            / f"project-{project_id}.writer.lock"
-        )
+        if page_index is None:
+            name = f"project-{project_id}.writer.lock"
+        else:
+            name = f"project-{project_id}-page-{page_index}.writer.lock"
+        return Path(tempfile.gettempdir()) / "scribeforge" / "job-locks" / database_key / name
 
-    def _acquire_project_writer_lock(self, project_id: int) -> BinaryIO:
-        lock_path = self._project_writer_lock_path(project_id)
+    def _acquire_project_writer_lock(
+        self, project_id: int, page_index: int | None = None
+    ) -> BinaryIO:
+        lock_path = self._writer_lock_path(project_id, page_index)
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = lock_path.open("a+b")
         try:
@@ -295,9 +299,10 @@ class SQLiteStore:
             # Closing the handle releases the platform's advisory lock.
             handle.close()
 
-    def _release_project_writer_lock(self, project_id: int) -> None:
-        handle = self._writer_locks.pop(project_id, None)
-        self._active_job_ids.pop(project_id, None)
+    def _release_project_writer_lock(self, project_id: int, page_index: int | None = None) -> None:
+        key = (project_id, page_index)
+        handle = self._writer_locks.pop(key, None)
+        self._active_job_ids.pop(key, None)
         if handle is None:
             return
         try:
@@ -326,8 +331,8 @@ class SQLiteStore:
         """
 
         with self._ownership_guard:
-            for project_id in tuple(self._writer_locks):
-                self._release_project_writer_lock(project_id)
+            for project_id, page_index in tuple(self._writer_locks):
+                self._release_project_writer_lock(project_id, page_index)
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -1450,11 +1455,20 @@ class SQLiteStore:
         """
 
         with self._ownership_guard:
-            project_id = self.load_job(job_id).project_id
-            if project_id in self._writer_locks:
-                active_job_id = self._active_job_ids[project_id]
+            claimed = self.load_job(job_id)
+            project_id = claimed.project_id
+            page_index = claimed.page_index
+            key = (project_id, page_index)
+            if self._lock_key_conflicts(project_id, page_index):
+                active_job_id = self._active_job_ids.get(key)
+                if active_job_id is None:
+                    active_job_id = next(
+                        job_id_
+                        for (locked_project, _), job_id_ in self._active_job_ids.items()
+                        if locked_project == project_id
+                    )
                 raise JobAlreadyRunningError(f"this store already owns running job {active_job_id}")
-            self._writer_locks[project_id] = self._acquire_project_writer_lock(project_id)
+            self._writer_locks[key] = self._acquire_project_writer_lock(project_id, page_index)
             try:
                 with self._connection() as connection:
                     current = self._job_record(self._job_row(connection, job_id))
@@ -1470,14 +1484,24 @@ class SQLiteStore:
                         (job_id,),
                     )
                     running = self._job_record(self._job_row(connection, job_id))
-                self._active_job_ids[project_id] = job_id
+                self._active_job_ids[key] = job_id
                 return running
             except BaseException:
-                self._release_project_writer_lock(project_id)
+                self._release_project_writer_lock(project_id, page_index)
                 raise
 
-    def _require_job_owner(self, job_id: int, project_id: int) -> None:
-        if project_id not in self._writer_locks or self._active_job_ids.get(project_id) != job_id:
+    def _lock_key_conflicts(self, project_id: int, page_index: int | None) -> bool:
+        """A book-level lock (page None) conflicts with every page of the project."""
+        if page_index is None:
+            return any(locked_project == project_id for locked_project, _ in self._writer_locks)
+        return (project_id, None) in self._writer_locks or (
+            project_id,
+            page_index,
+        ) in self._writer_locks
+
+    def _require_job_owner(self, job_id: int, project_id: int, page_index: int | None) -> None:
+        key = (project_id, page_index)
+        if key not in self._writer_locks or self._active_job_ids.get(key) != job_id:
             raise JobOwnershipError(f"this store does not own running job {job_id}")
 
     def complete_job(self, job_id: int) -> JobRecord:
@@ -1486,7 +1510,7 @@ class SQLiteStore:
                 current = self._job_record(self._job_row(connection, job_id))
                 if current.state is not JobState.RUNNING:
                     raise ValueError("job must be running before it can succeed")
-                self._require_job_owner(job_id, current.project_id)
+                self._require_job_owner(job_id, current.project_id, current.page_index)
                 connection.execute(
                     """
                     UPDATE jobs
@@ -1496,7 +1520,7 @@ class SQLiteStore:
                     (job_id,),
                 )
                 completed = self._job_record(self._job_row(connection, job_id))
-            self._release_project_writer_lock(current.project_id)
+            self._release_project_writer_lock(current.project_id, current.page_index)
             return completed
 
     def reopen_job(self, job_id: int, reason: str) -> JobRecord:
@@ -1534,7 +1558,7 @@ class SQLiteStore:
                 current = self._job_record(self._job_row(connection, job_id))
                 if current.state is not JobState.RUNNING:
                     raise ValueError("job must be running before it can fail")
-                self._require_job_owner(job_id, current.project_id)
+                self._require_job_owner(job_id, current.project_id, current.page_index)
                 connection.execute(
                     """
                     UPDATE jobs
@@ -1544,7 +1568,7 @@ class SQLiteStore:
                     (error, job_id),
                 )
                 failed = self._job_record(self._job_row(connection, job_id))
-            self._release_project_writer_lock(current.project_id)
+            self._release_project_writer_lock(current.project_id, current.page_index)
             return failed
 
     def list_resumable_jobs(self, project_id: int) -> tuple[JobRecord, ...]:

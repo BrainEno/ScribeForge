@@ -60,6 +60,12 @@ configurable deadline (10 seconds by default). Single-page OCR has a separate
 600-second default, configurable with `process --worker-timeout <seconds>` (and
 the corresponding `repair` / `benchmark` options).
 
+Pages are independent, so `process --workers <n>` runs up to `n` pages
+concurrently on a thread pool (the OCR engines are subprocesses, making pages
+I/O-bound). The default `0` picks half the CPU cores; `--workers 1` keeps the
+serial behaviour. Page jobs take a page-granular writer lock, so different pages
+never block each other while the same page still conflicts across processes.
+
 Setup subprocess stdout and stderr each have a 4 MiB disk-backed limit. OCR worker
 JSON stdout defaults to 64 MiB and worker diagnostics to 4 MiB. Engine commands
 inside a worker forward diagnostics to the parent's bounded stderr instead of
