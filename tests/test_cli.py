@@ -462,6 +462,41 @@ def test_process_parser_exposes_worker_deadline_and_cancel_control() -> None:
         build_parser().parse_args(["process", "book.pdf", "--worker-timeout", "0"])
 
 
+def test_process_parser_exposes_workers_option() -> None:
+    parser = build_parser()
+
+    default = parser.parse_args(["process", "book.pdf"])
+    assert default.workers == 0
+
+    explicit = parser.parse_args(["process", "book.pdf", "--workers", "4"])
+    assert explicit.workers == 4
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["process", "book.pdf", "--workers", "not-a-number"])
+
+
+def test_process_command_forwards_workers_to_process_book(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = _book_with_ink(tmp_path)
+    root = tmp_path / "store"
+    captured: dict[str, int] = {}
+    real_process_book = cli_module.process_book
+
+    def spy(store, project_id, **kwargs):
+        captured["max_workers"] = kwargs["max_workers"]
+        return real_process_book(store, project_id, **kwargs)
+
+    monkeypatch.setattr(cli_module, "process_book", spy)
+    exit_code = run(
+        ["process", str(source), "--store", str(root), "--workers", "3"],
+        engine_factory=_custom_factory(BlankEngine("primary"), BlankEngine("secondary")),
+    )
+
+    assert exit_code == 0
+    assert captured["max_workers"] == 3
+
+
 def test_furniture_cli_commands_expose_include_switch() -> None:
     parser = build_parser()
     command_arguments = (

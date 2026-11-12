@@ -381,6 +381,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_worker_timeout_argument(process)
     process.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help=(
+            "Pages processed concurrently (default: 0 = half the CPU cores, "
+            "1 = serial). Pages are independent and the OCR engines are "
+            "subprocesses, so page-level parallelism scales with I/O."
+        ),
+    )
+    process.add_argument(
         "--cancelable",
         action="store_true",
         help="Read versioned JSON control messages on stdin for desktop cancellation.",
@@ -957,6 +967,7 @@ def _process(
             crops_dir=layout.crops_dir,
             preprocess=_preprocess_settings(args),
             repair=_repair_settings(args),
+            max_workers=getattr(args, "workers", 0),
         )
     except ProcessingCancelled as exc:
         print(f"processing cancelled: {exc}", file=out)

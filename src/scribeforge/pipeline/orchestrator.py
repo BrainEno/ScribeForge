@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from collections.abc import Callable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -284,6 +286,101 @@ def _repair_readers(
     return (reader_for(primary_engine), reader_for(secondary_engine))
 
 
+def _resolve_max_workers(max_workers: int) -> int:
+    """Normalize the requested worker count; 0 means "half the CPU cores"."""
+    if max_workers < 0:
+        raise ValueError(f"max_workers must be >= 0, got {max_workers}")
+    if max_workers == 0:
+        return max(1, (os.cpu_count() or 1) // 2)
+    return max_workers
+
+
+def _run_one_page(
+    store: SQLiteStore,
+    project_id: int,
+    page: PageRecord,
+    *,
+    primary_engine: OCREngine,
+    secondary_engine: OCREngine,
+    reviewer: VLMReviewer | None,
+    crops_dir: Path,
+    preprocess: PreprocessSettings | None,
+) -> tuple[PageOutcome | None, tuple[int, str] | None]:
+    """Run one page, returning either its outcome or a (page_index, error) pair.
+
+    Cancellation and writer-lock conflicts are re-raised because they describe
+    the whole run, not a single page.
+    """
+    try:
+        raise_if_cancelled()
+        outcome = process_page(
+            store,
+            project_id,
+            page,
+            primary_engine=primary_engine,
+            secondary_engine=secondary_engine,
+            reviewer=reviewer,
+            crops_dir=crops_dir,
+            preprocess=preprocess,
+        )
+    except (ProcessingCancelled, JobAlreadyRunningError):
+        # A busy project is not a failed page: another process still owns its
+        # writer lock, and recording a page failure here would misstate the
+        # active owner's work. Let the CLI report this as a retryable conflict.
+        raise
+    except Exception as exc:  # noqa: BLE001 - one bad page must not stop the book
+        return None, (page.page_index, str(exc).strip() or type(exc).__name__)
+    return outcome, None
+
+
+def _run_pages_parallel(
+    store: SQLiteStore,
+    project_id: int,
+    pages: Sequence[PageRecord],
+    workers: int,
+    *,
+    primary_engine: OCREngine,
+    secondary_engine: OCREngine,
+    reviewer: VLMReviewer | None,
+    crops_dir: Path,
+    preprocess: PreprocessSettings | None,
+) -> tuple[list[PageOutcome], list[tuple[int, str]]]:
+    """Process pages on a bounded thread pool, preserving page order in the result.
+
+    ``SQLiteStore`` opens a fresh connection per call, so concurrent page jobs
+    are safe; each page claims its own (project, stage, page) job row.
+    """
+    submitted: dict[Future[tuple[PageOutcome | None, tuple[int, str] | None]], int] = {}
+    outcomes: list[PageOutcome | None] = [None] * len(pages)
+    failures: list[tuple[int, str] | None] = [None] * len(pages)
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="scribeforge-page") as pool:
+        for index, page in enumerate(pages):
+            future = pool.submit(
+                _run_one_page,
+                store,
+                project_id,
+                page,
+                primary_engine=primary_engine,
+                secondary_engine=secondary_engine,
+                reviewer=reviewer,
+                crops_dir=crops_dir,
+                preprocess=preprocess,
+            )
+            submitted[future] = index
+        for future, index in submitted.items():
+            # ProcessingCancelled / JobAlreadyRunningError propagate unchanged,
+            # matching the serial path; the pool drains before the exception
+            # leaves the with-block.
+            outcome, failure = future.result()
+            outcomes[index] = outcome
+            failures[index] = failure
+
+    ordered_outcomes = [o for o in outcomes if o is not None]
+    ordered_failures = [f for f in failures if f is not None]
+    return ordered_outcomes, ordered_failures
+
+
 def process_book(
     store: SQLiteStore,
     project_id: int,
@@ -295,33 +392,52 @@ def process_book(
     preprocess: PreprocessSettings | None = None,
     repair: RepairSettings | None = None,
     repair_readers: Sequence[RepairReader] | None = None,
+    max_workers: int = 0,
 ) -> BookOutcome:
-    """Process every imported page; a failed page never stops the rest of the book."""
+    """Process every imported page; a failed page never stops the rest of the book.
+
+    Pages are independent, so with ``max_workers > 1`` they run on a bounded
+    thread pool (the OCR engines are subprocesses, making pages I/O-bound).
+    ``max_workers=0`` picks half the CPU cores, and ``max_workers=1`` keeps the
+    original serial behaviour. Outcomes are returned in page order regardless of
+    completion order, and the exception taxonomy of the serial path is unchanged:
+    cancellation and writer-lock conflicts propagate, any other per-page failure
+    is collected into ``failed_pages``.
+    """
+
+    workers = _resolve_max_workers(max_workers)
+    pages = store.list_pages(project_id)
 
     outcomes: list[PageOutcome] = []
     failed_pages: list[tuple[int, str]] = []
-    for page in store.list_pages(project_id):
-        try:
-            raise_if_cancelled()
-            outcomes.append(
-                process_page(
-                    store,
-                    project_id,
-                    page,
-                    primary_engine=primary_engine,
-                    secondary_engine=secondary_engine,
-                    reviewer=reviewer,
-                    crops_dir=crops_dir,
-                    preprocess=preprocess,
-                )
+    if workers == 1:
+        for page in pages:
+            outcome, failure = _run_one_page(
+                store,
+                project_id,
+                page,
+                primary_engine=primary_engine,
+                secondary_engine=secondary_engine,
+                reviewer=reviewer,
+                crops_dir=crops_dir,
+                preprocess=preprocess,
             )
-        except (ProcessingCancelled, JobAlreadyRunningError):
-            # A busy project is not a failed page: another process still owns its
-            # writer lock, and recording a page failure here would misstate the
-            # active owner's work. Let the CLI report this as a retryable conflict.
-            raise
-        except Exception as exc:  # noqa: BLE001 - one bad page must not stop the book
-            failed_pages.append((page.page_index, str(exc).strip() or type(exc).__name__))
+            if failure is not None:
+                failed_pages.append(failure)
+            elif outcome is not None:
+                outcomes.append(outcome)
+    else:
+        outcomes, failed_pages = _run_pages_parallel(
+            store,
+            project_id,
+            pages,
+            workers,
+            primary_engine=primary_engine,
+            secondary_engine=secondary_engine,
+            reviewer=reviewer,
+            crops_dir=crops_dir,
+            preprocess=preprocess,
+        )
 
     raise_if_cancelled()
     rounds: tuple[RoundReport, ...] = ()

@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Page-level parallel processing: `process --workers <n>` (default `0` = half
+  the CPU cores, `1` = serial) runs independent pages on a bounded thread pool
+  (issue #70). Job writer locks are now page-granular, so concurrent pages of
+  one project no longer conflict while the same page still conflicts across
+  processes; book-level stages keep the project-wide lock.
+
 ## [0.1.0] - 2026-11-11
 
 First tagged release. ScribeForge is a local-first, evidence-grade
