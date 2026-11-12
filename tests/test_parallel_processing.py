@@ -347,3 +347,38 @@ def test_repair_round_still_runs_after_parallel_first_pass(tmp_path: Path) -> No
     # Both pages agree on nothing (鸦 vs 雅) -> conflict pairs exist to repair.
     assert len(outcome.pages) == 2
     assert outcome.failed_pages == ()
+
+
+def test_cancellation_does_not_wait_for_in_flight_pages(tmp_path: Path) -> None:
+    """A slow in-flight page must not delay cancellation (issue #70 regression).
+
+    On multi-core hosts the default worker count is > 1, so pages run on the
+    pool; when one page observes cancellation, process_book has to raise
+    promptly instead of draining pages whose engine subprocesses still run.
+    """
+    store, project_id = _store(tmp_path, 3)
+    token = CancellationToken()
+
+    class SlowCancellingEngine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            if page_index == 0:
+                # Page 0 cancels immediately; pages 1 and 2 are slow.
+                token.cancel()
+                token.raise_if_cancelled()
+            time.sleep(5)
+            return super().analyze_page(image_path, page_index)
+
+    with cancellation_scope(token):
+        started = time.monotonic()
+        with pytest.raises(ProcessingCancelled):
+            _run(
+                store,
+                project_id,
+                tmp_path,
+                SlowCancellingEngine("primary"),
+                FakeEngine("secondary", "雅"),
+                max_workers=3,
+            )
+        elapsed = time.monotonic() - started
+
+    assert elapsed < 5, f"cancellation waited {elapsed:.1f}s for in-flight pages"

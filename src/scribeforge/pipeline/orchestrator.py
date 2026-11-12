@@ -354,7 +354,8 @@ def _run_pages_parallel(
     outcomes: list[PageOutcome | None] = [None] * len(pages)
     failures: list[tuple[int, str] | None] = [None] * len(pages)
 
-    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="scribeforge-page") as pool:
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="scribeforge-page")
+    try:
         for index, page in enumerate(pages):
             future = pool.submit(
                 _run_one_page,
@@ -370,11 +371,15 @@ def _run_pages_parallel(
             submitted[future] = index
         for future, index in submitted.items():
             # ProcessingCancelled / JobAlreadyRunningError propagate unchanged,
-            # matching the serial path; the pool drains before the exception
-            # leaves the with-block.
+            # matching the serial path. The finally block below does NOT wait for
+            # still-running pages: on cancellation the caller (CLI) tears down the
+            # engine subprocesses itself, so lingering page threads must not delay
+            # the cancellation from reaching the user.
             outcome, failure = future.result()
             outcomes[index] = outcome
             failures[index] = failure
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     ordered_outcomes = [o for o in outcomes if o is not None]
     ordered_failures = [f for f in failures if f is not None]
