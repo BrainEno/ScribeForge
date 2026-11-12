@@ -51,6 +51,20 @@ def test_ci_enforces_per_module_coverage_floors() -> None:
     assert "project_backup.py" in ci and "runtime/probe.py" in ci
 
 
+def test_license_inventory_documents_engine_licenses() -> None:
+    inventory = REPO_ROOT / "docs" / "licenses.md"
+    assert inventory.is_file(), "docs/licenses.md must inventory dependency licenses"
+    text = inventory.read_text(encoding="utf-8")
+    # The project itself.
+    assert "Apache-2.0" in text
+    # Engines pulled in at runtime by the planner.
+    assert "MinerU" in text and "PaddleOCR" in text
+    # Surya weights are OpenRAIL-M, not Apache-2.0 — must be explicit (issue #90).
+    assert "OpenRAIL-M" in text and "Surya" in text
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "licenses.md" in changelog
+
+
 def test_readme_points_to_the_license() -> None:
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert "Apache License 2.0" in readme or "Apache-2.0" in readme
