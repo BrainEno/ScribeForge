@@ -1,4 +1,24 @@
 # Processing report
+## Risk distribution
+
+Every report ends the risk section with a score distribution: all pair scores
+of the latest verification per page bucketed into five equal-width [0, 1]
+intervals, with per-bucket counts, shares and a text bar, plus the high-risk
+pair total (score >= 0.6).
+
+## Comparing two runs
+
+```bash
+scribeforge report --store Book.scribeforge --json > run1.json
+# ... process more pages ...
+scribeforge report --store Book.scribeforge --compare run1.json
+```
+
+`--compare` diffs the current report against an exported schema-v1 JSON report
+and renders field-level deltas (pages, failures, review ratio, observed
+seconds, per-bucket risk counts). A payload with a different schema version is
+rejected.
+
 
 `scribeforge report` turns an existing project store into a deterministic Markdown
 or JSON summary. It uses persisted jobs, latest verifications, decisions and the

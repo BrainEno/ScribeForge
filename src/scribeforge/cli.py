@@ -533,6 +533,16 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Optional JSONL event log from 'process --events-file'; its summary is appended.",
     )
+    processing_report.add_argument(
+        "--compare",
+        type=Path,
+        default=None,
+        metavar="OLD_JSON",
+        help=(
+            "Compare the current report against a previously exported schema-v1 "
+            "JSON report and render the field-level deltas instead."
+        ),
+    )
 
     events = subparsers.add_parser(
         "events",
@@ -1432,6 +1442,34 @@ def _processing_report(args: argparse.Namespace, out: TextIO) -> int:
         from scribeforge.pipeline.events import summarize_events
 
         event_summary = summarize_events(Path(args.events).read_text(encoding="utf-8").splitlines())
+    if getattr(args, "compare", None) is not None:
+        import json as _json
+
+        from scribeforge.processing_report import (
+            compare_report_dicts,
+            processing_report_dict,
+            render_comparison_markdown,
+        )
+
+        compare_path: Path = args.compare
+        if not compare_path.is_file():
+            print(f"error: comparison report not found: {compare_path}", file=sys.stderr)
+            return EXIT_FATAL
+        try:
+            old_payload = _json.loads(compare_path.read_text(encoding="utf-8"))
+        except _json.JSONDecodeError as exc:
+            print(f"error: comparison report is not valid JSON: {exc}", file=sys.stderr)
+            return EXIT_FATAL
+        if not isinstance(old_payload, dict):
+            print("error: comparison report must be a JSON object", file=sys.stderr)
+            return EXIT_FATAL
+        try:
+            comparison = compare_report_dicts(old_payload, processing_report_dict(report))
+        except ValueError as exc:
+            print(f"error: cannot compare reports: {exc}", file=sys.stderr)
+            return EXIT_FATAL
+        out.write(render_comparison_markdown(comparison))
+        return EXIT_OK
     if args.json:
         out.write(processing_report_json(report, event_summary=event_summary))
     else:
