@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextvars
 import shutil
 import tempfile
+import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ from scribeforge.domain.scheduling import (
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import adjudicate_verification
 from scribeforge.pipeline.crop_evidence import crop_evidence, verified_vlm_crop
+from scribeforge.pipeline.events import EventLog
 from scribeforge.pipeline.ocr_frame import capture_frame, verification_frame
 from scribeforge.pipeline.preprocessing import preprocess_page
 from scribeforge.pipeline.rounds import (
@@ -301,12 +303,17 @@ def _run_one_page(
     reviewer: VLMReviewer | None,
     crops_dir: Path,
     preprocess: PreprocessSettings | None,
+    event_log: EventLog | None = None,
 ) -> tuple[PageOutcome | None, tuple[int, str] | None]:
     """Run one page, returning either its outcome or a (page_index, error) pair.
 
     Cancellation and writer-lock conflicts are re-raised because they describe
-    the whole run, not a single page.
+    the whole run, not a single page. When ``event_log`` is given, page_started
+    and page_finished/page_failed events (with elapsed seconds) are emitted.
     """
+    if event_log is not None:
+        event_log.emit("page_started", page_index=page.page_index)
+    started = time.monotonic()
     try:
         raise_if_cancelled()
         outcome = process_page(
@@ -325,7 +332,20 @@ def _run_one_page(
         # active owner's work. Let the CLI report this as a retryable conflict.
         raise
     except Exception as exc:  # noqa: BLE001 - one bad page must not stop the book
+        if event_log is not None:
+            event_log.emit(
+                "page_failed",
+                page_index=page.page_index,
+                error=str(exc).strip() or type(exc).__name__,
+                elapsed_seconds=round(time.monotonic() - started, 6),
+            )
         return None, (page.page_index, str(exc).strip() or type(exc).__name__)
+    if event_log is not None:
+        event_log.emit(
+            "page_finished",
+            page_index=page.page_index,
+            elapsed_seconds=round(time.monotonic() - started, 6),
+        )
     return outcome, None
 
 
@@ -340,6 +360,7 @@ def _run_pages_parallel(
     reviewer: VLMReviewer | None,
     crops_dir: Path,
     preprocess: PreprocessSettings | None,
+    event_log: EventLog | None = None,
 ) -> tuple[list[PageOutcome], list[tuple[int, str]]]:
     """Process pages on a bounded thread pool, preserving page order in the result.
 
@@ -372,6 +393,7 @@ def _run_pages_parallel(
                     reviewer=reviewer,
                     crops_dir=crops_dir,
                     preprocess=preprocess,
+                    event_log=event_log,
                 )
 
             future = pool.submit(task)
@@ -406,6 +428,7 @@ def process_book(
     repair_readers: Sequence[RepairReader] | None = None,
     max_workers: int = 0,
     gpu_memory_mib: int | None = None,
+    event_log: EventLog | None = None,
 ) -> BookOutcome:
     """Process every imported page; a failed page never stops the rest of the book.
 
@@ -435,35 +458,67 @@ def process_book(
         )
     pages = store.list_pages(project_id)
 
+    book_started = time.monotonic()
+    if event_log is not None:
+        event_log.emit(
+            "book_started",
+            project_id=project_id,
+            pages=len(pages),
+            max_workers=workers,
+            gpu_memory_mib=gpu_memory_mib,
+        )
+
     outcomes: list[PageOutcome] = []
     failed_pages: list[tuple[int, str]] = []
-    if workers == 1:
-        for page in pages:
-            outcome, failure = _run_one_page(
+    try:
+        if workers == 1:
+            for page in pages:
+                outcome, failure = _run_one_page(
+                    store,
+                    project_id,
+                    page,
+                    primary_engine=primary_engine,
+                    secondary_engine=secondary_engine,
+                    reviewer=reviewer,
+                    crops_dir=crops_dir,
+                    preprocess=preprocess,
+                    event_log=event_log,
+                )
+                if failure is not None:
+                    failed_pages.append(failure)
+                elif outcome is not None:
+                    outcomes.append(outcome)
+        else:
+            outcomes, failed_pages = _run_pages_parallel(
                 store,
                 project_id,
-                page,
+                pages,
+                workers,
                 primary_engine=primary_engine,
                 secondary_engine=secondary_engine,
                 reviewer=reviewer,
                 crops_dir=crops_dir,
                 preprocess=preprocess,
+                event_log=event_log,
             )
-            if failure is not None:
-                failed_pages.append(failure)
-            elif outcome is not None:
-                outcomes.append(outcome)
-    else:
-        outcomes, failed_pages = _run_pages_parallel(
-            store,
-            project_id,
-            pages,
-            workers,
-            primary_engine=primary_engine,
-            secondary_engine=secondary_engine,
-            reviewer=reviewer,
-            crops_dir=crops_dir,
-            preprocess=preprocess,
+    except BaseException:
+        if event_log is not None:
+            event_log.emit(
+                "book_aborted",
+                project_id=project_id,
+                succeeded=len(outcomes),
+                failed=len(failed_pages),
+                elapsed_seconds=round(time.monotonic() - book_started, 6),
+            )
+        raise
+
+    if event_log is not None:
+        event_log.emit(
+            "book_finished",
+            project_id=project_id,
+            succeeded=len(outcomes),
+            failed=len(failed_pages),
+            elapsed_seconds=round(time.monotonic() - book_started, 6),
         )
 
     raise_if_cancelled()

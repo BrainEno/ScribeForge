@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Structured JSONL pipeline events (issue #69): `process --events-file PATH`
+  writes `book_started` / `page_started` / `page_finished` / `page_failed` /
+  `book_finished` / `book_aborted` lines with page-level elapsed seconds and
+  book totals. New `scribeforge.pipeline.events` module; the sink is
+  thread-safe (page events come from pool workers) and home-redacted.
+
 - Benchmark corpus quality gate (issues #62/#68): new
   `scribeforge.benchmark.quality_gate` module checks a manifest for minimum
   size, per-language coverage (zh/en/ja >= 8 pages each), vertical Japanese and

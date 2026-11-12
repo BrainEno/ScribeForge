@@ -22,3 +22,20 @@ scribeforge --log-level debug --log-file run.log process book.pdf --store Book.s
   attach to bug reports.
 - `configure_logging()` is idempotent: repeated calls replace handlers instead of
   duplicating output.
+
+## Structured pipeline events (JSONL)
+
+For long book runs, `process --events-file PATH` writes one JSON object per
+line (`src/scribeforge/pipeline/events.py`), independent of the text log:
+
+```bash
+scribeforge process book.pdf --store Book.scribeforge --events-file run.jsonl
+```
+
+Event kinds: `book_started` (pages, effective max_workers, gpu_memory_mib),
+`page_started` / `page_finished` (page_index, elapsed_seconds),
+`page_failed` (page_index, error, elapsed_seconds), and `book_finished`
+(succeeded, failed, elapsed_seconds) or `book_aborted` on cancellation.
+The file is truncated at the start of each run, every line is redacted like
+the text log, and the sink is thread-safe because page events are emitted
+from pool workers.

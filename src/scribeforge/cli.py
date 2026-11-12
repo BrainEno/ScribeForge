@@ -71,6 +71,7 @@ from scribeforge.pipeline.assembly import (
     assemble_verified_content,
 )
 from scribeforge.pipeline.crop_evidence import verified_vlm_crop
+from scribeforge.pipeline.events import EventLog
 from scribeforge.pipeline.importing import import_source
 from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.orchestrator import process_book
@@ -391,6 +392,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     process.add_argument(
+        "--events-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write structured JSONL pipeline events (book_started, page_started, "
+            "page_finished, page_failed, book_finished/aborted) to this file."
+        ),
+    )
+    process.add_argument(
         "--gpu-memory-mib",
         type=int,
         default=None,
@@ -514,6 +525,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     processing_report.add_argument(
         "--json", action="store_true", help="Emit stable schema-v1 JSON instead of Markdown."
+    )
+    processing_report.add_argument(
+        "--events",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Optional JSONL event log from 'process --events-file'; its summary is appended.",
     )
 
     structure = subparsers.add_parser(
@@ -1019,18 +1037,25 @@ def _process(
                 ),
                 file=out,
             )
-        outcome = process_book(
-            store,
-            project_id,
-            primary_engine=engines.primary,
-            secondary_engine=engines.secondary,
-            reviewer=engines.reviewer,
-            crops_dir=layout.crops_dir,
-            preprocess=_preprocess_settings(args),
-            repair=_repair_settings(args),
-            max_workers=getattr(args, "workers", 0),
-            gpu_memory_mib=gpu_memory_mib,
-        )
+        events_path = getattr(args, "events_file", None)
+        event_log = EventLog(events_path) if events_path is not None else None
+        try:
+            outcome = process_book(
+                store,
+                project_id,
+                primary_engine=engines.primary,
+                secondary_engine=engines.secondary,
+                reviewer=engines.reviewer,
+                crops_dir=layout.crops_dir,
+                preprocess=_preprocess_settings(args),
+                repair=_repair_settings(args),
+                max_workers=getattr(args, "workers", 0),
+                gpu_memory_mib=gpu_memory_mib,
+                event_log=event_log,
+            )
+        finally:
+            if event_log is not None:
+                event_log.close()
     except ProcessingCancelled as exc:
         print(f"processing cancelled: {exc}", file=out)
         return EXIT_CANCELLED
@@ -1364,10 +1389,20 @@ def _processing_report(args: argparse.Namespace, out: TextIO) -> int:
     except (KeyError, ValueError) as exc:
         print(f"error: cannot build processing report: {exc}", file=sys.stderr)
         return EXIT_FATAL
+    event_summary = None
+    if getattr(args, "events", None) is not None:
+        from scribeforge.pipeline.events import summarize_events
+
+        event_summary = summarize_events(Path(args.events).read_text(encoding="utf-8").splitlines())
     if args.json:
-        out.write(processing_report_json(report))
+        out.write(processing_report_json(report, event_summary=event_summary))
     else:
-        out.write(render_processing_report(report))
+        text = render_processing_report(report)
+        if event_summary is not None:
+            from scribeforge.processing_report import render_event_summary
+
+            text = text + "\n" + render_event_summary(event_summary)
+        out.write(text)
     return EXIT_OK
 
 

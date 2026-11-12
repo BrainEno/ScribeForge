@@ -6,6 +6,7 @@ import json
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from scribeforge.domain.jobs import OCR_STAGES, JobRecord, JobStage, JobState
 from scribeforge.pipeline.rounds import ProgressReport, open_pairs, progress
@@ -302,11 +303,36 @@ def processing_report_dict(report: ProcessingReport) -> dict[str, object]:
     }
 
 
-def processing_report_json(report: ProcessingReport) -> str:
-    return (
-        json.dumps(processing_report_dict(report), ensure_ascii=False, sort_keys=True, indent=2)
-        + "\n"
-    )
+def processing_report_json(
+    report: ProcessingReport, *, event_summary: dict[str, object] | None = None
+) -> str:
+    payload = processing_report_dict(report)
+    if event_summary is not None:
+        # Additive key: existing schema-v1 consumers ignore unknown keys.
+        payload["event_summary"] = event_summary
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+
+
+def render_event_summary(summary: dict[str, Any]) -> str:
+    """Render a summarize_events() dict as a Markdown report section."""
+    lines = ["## Event log summary", ""]
+    events = cast(dict[str, int], summary.get("events") or {})
+    if events:
+        rendered = ", ".join(f"`{k}` x{v}" for k, v in sorted(events.items()))
+        lines.append(f"- events: {rendered}")
+    failed = cast(list[int], summary.get("failed_pages") or [])
+    lines.append(f"- failed pages: {', '.join(str(i) for i in failed) if failed else 'none'}")
+    elapsed = summary.get("book_elapsed_seconds")
+    lines.append(f"- book elapsed: {'—' if elapsed is None else f'{float(elapsed):.3f}s'}")
+    total = summary.get("total_page_seconds")
+    lines.append(f"- summed page time: {'—' if total is None else f'{float(total):.3f}s'}")
+    slowest = cast(dict[str, Any] | None, summary.get("slowest_page"))
+    if slowest:
+        lines.append(
+            f"- slowest page: #{slowest['page_index']} ({float(slowest['elapsed_seconds']):.3f}s)"
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _cell(value: str) -> str:
