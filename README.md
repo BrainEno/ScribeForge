@@ -43,7 +43,7 @@ First-class development target:
 - NVIDIA RTX 5080 / 16 GB VRAM
 - 20 GB system RAM minimum for the reference machine
 - SSD
-- Chinese / English / Japanese scanned literature
+- Chinese / English / Japanese scanned literature (Chinese verified on the baseline corpus; English and Japanese benchmark coverage is gated by `scribeforge benchmark --check-only`, see #62/#68)
 - PDF, JPG and PNG inputs
 - EPUB 3 and DOCX outputs
 

@@ -750,6 +750,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     _add_vlm_arguments(benchmark, include_vlm_switch=True)
+    benchmark.add_argument(
+        "--check-only",
+        action="store_true",
+        help=(
+            "Do not score any engine: only run the corpus quality gate (#62/#68) "
+            "over the manifest and write its report to --out. Exits non-zero when "
+            "the corpus has blocking issues."
+        ),
+    )
+    benchmark.add_argument(
+        "--quality-json",
+        action="store_true",
+        help="With --check-only, emit the gate result as JSON instead of Markdown.",
+    )
 
     alignment_eval = subparsers.add_parser(
         "alignment-eval",
@@ -834,6 +848,26 @@ def run(
     if args.command == "ui":
         return _ui(args)
     if args.command == "benchmark":
+        if getattr(args, "check_only", False):
+            from scribeforge.benchmark.quality_gate import (
+                check_corpus_quality,
+                quality_gate_json,
+                render_quality_report,
+            )
+
+            manifest = load_manifest(args.manifest)
+            issues = check_corpus_quality(manifest)
+            if getattr(args, "quality_json", False):
+                args.out.write_text(quality_gate_json(manifest, issues), encoding="utf-8")
+            else:
+                args.out.write_text(render_quality_report(manifest, issues), encoding="utf-8")
+            errors = sum(1 for issue in issues if issue.severity == "error")
+            print(
+                f"quality gate: {'FAIL' if errors else 'PASS'} "
+                f"({len(issues)} issue(s), {errors} error(s)) -> {args.out}",
+                file=out,
+            )
+            return 2 if errors else 0
         if benchmark_engine_factory is None:
 
             def build_default_benchmark_factory(

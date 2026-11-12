@@ -15,6 +15,7 @@ from scribeforge.benchmark.metrics import (
     wilson_score_interval,
     z_score_for_confidence,
 )
+from scribeforge.benchmark.quality_gate import coverage_warnings
 from scribeforge.benchmark.runner import (
     AggregateScore,
     BenchmarkReport,
@@ -382,6 +383,13 @@ def render_report(
     language_rows = _language_rows(reports, confidence=confidence)
     if language_rows:
         lines += [""] + language_rows
+
+    all_cases = [case for report in reports for case in report.cases]
+    warnings = coverage_warnings(all_cases)
+    if warnings:
+        lines += ["", "## Corpus coverage warnings", ""]
+        lines += [f"- {warning}" for warning in warnings]
+        lines.append("")
 
     lines += ["", "## Per-case results", ""]
     for report in reports:
