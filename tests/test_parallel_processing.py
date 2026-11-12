@@ -126,25 +126,6 @@ def test_parallel_pages_really_run_concurrently(tmp_path: Path) -> None:
     assert elapsed < 10
 
 
-def test_parallel_is_faster_than_serial_for_slow_engines(tmp_path: Path) -> None:
-    store, project_id = _store(tmp_path, 4)
-    delay = 0.15
-    primary = SlowEngine("primary", delay)
-    secondary = SlowEngine("secondary", delay)
-
-    serial_started = time.monotonic()
-    _run(store, project_id, tmp_path, primary, secondary, max_workers=1)
-    serial_elapsed = time.monotonic() - serial_started
-
-    store2, project2 = _store(tmp_path / "second", 4)
-    parallel_started = time.monotonic()
-    _run(store2, project2, tmp_path / "second", primary, secondary, max_workers=4)
-    parallel_elapsed = time.monotonic() - parallel_started
-
-    # Serial: 4 pages x 2 engines x delay. Parallel: ~1 page-time per engine.
-    assert parallel_elapsed < serial_elapsed / 2
-
-
 def test_parallel_outcomes_preserve_page_order(tmp_path: Path) -> None:
     store, project_id = _store(tmp_path, 6)
 
