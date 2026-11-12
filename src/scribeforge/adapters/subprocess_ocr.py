@@ -80,11 +80,14 @@ class SubprocessOCREngine:
         timeout_seconds: float = DEFAULT_WORKER_TIMEOUT_SECONDS,
         max_output_bytes: int = DEFAULT_MAX_WORKER_OUTPUT_BYTES,
         max_log_bytes: int = DEFAULT_MAX_WORKER_LOG_BYTES,
+        vram_mib: int | None = None,
     ) -> None:
         if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("worker timeout must be finite and greater than zero")
         if max_output_bytes < 1 or max_log_bytes < 1:
             raise ValueError("worker output and log limits must be positive")
+        if vram_mib is not None and vram_mib < 1:
+            raise ValueError(f"vram_mib must be >= 1 when set, got {vram_mib}")
         self._name = name
         self._command = tuple(command)
         self._environment = None if environment is None else dict(environment)
@@ -92,10 +95,20 @@ class SubprocessOCREngine:
         self._timeout_seconds = timeout_seconds
         self._max_output_bytes = max_output_bytes
         self._max_log_bytes = max_log_bytes
+        self._vram_mib = vram_mib
 
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def vram_mib(self) -> int | None:
+        """Declared VRAM footprint per resident page (MiB), if known.
+
+        Page-level scheduling (issue #70) sums this over the engines of a page
+        to cap concurrency under a GPU memory budget.
+        """
+        return self._vram_mib
 
     @property
     def timeout_seconds(self) -> float:

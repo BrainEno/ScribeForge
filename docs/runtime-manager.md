@@ -66,6 +66,14 @@ I/O-bound). The default `0` picks half the CPU cores; `--workers 1` keeps the
 serial behaviour. Page jobs take a page-granular writer lock, so different pages
 never block each other while the same page still conflicts across processes.
 
+On GPU hosts, page parallelism is also capped by a memory budget:
+`process --gpu-memory-mib <MiB>` limits how many pages may be in flight at once.
+Each page costs the sum of its engines' declared VRAM (`vram_mib` on the engine,
+or a conservative 6 GiB default per page), and the worker count becomes
+`min(--workers, budget // per-page cost)`, never below one. Combine it with the
+VRAM reported by `scribeforge runtime status` (e.g. reserve ~80% of the total
+for ScribeForge on a 16 GiB card: `--gpu-memory-mib 12800`).
+
 Setup subprocess stdout and stderr each have a 4 MiB disk-backed limit. OCR worker
 JSON stdout defaults to 64 MiB and worker diagnostics to 4 MiB. Engine commands
 inside a worker forward diagnostics to the parent's bounded stderr instead of

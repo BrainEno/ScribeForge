@@ -280,17 +280,17 @@ def test_parallel_propagates_job_already_running_error(tmp_path: Path) -> None:
 
 
 def test_resolve_max_workers_defaults_to_half_the_cores(monkeypatch: pytest.MonkeyPatch) -> None:
-    from scribeforge.pipeline.orchestrator import _resolve_max_workers
+    from scribeforge.domain.scheduling import resolve_cpu_workers
 
     monkeypatch.setattr(os, "cpu_count", lambda: 8, raising=False)
-    assert _resolve_max_workers(0) == 4
-    assert _resolve_max_workers(1) == 1
-    assert _resolve_max_workers(7) == 7
+    assert resolve_cpu_workers(0) == 4
+    assert resolve_cpu_workers(1) == 1
+    assert resolve_cpu_workers(7) == 7
     with pytest.raises(ValueError, match="max_workers"):
-        _resolve_max_workers(-1)
+        resolve_cpu_workers(-1)
 
     monkeypatch.setattr(os, "cpu_count", lambda: None, raising=False)
-    assert _resolve_max_workers(0) == 1
+    assert resolve_cpu_workers(0) == 1
 
 
 def test_parallel_mixed_failures_match_serial_classification(tmp_path: Path) -> None:

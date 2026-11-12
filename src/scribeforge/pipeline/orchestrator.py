@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextvars
-import os
 import shutil
 import tempfile
 from collections.abc import Callable, Sequence
@@ -19,6 +18,11 @@ from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.page_asset import PageAssetError, verify_page_asset
 from scribeforge.domain.preprocess import PreprocessSettings
 from scribeforge.domain.risk import assess_page, review_candidates
+from scribeforge.domain.scheduling import (
+    per_page_vram_mib,
+    resolve_cpu_workers,
+    resolve_page_worker_count,
+)
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.pipeline.adjudication import adjudicate_verification
 from scribeforge.pipeline.crop_evidence import crop_evidence, verified_vlm_crop
@@ -287,15 +291,6 @@ def _repair_readers(
     return (reader_for(primary_engine), reader_for(secondary_engine))
 
 
-def _resolve_max_workers(max_workers: int) -> int:
-    """Normalize the requested worker count; 0 means "half the CPU cores"."""
-    if max_workers < 0:
-        raise ValueError(f"max_workers must be >= 0, got {max_workers}")
-    if max_workers == 0:
-        return max(1, (os.cpu_count() or 1) // 2)
-    return max_workers
-
-
 def _run_one_page(
     store: SQLiteStore,
     project_id: int,
@@ -410,6 +405,7 @@ def process_book(
     repair: RepairSettings | None = None,
     repair_readers: Sequence[RepairReader] | None = None,
     max_workers: int = 0,
+    gpu_memory_mib: int | None = None,
 ) -> BookOutcome:
     """Process every imported page; a failed page never stops the rest of the book.
 
@@ -420,9 +416,23 @@ def process_book(
     completion order, and the exception taxonomy of the serial path is unchanged:
     cancellation and writer-lock conflicts propagate, any other per-page failure
     is collected into ``failed_pages``.
+
+    ``gpu_memory_mib`` caps the worker count by a GPU memory budget: each
+    in-flight page costs the sum of its engines' declared ``vram_mib`` (or a
+    conservative default), and at most ``budget // per_page`` pages run at once.
     """
 
-    workers = _resolve_max_workers(max_workers)
+    workers = resolve_cpu_workers(max_workers)
+    if gpu_memory_mib is not None and gpu_memory_mib < 1:
+        raise ValueError(f"gpu_memory_mib must be >= 1 when set, got {gpu_memory_mib}")
+    if gpu_memory_mib is not None:
+        # On GPU hosts each in-flight page keeps its engines resident in VRAM,
+        # so the page worker count is also capped by the memory budget.
+        workers = resolve_page_worker_count(
+            workers,
+            memory_budget_mib=gpu_memory_mib,
+            per_page_vram_mib=per_page_vram_mib((primary_engine, secondary_engine)),
+        )
     pages = store.list_pages(project_id)
 
     outcomes: list[PageOutcome] = []
