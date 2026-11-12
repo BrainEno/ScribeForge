@@ -49,6 +49,16 @@ def test_redact_text_masks_the_home_directory(tmp_path: Path) -> None:
     assert redact_text("/var/log/x.log", home=home) == "/var/log/x.log"
 
 
+def test_redact_text_normalizes_windows_separator_after_home() -> None:
+    # On Windows str(Path.home()) uses backslashes; the redacted placeholder
+    # must still be followed by "/" so JSON encoding does not double-escape.
+    home = Path("C:/Users/alice")
+    secret = "C:\\Users\\alice\\secret\\book.pdf"
+    redacted = redact_text(secret, home=home)
+    assert redacted.startswith("~/secret")
+    assert "C:" not in redacted
+
+
 def test_configure_logging_filters_below_the_declared_level() -> None:
     logger = configure_logging("warning")
     assert logger.level == logging.WARNING

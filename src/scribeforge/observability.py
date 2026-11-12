@@ -46,13 +46,22 @@ def parse_log_level(value: str) -> int:
 
 
 def redact_text(text: str, *, home: Path | None = None) -> str:
-    """Replace the home directory prefix with ``~`` so paths stay shareable."""
+    """Replace the home directory prefix with ``~`` so paths stay shareable.
+
+    The redacted prefix is always followed by ``/``: on Windows the native
+    separator is ``\\``, and a shared log line should read ``~/secret``, not
+    ``~\\secret`` (which JSON encoding would double-escape).
+    """
 
     home_path = home if home is not None else Path.home()
     home_str = str(home_path)
     if not home_str or home_str == "/":
         return text
-    return text.replace(home_str, REDACTED_HOME)
+    # Match both separator styles so a Windows-style path is redacted even on
+    # a POSIX host (and vice versa).
+    redacted = text.replace(home_str, REDACTED_HOME)
+    redacted = redacted.replace(home_str.replace("/", "\\"), REDACTED_HOME)
+    return redacted.replace(REDACTED_HOME + "\\", REDACTED_HOME + "/")
 
 
 class RedactingFormatter(logging.Formatter):
