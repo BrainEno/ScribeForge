@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -19,6 +20,41 @@ _TIMING_SCOPE = "latest_attempt_timestamp_spans"
 class ReasonCount:
     reason: str
     count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RiskBucket:
+    """One bucket of the risk-score distribution: scores in [low, high]."""
+
+    low: float
+    high: float
+    count: int
+
+
+def risk_score_distribution(
+    scores: Sequence[float], *, bucket_count: int = 5
+) -> tuple[RiskBucket, ...]:
+    """Bucket risk scores into ``bucket_count`` equal-width [0, 1] buckets.
+
+    Score 1.0 belongs to the last bucket. Scores outside [0, 1] are rejected:
+    a risk score outside the unit interval is a bug, not data.
+    """
+    if not 1 <= bucket_count <= 20:
+        raise ValueError(f"bucket_count must be in [1, 20], got {bucket_count}")
+    for score in scores:
+        if not 0.0 <= score <= 1.0:
+            raise ValueError(f"risk score out of range [0, 1]: {score}")
+    width = 1.0 / bucket_count
+    counts = [0] * bucket_count
+    for score in scores:
+        # The epsilon keeps exact bucket edges (0.2, 0.4, ...) in their upper
+        # bucket despite binary floating point (0.6 / 0.2 == 2.999...).
+        index = min(int(score / width + 1e-9), bucket_count - 1)
+        counts[index] += 1
+    return tuple(
+        RiskBucket(low=round(i * width, 6), high=round((i + 1) * width, 6), count=counts[i])
+        for i in range(bucket_count)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +118,12 @@ class ProcessingReport:
     observed_seconds: float | None
     timed_jobs: int
     timing_unavailable_jobs: int
+    #: Risk-score distribution over all latest-verification pairs (issue #69).
+    risk_distribution: tuple[RiskBucket, ...] = ()
+
+    @property
+    def high_risk_pairs_total(self) -> int:
+        return sum(page.high_risk_pairs for page in self.pages)
 
     @property
     def review_required_ratio(self) -> float:
@@ -161,6 +203,7 @@ def build_processing_report(
     stages = tuple(_stage_report(stage, jobs_by_stage[stage]) for stage in jobs_by_stage)
 
     all_reasons: Counter[str] = Counter()
+    risk_scores: list[float] = []
     pages: list[PageReport] = []
     ocr_complete_pages = 0
     failed_pages = 0
@@ -194,6 +237,7 @@ def build_processing_report(
             verification = store.load_verification(verification_id)
             aligned_pairs = len(verification.alignment.pairs)
             high_risk_pairs = sum(risk.score >= high_risk for risk in verification.risks)
+            risk_scores.extend(risk.score for risk in verification.risks)
             page_reasons.update(
                 reason.value for risk in verification.risks for reason in risk.reasons
             )
@@ -233,6 +277,7 @@ def build_processing_report(
         observed_seconds=sum(measured) if measured else None,
         timed_jobs=len(measured),
         timing_unavailable_jobs=len(jobs) - len(measured),
+        risk_distribution=risk_score_distribution(risk_scores),
     )
 
 
@@ -258,6 +303,10 @@ def processing_report_dict(report: ProcessingReport) -> dict[str, object]:
             "review_required_ratio": report.review_required_ratio,
         },
         "risk_reasons": {item.reason: item.count for item in report.risk_reasons},
+        "risk_distribution": [
+            {"low": b.low, "high": b.high, "count": b.count} for b in report.risk_distribution
+        ],
+        "high_risk_pairs_total": report.high_risk_pairs_total,
         "timing": {
             "scope": _TIMING_SCOPE,
             "observed_seconds": report.observed_seconds,
@@ -399,6 +448,24 @@ def render_processing_report(report: ProcessingReport) -> str:
     else:
         lines.append("No verification risk reasons recorded.")
 
+    lines += ["", "## Risk distribution", ""]
+    total_pairs = sum(bucket.count for bucket in report.risk_distribution)
+    if total_pairs:
+        lines += ["| Score range | Pairs | Share |"]
+        lines.append("| --- | ---: | ---: |")
+        max_count = max(bucket.count for bucket in report.risk_distribution)
+        for bucket in report.risk_distribution:
+            share = bucket.count / total_pairs
+            bar = "#" * round(20 * bucket.count / max_count) if max_count else ""
+            lines.append(
+                f"| [{bucket.low:.1f}, {bucket.high:.1f}] | {bucket.count} | {share:.1%} {bar} |"
+            )
+        lines.append("")
+        lines.append(f"- high-risk pairs (score >= 0.6): {report.high_risk_pairs_total}")
+    else:
+        lines.append("No scored verification pairs yet.")
+    lines.append("")
+
     lines += [
         "",
         "## Pages",
@@ -418,5 +485,111 @@ def render_processing_report(report: ProcessingReport) -> str:
             f"| {_seconds(page.observed_seconds)} | {page.aligned_pairs} "
             f"| {page.high_risk_pairs} | {page.open_pairs} | {reasons} |"
         )
+    lines.append("")
+    return "\n".join(lines)
+
+
+@dataclass(frozen=True, slots=True)
+class ReportComparison:
+    """Field-level delta between two processing-report JSON payloads."""
+
+    pages_total_delta: int
+    ocr_complete_delta: int
+    failed_pages_delta: int
+    review_ratio_delta: float
+    observed_seconds_delta: float | None
+    #: Bucket-index -> count delta of the risk distribution (empty when either
+    #: side has no distribution).
+    risk_bucket_deltas: dict[int, int]
+
+
+def _report_number(payload: dict[str, Any], key: str) -> float:
+    value = payload.get(key)
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
+def compare_report_dicts(old: dict[str, Any], new: dict[str, Any]) -> ReportComparison:
+    """Compare two schema-v1 processing-report dicts (old -> new).
+
+    Unknown or missing fields count as zero; a different schema version is
+    rejected so a v1 consumer never silently diffs a foreign payload.
+    """
+    for side, payload in (("old", old), ("new", new)):
+        if not isinstance(payload, dict):
+            raise TypeError(f"{side} report payload must be a JSON object")
+        if payload.get("schema_version") != 1:
+            raise ValueError(
+                f"{side} report is not schema_version 1: {payload.get('schema_version')!r}"
+            )
+    old_review = cast(dict[str, Any], old.get("review") or {})
+    new_review = cast(dict[str, Any], new.get("review") or {})
+    old_timing = cast(dict[str, Any], old.get("timing") or {})
+    new_timing = cast(dict[str, Any], new.get("timing") or {})
+    old_seconds = old_timing.get("observed_seconds")
+    new_seconds = new_timing.get("observed_seconds")
+    deltas: dict[int, int] = {}
+    old_dist = old.get("risk_distribution")
+    new_dist = new.get("risk_distribution")
+    if isinstance(old_dist, list) and isinstance(new_dist, list):
+        for index in range(max(len(old_dist), len(new_dist))):
+            old_count = old_dist[index]["count"] if index < len(old_dist) else 0
+            new_count = new_dist[index]["count"] if index < len(new_dist) else 0
+            delta = int(new_count) - int(old_count)
+            if delta:
+                deltas[index] = delta
+    return ReportComparison(
+        pages_total_delta=int(
+            _report_number(new, "pages_total") - _report_number(old, "pages_total")
+        ),
+        ocr_complete_delta=int(
+            _report_number(new, "ocr_complete_pages") - _report_number(old, "ocr_complete_pages")
+        ),
+        failed_pages_delta=int(
+            _report_number(new, "failed_pages") - _report_number(old, "failed_pages")
+        ),
+        review_ratio_delta=float(new_review.get("review_required_ratio", 0.0))
+        - float(old_review.get("review_required_ratio", 0.0)),
+        observed_seconds_delta=(
+            None
+            if old_seconds is None or new_seconds is None
+            else float(new_seconds) - float(old_seconds)
+        ),
+        risk_bucket_deltas=deltas,
+    )
+
+
+def _delta_text(delta: float) -> str:
+    if delta > 0:
+        return f"+{delta:g}"
+    return f"{delta:g}"
+
+
+def render_comparison_markdown(comparison: ReportComparison) -> str:
+    """Render a report comparison as Markdown."""
+    lines = [
+        "# Report comparison",
+        "",
+        "| Metric | Delta (new - old) |",
+        "| --- | ---: |",
+        f"| pages_total | {_delta_text(comparison.pages_total_delta)} |",
+        f"| ocr_complete_pages | {_delta_text(comparison.ocr_complete_delta)} |",
+        f"| failed_pages | {_delta_text(comparison.failed_pages_delta)} |",
+        f"| review_required_ratio | {_delta_text(comparison.review_ratio_delta)} |",
+        (
+            "| observed_seconds | "
+            + (
+                "—"
+                if comparison.observed_seconds_delta is None
+                else _delta_text(comparison.observed_seconds_delta)
+            )
+            + " |"
+        ),
+    ]
+    if comparison.risk_bucket_deltas:
+        lines += ["", "## Risk distribution delta", "", "| Bucket | Delta |", "| --- | ---: |"]
+        for index in sorted(comparison.risk_bucket_deltas):
+            lines.append(
+                f"| bucket {index} | {_delta_text(comparison.risk_bucket_deltas[index])} |"
+            )
     lines.append("")
     return "\n".join(lines)

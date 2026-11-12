@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Processing reports now include a risk-score distribution (5 equal-width
+  buckets over all latest-verification pair scores, with high-risk totals) in
+  Markdown and schema-v1 JSON, and `scribeforge report --compare old.json`
+  renders field-level deltas between two exported reports (issue #69).
+
 - Event-log analysis (issue #69): `process --events-file` traces now include
   per-stage `stage_finished` events, and the new `scribeforge events <file>
   [--json] [--top N]` command renders a bottleneck report (per-stage
