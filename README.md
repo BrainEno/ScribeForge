@@ -283,5 +283,7 @@ The first milestone exists to prove one thing:
 ## License
 
 ScribeForge is released under the **Apache License 2.0** — see [LICENSE](LICENSE).
+Runtime-downloaded engines have their own licenses (notably Surya weights under
+OpenRAIL-M); see the full inventory in [docs/licenses.md](docs/licenses.md).
 Released versions are anchored by git tags and documented in [CHANGELOG.md](CHANGELOG.md)
 (current: v0.1.0).

@@ -25,6 +25,7 @@ evidence-backed human review queue, and verified EPUB 3 / DOCX export.
 - Flutter desktop client with one-click backend provisioning, a
   next-step guidance banner, resume-last-project, and a Chinese help
   dialog.
-- Apache-2.0 license (see [LICENSE](LICENSE)).
+- Apache-2.0 license (see [LICENSE](LICENSE)); dependency license inventory in
+  [docs/licenses.md](docs/licenses.md) (Surya weights are OpenRAIL-M, not Apache-2.0).
 
 [0.1.0]: https://github.com/BrainEno/ScribeForge/releases/tag/v0.1.0
