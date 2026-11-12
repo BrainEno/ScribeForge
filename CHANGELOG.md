@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- GPU memory-budget scheduling for page parallelism (issue #70):
+  `process --gpu-memory-mib <MiB>` caps the page worker count so in-flight
+  pages fit the budget (`min(--workers, budget // per-page VRAM)`); engines may
+  declare their footprint via `vram_mib`, with a conservative per-page default.
+  New `scribeforge.domain.scheduling` module with pure, exhaustively tested
+  resolution rules.
 - Page-level parallel processing: `process --workers <n>` (default `0` = half
   the CPU cores, `1` = serial) runs independent pages on a bounded thread pool
   (issue #70). Job writer locks are now page-granular, so concurrent pages of

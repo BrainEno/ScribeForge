@@ -391,6 +391,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     process.add_argument(
+        "--gpu-memory-mib",
+        type=int,
+        default=None,
+        help=(
+            "Total GPU memory budget in MiB for page-level parallelism "
+            "(default: unlimited, sized by --workers only). Each in-flight page "
+            "costs the sum of its engines' declared VRAM (or a conservative "
+            "default); the worker count is capped so the pages fit the budget."
+        ),
+    )
+    process.add_argument(
         "--cancelable",
         action="store_true",
         help="Read versioned JSON control messages on stdin for desktop cancellation.",
@@ -958,6 +969,22 @@ def _process(
             raise
         raise_if_cancelled()
         engines = factory(runtime_root)
+        gpu_memory_mib = getattr(args, "gpu_memory_mib", None)
+        if gpu_memory_mib is not None:
+            from scribeforge.domain.scheduling import (
+                format_worker_plan,
+                per_page_vram_mib,
+                resolve_cpu_workers,
+            )
+
+            print(
+                format_worker_plan(
+                    resolve_cpu_workers(getattr(args, "workers", 0)),
+                    memory_budget_mib=gpu_memory_mib,
+                    per_page_vram_mib=per_page_vram_mib((engines.primary, engines.secondary)),
+                ),
+                file=out,
+            )
         outcome = process_book(
             store,
             project_id,
@@ -968,6 +995,7 @@ def _process(
             preprocess=_preprocess_settings(args),
             repair=_repair_settings(args),
             max_workers=getattr(args, "workers", 0),
+            gpu_memory_mib=gpu_memory_mib,
         )
     except ProcessingCancelled as exc:
         print(f"processing cancelled: {exc}", file=out)
