@@ -27,13 +27,24 @@ from scribeforge.observability import redact_text
 def event_line(
     event: str, fields: dict[str, Any] | None = None, *, now: float | None = None
 ) -> str:
-    """Build one JSONL line for ``event``; pure and deterministic when ``now`` is given."""
+    """Build one JSONL line for ``event``; pure and deterministic when ``now`` is given.
+
+    String field values are redacted *before* JSON encoding: on Windows the
+    encoder escapes backslashes, so redacting the finished line would miss
+    home paths like ``C:\\Users\\...``. The finished line is redacted too, as a
+    belt-and-braces pass for anything that slipped through.
+    """
     payload: dict[str, Any] = {
         "ts": round(time.time() if now is None else now, 3),
         "event": event,
     }
     if fields:
-        payload.update(fields)
+        payload.update(
+            {
+                key: redact_text(value) if isinstance(value, str) else value
+                for key, value in fields.items()
+            }
+        )
     return redact_text(json.dumps(payload, ensure_ascii=False, sort_keys=True))
 
 
