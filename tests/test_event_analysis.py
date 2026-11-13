@@ -423,3 +423,146 @@ def test_pages_per_minute_none_without_elapsed() -> None:
         )
     )
     assert analysis.pages_per_minute is None
+
+
+def test_analyze_captures_book_started_workers_and_pages() -> None:
+    analysis = analyze_events(parse_events(_lines()))
+    assert analysis.book_pages == 3
+    assert analysis.book_workers == 2
+
+
+def test_estimate_remaining_from_trace() -> None:
+    from scribeforge.domain.scheduling import estimate_remaining_seconds
+
+    analysis = analyze_events(parse_events(_lines()))
+    observed = [p.elapsed_seconds for p in analysis.pages]
+    # mean 5.1666..., 4 remaining pages, 2 workers
+    estimated = estimate_remaining_seconds(
+        observed, remaining_pages=4, workers=analysis.book_workers or 1
+    )
+    assert estimated == pytest.approx(4 * (6.0 + 8.0 + 1.5) / 3 / 2)
+
+
+def test_cli_events_estimate_remaining_and_plan(tmp_path: Path) -> None:
+    import io
+
+    from scribeforge.cli import run
+
+    log = tmp_path / "events.jsonl"
+    log.write_text("\n".join(_lines()) + "\n", encoding="utf-8")
+    out = io.StringIO()
+    code = run(
+        ["events", str(log), "--estimate-remaining", "4", "--plan"],
+        stdout=out,
+    )
+    assert code == 0
+    text = out.getvalue()
+    assert "estimated remaining:" in text
+    assert "4 page(s) at 2 worker(s)" in text
+    assert "## Simulated schedule" in text
+    assert "waves: 2" in text  # 3 declared pages at 2 workers
+
+
+def test_cli_events_estimate_rejects_negative(tmp_path: Path, capsys) -> None:
+    import io
+
+    from scribeforge.cli import run
+
+    log = tmp_path / "events.jsonl"
+    log.write_text("\n".join(_lines()) + "\n", encoding="utf-8")
+    code = run(["events", str(log), "--estimate-remaining", "-1"], stdout=io.StringIO())
+    assert code == 2
+    assert "--estimate-remaining" in capsys.readouterr().err
+
+
+def test_cli_events_estimate_without_book_started_uses_one_worker(tmp_path: Path) -> None:
+    import io
+
+    from scribeforge.cli import run
+
+    log = tmp_path / "events.jsonl"
+    lines = [
+        event_line("page_finished", {"page_index": 0, "elapsed_seconds": 2.0}, now=1.0),
+        event_line("page_finished", {"page_index": 1, "elapsed_seconds": 4.0}, now=2.0),
+    ]
+    log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out = io.StringIO()
+    code = run(["events", str(log), "--estimate-remaining", "3"], stdout=out)
+    assert code == 0
+    assert "at 1 worker(s)" in out.getvalue()
+    # mean 3s x 3 pages / 1 worker = 9s
+    assert "9.0 s" in out.getvalue()
+
+
+def test_cli_events_plan_skipped_without_declared_pages(tmp_path: Path) -> None:
+    import io
+
+    from scribeforge.cli import run
+
+    log = tmp_path / "events.jsonl"
+    lines = [event_line("page_finished", {"page_index": 0, "elapsed_seconds": 2.0}, now=1.0)]
+    log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out = io.StringIO()
+    code = run(
+        ["events", str(log), "--estimate-remaining", "2", "--plan"],
+        stdout=out,
+    )
+    assert code == 0
+    text = out.getvalue()
+    assert "estimated remaining:" in text
+    assert "plan:" not in text  # no book_started -> no declared page count
+
+
+def test_events_json_includes_book_workers_and_pages() -> None:
+    analysis = analyze_events(parse_events(_lines()))
+    payload = json.loads(events_json(analysis))
+    assert payload["book_pages"] == 3
+    assert payload["book_workers"] == 2
+
+
+def test_cli_events_plan_renders_markdown_table(tmp_path: Path) -> None:
+    import io
+
+    from scribeforge.cli import run
+
+    log = tmp_path / "events.jsonl"
+    log.write_text("\n".join(_lines()) + "\n", encoding="utf-8")
+    out = io.StringIO()
+    code = run(["events", str(log), "--estimate-remaining", "2", "--plan"], stdout=out)
+    assert code == 0
+    text = out.getvalue()
+    assert "## Simulated schedule" in text
+    assert "| 1 | 2 |" in text  # 3 declared pages at 2 workers -> waves 2+1
+
+
+def test_events_json_estimate_block() -> None:
+    analysis = analyze_events(parse_events(_lines()))
+    payload = json.loads(events_json(analysis, estimate_remaining_pages=4))
+    assert payload["estimate"]["remaining_pages"] == 4
+    assert payload["estimate"]["workers"] == 2
+    assert payload["estimate"]["observed_pages"] == 3
+    # mean (6+8+1.5)/3 = 5.1667; 4 pages / 2 workers -> 10.3333
+    assert payload["estimate"]["estimated_remaining_seconds"] == pytest.approx(10.333333, abs=1e-4)
+
+
+def test_events_json_without_estimate_has_no_block() -> None:
+    analysis = analyze_events(parse_events(_lines()))
+    payload = json.loads(events_json(analysis))
+    assert "estimate" not in payload
+
+
+def test_cli_events_json_estimate(tmp_path: Path) -> None:
+    import io
+
+    from scribeforge.cli import run
+
+    log = tmp_path / "events.jsonl"
+    log.write_text("\n".join(_lines()) + "\n", encoding="utf-8")
+    out = io.StringIO()
+    code = run(
+        ["events", str(log), "--json", "--estimate-remaining", "4"],
+        stdout=out,
+    )
+    assert code == 0
+    payload = json.loads(out.getvalue())
+    assert payload["estimate"]["estimated_remaining_seconds"] == pytest.approx(10.333333, abs=1e-4)

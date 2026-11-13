@@ -74,6 +74,12 @@ or a conservative 6 GiB default per page), and the worker count becomes
 VRAM reported by `scribeforge runtime status` (e.g. reserve ~80% of the total
 for ScribeForge on a 16 GiB card: `--gpu-memory-mib 12800`).
 
+To sanity-check the win before a big run, an opt-in local benchmark proves the
+page pool scales (fake slow engines, 120 pages, serial vs 4 workers must exceed
+2x speedup): `pytest tests/test_parallel_performance.py -m benchmark --no-cov`.
+It is excluded from the default CI run via the `benchmark` marker.
+
+
 Setup subprocess stdout and stderr each have a 4 MiB disk-backed limit. OCR worker
 JSON stdout defaults to 64 MiB and worker diagnostics to 4 MiB. Engine commands
 inside a worker forward diagnostics to the parent's bounded stderr instead of

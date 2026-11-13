@@ -55,3 +55,8 @@ The report (`src/scribeforge/pipeline/event_analysis.py`) aggregates event
 counts, per-stage totals/means with the bottleneck stage called out, the
 slowest pages, failure reasons, in-flight pages at the end of the trace, and
 book-level elapsed time. Malformed lines (a crash mid-write) are skipped.
+
+Add `--estimate-remaining PAGES` to project the remaining wall time for the
+unprocessed pages (observed mean page time divided by the run's worker count),
+and `--plan` to also print a simulated wave schedule for the book's declared
+page count (`scribeforge.domain.scheduling.plan_book_schedule`).

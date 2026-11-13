@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Scheduling estimators (issue #70): `estimate_remaining_seconds` and
+  `plan_book_schedule` in `scribeforge.domain.scheduling` project remaining
+  wall time and a wave schedule from observed per-page seconds; exposed as
+  `scribeforge events <log> --estimate-remaining PAGES [--plan]`. Opt-in
+  performance baseline `tests/test_parallel_performance.py` (benchmark marker)
+  proves page parallelism exceeds 2x over serial on a 120-page fake book.
+
 - Processing reports now include a risk-score distribution (5 equal-width
   buckets over all latest-verification pair scores, with high-risk totals) in
   Markdown and schema-v1 JSON, and `scribeforge report --compare old.json`
