@@ -46,7 +46,7 @@ def _case(
 
 
 def _manifest(cases: list[BenchmarkCase]) -> BenchmarkManifest:
-    return BenchmarkManifest(schema_version=1, cases=tuple(cases))
+    return BenchmarkManifest(schema_version=1, cases=tuple(cases), license="CC0-1.0")
 
 
 def _healthy_cases() -> list[BenchmarkCase]:
@@ -244,7 +244,10 @@ def test_issue_dataclass_is_immutable() -> None:
 
 
 def _write_manifest(path: Path, cases: list[dict]) -> None:
-    path.write_text(json.dumps({"schema_version": 1, "cases": cases}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"schema_version": 1, "license": "CC0-1.0", "cases": cases}),
+        encoding="utf-8",
+    )
 
 
 def _case_dict(case_id: str, language: str = "zh", tags=None, direction=None) -> dict:
@@ -276,6 +279,8 @@ def test_cli_benchmark_check_only_passes_healthy_corpus(tmp_path: Path) -> None:
     )
     manifest = tmp_path / "manifest.json"
     _write_manifest(manifest, cases)
+    for case in cases:
+        (tmp_path / case["image"]).write_bytes(b"png")
     out = tmp_path / "gate.md"
 
     code = run(["benchmark", "--manifest", str(manifest), "--out", str(out), "--check-only"])
@@ -487,3 +492,39 @@ def test_gate_uses_manifest_review_status_in_json(tmp_path: Path) -> None:
     assert manifest.ground_truth_review_status == "double-proofread"
     issues = check_corpus_quality(manifest)
     assert any(i.code == "language-missing" for i in issues)
+
+
+def test_cli_check_only_json_includes_license_fields(tmp_path: Path) -> None:
+    import io
+
+    from scribeforge.cli import run
+
+    root = tmp_path
+    cases = []
+    for i in range(30):
+        (root / f"zh-{i}.png").write_bytes(b"png")
+        cases.append(_case_dict(f"zh-{i}"))
+    raw = {
+        "schema_version": 1,
+        "license": "CC0-1.0",
+        "license_url": "https://example.org/cc0",
+        "cases": cases,
+    }
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(raw), encoding="utf-8")
+    out = tmp_path / "gate.json"
+    run(
+        [
+            "benchmark",
+            "--manifest",
+            str(manifest),
+            "--out",
+            str(out),
+            "--check-only",
+            "--quality-json",
+        ],
+        stdout=io.StringIO(),
+    )
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["license"] == "CC0-1.0"
+    assert payload["license_url"] == "https://example.org/cc0"

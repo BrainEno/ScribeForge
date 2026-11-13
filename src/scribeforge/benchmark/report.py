@@ -248,6 +248,7 @@ def render_report(
     corpus_sha256: str | None = None,
     ground_truth_review_status: str | None = None,
     ground_truth_note: str | None = None,
+    manifest_license: str | None = None,
     confidence: float = 0.95,
 ) -> str:
     """Render one Markdown report for every scored variant.
@@ -277,6 +278,9 @@ def render_report(
     lines += [
         f"- generated: {generated_at}",
         f"- ground-truth review: `{review_status}`",
+        f"- corpus license: `{manifest_license}`"
+        if manifest_license
+        else "- corpus license: not declared",
         f"- variants: {len(reports)}",
     ]
     if languages_summary:

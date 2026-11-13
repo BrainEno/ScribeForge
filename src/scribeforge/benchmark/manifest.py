@@ -21,6 +21,9 @@ class BenchmarkCase:
     #: to split the report; the pipeline still detects direction from geometry, so
     #: a wrong declaration here cannot corrupt a run — it would only mislabel a row.
     direction: str | None = None
+    #: Where this page scan came from (archive, URL, donor). Provenance for the
+    #: license declared at manifest level; absence is flagged by the quality gate.
+    source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +34,11 @@ class BenchmarkManifest:
     #: absence is not evidence that the reference text was proofread.
     ground_truth_review_status: str | None = None
     ground_truth_note: str | None = None
+    #: License covering the corpus images (SPDX id or "public-domain").
+    #: ``None`` keeps older manifests honest; the quality gate flags it.
+    license: str | None = None
+    #: Optional URL of the full license text.
+    license_url: str | None = None
     #: Digest of the exact manifest bytes that produced this model instance.
     #: Directly constructed manifests have no file provenance.
     manifest_sha256: str | None = field(default=None, compare=False, repr=False)
@@ -56,6 +64,13 @@ def load_manifest(path: Path) -> BenchmarkManifest:
     if ground_truth_note is not None and not isinstance(ground_truth_note, str):
         raise TypeError("ground_truth_note must be a string")
 
+    license_name = raw.get("license")
+    if license_name is not None and not isinstance(license_name, str):
+        raise TypeError("license must be a string")
+    license_url = raw.get("license_url")
+    if license_url is not None and not isinstance(license_url, str):
+        raise TypeError("license_url must be a string")
+
     cases: list[BenchmarkCase] = []
     seen: set[str] = set()
     for item in raw_cases:
@@ -68,6 +83,9 @@ def load_manifest(path: Path) -> BenchmarkManifest:
         tags = item.get("tags", [])
         if not isinstance(tags, list):
             raise TypeError("benchmark tags must be a list")
+        source = item.get("source")
+        if source is not None and not isinstance(source, str):
+            raise TypeError("benchmark case source must be a string")
         direction = item.get("direction")
         if direction is not None:
             if not isinstance(direction, str):
@@ -82,6 +100,7 @@ def load_manifest(path: Path) -> BenchmarkManifest:
                 language=str(item["language"]),
                 tags=tuple(str(tag) for tag in tags),
                 direction=direction,
+                source=source,
             )
         )
     return BenchmarkManifest(
@@ -89,5 +108,7 @@ def load_manifest(path: Path) -> BenchmarkManifest:
         cases=tuple(cases),
         ground_truth_review_status=review_status,
         ground_truth_note=ground_truth_note,
+        license=license_name,
+        license_url=license_url,
         manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
     )

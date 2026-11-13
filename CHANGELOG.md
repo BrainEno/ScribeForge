@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Benchmark manifests now carry `license` / `license_url` at top level and
+  `source` per case (issue #62, provenance for redistributable corpora). The
+  quality gate fails on a missing license and warns on non-standard license
+  strings or missing sources; benchmark reports render the corpus license.
+
 - Scheduling estimators (issue #70): `estimate_remaining_seconds` and
   `plan_book_schedule` in `scribeforge.domain.scheduling` project remaining
   wall time and a wave schedule from observed per-page seconds; exposed as
