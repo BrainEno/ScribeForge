@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Multilingual benchmark reporting (issue #68): `reading_order_error_rate`
+  (inversions per reference line) is computed per case and per aggregate and
+  rendered as `RO err rate` in the variants, per-case, per-language and
+  per-direction tables. The `Results by language` table is mandatory and
+  carries reading-order columns; a new `Vertical text reading order` section
+  reports the vertical reading-order error rate separately, and the writing
+  direction table renders whenever any case declares a `direction`.
+  `benchmark/manifest.example.json` now models an English two-column case and
+  a Japanese vertical case, and README.md marks English/Japanese support as
+  pending verification instead of a bare claim. `scribeforge benchmark
+  --report-json PATH` writes the run as schema-v1 JSON with mandatory
+  per-language strata and vertical reading-order rates.
+
 - Benchmark manifests now carry `license` / `license_url` at top level and
   `source` per case (issue #62, provenance for redistributable corpora). The
   quality gate fails on a missing license and warns on non-standard license

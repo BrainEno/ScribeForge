@@ -183,6 +183,7 @@ def test_render_report_shows_manifest_license() -> None:
         missing_lines=0,
         extra_lines=0,
         reading_order_errors=0,
+        reading_order_error_rate=0 / 10.0,
         elapsed_seconds=1.0,
     )
     report = BenchmarkReport(engine="fake", cases=(case,), aggregate=aggregate_case_scores((case,)))
@@ -432,6 +433,7 @@ def test_license_and_source_do_not_affect_case_scoring_metadata() -> None:
         missing_lines=0,
         extra_lines=0,
         reading_order_errors=0,
+        reading_order_error_rate=0 / 10.0,
         elapsed_seconds=1.0,
     )
     assert case.language == "zh"  # license/source live on the manifest, not the score
@@ -501,6 +503,7 @@ def test_render_report_license_not_declared_line() -> None:
         missing_lines=0,
         extra_lines=0,
         reading_order_errors=0,
+        reading_order_error_rate=0 / 10.0,
         elapsed_seconds=1.0,
     )
     report = BenchmarkReport(engine="e", cases=(case,), aggregate=aggregate_case_scores((case,)))

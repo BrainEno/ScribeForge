@@ -21,6 +21,7 @@ from scribeforge.benchmark.metrics import (
     error_rate_from_counts,
     line_error_metrics,
     punctuation_accuracy,
+    reading_order_error_rate,
     reading_order_errors,
     scoring_text,
     word_error_counts,
@@ -149,6 +150,9 @@ def run_pipeline_benchmark(
                     extra_lines=line_metrics.extra_lines,
                     changed_lines=line_metrics.changed_lines,
                     reading_order_errors=reading_order_errors(reference_lines, hypothesis_lines),
+                    reading_order_error_rate=reading_order_error_rate(
+                        reference_lines, hypothesis_lines
+                    ),
                     elapsed_seconds=elapsed,
                     accepted_pairs=accepted_pairs,
                     unresolved_pairs=unresolved_pairs,

@@ -212,6 +212,18 @@ def reading_order_errors(reference: Sequence[str], hypothesis: Sequence[str]) ->
     return inversions
 
 
+def reading_order_error_rate(reference: Sequence[str], hypothesis: Sequence[str]) -> float:
+    """Reading-order inversions per reference line.
+
+    The raw inversion count from :func:`reading_order_errors` divided by the
+    number of reference lines, using the same zero-reference convention as
+    :func:`error_rate_from_counts`: an empty reference with no inversions is a
+    defined ``0.0``, never an inferred or N/A value.
+    """
+
+    return error_rate_from_counts(reading_order_errors(reference, hypothesis), len(reference))
+
+
 @dataclass(frozen=True, slots=True)
 class LineErrorMetrics:
     """Ordered text-line differences; no geometric alignment is implied."""

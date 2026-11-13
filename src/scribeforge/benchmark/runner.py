@@ -11,6 +11,7 @@ from scribeforge.benchmark.metrics import (
     error_rate_from_counts,
     line_error_metrics,
     punctuation_accuracy,
+    reading_order_error_rate,
     reading_order_errors,
     scoring_text,
     word_error_counts,
@@ -33,6 +34,8 @@ class CaseScore:
     missing_lines: int
     extra_lines: int
     reading_order_errors: int
+    #: Inversions per reference line; the vertical-text core metric (#68).
+    reading_order_error_rate: float
     elapsed_seconds: float
     accepted_pairs: int | None = None
     unresolved_pairs: int | None = None
@@ -70,6 +73,8 @@ class AggregateScore:
     missing_lines: int
     extra_lines: int
     reading_order_errors: int
+    #: Macro mean of the per-case reading-order error rates.
+    reading_order_error_rate: float
     elapsed_seconds: float
     pages_per_minute: float
     accepted_pairs: int | None = None
@@ -139,6 +144,9 @@ def aggregate_case_scores(
         missing_lines=sum(score.missing_lines for score in scores),
         extra_lines=sum(score.extra_lines for score in scores),
         reading_order_errors=sum(score.reading_order_errors for score in scores),
+        reading_order_error_rate=(
+            sum(score.reading_order_error_rate for score in scores) / count if count else 0.0
+        ),
         elapsed_seconds=total_seconds,
         pages_per_minute=60.0 * count / total_seconds if total_seconds > 0 else 0.0,
         accepted_pairs=(
@@ -242,6 +250,9 @@ def run_benchmark(
                 extra_lines=line_metrics.extra_lines,
                 changed_lines=line_metrics.changed_lines,
                 reading_order_errors=reading_order_errors(reference_lines, hypothesis_lines),
+                reading_order_error_rate=reading_order_error_rate(
+                    reference_lines, hypothesis_lines
+                ),
                 elapsed_seconds=elapsed,
                 direction=case.direction,
                 spatial_missing_lines=None if spatial is None else spatial.missing_lines,
