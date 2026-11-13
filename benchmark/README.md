@@ -4,6 +4,14 @@ This directory contains manifests and small redistributable fixtures only. Do no
 
 The first real benchmark should contain 30–50 representative pages with manually verified ground truth spanning clear/poor scans, chapter starts, punctuation, footnotes, images, headers/footers, and Chinese/English/Japanese samples.
 
+## Licensing and provenance
+
+Every manifest must declare a top-level `license` (SPDX id or `public-domain`)
+and optional `license_url`; each case may declare a `source` (archive, URL,
+donor). `benchmark --check-only` fails when the license is missing and warns
+on non-standard license strings or missing per-case sources. Never commit
+copyrighted books or private scans.
+
 ## Quality gate
 
 `scribeforge benchmark --manifest <m.json> --out <gate.md> --check-only` runs the

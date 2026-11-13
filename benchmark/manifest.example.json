@@ -8,7 +8,13 @@
       "image": "fixtures/zh-clear-001.png",
       "ground_truth": "fixtures/zh-clear-001.txt",
       "language": "zh",
-      "tags": ["clear", "body"]
+      "tags": [
+        "clear",
+        "body"
+      ],
+      "source": "Describe where this redistributable scan came from (archive, URL, donor)."
     }
-  ]
+  ],
+  "license": "CC0-1.0",
+  "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
 }

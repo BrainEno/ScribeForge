@@ -908,13 +908,16 @@ def run(
     if args.command == "benchmark":
         if getattr(args, "check_only", False):
             from scribeforge.benchmark.quality_gate import (
+                QualityGateSettings,
                 check_corpus_quality,
                 quality_gate_json,
                 render_quality_report,
             )
 
             manifest = load_manifest(args.manifest)
-            issues = check_corpus_quality(manifest)
+            settings = QualityGateSettings(check_images=True)
+            root = args.root if args.root is not None else args.manifest.parent
+            issues = check_corpus_quality(manifest, settings=settings, root=root)
             if getattr(args, "quality_json", False):
                 args.out.write_text(quality_gate_json(manifest, issues), encoding="utf-8")
             else:
@@ -2543,6 +2546,7 @@ def _benchmark(args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFa
         corpus_sha256=corpus_fingerprint.corpus_sha256,
         ground_truth_review_status=manifest.ground_truth_review_status,
         ground_truth_note=manifest.ground_truth_note,
+        manifest_license=manifest.license,
     )
     try:
         args.out.write_text(report_text, encoding="utf-8")
@@ -2698,6 +2702,7 @@ def _oracle_ceiling(
         corpus_sha256=corpus_fingerprint.corpus_sha256,
         ground_truth_review_status=manifest.ground_truth_review_status,
         ground_truth_note=manifest.ground_truth_note,
+        manifest_license=manifest.license,
     )
     try:
         args.out.write_text(report_text, encoding="utf-8")
