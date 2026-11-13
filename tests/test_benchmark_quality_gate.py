@@ -329,6 +329,7 @@ def test_render_report_embeds_coverage_warnings() -> None:
         missing_lines=0,
         extra_lines=0,
         reading_order_errors=0,
+        reading_order_error_rate=0 / 10.0,
         elapsed_seconds=1.0,
     )
     report = BenchmarkReport(engine="fake", cases=(case,), aggregate=aggregate_case_scores((case,)))
@@ -453,6 +454,7 @@ def test_render_report_warns_once_across_variants() -> None:
             missing_lines=0,
             extra_lines=0,
             reading_order_errors=0,
+            reading_order_error_rate=0 / 10.0,
             elapsed_seconds=1.0,
         )
 

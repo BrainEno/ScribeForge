@@ -12,6 +12,31 @@
         "clear",
         "body"
       ],
+      "direction": "horizontal-lr",
+      "source": "Describe where this redistributable scan came from (archive, URL, donor)."
+    },
+    {
+      "id": "en-two-column-001",
+      "image": "fixtures/en-two-column-001.png",
+      "ground_truth": "fixtures/en-two-column-001.txt",
+      "language": "en",
+      "tags": [
+        "two-column",
+        "body"
+      ],
+      "direction": "horizontal-lr",
+      "source": "Describe where this redistributable scan came from (archive, URL, donor)."
+    },
+    {
+      "id": "ja-vertical-001",
+      "image": "fixtures/ja-vertical-001.png",
+      "ground_truth": "fixtures/ja-vertical-001.txt",
+      "language": "ja",
+      "tags": [
+        "vertical",
+        "body"
+      ],
+      "direction": "vertical-rl",
       "source": "Describe where this redistributable scan came from (archive, URL, donor)."
     }
   ],

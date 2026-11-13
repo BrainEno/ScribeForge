@@ -119,16 +119,26 @@ def _aggregate_wer(
 
 
 def _direction_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
-    """Aggregate CER per writing direction across every variant."""
+    """Aggregate CER and reading-order error rate per writing direction.
 
-    directions = sorted({_direction_of(case) for report in reports for case in report.cases})
-    if len(directions) < 2:
+    Rendered whenever at least one case *declares* a direction, so a corpus
+    that declares vertical pages always gets its vertical row — even when
+    every case is vertical. Corpora that declare nothing keep the old
+    behavior of no direction table.
+    """
+
+    declared = any(case.direction is not None for report in reports for case in report.cases)
+    if not declared:
         return []
+    directions = sorted({_direction_of(case) for report in reports for case in report.cases})
     lines = [
         "## Results by writing direction",
         "",
-        ("| Variant | Direction | Cases | Mean CER | Unresolved pairs | Reading-order errors |"),
-        "| --- | --- | ---: | ---: | ---: | ---: |",
+        (
+            "| Variant | Direction | Cases | Mean CER | Unresolved pairs "
+            "| Reading-order errors | RO err rate |"
+        ),
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for report in reports:
         for direction in directions:
@@ -139,9 +149,52 @@ def _direction_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
             lines.append(
                 f"| {report.engine} | {direction} | {len(cases)} | "
                 f"{_mean([case.cer for case in cases], 0.0):.4f} | {unresolved} | "
-                f"{sum(case.reading_order_errors for case in cases)} |"
+                f"{sum(case.reading_order_errors for case in cases)} | "
+                f"{_mean([case.reading_order_error_rate for case in cases], 0.0):.4f} |"
             )
     lines.append("")
+    return lines
+
+
+def _vertical_rows(reports: Sequence[BenchmarkReport]) -> list[str]:
+    """Dedicated vertical-text reading-order section (#68).
+
+    Reading order is the core metric for vertical writing: a vertically
+    perfect OCR that reads columns left-to-right still fails the page. The
+    section appears whenever any case declares a vertical direction, and only
+    vertical cases feed it.
+    """
+
+    any_vertical = any(
+        (case.direction or "").startswith("vertical") for report in reports for case in report.cases
+    )
+    if not any_vertical:
+        return []
+    lines = [
+        "## Vertical text reading order",
+        "",
+        "| Variant | Vertical cases | Mean CER | Reading-order errors | RO err rate |",
+        "| --- | ---: | ---: | ---: | ---: |",
+    ]
+    for report in reports:
+        cases = [case for case in report.cases if (case.direction or "").startswith("vertical")]
+        if not cases:
+            continue
+        lines.append(
+            f"| {report.engine} | {len(cases)} | "
+            f"{_mean([case.cer for case in cases], 0.0):.4f} | "
+            f"{sum(case.reading_order_errors for case in cases)} | "
+            f"{_mean([case.reading_order_error_rate for case in cases], 0.0):.4f} |"
+        )
+    lines += [
+        "",
+        (
+            "> RO err rate is reading-order inversions per reference line, recorded "
+            "separately for vertical pages because column order is the core "
+            "vertical-layout failure mode."
+        ),
+        "",
+    ]
     return lines
 
 
@@ -210,9 +263,10 @@ def _language_rows(reports: Sequence[BenchmarkReport], *, confidence: float) -> 
         "",
         (
             f"| Variant | Language | Cases | Macro CER ({ci}) | Micro CER (edits / chars, {ci}) "
-            f"| Macro WER (applicable / total, {ci}) | Micro WER (edits / words, {ci}) |"
+            f"| Macro WER (applicable / total, {ci}) | Micro WER (edits / words, {ci}) "
+            f"| Reading-order errors | RO err rate |"
         ),
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for report in reports:
         for language in languages:
@@ -225,14 +279,15 @@ def _language_rows(reports: Sequence[BenchmarkReport], *, confidence: float) -> 
                 f"{_macro_rate(aggregate.mean_cer, [case.cer for case in cases], confidence=confidence)} | "
                 f"{_micro_cer(aggregate, confidence=confidence)} | "
                 f"{_aggregate_wer(aggregate, cases, confidence=confidence)} | "
-                f"{_micro_wer(aggregate, confidence=confidence)} |"
+                f"{_micro_wer(aggregate, confidence=confidence)} | "
+                f"{aggregate.reading_order_errors} | {aggregate.reading_order_error_rate:.4f} |"
             )
     lines += [
         "",
         (
-            "> Languages are declared manifest metadata, not inferred classes; a language "
-            "without corpus cases has no row, so unsupported-language claims remain visible "
-            "as an absence."
+            "> Per-language grouping is mandatory: a language without corpus cases has no "
+            "row, so unsupported-language claims remain visible as an absence rather than "
+            "being averaged away. RO err rate is reading-order inversions per reference line."
         ),
         "",
     ]
@@ -371,7 +426,7 @@ def render_report(
             f"{aggregate.net_extra_lines} | "
             f"{aggregate.spatial_missing_lines if aggregate.spatial_missing_lines is not None else '-'} | "
             f"{aggregate.spatial_extra_lines if aggregate.spatial_extra_lines is not None else '-'} | "
-            f"{aggregate.reading_order_errors} | "
+            f"{aggregate.reading_order_errors} | {aggregate.reading_order_error_rate:.4f} | "
             f"{aggregate.accepted_pairs if aggregate.accepted_pairs is not None else '-'} | "
             f"{aggregate.unresolved_pairs if aggregate.unresolved_pairs is not None else '-'} | "
             f"{aggregate.false_accepted_pairs if aggregate.false_accepted_pairs is not None else '-'} | "
@@ -381,6 +436,9 @@ def render_report(
     direction_rows = _direction_rows(reports)
     if direction_rows:
         lines += [""] + direction_rows
+    vertical_rows = _vertical_rows(reports)
+    if vertical_rows:
+        lines += [""] + vertical_rows
     tag_rows = _tag_rows(reports, confidence=confidence)
     if tag_rows:
         lines += [""] + tag_rows
@@ -403,10 +461,10 @@ def render_report(
             (
                 "| Case | Language | Tags | CER | WER (tokenizer) | Punctuation "
                 "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra "
-                "| Spatial Missing | Spatial Extra | Reading-order errors "
+                "| Spatial Missing | Spatial Extra | Reading-order errors | RO err rate "
                 "| Accepted pairs | Unresolved pairs | False-accepted pairs | Seconds |"
             ),
-            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:  | ---: |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
         for case in report.cases:
             tags = ",".join(case.tags) if case.tags else "-"
@@ -417,7 +475,7 @@ def render_report(
                 f"{case.net_missing_lines} | {case.net_extra_lines} | "
                 f"{case.spatial_missing_lines if case.spatial_missing_lines is not None else '-'} | "
                 f"{case.spatial_extra_lines if case.spatial_extra_lines is not None else '-'} | "
-                f"{case.reading_order_errors} | "
+                f"{case.reading_order_errors} | {case.reading_order_error_rate:.4f} | "
                 f"{case.accepted_pairs if case.accepted_pairs is not None else '-'} | "
                 f"{case.unresolved_pairs if case.unresolved_pairs is not None else '-'} | "
                 f"{case.false_accepted_pairs if case.false_accepted_pairs is not None else '-'} | "
@@ -425,3 +483,181 @@ def render_report(
             )
         lines.append("")
     return "\n".join(lines)
+
+
+def _case_json(case: CaseScore) -> dict[str, object]:
+    return {
+        "case_id": case.case_id,
+        "language": case.language,
+        "tags": list(case.tags),
+        "direction": case.direction,
+        "cer": case.cer,
+        "wer": case.wer,
+        "word_tokenizer": case.word_tokenizer,
+        "punctuation_accuracy": case.punctuation_accuracy,
+        "missing_lines": case.missing_lines,
+        "extra_lines": case.extra_lines,
+        "changed_lines": case.changed_lines,
+        "net_missing_lines": case.net_missing_lines,
+        "net_extra_lines": case.net_extra_lines,
+        "reading_order_errors": case.reading_order_errors,
+        "reading_order_error_rate": case.reading_order_error_rate,
+        "spatial_missing_lines": case.spatial_missing_lines,
+        "spatial_extra_lines": case.spatial_extra_lines,
+        "accepted_pairs": case.accepted_pairs,
+        "unresolved_pairs": case.unresolved_pairs,
+        "false_accepted_pairs": case.false_accepted_pairs,
+        "character_errors": case.character_errors,
+        "reference_characters": case.reference_characters,
+        "word_errors": case.word_errors,
+        "reference_words": case.reference_words,
+        "elapsed_seconds": case.elapsed_seconds,
+    }
+
+
+def _aggregate_json(aggregate: AggregateScore) -> dict[str, object]:
+    return {
+        "case_count": aggregate.case_count,
+        "mean_cer": aggregate.mean_cer,
+        "micro_cer": aggregate.micro_cer,
+        "mean_wer": aggregate.mean_wer,
+        "micro_wer": aggregate.micro_wer,
+        "wer_case_count": aggregate.wer_case_count,
+        "mean_punctuation_accuracy": aggregate.mean_punctuation_accuracy,
+        "missing_lines": aggregate.missing_lines,
+        "extra_lines": aggregate.extra_lines,
+        "changed_lines": aggregate.changed_lines,
+        "net_missing_lines": aggregate.net_missing_lines,
+        "net_extra_lines": aggregate.net_extra_lines,
+        "reading_order_errors": aggregate.reading_order_errors,
+        "reading_order_error_rate": aggregate.reading_order_error_rate,
+        "spatial_missing_lines": aggregate.spatial_missing_lines,
+        "spatial_extra_lines": aggregate.spatial_extra_lines,
+        "accepted_pairs": aggregate.accepted_pairs,
+        "unresolved_pairs": aggregate.unresolved_pairs,
+        "false_accepted_pairs": aggregate.false_accepted_pairs,
+        "character_errors": aggregate.character_errors,
+        "reference_characters": aggregate.reference_characters,
+        "word_errors": aggregate.word_errors,
+        "reference_words": aggregate.reference_words,
+        "elapsed_seconds": aggregate.elapsed_seconds,
+        "pages_per_minute": aggregate.pages_per_minute,
+    }
+
+
+def render_report_json(
+    reports: Sequence[BenchmarkReport],
+    *,
+    corpus: str,
+    manifest_sha256: str,
+    generated_at: str,
+    corpus_sha256: str | None = None,
+    ground_truth_review_status: str | None = None,
+    ground_truth_note: str | None = None,
+    manifest_license: str | None = None,
+    confidence: float = 0.95,
+) -> str:
+    """Render the same run as deterministic schema-v1 JSON.
+
+    The per-language strata are mandatory: ``by_language`` always exists so a
+    consumer can detect an unverified language as an absence. ``by_direction``
+    and ``vertical_reading_order`` are empty lists when no case declares a
+    direction / vertical direction, and every rate field uses the same
+    zero-reference conventions as the Markdown report.
+    """
+
+    import json
+
+    z_score_for_confidence(confidence)  # fail fast on an unsupported level
+    language_counts: dict[str, int] = {}
+    for report in reports:
+        for case in report.cases:
+            language_counts[case.language] = language_counts.get(case.language, 0) + 1
+
+    variants: list[dict[str, object]] = []
+    for report in reports:
+        by_language: list[dict[str, object]] = []
+        languages = sorted({case.language for case in report.cases})
+        for language in languages:
+            cases = tuple(case for case in report.cases if case.language == language)
+            if not cases:
+                continue
+            aggregate = aggregate_case_scores(cases)
+            by_language.append(
+                {
+                    "language": language,
+                    "cases": aggregate.case_count,
+                    "mean_cer": aggregate.mean_cer,
+                    "micro_cer": aggregate.micro_cer,
+                    "mean_wer": aggregate.mean_wer,
+                    "micro_wer": aggregate.micro_wer,
+                    "wer_case_count": aggregate.wer_case_count,
+                    "reading_order_errors": aggregate.reading_order_errors,
+                    "reading_order_error_rate": aggregate.reading_order_error_rate,
+                }
+            )
+        declared = any(case.direction is not None for case in report.cases)
+        by_direction: list[dict[str, object]] = []
+        if declared:
+            for direction in sorted({_direction_of(case) for case in report.cases}):
+                direction_cases = [
+                    case for case in report.cases if _direction_of(case) == direction
+                ]
+                if not direction_cases:
+                    continue
+                by_direction.append(
+                    {
+                        "direction": direction,
+                        "cases": len(direction_cases),
+                        "mean_cer": _mean([case.cer for case in direction_cases], 0.0),
+                        "unresolved_pairs": sum(case.unresolved_pairs or 0 for case in cases),
+                        "reading_order_errors": sum(case.reading_order_errors for case in cases),
+                        "reading_order_error_rate": _mean(
+                            [case.reading_order_error_rate for case in direction_cases], 0.0
+                        ),
+                    }
+                )
+        vertical_cases = [
+            case for case in report.cases if (case.direction or "").startswith("vertical")
+        ]
+        vertical_reading_order: list[dict[str, object]] = []
+        if vertical_cases:
+            vertical_reading_order.append(
+                {
+                    "cases": len(vertical_cases),
+                    "mean_cer": _mean([case.cer for case in vertical_cases], 0.0),
+                    "reading_order_errors": sum(
+                        case.reading_order_errors for case in vertical_cases
+                    ),
+                    "reading_order_error_rate": _mean(
+                        [case.reading_order_error_rate for case in vertical_cases], 0.0
+                    ),
+                }
+            )
+        variants.append(
+            {
+                "engine": report.engine,
+                "aggregate": _aggregate_json(report.aggregate),
+                "by_language": by_language,
+                "by_direction": by_direction,
+                "vertical_reading_order": vertical_reading_order,
+                "cases": [_case_json(case) for case in report.cases],
+            }
+        )
+
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "corpus": corpus,
+        "manifest_sha256": manifest_sha256,
+        "generated_at": generated_at,
+        "confidence": confidence,
+        "ground_truth_review_status": ground_truth_review_status or "not declared",
+        "manifest_license": manifest_license,
+        "declared_languages": dict(sorted(language_counts.items())),
+        "variants": variants,
+    }
+    if corpus_sha256 is not None:
+        payload["corpus_sha256"] = corpus_sha256
+    if ground_truth_note is not None and ground_truth_note.strip():
+        payload["ground_truth_note"] = " ".join(ground_truth_note.split())
+    return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

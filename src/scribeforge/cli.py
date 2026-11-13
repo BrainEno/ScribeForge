@@ -34,7 +34,7 @@ from scribeforge.benchmark.manifest import BenchmarkManifest, load_manifest
 from scribeforge.benchmark.metrics import scoring_text
 from scribeforge.benchmark.oracle import OracleEngine
 from scribeforge.benchmark.pipeline_runner import run_pipeline_benchmark
-from scribeforge.benchmark.report import render_report
+from scribeforge.benchmark.report import render_report, render_report_json
 from scribeforge.benchmark.runner import run_benchmark
 from scribeforge.domain.cancellation import (
     CancellationToken,
@@ -819,6 +819,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--quality-json",
         action="store_true",
         help="With --check-only, emit the gate result as JSON instead of Markdown.",
+    )
+    benchmark.add_argument(
+        "--report-json",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Additionally write the scored run as schema-v1 JSON (with mandatory "
+            "per-language strata and vertical reading-order rates) to PATH."
+        ),
     )
 
     alignment_eval = subparsers.add_parser(
@@ -2553,6 +2563,22 @@ def _benchmark(args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFa
     except OSError as exc:
         print(f"error: cannot write report: {exc}", file=sys.stderr)
         return EXIT_FATAL
+    if getattr(args, "report_json", None) is not None:
+        json_text = render_report_json(
+            reports,
+            corpus=str(manifest_path),
+            manifest_sha256=corpus_fingerprint.manifest_sha256,
+            generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            corpus_sha256=corpus_fingerprint.corpus_sha256,
+            ground_truth_review_status=manifest.ground_truth_review_status,
+            ground_truth_note=manifest.ground_truth_note,
+            manifest_license=manifest.license,
+        )
+        try:
+            args.report_json.write_text(json_text, encoding="utf-8")
+        except OSError as exc:
+            print(f"error: cannot write JSON report: {exc}", file=sys.stderr)
+            return EXIT_FATAL
 
     print(
         f"wrote benchmark report for {len(reports)} variant(s) to {args.out}",
@@ -2709,6 +2735,22 @@ def _oracle_ceiling(
     except OSError as exc:
         print(f"error: cannot write report: {exc}", file=sys.stderr)
         return EXIT_FATAL
+    if getattr(args, "report_json", None) is not None:
+        json_text = render_report_json(
+            reports,
+            corpus=str(manifest_path),
+            manifest_sha256=corpus_fingerprint.manifest_sha256,
+            generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            corpus_sha256=corpus_fingerprint.corpus_sha256,
+            ground_truth_review_status=manifest.ground_truth_review_status,
+            ground_truth_note=manifest.ground_truth_note,
+            manifest_license=manifest.license,
+        )
+        try:
+            args.report_json.write_text(json_text, encoding="utf-8")
+        except OSError as exc:
+            print(f"error: cannot write JSON report: {exc}", file=sys.stderr)
+            return EXIT_FATAL
 
     print(f"wrote oracle ceiling report to {args.out}", file=out)
     return EXIT_OK

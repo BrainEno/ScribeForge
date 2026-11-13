@@ -155,12 +155,14 @@ def test_cli_oracle_ceiling_writes_both_variants(tmp_path: Path) -> None:
     # pipeline row has no declared geometry for accepted text and shows '-'.
     assert (
         "| oracle | 1 | 0.0000 | 0.0000 (0 / 5) [0.0000, 0.4345] | N/A (0 / 1) | N/A | "
-        "1.0000 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - | - |" in text
+        "1.0000 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0000 | - | - |" in text
     )
     oracle_ceiling_rows = [
         line for line in text.splitlines() if line.startswith("| oracle-ceiling | 1 |")
     ]
-    assert oracle_ceiling_rows and all("| - | - | 0 | 2 |" in row for row in oracle_ceiling_rows)
+    assert oracle_ceiling_rows and all(
+        "| - | - | 0 | 0.0000 | 2 |" in row for row in oracle_ceiling_rows
+    )
     assert "| LCS Missing | LCS Extra | Changed | Net Missing | Net Extra |" in text
     assert "`whitespace-v1` preserves case and punctuation" in text
 

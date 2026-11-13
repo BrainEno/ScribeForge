@@ -28,6 +28,7 @@ def _case(
         missing_lines=0,
         extra_lines=1,
         reading_order_errors=2,
+        reading_order_error_rate=2 / 10.0,
         elapsed_seconds=elapsed,
     )
 
@@ -47,6 +48,7 @@ def _report(
             missing_lines=0,
             extra_lines=1,
             reading_order_errors=2,
+            reading_order_error_rate=2 / 10.0,
             elapsed_seconds=elapsed,
             pages_per_minute=pages_per_minute,
             wer_case_count=1,
@@ -69,16 +71,16 @@ def test_render_report_summarizes_variants_and_per_case_results() -> None:
     assert "- generated: 2026-10-20T00:00:00Z" in lines
     assert "- variants: 2" in lines
     assert (
-        "| mineru | 1 | 0.2500 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | - | - | - | 2.000 | 30.00 |"
+        "| mineru | 1 | 0.2500 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | 0.2000 | - | - | - | 2.000 | 30.00 |"
         in lines
     )
     assert (
-        "| paddleocr | 1 | 0.5000 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | - | - | - | 1.000 | 60.00 |"
+        "| paddleocr | 1 | 0.5000 | N/A | 0.5000 (1 / 1) | N/A | 0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | 0.2000 | - | - | - | 1.000 | 60.00 |"
         in lines
     )
     assert (
         "| case-1 | en | body,punctuation | 0.2500 | 0.5000 (`whitespace-v1`) | "
-        "0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | - | - | - | 2.000 |" in lines
+        "0.7500 | 0 | 1 | 0 | 0 | 1 | - | - | 2 | 0.2000 | - | - | - | 2.000 |" in lines
     )
     assert text.index("| mineru |") < text.index("| paddleocr |")
     assert text.count("### mineru") == 1
@@ -130,6 +132,7 @@ def test_render_report_marks_a_case_without_tags() -> None:
                 missing_lines=0,
                 extra_lines=0,
                 reading_order_errors=0,
+                reading_order_error_rate=0 / 10.0,
                 elapsed_seconds=0.5,
             ),
         ),
@@ -153,6 +156,7 @@ def _mixed_report() -> BenchmarkReport:
         missing_lines=0,
         extra_lines=0,
         reading_order_errors=3,
+        reading_order_error_rate=3 / 10.0,
         elapsed_seconds=1.0,
         direction="vertical-rl",
     )
@@ -167,6 +171,7 @@ def _mixed_report() -> BenchmarkReport:
             missing_lines=0,
             extra_lines=1,
             reading_order_errors=5,
+            reading_order_error_rate=5 / 10.0,
             elapsed_seconds=3.0,
             pages_per_minute=40.0,
             wer_case_count=2,
@@ -482,7 +487,7 @@ def test_report_stratifies_results_by_declared_language() -> None:
         "| ocr | zh-Hant | 1 | 0.4000 | 0.4000 (2 / 5) [0.1176, 0.7693] | "
         "N/A (0 / 1) | N/A |" in text
     )
-    assert "declared manifest metadata" in text
+    assert "Per-language grouping is mandatory" in text
 
 
 def test_report_shows_spatial_line_counts_only_when_declared() -> None:
