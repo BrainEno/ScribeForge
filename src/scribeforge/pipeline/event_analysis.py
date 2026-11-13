@@ -50,6 +50,9 @@ class EventAnalysis:
     aborted: bool
     succeeded: int | None
     failed: int | None
+    #: Declared book size and effective worker count from book_started.
+    book_pages: int | None
+    book_workers: int | None
 
     @property
     def slowest_stage(self) -> str | None:
@@ -130,6 +133,8 @@ def analyze_events(events: Sequence[Event]) -> EventAnalysis:
     aborted = False
     succeeded: int | None = None
     failed: int | None = None
+    book_pages: int | None = None
+    book_workers: int | None = None
 
     for event in events:
         counts[event.event] = counts.get(event.event, 0) + 1
@@ -161,6 +166,13 @@ def analyze_events(events: Sequence[Event]) -> EventAnalysis:
                 reason = fields.get("error")
                 reason = reason.strip() if isinstance(reason, str) and reason.strip() else "unknown"
                 failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+        elif event.event == "book_started":
+            pages = fields.get("pages")
+            workers = fields.get("max_workers")
+            if isinstance(pages, int) and not isinstance(pages, bool):
+                book_pages = pages
+            if isinstance(workers, int) and not isinstance(workers, bool):
+                book_workers = workers
         elif event.event in ("book_finished", "book_aborted"):
             elapsed = _number(fields.get("elapsed_seconds"))
             if elapsed is not None:
@@ -196,6 +208,8 @@ def analyze_events(events: Sequence[Event]) -> EventAnalysis:
         aborted=aborted,
         succeeded=succeeded,
         failed=failed,
+        book_pages=book_pages,
+        book_workers=book_workers,
     )
 
 
@@ -269,8 +283,17 @@ def render_events_markdown(analysis: EventAnalysis, *, top: int = 10) -> str:
     return "\n".join(lines)
 
 
-def events_json(analysis: EventAnalysis, *, top: int = 10) -> str:
-    """Stable JSON rendering of an analysis for scripting."""
+def events_json(
+    analysis: EventAnalysis,
+    *,
+    top: int = 10,
+    estimate_remaining_pages: int | None = None,
+) -> str:
+    """Stable JSON rendering of an analysis for scripting.
+
+    When ``estimate_remaining_pages`` is given, an ``estimate`` block with the
+    projected remaining seconds (observed mean page time / workers) is added.
+    """
     payload: dict[str, Any] = {
         "book_elapsed_seconds": analysis.book_elapsed_seconds,
         "aborted": analysis.aborted,
@@ -312,5 +335,23 @@ def events_json(analysis: EventAnalysis, *, top: int = 10) -> str:
         "failed_pages": analysis.failed_pages,
         "failure_reasons": analysis.failure_reasons,
         "in_flight_pages": list(analysis.in_flight_pages),
+        "book_pages": analysis.book_pages,
+        "book_workers": analysis.book_workers,
     }
+    if estimate_remaining_pages is not None:
+        from scribeforge.domain.scheduling import estimate_remaining_seconds
+
+        observed = [page.elapsed_seconds for page in analysis.pages]
+        workers = analysis.book_workers or 1
+        payload["estimate"] = {
+            "remaining_pages": estimate_remaining_pages,
+            "workers": workers,
+            "observed_pages": len(observed),
+            "estimated_remaining_seconds": round(
+                estimate_remaining_seconds(
+                    observed, remaining_pages=estimate_remaining_pages, workers=workers
+                ),
+                6,
+            ),
+        }
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

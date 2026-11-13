@@ -556,6 +556,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=10,
         help="How many slowest pages to list (default: 10).",
     )
+    events.add_argument(
+        "--estimate-remaining",
+        type=int,
+        default=None,
+        metavar="PAGES",
+        help=(
+            "Estimate remaining wall seconds for PAGES unprocessed pages, using "
+            "the trace's observed mean page time and the run's worker count."
+        ),
+    )
+    events.add_argument(
+        "--plan",
+        action="store_true",
+        help="Also print a simulated wave schedule for the book's declared page count.",
+    )
 
     structure = subparsers.add_parser(
         "structure",
@@ -1407,9 +1422,42 @@ def _events_report(args: argparse.Namespace, out: TextIO) -> int:
     with args.file.open("r", encoding="utf-8") as handle:
         analysis = analyze_events(parse_events(handle))
     if args.json:
-        print(events_json(analysis, top=args.top), file=out, end="")
+        print(
+            events_json(
+                analysis,
+                top=args.top,
+                estimate_remaining_pages=getattr(args, "estimate_remaining", None),
+            ),
+            file=out,
+            end="",
+        )
     else:
         print(render_events_markdown(analysis, top=args.top), file=out, end="")
+    if getattr(args, "estimate_remaining", None) is not None:
+        from scribeforge.domain.scheduling import estimate_remaining_seconds, plan_book_schedule
+
+        if args.estimate_remaining < 0:
+            print("error: --estimate-remaining must be >= 0", file=sys.stderr)
+            return EXIT_FATAL
+        if not args.json:
+            # In --json mode the estimate is part of the JSON payload above.
+            observed = [page.elapsed_seconds for page in analysis.pages]
+            workers = analysis.book_workers or 1
+            estimated = estimate_remaining_seconds(
+                observed, remaining_pages=args.estimate_remaining, workers=workers
+            )
+            print(
+                f"estimated remaining: {estimated:.1f} s for {args.estimate_remaining} page(s) "
+                f"at {workers} worker(s) (observed mean page time over {len(observed)} page(s))",
+                file=out,
+            )
+            if getattr(args, "plan", False) and analysis.book_pages:
+                from scribeforge.domain.scheduling import render_schedule_markdown
+
+                plan = plan_book_schedule(
+                    observed, total_pages=analysis.book_pages, workers=workers
+                )
+                print(render_schedule_markdown(plan, workers=workers), file=out, end="")
     return 0
 
 
