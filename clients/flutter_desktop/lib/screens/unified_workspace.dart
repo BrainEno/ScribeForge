@@ -2262,6 +2262,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final origin = _backendResolution?.origin;
     final coreLabel = switch (origin) {
       DesktopBackendOrigin.bundled => '内置处理核心（无需系统 Python）',
+      DesktopBackendOrigin.provisionedVenv => '已初始化的本地后端环境（backend-venv）',
       DesktopBackendOrigin.custom => '自定义处理核心（开发者配置）',
       DesktopBackendOrigin.developmentPath => 'PATH 开发模式（需要已安装 CLI）',
       null => '正在检测处理核心',
