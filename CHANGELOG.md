@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Benchmark regression comparison (issues #62/#68/#90):
+  `scribeforge.benchmark.regression` compares two schema-v1
+  `benchmark --report-json` payloads metric by metric — aggregate,
+  per-language, per-direction, vertical reading order and per-case — and
+  renders a Markdown or schema-v1 JSON report. The new `benchmark-compare`
+  subcommand adds a CI gate (`--fail-on-regression`, exit 3) with
+  configurable CER/WER/reading-order thresholds in percentage points
+  (`--cer-pp`/`--wer-pp`/`--ro-pp`). N/A metrics (e.g. WER for zh/ja) stay
+  null and are never treated as 0 or as regressions.
 - Synthetic multilingual benchmark corpus (issues #62/#68):
   `scribeforge.benchmark.multilingual_synthetic.build_multilingual_corpus`
   generates a deterministic zh/en/ja fixture corpus (English two-column page,

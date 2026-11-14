@@ -122,6 +122,27 @@ Exit codes: `0` report written; `2` missing or invalid manifest, corpus problems
 
 The report is Markdown because corpus pages and transcriptions stay outside the repository; only redistributable fixtures may be committed.
 
+## Comparing runs (regression gate)
+
+Every scored run can also be written as schema-v1 JSON with `--report-json`. Two such files — a baseline and a current run — can be compared metric by metric (aggregate, per-language, per-direction, vertical reading order, per-case) with:
+
+```bash
+# Write both runs as JSON.
+scribeforge benchmark --manifest benchmark/manifest.json --out report.md --report-json run-new.json
+
+# Compare against a stored baseline; Markdown to stdout.
+scribeforge benchmark-compare run-baseline.json run-new.json
+
+# CI gate: exit 3 when CER/WER/reading-order regress beyond threshold.
+scribeforge benchmark-compare run-baseline.json run-new.json \
+  --fail-on-regression --cer-pp 0.5 --wer-pp 1.0 --ro-pp 1.0 --out regression.md
+
+# Machine-readable comparison.
+scribeforge benchmark-compare run-baseline.json run-new.json --json --out regression.json
+```
+
+Exit codes: `0` comparison written and (with `--fail-on-regression`) no gated regression; `2` input file missing, invalid JSON or wrong schema; `3` a gated metric regressed beyond its threshold. Metrics that are N/A on either side (for example WER for zh/ja) are reported as `new` / `unavailable` / `missing` / `na` with a null delta — they are never read as 0 and never fail the gate.
+
 ## Status
 
 - A (MinerU) and B (PaddleOCR) are implemented and covered by offline tests with deterministic fake engines. Reports count pairwise reading-order inversions among exactly matched lines; omissions and extra lines remain separate metrics.
