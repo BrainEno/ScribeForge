@@ -42,6 +42,30 @@ The resulting installer can remove the Flutter/Python *development-toolchain* re
 3. `.github/workflows/windows-desktop.yml` builds the backend, checks `--help` and `runtime-status --json` with Python removed from PATH, verifies external Worker imports, builds Flutter, assembles the portable folder, compiles `packaging/windows/ScribeForge.iss`, and uploads checksums. CI artifacts are unsigned.
 4. The Flutter settings page provides an initialization entry point. Processing is gated on a connected core and ready managed backends, so a missing Worker module becomes a repairable setup action rather than an unexplained yellow-bar exception.
 
+## First-run initialization troubleshooting (#212)
+
+Two failure modes were reported from fresh Windows machines and are handled in
+the client:
+
+1. **`python3 -m venv` fails with exit code 9009** — `python3`/`python` on
+   Windows may be the Microsoft Store *app-execution alias* stub, which prints
+   "Python was not found; install from the Microsoft Store" and cannot create
+   virtual environments. The client now probes interpreters in the order
+   `py -3`, `python`, `python3`, per-user `...
+   \Programs\Python\Python3xx\python.exe`, then Microsoft Store package
+   installs under `%LOCALAPPDATA%\Packages\PythonSoftwareFoundation.Python.*`;
+   it rejects any probe whose output mentions the Microsoft Store and requires
+   a successful `import venv, ensurepip` check before provisioning. When venv
+   creation still fails with 9009, the settings dialog shows this exact
+   diagnosis plus the fixes (reinstall from python.org with "Add python.exe to
+   PATH", use the `py` launcher, or disable the app-execution aliases under
+   Settings → Apps → Advanced app settings → App execution aliases).
+2. **`ProcessException: 系统找不到指定的文件 (scribeforge runtime-status --json)`** —
+   no bundled backend and no `scribeforge` on PATH. Backend resolution now also
+   checks the provisioned `backend-venv` CLI next to `settings.json` before
+   falling back to PATH, and the banner for a launch failure tells the user to
+   run 「设置 → 初始化环境」.
+
 ## Remaining release work
 
 1. Test installation, launch, upgrade-in-place, and uninstall in a fresh Windows 11 x64 VM without Python or Flutter; verify project/runtime preservation and native PDF import.

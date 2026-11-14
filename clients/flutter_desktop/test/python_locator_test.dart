@@ -7,11 +7,13 @@ void main() {
       final locator = PythonLocator(
         operatingSystem: 'linux',
         probe: (executable, arguments) async {
-          if (executable == 'python3' && arguments.last == '--version') {
-            return 'Python 3.12.4';
+          if (arguments.contains('--version')) {
+            if (executable == 'python3') return 'Python 3.12.4';
+            if (executable == 'python') return 'Python 3.11.9';
+            return null;
           }
-          if (executable == 'python') return 'Python 3.11.9';
-          return null;
+          // venv capability probe
+          return '';
         },
       );
 
@@ -25,8 +27,10 @@ void main() {
     test('falls back to python when python3 is missing', () async {
       final locator = PythonLocator(
         operatingSystem: 'macos',
-        probe: (executable, arguments) async =>
-            executable == 'python' ? 'Python 3.13.0' : null,
+        probe: (executable, arguments) async {
+          if (executable != 'python') return null;
+          return arguments.contains('--version') ? 'Python 3.13.0' : '';
+        },
       );
 
       final detected = await locator.detect();
@@ -38,6 +42,33 @@ void main() {
       final locator = PythonLocator(
         operatingSystem: 'linux',
         probe: (executable, arguments) async => null,
+      );
+
+      expect(await locator.detect(), isNull);
+    });
+
+    test('skips an interpreter whose venv capability probe fails', () async {
+      final locator = PythonLocator(
+        operatingSystem: 'linux',
+        probe: (executable, arguments) async {
+          if (arguments.contains('--version')) return 'Python 3.12.4';
+          return null; // no venv/ensurepip (e.g. missing python3-venv)
+        },
+      );
+
+      expect(await locator.detect(), isNull);
+    });
+
+    test('skips interpreters that only print the Microsoft Store pitch',
+        () async {
+      final locator = PythonLocator(
+        operatingSystem: 'linux',
+        probe: (executable, arguments) async {
+          if (arguments.contains('--version')) {
+            return 'Python was not found; install from the Microsoft Store';
+          }
+          return '';
+        },
       );
 
       expect(await locator.detect(), isNull);
@@ -55,7 +86,9 @@ void main() {
         probe: (executable, arguments) async {
           seen.add('$executable ${arguments.join(' ')}');
           if (executable == 'py' && arguments.contains('-3')) {
-            return 'Python 3.12.4';
+            return arguments.contains('--version')
+                ? 'Python 3.12.4'
+                : '';
           }
           return null;
         },
@@ -68,6 +101,24 @@ void main() {
       expect(seen.first, 'py -3 --version');
     });
 
+    test('rejects the Store alias stub even when --version exits 0', () async {
+      final locator = PythonLocator(
+        operatingSystem: 'windows',
+        environment: const <String, String>{
+          'LOCALAPPDATA': r'C:\Users\a\AppData\Local',
+        },
+        probe: (executable, arguments) async {
+          if (arguments.contains('--version')) {
+            return 'Python was not found; run without arguments to install '
+                'from the Microsoft Store';
+          }
+          return '';
+        },
+      );
+
+      expect(await locator.detect(), isNull);
+    });
+
     test('falls through to versioned LOCALAPPDATA installs', () async {
       final locator = PythonLocator(
         operatingSystem: 'windows',
@@ -76,7 +127,7 @@ void main() {
         },
         probe: (executable, arguments) async {
           if (executable.endsWith(r'Python312\python.exe')) {
-            return 'Python 3.12.4';
+            return arguments.contains('--version') ? 'Python 3.12.4' : '';
           }
           return null;
         },
@@ -89,6 +140,42 @@ void main() {
         r'C:\Users\a\AppData\Local\Programs\Python\Python312\python.exe',
       );
       expect(detected.arguments, isEmpty);
+    });
+
+    test('discovers Microsoft Store package installs of Python', () async {
+      final locator = PythonLocator(
+        operatingSystem: 'windows',
+        environment: const <String, String>{
+          'LOCALAPPDATA': r'C:\Users\a\AppData\Local',
+        },
+        listDirectory: (path) async {
+          if (path == r'C:\Users\a\AppData\Local\Packages') {
+            return <String>[
+              r'C:\Users\a\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.12_qz8...',
+              r'C:\Users\a\AppData\Local\Packages\SomeOther.App_abc',
+            ];
+          }
+          if (path.endsWith(r'LocalCache\local-packages')) {
+            return <String>[
+              r'C:\Users\a\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.12_qz8...\LocalCache\local-packages\Python312',
+            ];
+          }
+          return const <String>[];
+        },
+        probe: (executable, arguments) async {
+          if (executable.endsWith(r'Python312\python.exe')) {
+            return arguments.contains('--version') ? 'Python 3.12.11' : '';
+          }
+          return null;
+        },
+      );
+
+      final detected = await locator.detect();
+      expect(detected, isNotNull);
+      expect(
+        detected!.executable,
+        r'C:\Users\a\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.12_qz8...\LocalCache\local-packages\Python312\python.exe',
+      );
     });
   });
 }

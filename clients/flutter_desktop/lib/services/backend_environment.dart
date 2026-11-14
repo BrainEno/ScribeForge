@@ -11,6 +11,26 @@ String joinForOs(List<String> parts, String operatingSystem) {
   return parts.map((part) => part.replaceAll('/', r'\')).join(separator);
 }
 
+/// Exit code produced by the Windows Microsoft Store app-execution alias
+/// stub when a real Python is missing.
+const int storeAliasExitCode = 9009;
+
+/// Actionable hint when venv creation fails because the chosen interpreter is
+/// the Windows Store placeholder or lacks the venv module.
+String venvFailureHint(int exitCode, String log) {
+  final storeStub =
+      exitCode == storeAliasExitCode || log.contains('Microsoft Store');
+  if (storeStub) {
+    return '当前 Python 指向了 Windows Microsoft Store 占位符（退出码 $exitCode），'
+        '它无法创建虚拟环境。请任选其一：\n'
+        '• 重新安装 Python（python.org，勾选 “Add python.exe to PATH”），或\n'
+        '• 使用 Windows 的 py 启动器（本应用会自动尝试 `py -3`），或\n'
+        '• 前往「设置 → 应用 → 高级应用设置 → 应用执行别名」，关闭 python / python3 的别名开关。';
+  }
+  return '该解释器缺少 venv/ensurepip 模块（常见于未安装 python3-venv 的 Linux）。'
+      '请安装完整 Python 或 python3-venv 后重试。';
+}
+
 /// Well-known executable locations inside a managed backend virtual environment.
 class BackendVenvPaths {
   const BackendVenvPaths(this.venvDirectory, {this.operatingSystem});
@@ -176,11 +196,33 @@ class BackendEnvironmentProvisioner {
     final paths = BackendVenvPaths(venvDirectory, operatingSystem: _os);
     final runner = _runner;
 
+    // Fail fast when the interpreter cannot create venvs at all (Store alias
+    // stub, or a system Python without venv/ensurepip) instead of failing
+    // later with a confusing exit code.
+    final capabilityArgs = <String>[
+      ...pythonArgs,
+      '-c',
+      'import venv, ensurepip',
+    ];
+    log('\$ $pythonExecutable ${capabilityArgs.join(' ')}');
+    var code = await runner(pythonExecutable, capabilityArgs, onOutput: log);
+    if (code != 0) {
+      final error =
+          '所选 Python 无法创建虚拟环境（退出码 $code）。\n${venvFailureHint(code, buffer.toString())}';
+      return BackendProvisionResult(
+        ok: false,
+        cliExecutable: '',
+        log: buffer.toString(),
+        error: error,
+      );
+    }
+
     final venvCommand = <String>[...pythonArgs, '-m', 'venv', venvDirectory];
     log('\$ $pythonExecutable ${venvCommand.join(' ')}');
-    var code = await runner(pythonExecutable, venvCommand, onOutput: log);
+    code = await runner(pythonExecutable, venvCommand, onOutput: log);
     if (code != 0) {
-      final error = '创建虚拟环境失败（退出码 $code），见上方日志。';
+      final error =
+          '创建虚拟环境失败（退出码 $code）。\n${venvFailureHint(code, buffer.toString())}';
       return BackendProvisionResult(
         ok: false,
         cliExecutable: '',

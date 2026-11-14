@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'cli_runner.dart';
 
-enum DesktopBackendOrigin { bundled, custom, developmentPath }
+enum DesktopBackendOrigin { bundled, provisionedVenv, custom, developmentPath }
 
 class DesktopBackendResolution {
   const DesktopBackendResolution({
@@ -34,7 +34,10 @@ class DesktopBackendResolver {
   final String? operatingSystem;
   final DesktopBackendFileExists? fileExists;
 
-  Future<DesktopBackendResolution> resolve(String configuredExecutable) async {
+  Future<DesktopBackendResolution> resolve(
+    String configuredExecutable, {
+    String? venvCliPath,
+  }) async {
     final configured = configuredExecutable.trim();
     if (configured.isNotEmpty &&
         configured != ScribeForgeCli.defaultExecutable) {
@@ -51,6 +54,16 @@ class DesktopBackendResolver {
           origin: DesktopBackendOrigin.bundled,
         );
       }
+    }
+    // A previously provisioned backend venv is the next best thing to a
+    // bundled backend: it exists precisely because the user ran 初始化环境,
+    // even when `scribeforge` was never added to PATH.
+    final venvCli = venvCliPath?.trim() ?? '';
+    if (venvCli.isNotEmpty && await _fileExists(venvCli)) {
+      return DesktopBackendResolution(
+        executable: venvCli,
+        origin: DesktopBackendOrigin.provisionedVenv,
+      );
     }
     return DesktopBackendResolution(
       executable: configured.isEmpty

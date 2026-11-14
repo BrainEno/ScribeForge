@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop first-run initialization is hardened (issue #212):
+  `PythonLocator` rejects the Windows Microsoft Store app-execution alias
+  (exit 9009 / "Microsoft Store" probe output), requires a working
+  `import venv, ensurepip` before provisioning, and also discovers Python
+  installed via the Microsoft Store package folder; the provisioner fails
+  fast with an actionable hint when the chosen interpreter cannot create
+  venvs. Backend resolution now checks the provisioned `backend-venv` CLI
+  before the PATH fallback, and a `ProcessException` launch failure gets a
+  clear "go to 设置 → 初始化环境" message instead of a raw error.
+
 ### Added
 
 - Structured JSON logging, run ids and secret redaction (issue #69):
