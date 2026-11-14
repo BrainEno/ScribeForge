@@ -174,7 +174,7 @@ residual skew on real corpus pages) — those are not a substitute for CER.
 
 ```bash
 scribeforge setup                             # first-run runtime/model setup wizard
-scribeforge runtime-status --json                 # inspect backend readiness and hardware
+scribeforge runtime-status --json                 # inspect backend readiness and hardware (incl. optional paddleocr-vl / surya, see docs/multi-engine-adjudication.md)
 scribeforge vlm-check --image crop.png --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model --json # test a VLM endpoint; no project data is changed
 scribeforge setup --runtime-root runtime/     # choose a private runtime directory
 scribeforge setup --json --cancelable --step-timeout 1800 # cancellable automation with an overall per-step deadline

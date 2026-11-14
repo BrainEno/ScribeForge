@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Technology-route backends are first-class by name (issue #90): `setup
+  --json --backend paddleocr-vl|surya` repairs the named optional backend,
+  `runtime-status` (Markdown/JSON) and the final `setup --json` record report
+  all four backends with an `optional` flag, and `RuntimeOverview` gained
+  `optional_backends`. `summarize_engine_votes` / `EngineVoteSummary` expose
+  the per-pair vote distribution (cluster sizes, winner, unanimous/majority/
+  split) and every `PairAdjudication` carries it; `adjudicate_readings` remains
+  the single N-ary rule, pinned by an exhaustive truth-table test (448 cells
+  for 3 engines, 1792 for 4). See `docs/multi-engine-adjudication.md`.
+
 - Processing report engine timing (issue #69): `EngineTiming` aggregates each
   OCR engine's latest-attempt seconds, share of all measured job time and mean
   per timed job (unmeasured stays `None`, never zero). The Markdown report

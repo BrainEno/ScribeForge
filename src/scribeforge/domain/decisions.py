@@ -22,6 +22,53 @@ class DecisionActor(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class EngineVoteSummary:
+    """Pure vote distribution over one line's engine readings (issue #90).
+
+    Engines that produced no text are counted in ``engine_count`` but not in
+    ``text_count`` and form no cluster. ``cluster_sizes`` is sorted descending;
+    ``winner_size`` is the largest cluster. ``majority`` means a cluster holds
+    at least two engines; ``unanimous`` means a single cluster holds every
+    produced text; ``split`` means no cluster reaches two (three-way
+    disagreement and worse).
+    """
+
+    engine_count: int
+    text_count: int
+    cluster_sizes: tuple[int, ...]
+    winner_size: int
+    unanimous: bool
+    majority: bool
+    split: bool
+
+
+def summarize_engine_votes(engine_texts: Sequence[str | None]) -> EngineVoteSummary:
+    """Cluster engine texts by exact/variant equivalence and count the votes."""
+
+    present = [text for text in engine_texts if text is not None]
+    clusters: list[list[str]] = []
+    for text in present:
+        for cluster in clusters:
+            head = cluster[0]
+            if text == head or is_variant_only_difference(text, head):
+                cluster.append(text)
+                break
+        else:
+            clusters.append([text])
+    sizes = tuple(sorted((len(cluster) for cluster in clusters), reverse=True))
+    winner = sizes[0] if sizes else 0
+    return EngineVoteSummary(
+        engine_count=len(engine_texts),
+        text_count=len(present),
+        cluster_sizes=sizes,
+        winner_size=winner,
+        unanimous=bool(present) and len(clusters) == 1,
+        majority=winner >= 2,
+        split=bool(present) and winner < 2,
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class PairAdjudication:
     """Deterministic outcome for one aligned pair.
 
@@ -35,6 +82,8 @@ class PairAdjudication:
     #: Why the acceptance gate refused this pair even though a rule produced text.
     #: Empty when the pair was accepted or when no rule produced text at all.
     blockers: tuple[str, ...] = ()
+    #: Vote distribution over the engine readings, for reporting (#90).
+    votes: EngineVoteSummary | None = None
 
     @property
     def resolved(self) -> bool:
@@ -97,30 +146,37 @@ def adjudicate_readings(
     Whatever a rule accepts still passes the acceptance gate unchanged.
     """
 
+    votes = summarize_engine_votes(engine_texts)
     present = [text for text in engine_texts if text is not None]
     if not present:
-        return PairAdjudication(None, None, "no_engine_text")
+        return PairAdjudication(None, None, "no_engine_text", votes=votes)
 
     agreement = _engine_agreement(present)
     if agreement is not None:
         text, rationale = agreement
-        return _gated(text, DecisionActor.AUTOMATIC, rationale, risk, policy)
+        result = _gated(text, DecisionActor.AUTOMATIC, rationale, risk, policy)
+        return PairAdjudication(
+            result.selected_text, result.actor, result.rationale, result.blockers, votes
+        )
 
     if vlm is None:
         if len(present) < 2:
-            return PairAdjudication(None, None, "missing_engine_text")
-        return PairAdjudication(None, None, "engines_disagree")
+            return PairAdjudication(None, None, "missing_engine_text", votes=votes)
+        return PairAdjudication(None, None, "engines_disagree", votes=votes)
 
     if vlm.uncertain:
-        return PairAdjudication(None, None, "vlm_uncertain")
+        return PairAdjudication(None, None, "vlm_uncertain", votes=votes)
     if not vlm.text.strip():
-        return PairAdjudication(None, None, "vlm_blank")
+        return PairAdjudication(None, None, "vlm_blank", votes=votes)
     if not any(vlm.text == text or is_variant_only_difference(vlm.text, text) for text in present):
         # A reading that matches no engine is the *most* suspicious case: there is
         # no independent agreement to accept, only competing claims. It goes to a
         # person.
-        return PairAdjudication(None, None, "vlm_uncorroborated")
-    return _gated(vlm.text, DecisionActor.VLM, "vlm_confident", risk, policy)
+        return PairAdjudication(None, None, "vlm_uncorroborated", votes=votes)
+    result = _gated(vlm.text, DecisionActor.VLM, "vlm_confident", risk, policy)
+    return PairAdjudication(
+        result.selected_text, result.actor, result.rationale, result.blockers, votes
+    )
 
 
 def _engine_agreement(present: list[str]) -> tuple[str, str] | None:
