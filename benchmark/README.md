@@ -21,6 +21,14 @@ It fails (exit 2) when the corpus is below 30 pages, misses a required language
 Japanese sample, or reuses an image path. The same coverage warnings are embedded
 in every rendered benchmark report under "Corpus coverage warnings".
 
+## Synthetic multilingual fixture (CI harness, not accuracy data)
+
+`src/scribeforge/benchmark/multilingual_synthetic.py` builds a deterministic
+zh/en/ja corpus (en two-column, ja vertical-rl, CC0-1.0) with an oracle engine
+binding, so the multilingual report/JSON strata and the vertical
+reading-order metric are exercised in tests without real scans. These numbers
+measure pipeline mechanics only — never report them as OCR accuracy.
+
 ## Building and tracking a multilingual corpus
 
 `analysis/build_corpus.py` rasterises chosen PDF pages and writes blank

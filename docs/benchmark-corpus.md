@@ -151,3 +151,12 @@ PY
    exits 2 until every case is annotated, so CI can gate on it.
 4. Only then run the engines; `benchmark --check-only` still fails on missing
    license, missing images, or underrepresented languages.
+
+## Synthetic multilingual fixture (harness testing only)
+
+`src/scribeforge/benchmark/multilingual_synthetic.py` generates a deterministic
+CC0-1.0 zh/en/ja corpus (en two-column, ja vertical-rl) so the multilingual
+report strata, JSON output and vertical reading-order metric run in CI before
+real en/ja scans exist. A `ColumnSwappingOracle` / `scripted_engine_for_manifest`
+proves the vertical reading-order error rate fires. These synthetic pages are
+pipeline-mechanics fixtures — never cite their numbers as OCR accuracy.
