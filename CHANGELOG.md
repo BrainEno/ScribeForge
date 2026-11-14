@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Processing report engine timing (issue #69): `EngineTiming` aggregates each
+  OCR engine's latest-attempt seconds, share of all measured job time and mean
+  per timed job (unmeasured stays `None`, never zero). The Markdown report
+  gains an `Engine timing` section, a bottleneck-stage header line and a
+  `Slowest pages` section (`report --top N` controls the limit, default 10);
+  the schema-v1 JSON gains `timing.engines`, `timing.bottleneck_stage` and
+  `slowest_pages`. `report --compare` also renders per-engine timing deltas,
+  and `status` (Markdown and JSON) shows observed job time, the bottleneck
+  stage and per-engine seconds per project.
+
 - Multilingual benchmark reporting (issue #68): `reading_order_error_rate`
   (inversions per reference line) is computed per case and per aggregate and
   rendered as `RO err rate` in the variants, per-case, per-language and

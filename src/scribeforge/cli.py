@@ -543,6 +543,13 @@ def build_parser() -> argparse.ArgumentParser:
             "JSON report and render the field-level deltas instead."
         ),
     )
+    processing_report.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        metavar="N",
+        help="How many slowest pages to list in the report (default: 10).",
+    )
 
     events = subparsers.add_parser(
         "events",
@@ -1335,6 +1342,22 @@ def _progress_json(report: ProgressReport) -> dict[str, object]:
     }
 
 
+def _project_timing_summary(
+    store: SQLiteStore, project_id: int
+) -> tuple[float | None, str | None, dict[str, float | None]]:
+    """(observed seconds, bottleneck stage, per-engine seconds) for one project.
+
+    Read-only aggregation over persisted latest-attempt job timestamps;
+    unmeasured values stay ``None`` instead of being reported as zero.
+    """
+
+    from scribeforge.processing_report import build_processing_report
+
+    report = build_processing_report(store, project_id)
+    engine_seconds = {item.engine: item.observed_seconds for item in report.engine_timings}
+    return report.observed_seconds, report.bottleneck_stage, engine_seconds
+
+
 def _status(args: argparse.Namespace, out: TextIO) -> int:
     store = _open_store(args.store)
     if store is None:
@@ -1368,6 +1391,7 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                 for job in reversed(jobs)
                 if job.state.value == "failed"
             ][:20]
+            observed, bottleneck, engine_seconds = _project_timing_summary(store, project.id)
             summaries.append(
                 {
                     "id": project.id,
@@ -1388,6 +1412,9 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                         if job.state.value == "running"
                     ],
                     "failed_jobs": failed_jobs,
+                    "observed_seconds": observed,
+                    "bottleneck_stage": bottleneck,
+                    "engine_seconds": engine_seconds,
                 }
             )
         print(
@@ -1406,9 +1433,17 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
 
     for project in projects:
         pages = store.list_pages(project.id)
+        observed, bottleneck, engine_seconds = _project_timing_summary(store, project.id)
+        observed_text = "unknown" if observed is None else f"{observed:.3f} s"
         print(f"project {project.id}: {project.title} ({project.source_uri})", file=out)
         print(f"  pages: {len(pages)}", file=out)
         print(f"  review queued: {len(review_queue(store, project.id))}", file=out)
+        print(f"  observed job time: {observed_text}", file=out)
+        print(f"  bottleneck stage: {bottleneck if bottleneck else 'not measurable'}", file=out)
+        for engine in sorted(engine_seconds):
+            seconds = engine_seconds[engine]
+            engine_text = "unknown" if seconds is None else f"{seconds:.3f} s"
+            print(f"  engine {engine}: {engine_text}", file=out)
         for job in store.list_jobs(project.id):
             scope = "project" if job.page_index is None else f"page {job.page_index}"
             print(
@@ -1493,6 +1528,9 @@ def _processing_report(args: argparse.Namespace, out: TextIO) -> int:
         if not any(project.id == project_id for project in projects):
             print(f"error: unknown project ID: {project_id}", file=sys.stderr)
             return EXIT_FATAL
+    if getattr(args, "top", 10) < 1:
+        print("error: --top must be >= 1", file=sys.stderr)
+        return EXIT_FATAL
     try:
         report = build_processing_report(store, project_id)
     except (KeyError, ValueError) as exc:
@@ -1532,9 +1570,11 @@ def _processing_report(args: argparse.Namespace, out: TextIO) -> int:
         out.write(render_comparison_markdown(comparison))
         return EXIT_OK
     if args.json:
-        out.write(processing_report_json(report, event_summary=event_summary))
+        out.write(
+            processing_report_json(report, event_summary=event_summary, slowest_limit=args.top)
+        )
     else:
-        text = render_processing_report(report)
+        text = render_processing_report(report, slowest_limit=args.top)
         if event_summary is not None:
             from scribeforge.processing_report import render_event_summary
 
