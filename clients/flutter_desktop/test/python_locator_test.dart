@@ -85,9 +85,7 @@ void main() {
         probe: (executable, arguments) async {
           seen.add('$executable ${arguments.join(' ')}');
           if (executable == 'py' && arguments.contains('-3')) {
-            return arguments.contains('--version')
-                ? 'Python 3.12.4'
-                : '';
+            return arguments.contains('--version') ? 'Python 3.12.4' : '';
           }
           return null;
         },

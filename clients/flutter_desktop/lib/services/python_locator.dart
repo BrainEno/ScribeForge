@@ -83,10 +83,7 @@ class PythonLocator {
     try {
       final dir = Directory(path);
       if (!dir.existsSync()) return const <String>[];
-      return await dir
-          .list()
-          .map((entity) => entity.path)
-          .toList();
+      return await dir.list().map((entity) => entity.path).toList();
     } on Object {
       return const <String>[];
     }
@@ -133,8 +130,9 @@ class PythonLocator {
     for (final package in packages) {
       final name = package.split(RegExp(r'[\\/]')).last;
       if (!name.startsWith('PythonSoftwareFoundation.Python.')) continue;
-      final localPackages =
-          await lister('$package\\LocalCache\\local-packages');
+      final localPackages = await lister(
+        '$package\\LocalCache\\local-packages',
+      );
       for (final versionDir in localPackages) {
         final versionName = versionDir.split(RegExp(r'[\\/]')).last;
         if (!versionName.startsWith('Python3')) continue;

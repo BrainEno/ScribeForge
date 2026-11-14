@@ -2,12 +2,7 @@ import 'dart:io';
 
 import 'cli_runner.dart';
 
-enum DesktopBackendOrigin {
-  bundled,
-  provisionedVenv,
-  custom,
-  developmentPath,
-}
+enum DesktopBackendOrigin { bundled, provisionedVenv, custom, developmentPath }
 
 class DesktopBackendResolution {
   const DesktopBackendResolution({

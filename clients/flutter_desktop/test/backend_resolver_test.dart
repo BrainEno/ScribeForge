@@ -96,17 +96,14 @@ void main() {
     },
   );
 
-  test(
-    'ignores a missing venv CLI and still falls back to PATH',
-    () async {
-      final resolution = await DesktopBackendResolver(
-        applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
-        operatingSystem: 'linux',
-        fileExists: (_) async => false,
-      ).resolve('scribeforge', venvCliPath: '/venv/bin/scribeforge');
+  test('ignores a missing venv CLI and still falls back to PATH', () async {
+    final resolution = await DesktopBackendResolver(
+      applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
+      operatingSystem: 'linux',
+      fileExists: (_) async => false,
+    ).resolve('scribeforge', venvCliPath: '/venv/bin/scribeforge');
 
-      expect(resolution.executable, 'scribeforge');
-      expect(resolution.origin, DesktopBackendOrigin.developmentPath);
-    },
-  );
+    expect(resolution.executable, 'scribeforge');
+    expect(resolution.origin, DesktopBackendOrigin.developmentPath);
+  });
 }
