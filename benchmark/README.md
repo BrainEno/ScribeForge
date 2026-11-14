@@ -21,6 +21,19 @@ It fails (exit 2) when the corpus is below 30 pages, misses a required language
 Japanese sample, or reuses an image path. The same coverage warnings are embedded
 in every rendered benchmark report under "Corpus coverage warnings".
 
+## Building and tracking a multilingual corpus
+
+`analysis/build_corpus.py` rasterises chosen PDF pages and writes blank
+transcriptions that block scoring until a human fills them in. Pass
+`--page-spec spec.json` to override language/direction/tags per physical page
+(`{"pages": {"12": {"language": "ja", "direction": "vertical-rl", "tags":
+["vertical"]}}}`), so one source PDF can seed a mixed zh/en/ja corpus. Then
+track progress with `scribeforge benchmark --manifest <m.json> --out status.md
+--annotation-status` (add `--quality-json` for JSON): it reports pages per
+language and per direction, empty/missing ground truths, and the quality-gate
+verdict, and exits 2 while annotations are incomplete — so corpus growth toward
+the 30-50 page / >= 8 pages per language target is measurable in CI.
+
 ## Current corpus
 
 | Path | Content |

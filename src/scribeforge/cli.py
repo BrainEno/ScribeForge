@@ -831,6 +831,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="With --check-only, emit the gate result as JSON instead of Markdown.",
     )
     benchmark.add_argument(
+        "--annotation-status",
+        action="store_true",
+        help=(
+            "Do not score any engine: write a corpus annotation-status report "
+            "(per-language/direction coverage, empty ground truths, gate verdict) "
+            "to --out. Exits 2 while annotations are incomplete."
+        ),
+    )
+    benchmark.add_argument(
         "--report-json",
         type=Path,
         default=None,
@@ -926,6 +935,27 @@ def run(
     if args.command == "ui":
         return _ui(args)
     if args.command == "benchmark":
+        if getattr(args, "annotation_status", False):
+            from scribeforge.benchmark.annotation import (
+                annotation_status,
+                annotation_status_json,
+                render_annotation_status,
+            )
+
+            manifest = load_manifest(args.manifest)
+            root = args.root if args.root is not None else args.manifest.parent
+            status = annotation_status(root)
+            if getattr(args, "quality_json", False):
+                args.out.write_text(annotation_status_json(status), encoding="utf-8")
+            else:
+                args.out.write_text(render_annotation_status(status), encoding="utf-8")
+            print(
+                f"annotation status: {'COMPLETE' if status.annotation_complete else 'INCOMPLETE'} "
+                f"({status.case_count} case(s), {len(status.empty_ground_truths)} empty ground truth(s)) "
+                f"-> {args.out}",
+                file=out,
+            )
+            return 2 if not status.annotation_complete else 0
         if getattr(args, "check_only", False):
             from scribeforge.benchmark.quality_gate import (
                 QualityGateSettings,
