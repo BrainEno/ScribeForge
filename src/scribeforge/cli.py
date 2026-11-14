@@ -875,6 +875,52 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the evaluation as JSON instead of Markdown.",
     )
 
+    benchmark_compare = subparsers.add_parser(
+        "benchmark-compare",
+        help=(
+            "Compare two schema-v1 benchmark JSON reports (from 'benchmark "
+            "--report-json') and render a regression report (#62/#68/#90)."
+        ),
+    )
+    benchmark_compare.add_argument(
+        "baseline", type=Path, help="Baseline benchmark report JSON file."
+    )
+    benchmark_compare.add_argument("current", type=Path, help="Current benchmark report JSON file.")
+    benchmark_compare.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Destination file (default: stdout). Markdown unless --json is given.",
+    )
+    benchmark_compare.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the comparison as schema-v1 JSON instead of Markdown.",
+    )
+    benchmark_compare.add_argument(
+        "--fail-on-regression",
+        action="store_true",
+        help="Exit 3 when a gated metric (CER/WER/reading-order rate) regresses beyond its threshold.",
+    )
+    benchmark_compare.add_argument(
+        "--cer-pp",
+        type=float,
+        default=0.5,
+        help="Allowed CER regression in percentage points (default: 0.5).",
+    )
+    benchmark_compare.add_argument(
+        "--wer-pp",
+        type=float,
+        default=1.0,
+        help="Allowed WER regression in percentage points (default: 1.0).",
+    )
+    benchmark_compare.add_argument(
+        "--ro-pp",
+        type=float,
+        default=1.0,
+        help="Allowed reading-order error-rate regression in percentage points (default: 1.0).",
+    )
+
     return parser
 
 
@@ -996,6 +1042,8 @@ def run(
         return _benchmark(args, out, benchmark_factory)
     if args.command == "alignment-eval":
         return _alignment_eval(args, out)
+    if args.command == "benchmark-compare":
+        return _benchmark_compare(args, out)
     try:
         reviewer = _configured_vlm_reviewer(args)
     except ValueError as exc:
@@ -2657,6 +2705,49 @@ def _benchmark(args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFa
         f"wrote benchmark report for {len(reports)} variant(s) to {args.out}",
         file=out,
     )
+    return EXIT_OK
+
+
+def _benchmark_compare(args: argparse.Namespace, out: TextIO) -> int:
+    """Compare two benchmark report JSONs; exit 3 on gated regression (#62/#68/#90)."""
+
+    from scribeforge.benchmark.regression import (
+        RegressionError,
+        RegressionThresholds,
+        compare_payloads,
+        load_report_json,
+        regression_json,
+        render_regression_markdown,
+    )
+
+    try:
+        thresholds = RegressionThresholds(
+            cer_pp=args.cer_pp, wer_pp=args.wer_pp, reading_order_pp=args.ro_pp
+        )
+        baseline = load_report_json(args.baseline)
+        current = load_report_json(args.current)
+    except (RegressionError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
+    report = compare_payloads(baseline, current)
+    text = (
+        regression_json(report, thresholds)
+        if args.json
+        else render_regression_markdown(report, thresholds)
+    )
+    if args.out is not None:
+        args.out.write_text(text, encoding="utf-8")
+    else:
+        out.write(text)
+    failures = report.gate_failures(thresholds)
+    print(
+        f"benchmark-compare: gate {'FAIL' if failures else 'PASS'} "
+        f"({len(failures)} regression(s) beyond threshold)",
+        file=out,
+    )
+    if args.fail_on_regression and failures:
+        return 3
     return EXIT_OK
 
 
