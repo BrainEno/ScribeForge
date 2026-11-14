@@ -305,7 +305,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final backendPython = await _settingsStore.loadBackendPython();
     final backendSourcePath = await _settingsStore.loadBackendSourcePath();
     final lastProjectStore = await _settingsStore.loadLastProjectStore();
-    final resolution = await _backendResolver.resolve(executable);
+    final venvCliPath = BackendVenvPaths(_backendVenvDirectory).cliExecutable;
+    final resolution = await _backendResolver.resolve(
+      executable,
+      venvCliPath: venvCliPath,
+    );
     if (!mounted) return;
     setState(() {
       _cliExecutable = resolution.executable;
@@ -2258,6 +2262,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final origin = _backendResolution?.origin;
     final coreLabel = switch (origin) {
       DesktopBackendOrigin.bundled => '内置处理核心（无需系统 Python）',
+      DesktopBackendOrigin.provisionedVenv => '已初始化的本地后端环境（backend-venv）',
       DesktopBackendOrigin.custom => '自定义处理核心（开发者配置）',
       DesktopBackendOrigin.developmentPath => 'PATH 开发模式（需要已安装 CLI）',
       null => '正在检测处理核心',

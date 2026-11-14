@@ -11,9 +11,22 @@ void main() {
     );
 
     expect(diagnosis.requiresRuntimeSetup, isTrue);
-    expect(diagnosis.message, contains('处理核心'));
+    expect(diagnosis.message, contains('找不到后端命令行工具'));
     expect(diagnosis.message, contains('设置'));
-    expect(diagnosis.message, contains('初始化'));
+    expect(diagnosis.message, contains('初始化环境'));
+    expect(diagnosis.message, contains('Microsoft Store'));
+  });
+
+  test('non-ProcessException failure keeps the generic message', () {
+    final diagnosis = diagnoseCoreLaunchFailure(
+      StateError('boom'),
+      'scribeforge',
+    );
+
+    expect(diagnosis.requiresRuntimeSetup, isTrue);
+    expect(diagnosis.message, contains('处理核心'));
+    expect(diagnosis.message, contains('初始化环境'));
+    expect(diagnosis.message, contains('Bad state: boom'));
   });
 
   test('a missing worker module is translated into a repairable setup error', () {

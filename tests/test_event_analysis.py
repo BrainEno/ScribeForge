@@ -368,9 +368,10 @@ def test_in_flight_pages_empty_when_all_finished() -> None:
     assert analysis.in_flight_pages == ()
 
 
-def test_event_fields_exclude_event_key() -> None:
-    (event,) = parse_events([event_line("x", {"a": 1}, now=1.0)])
+def test_event_fields_exclude_envelope_keys() -> None:
+    (event,) = parse_events([event_line("x", {"a": 1}, now=1.0, run="be61d9b3")])
     assert event.event == "x"
+    assert event.run == "be61d9b3"
     assert event.fields == {"a": 1, "ts": 1.0}
 
 

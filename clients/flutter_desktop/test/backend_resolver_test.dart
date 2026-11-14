@@ -79,4 +79,31 @@ void main() {
       expect(resolution.origin, DesktopBackendOrigin.bundled);
     },
   );
+
+  test(
+    'prefers a provisioned backend-venv CLI over the bare PATH fallback (#212)',
+    () async {
+      const venvCli = r'C:\ScribeForge\backend-venv\Scripts\scribeforge.exe';
+      final resolution = await DesktopBackendResolver(
+        applicationExecutablePath: r'C:\ScribeForge\scribeforge_desktop.exe',
+        operatingSystem: 'windows',
+        fileExists: (path) async => path == venvCli,
+      ).resolve('scribeforge', venvCliPath: venvCli);
+
+      expect(resolution.executable, venvCli);
+      expect(resolution.origin, DesktopBackendOrigin.provisionedVenv);
+      expect(resolution.usesBundledBackend, isFalse);
+    },
+  );
+
+  test('ignores a missing venv CLI and still falls back to PATH', () async {
+    final resolution = await DesktopBackendResolver(
+      applicationExecutablePath: '/opt/ScribeForge/scribeforge_desktop',
+      operatingSystem: 'linux',
+      fileExists: (_) async => false,
+    ).resolve('scribeforge', venvCliPath: '/venv/bin/scribeforge');
+
+    expect(resolution.executable, 'scribeforge');
+    expect(resolution.origin, DesktopBackendOrigin.developmentPath);
+  });
 }

@@ -121,6 +121,7 @@ void main() {
         expect(result.ok, isTrue);
         expect(result.cliExecutable, cli);
         expect(calls, <List<String>>[
+          <String>['python3', '-c', 'import venv, ensurepip'],
           <String>['python3', '-m', 'venv', '/settings/backend-venv'],
           <String>[
             '/settings/backend-venv/bin/python',
@@ -153,7 +154,8 @@ void main() {
       );
 
       expect(result.ok, isTrue);
-      expect(calls.first, <String>[
+      expect(calls.first, <String>['py', '-3', '-c', 'import venv, ensurepip']);
+      expect(calls[1], <String>[
         'py',
         '-3',
         '-m',
@@ -181,7 +183,7 @@ void main() {
 
       expect(result.ok, isFalse);
       expect(result.error, contains('退出码 1'));
-      expect(calls.length, 2); // venv + pip, no smoke check
+      expect(calls.length, 3); // capability + venv + pip, no smoke check
     });
 
     test(
@@ -203,5 +205,67 @@ void main() {
         expect(result.error, contains('未找到'));
       },
     );
+  });
+
+  group('venv capability precheck and Store-alias hints (#212)', () {
+    test('fails fast with the Store hint on capability exit 9009', () async {
+      final calls = <List<String>>[];
+      final provisioner = BackendEnvironmentProvisioner(
+        operatingSystem: 'windows',
+        fileExists: (path) async => path == r'C:\repo\pyproject.toml',
+        runProcess: (executable, arguments, {onOutput}) async {
+          calls.add(<String>[executable, ...arguments]);
+          if (arguments.contains('-c')) {
+            onOutput?.call(
+              'Python was not found; run without arguments to install from the Microsoft Store',
+            );
+            return 9009;
+          }
+          return 0;
+        },
+      );
+
+      final result = await provisioner.provision(
+        pythonExecutable: 'python3',
+        backendSourcePath: r'C:\repo',
+        venvDirectory: r'C:\settings\backend-venv',
+      );
+
+      expect(result.ok, isFalse);
+      expect(result.error, contains('无法创建虚拟环境'));
+      expect(result.error, contains('Microsoft Store'));
+      expect(result.error, contains('应用执行别名'));
+      expect(calls.length, 1); // no venv command was attempted
+    });
+
+    test('venv 9009 failure carries the Store hint', () async {
+      final provisioner = BackendEnvironmentProvisioner(
+        operatingSystem: 'windows',
+        fileExists: (path) async => path == r'C:\repo\pyproject.toml',
+        runProcess: (executable, arguments, {onOutput}) async {
+          if (arguments.contains('-m') && arguments.contains('venv')) {
+            onOutput?.call('Microsoft Store stub output');
+            return 9009;
+          }
+          return 0;
+        },
+      );
+
+      final result = await provisioner.provision(
+        pythonExecutable: 'python3',
+        backendSourcePath: r'C:\repo',
+        venvDirectory: r'C:\settings\backend-venv',
+      );
+
+      expect(result.ok, isFalse);
+      expect(result.error, contains('创建虚拟环境失败'));
+      expect(result.error, contains('应用执行别名'));
+    });
+
+    test('venvFailureHint points at python3-venv for other failures', () {
+      final hint = venvFailureHint(1, 'some other error');
+      expect(hint, contains('python3-venv'));
+      expect(hint, isNot(contains('Microsoft Store')));
+    });
   });
 }

@@ -17,10 +17,15 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class Event:
-    """One parsed JSONL event; ``fields`` holds everything except ``event``."""
+    """One parsed JSONL event.
+
+    ``fields`` holds everything except the envelope keys ``event`` and
+    ``run``; the run id is exposed separately as :attr:`run`.
+    """
 
     event: str
     fields: dict[str, Any]
+    run: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,8 +112,9 @@ def parse_events(lines: Iterable[str]) -> list[Event]:
         event = payload.get("event")
         if not isinstance(event, str) or not event:
             continue
-        fields = {key: value for key, value in payload.items() if key != "event"}
-        events.append(Event(event, fields))
+        fields = {key: value for key, value in payload.items() if key not in ("event", "run")}
+        run = payload.get("run")
+        events.append(Event(event, fields, run if isinstance(run, str) else None))
     return events
 
 

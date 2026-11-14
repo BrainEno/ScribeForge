@@ -473,6 +473,9 @@ def processing_report_json(
 def render_event_summary(summary: dict[str, Any]) -> str:
     """Render a summarize_events() dict as a Markdown report section."""
     lines = ["## Event log summary", ""]
+    run_id = summary.get("run")
+    if isinstance(run_id, str) and run_id:
+        lines.append(f"- run: `{run_id}`")
     events = cast(dict[str, int], summary.get("events") or {})
     if events:
         rendered = ", ".join(f"`{k}` x{v}" for k, v in sorted(events.items()))

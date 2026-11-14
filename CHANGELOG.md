@@ -6,8 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop first-run initialization is hardened (issue #212):
+  `PythonLocator` rejects the Windows Microsoft Store app-execution alias
+  (exit 9009 / "Microsoft Store" probe output), requires a working
+  `import venv, ensurepip` before provisioning, and also discovers Python
+  installed via the Microsoft Store package folder; the provisioner fails
+  fast with an actionable hint when the chosen interpreter cannot create
+  venvs. Backend resolution now checks the provisioned `backend-venv` CLI
+  before the PATH fallback, and a `ProcessException` launch failure gets a
+  clear "go to 设置 → 初始化环境" message instead of a raw error.
+
 ### Added
 
+- Structured JSON logging, run ids and secret redaction (issue #69):
+  `--log-format json` emits one JSON object per log line (`ts` / `level` /
+  `logger` / `run` / `message`, plus `exception` for tracebacks). Every CLI
+  invocation gets a fresh 8-hex run id that also tags every line of the
+  `process --events-file` JSONL log and the `events` / `report` summaries, so
+  logs and events correlate across files. `redact_text` now also masks common
+  secret shapes (`Bearer` tokens, `sk-…`/`ghp_…`/`xoxb-…` keys, and
+  `password:`/`api_key=`-style credentials) in addition to the home directory.
 - Benchmark trend history (issues #62/#68/#90):
   `scribeforge benchmark --history runs.jsonl` appends every scored run's
   schema-v1 report JSON as one JSONL line, and the new `benchmark-trend`
