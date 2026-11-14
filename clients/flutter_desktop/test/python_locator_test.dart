@@ -59,8 +59,7 @@ void main() {
       expect(await locator.detect(), isNull);
     });
 
-    test('skips interpreters that only print the Microsoft Store pitch',
-        () async {
+    test('skips interpreters printing only the Store pitch', () async {
       final locator = PythonLocator(
         operatingSystem: 'linux',
         probe: (executable, arguments) async {

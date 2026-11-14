@@ -305,8 +305,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final backendPython = await _settingsStore.loadBackendPython();
     final backendSourcePath = await _settingsStore.loadBackendSourcePath();
     final lastProjectStore = await _settingsStore.loadLastProjectStore();
-    final venvCliPath =
-        BackendVenvPaths(_backendVenvDirectory).cliExecutable;
+    final venvCliPath = BackendVenvPaths(_backendVenvDirectory).cliExecutable;
     final resolution = await _backendResolver.resolve(
       executable,
       venvCliPath: venvCliPath,

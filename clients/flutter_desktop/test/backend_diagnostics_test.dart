@@ -26,7 +26,7 @@ void main() {
     expect(diagnosis.requiresRuntimeSetup, isTrue);
     expect(diagnosis.message, contains('处理核心'));
     expect(diagnosis.message, contains('初始化环境'));
-    expect(diagnosis.message, contains('StateError'));
+    expect(diagnosis.message, contains('Bad state: boom'));
   });
 
   test('a missing worker module is translated into a repairable setup error', () {

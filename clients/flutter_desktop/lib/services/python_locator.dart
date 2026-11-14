@@ -138,10 +138,7 @@ class PythonLocator {
       for (final versionDir in localPackages) {
         final versionName = versionDir.split(RegExp(r'[\\/]')).last;
         if (!versionName.startsWith('Python3')) continue;
-        result.add((
-          '$versionDir\\python.exe',
-          const <String>[],
-        ));
+        result.add(('$versionDir\\python.exe', const <String>[]));
       }
     }
     return result;

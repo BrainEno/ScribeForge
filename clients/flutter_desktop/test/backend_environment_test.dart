@@ -208,8 +208,7 @@ void main() {
   });
 
   group('venv capability precheck and Store-alias hints (#212)', () {
-    test('fails fast with the Store hint when the capability check exits 9009',
-        () async {
+    test('fails fast with the Store hint on capability exit 9009', () async {
       final calls = <List<String>>[];
       final provisioner = BackendEnvironmentProvisioner(
         operatingSystem: 'windows',
