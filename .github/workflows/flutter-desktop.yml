@@ -31,7 +31,7 @@ jobs:
         run: |
           echo "::notice title=STEP::format start"
           dart format . || true
-          git diff -- clients/flutter_desktop > /tmp/fmt.diff || true
+          git diff -- . > /tmp/fmt.diff || true
           python3 -c 'from pathlib import Path; d = Path("/tmp/fmt.diff").read_text(); print("::error title=DART FORMAT DIFF::" + d.replace("%", "%25").replace("\n", "%0A")[:8000])'
           echo "::notice title=STEP::format done"
           dart format --set-exit-if-changed .
