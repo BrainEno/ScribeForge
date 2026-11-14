@@ -143,6 +143,27 @@ scribeforge benchmark-compare run-baseline.json run-new.json --json --out regres
 
 Exit codes: `0` comparison written and (with `--fail-on-regression`) no gated regression; `2` input file missing, invalid JSON or wrong schema; `3` a gated metric regressed beyond its threshold. Metrics that are N/A on either side (for example WER for zh/ja) are reported as `new` / `unavailable` / `missing` / `na` with a null delta — they are never read as 0 and never fail the gate.
 
+## Tracking trends over repeated runs
+
+Append every scored run to a JSONL history and analyze metric trajectories over time:
+
+```bash
+# Append each run's schema-v1 JSON to a history file (one line per run).
+scribeforge benchmark --manifest benchmark/manifest.json --out report.md --history benchmark/history.jsonl
+
+# Trend of the default metrics (mean CER, mean WER, reading-order rate), Markdown.
+scribeforge benchmark-trend benchmark/history.jsonl
+
+# A specific engine/metric/scope, as JSON.
+scribeforge benchmark-trend benchmark/history.jsonl \
+  --engine mineru --metric mean_cer --scope language:zh --json --out trend.json
+
+# CI gate: exit 3 when the last 3 runs all move a metric adversely by > 1pp total.
+scribeforge benchmark-trend benchmark/history.jsonl --fail-on-trend --window 3 --max-adverse-pp 1.0
+```
+
+`--scope` is one of `aggregate`, `language:<code>`, `direction:<dir>`, `case:<id>` or `vertical_reading_order`. Exit codes: `0` trend rendered and (with `--fail-on-trend`) nothing degrading; `2` invalid history file or arguments; `3` a metric's last `--window` deltas are all adverse beyond `--max-adverse-pp`. N/A values (for example WER for zh/ja) are skipped when computing deltas — never read as 0, never counted as adverse.
+
 ## Status
 
 - A (MinerU) and B (PaddleOCR) are implemented and covered by offline tests with deterministic fake engines. Reports count pairwise reading-order inversions among exactly matched lines; omissions and extra lines remain separate metrics.

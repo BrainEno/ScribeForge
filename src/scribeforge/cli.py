@@ -849,6 +849,16 @@ def build_parser() -> argparse.ArgumentParser:
             "per-language strata and vertical reading-order rates) to PATH."
         ),
     )
+    benchmark.add_argument(
+        "--history",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Append this scored run as one schema-v1 JSON line to a JSONL history "
+            "file for 'benchmark-trend' (#62/#68/#90)."
+        ),
+    )
 
     alignment_eval = subparsers.add_parser(
         "alignment-eval",
@@ -919,6 +929,69 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=1.0,
         help="Allowed reading-order error-rate regression in percentage points (default: 1.0).",
+    )
+
+    benchmark_trend = subparsers.add_parser(
+        "benchmark-trend",
+        help=(
+            "Render per-engine metric trends over a 'benchmark --history' JSONL "
+            "file, with an optional degradation gate (#62/#68/#90)."
+        ),
+    )
+    benchmark_trend.add_argument(
+        "history", type=Path, help="JSONL history file written by 'benchmark --history'."
+    )
+    benchmark_trend.add_argument(
+        "--engine",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Engine to analyze, repeatable (default: every engine in the history).",
+    )
+    benchmark_trend.add_argument(
+        "--metric",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "Metric to analyze, repeatable (default: mean_cer, mean_wer, reading_order_error_rate)."
+        ),
+    )
+    benchmark_trend.add_argument(
+        "--scope",
+        default="aggregate",
+        help=(
+            "Series scope: aggregate, language:<code>, direction:<dir>, "
+            "case:<id> or vertical_reading_order (default: aggregate)."
+        ),
+    )
+    benchmark_trend.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Destination file (default: stdout). Markdown unless --json is given.",
+    )
+    benchmark_trend.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the trend as schema-v1 JSON instead of Markdown.",
+    )
+    benchmark_trend.add_argument(
+        "--fail-on-trend",
+        action="store_true",
+        help="Exit 3 when a metric's last --window deltas are all adverse beyond --max-adverse-pp.",
+    )
+    benchmark_trend.add_argument(
+        "--window",
+        type=int,
+        default=3,
+        help="Consecutive adverse deltas required for a degrading verdict (default: 3).",
+    )
+    benchmark_trend.add_argument(
+        "--max-adverse-pp",
+        type=float,
+        default=1.0,
+        help="Allowed adverse change over the window in percentage points (default: 1.0).",
     )
 
     return parser
@@ -1044,6 +1117,8 @@ def run(
         return _alignment_eval(args, out)
     if args.command == "benchmark-compare":
         return _benchmark_compare(args, out)
+    if args.command == "benchmark-trend":
+        return _benchmark_trend(args, out)
     try:
         reviewer = _configured_vlm_reviewer(args)
     except ValueError as exc:
@@ -2684,7 +2759,10 @@ def _benchmark(args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFa
     except OSError as exc:
         print(f"error: cannot write report: {exc}", file=sys.stderr)
         return EXIT_FATAL
-    if getattr(args, "report_json", None) is not None:
+    want_json = (
+        getattr(args, "report_json", None) is not None or getattr(args, "history", None) is not None
+    )
+    if want_json:
         json_text = render_report_json(
             reports,
             corpus=str(manifest_path),
@@ -2695,11 +2773,20 @@ def _benchmark(args: argparse.Namespace, out: TextIO, factory: BenchmarkEngineFa
             ground_truth_note=manifest.ground_truth_note,
             manifest_license=manifest.license,
         )
-        try:
-            args.report_json.write_text(json_text, encoding="utf-8")
-        except OSError as exc:
-            print(f"error: cannot write JSON report: {exc}", file=sys.stderr)
-            return EXIT_FATAL
+        if getattr(args, "report_json", None) is not None:
+            try:
+                args.report_json.write_text(json_text, encoding="utf-8")
+            except OSError as exc:
+                print(f"error: cannot write JSON report: {exc}", file=sys.stderr)
+                return EXIT_FATAL
+        if getattr(args, "history", None) is not None:
+            from scribeforge.benchmark.trend import append_history
+
+            try:
+                append_history(args.history, json.loads(json_text))
+            except (OSError, ValueError) as exc:
+                print(f"error: cannot append to history: {exc}", file=sys.stderr)
+                return EXIT_FATAL
 
     print(
         f"wrote benchmark report for {len(reports)} variant(s) to {args.out}",
@@ -2747,6 +2834,74 @@ def _benchmark_compare(args: argparse.Namespace, out: TextIO) -> int:
         file=out,
     )
     if args.fail_on_regression and failures:
+        return 3
+    return EXIT_OK
+
+
+def _benchmark_trend(args: argparse.Namespace, out: TextIO) -> int:
+    """Render metric trends over a benchmark history; exit 3 on degrading trend."""
+
+    from scribeforge.benchmark.trend import (
+        DEFAULT_METRICS,
+        HistoryError,
+        analyze_series,
+        extract_series,
+        load_history,
+        render_trend_markdown,
+        trend_json,
+    )
+
+    try:
+        history = load_history(args.history)
+    except HistoryError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    if args.window < 1:
+        print("error: --window must be >= 1", file=sys.stderr)
+        return EXIT_FATAL
+    if args.max_adverse_pp < 0:
+        print("error: --max-adverse-pp must be non-negative", file=sys.stderr)
+        return EXIT_FATAL
+
+    engines = args.engine or sorted({v.get("engine") for p in history for v in p["variants"]})
+    metrics = args.metric or list(DEFAULT_METRICS)
+    analyses = [
+        analyze_series(
+            extract_series(history, engine=engine, scope=args.scope, metric=metric),
+            window=args.window,
+            max_adverse_pp=args.max_adverse_pp,
+        )
+        for engine in engines
+        for metric in metrics
+    ]
+    text = (
+        trend_json(
+            analyses,
+            history=str(args.history),
+            run_count=len(history),
+            window=args.window,
+            max_adverse_pp=args.max_adverse_pp,
+        )
+        if args.json
+        else render_trend_markdown(
+            analyses,
+            history=str(args.history),
+            run_count=len(history),
+            window=args.window,
+            max_adverse_pp=args.max_adverse_pp,
+        )
+    )
+    if args.out is not None:
+        args.out.write_text(text, encoding="utf-8")
+    else:
+        out.write(text)
+    degrading = [a for a in analyses if a.gate_fail]
+    print(
+        f"benchmark-trend: {len(analyses)} series over {len(history)} run(s); "
+        f"{'FAIL' if degrading else 'PASS'} ({len(degrading)} degrading beyond threshold)",
+        file=out,
+    )
+    if args.fail_on_trend and degrading:
         return 3
     return EXIT_OK
 

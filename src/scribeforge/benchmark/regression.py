@@ -178,6 +178,12 @@ def load_report_json(path: Path) -> dict[str, Any]:
     return cast("dict[str, Any]", payload)
 
 
+def validate_report_payload(payload: Any, *, source: str = "payload") -> None:
+    """Public schema check for a benchmark report JSON payload."""
+
+    _validate_payload(payload, source=source)
+
+
 def _validate_payload(payload: Any, *, source: str) -> None:
     if not isinstance(payload, dict):
         raise RegressionError(f"{source}: top level must be a JSON object")
