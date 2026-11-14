@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Synthetic multilingual benchmark corpus (issues #62/#68):
+  `scribeforge.benchmark.multilingual_synthetic.build_multilingual_corpus`
+  generates a deterministic zh/en/ja fixture corpus (English two-column page,
+  Japanese vertical-rl pages, CC0-1.0) with an oracle binding
+  (`oracle_for_manifest`), so the per-language / per-direction / vertical
+  reading-order report and JSON strata are exercised in CI even before real
+  en/ja scans land. A scripted column-swapping engine proves the vertical
+  reading-order error rate fires. Synthetic pages are pipeline-mechanics
+  fixtures, never OCR accuracy samples.
+- License documentation guard (issue #90): tests pin that every backend in
+  `build_runtime_plan` is named in `docs/licenses.md`, optional backends are
+  marked optional there, and non-Apache weights (Surya: OpenRAIL-M) are called
+  out.
+
 - Corpus annotation tooling (issues #62/#68): `scribeforge.benchmark.annotation`
   adds per-page spec overrides (`load_page_spec` / `resolve_case_metadata`) so
   one PDF can yield a multilingual corpus, and an annotation-status report
