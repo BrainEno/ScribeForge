@@ -181,8 +181,17 @@ scribeforge setup --json --cancelable --step-timeout 1800 # cancellable automati
 scribeforge process book.pdf                  # import + process every page
 scribeforge process book.pdf --vlm-endpoint http://127.0.0.1:1234/v1 --vlm-model local-vision-model # optional local crop review
 scribeforge process book.pdf --store store/ --worker-timeout 600 # per-page OCR deadline
-scribeforge status --store store/             # persisted jobs + review queue
-scribeforge report --store store/             # timing, risk and review report (add --json)
+scribeforge status --store store/             # jobs, review queue, observed job time, bottleneck stage, per-engine seconds
+scribeforge report --store store/             # timing/risk/review report (add --json, --top N, --compare OLD_JSON); includes per-engine timing, bottleneck stage and slowest pages
+
+The processing report answers "where did the hours go": an `Engine timing`
+table shows each OCR engine's measured seconds, its share of all measured job
+time and its mean per page, the header names the bottleneck stage, and a
+`Slowest pages` section lists the most expensive pages (`--top N`, default
+10). Unmeasured jobs render as `—` and are never counted as zero. `status`
+shows the same observed-time, bottleneck and per-engine summary per project,
+and `report --compare OLD_JSON` diffs two runs — including per-engine timing
+deltas — so a threshold or engine change can be judged from data.
 scribeforge structure --store store/ --json   # page roles, printed page numbers, chapter tree
 scribeforge audit --store store/ --json        # read-only project integrity audit
 scribeforge backup --store store/ --out Book.zip # project DB, assets and verified source PDF

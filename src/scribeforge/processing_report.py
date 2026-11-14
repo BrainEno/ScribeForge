@@ -58,6 +58,36 @@ def risk_score_distribution(
 
 
 @dataclass(frozen=True, slots=True)
+class EngineTiming:
+    """Aggregate wall time for one OCR engine across all pages (issue #69).
+
+    ``observed_seconds`` is the sum of latest-attempt timestamp spans of that
+    engine's jobs; ``share`` is that sum over *all* measured job seconds (so
+    the two engines' shares say where the book's time went). ``mean_seconds``
+    is per timed job. Every rate is ``None`` when nothing was measured — an
+    unmeasured engine is never reported as zero seconds.
+    """
+
+    engine: str  # "primary" | "secondary"
+    stage: str
+    timed_jobs: int
+    unavailable_jobs: int
+    observed_seconds: float | None
+    share: float | None
+    mean_seconds: float | None
+
+
+#: Engines compared in the timing summary, in pipeline order.
+_ENGINE_STAGES: tuple[tuple[str, JobStage], ...] = (
+    ("primary", JobStage.PRIMARY_OCR),
+    ("secondary", JobStage.SECONDARY_OCR),
+)
+
+#: Default number of pages in the "Slowest pages" report section.
+SLOWEST_PAGES_LIMIT = 10
+
+
+@dataclass(frozen=True, slots=True)
 class StageReport:
     stage: str
     jobs: int
@@ -120,10 +150,39 @@ class ProcessingReport:
     timing_unavailable_jobs: int
     #: Risk-score distribution over all latest-verification pairs (issue #69).
     risk_distribution: tuple[RiskBucket, ...] = ()
+    #: Per-engine aggregate timing (issue #69); empty when the project has no jobs.
+    engine_timings: tuple[EngineTiming, ...] = ()
 
     @property
     def high_risk_pairs_total(self) -> int:
         return sum(page.high_risk_pairs for page in self.pages)
+
+    @property
+    def bottleneck_stage(self) -> str | None:
+        """The stage with the largest measured time, or ``None`` when unmeasured."""
+
+        measured = [
+            (stage.observed_seconds, stage.stage)
+            for stage in self.stages
+            if stage.observed_seconds is not None
+        ]
+        if not measured:
+            return None
+        # Stages are ordered by pipeline order, so max() keeps the earliest
+        # stage on a tie (deterministic).
+        return max(measured, key=lambda item: item[0])[1]
+
+    def slowest_pages(self, limit: int = SLOWEST_PAGES_LIMIT) -> tuple[PageReport, ...]:
+        """Timed pages, slowest first; ties break by page index for determinism."""
+
+        if limit < 1:
+            raise ValueError(f"limit must be >= 1, got {limit}")
+        timed = [page for page in self.pages if page.observed_seconds is not None]
+        return tuple(
+            sorted(timed, key=lambda page: (-(page.observed_seconds or 0.0), page.page_index))[
+                :limit
+            ]
+        )
 
     @property
     def review_required_ratio(self) -> float:
@@ -201,6 +260,32 @@ def build_processing_report(
         for stage in sorted(JobStage, key=lambda item: item.order)
     }
     stages = tuple(_stage_report(stage, jobs_by_stage[stage]) for stage in jobs_by_stage)
+    total_measured = sum(measured)
+
+    engine_timings: list[EngineTiming] = []
+    for engine, stage in _ENGINE_STAGES:
+        stage_jobs = jobs_by_stage.get(stage, [])
+        durations = [_observed_seconds(job) for job in stage_jobs]
+        measured_engine = [duration for duration in durations if duration is not None]
+        engine_seconds: float | None = sum(measured_engine) if measured_engine else None
+        share: float | None = None
+        mean_seconds: float | None = None
+        if engine_seconds is not None:
+            if total_measured > 0:
+                share = engine_seconds / total_measured
+            if measured_engine:
+                mean_seconds = engine_seconds / len(measured_engine)
+        engine_timings.append(
+            EngineTiming(
+                engine=engine,
+                stage=stage.value,
+                timed_jobs=len(measured_engine),
+                unavailable_jobs=len(stage_jobs) - len(measured_engine),
+                observed_seconds=engine_seconds,
+                share=share,
+                mean_seconds=mean_seconds,
+            )
+        )
 
     all_reasons: Counter[str] = Counter()
     risk_scores: list[float] = []
@@ -278,10 +363,13 @@ def build_processing_report(
         timed_jobs=len(measured),
         timing_unavailable_jobs=len(jobs) - len(measured),
         risk_distribution=risk_score_distribution(risk_scores),
+        engine_timings=tuple(engine_timings),
     )
 
 
-def processing_report_dict(report: ProcessingReport) -> dict[str, object]:
+def processing_report_dict(
+    report: ProcessingReport, *, slowest_limit: int = SLOWEST_PAGES_LIMIT
+) -> dict[str, object]:
     """Return the stable, source-path-free JSON representation (schema v1)."""
 
     return {
@@ -312,7 +400,24 @@ def processing_report_dict(report: ProcessingReport) -> dict[str, object]:
             "observed_seconds": report.observed_seconds,
             "timed_jobs": report.timed_jobs,
             "unavailable_jobs": report.timing_unavailable_jobs,
+            "bottleneck_stage": report.bottleneck_stage,
+            "engines": [
+                {
+                    "engine": item.engine,
+                    "stage": item.stage,
+                    "timed_jobs": item.timed_jobs,
+                    "unavailable_jobs": item.unavailable_jobs,
+                    "observed_seconds": item.observed_seconds,
+                    "share": item.share,
+                    "mean_seconds": item.mean_seconds,
+                }
+                for item in report.engine_timings
+            ],
         },
+        "slowest_pages": [
+            {"page_index": page.page_index, "observed_seconds": page.observed_seconds}
+            for page in report.slowest_pages(slowest_limit)
+        ],
         "stages": [
             {
                 "stage": stage.stage,
@@ -353,9 +458,12 @@ def processing_report_dict(report: ProcessingReport) -> dict[str, object]:
 
 
 def processing_report_json(
-    report: ProcessingReport, *, event_summary: dict[str, object] | None = None
+    report: ProcessingReport,
+    *,
+    event_summary: dict[str, object] | None = None,
+    slowest_limit: int = SLOWEST_PAGES_LIMIT,
 ) -> str:
-    payload = processing_report_dict(report)
+    payload = processing_report_dict(report, slowest_limit=slowest_limit)
     if event_summary is not None:
         # Additive key: existing schema-v1 consumers ignore unknown keys.
         payload["event_summary"] = event_summary
@@ -392,7 +500,9 @@ def _seconds(value: float | None) -> str:
     return "—" if value is None else f"{value:.3f}"
 
 
-def render_processing_report(report: ProcessingReport) -> str:
+def render_processing_report(
+    report: ProcessingReport, *, slowest_limit: int = SLOWEST_PAGES_LIMIT
+) -> str:
     """Render deterministic Markdown with explicit timing and review semantics."""
 
     ratio = report.review_required_ratio * 100
@@ -413,6 +523,10 @@ def render_processing_report(report: ProcessingReport) -> str:
             f"- Observed job time: {observed} "
             f"across {report.timed_jobs} timed job(s); "
             f"{report.timing_unavailable_jobs} unavailable"
+        ),
+        (
+            "- bottleneck stage: "
+            + (f"`{report.bottleneck_stage}`" if report.bottleneck_stage else "not measurable")
         ),
         "",
         (
@@ -440,6 +554,44 @@ def render_processing_report(report: ProcessingReport) -> str:
             f"| {stage.timed_jobs} | {stage.timing_unavailable_jobs} "
             f"| {_seconds(stage.observed_seconds)} |"
         )
+
+    lines += [
+        "",
+        "## Engine timing",
+        "",
+        "| Engine | Stage | Timed jobs | Unavailable | Observed s | Share | Mean s/job |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for item in report.engine_timings:
+        share_text = "—" if item.share is None else f"{item.share:.2%}"
+        mean_text = "—" if item.mean_seconds is None else f"{item.mean_seconds:.3f}"
+        lines.append(
+            f"| {item.engine} | {item.stage} | {item.timed_jobs} | {item.unavailable_jobs} "
+            f"| {_seconds(item.observed_seconds)} | {share_text} | {mean_text} |"
+        )
+    lines += [
+        "",
+        (
+            "> Share is the engine's measured seconds over all measured job seconds; "
+            "unmeasured jobs render `—` and are never counted as zero."
+        ),
+        "",
+        "## Slowest pages",
+        "",
+    ]
+    slowest = report.slowest_pages(slowest_limit)
+    if slowest:
+        lines += [
+            "| Page (1-based) | Observed total s | Status |",
+            "| ---: | ---: | --- |",
+        ]
+        for page in slowest:
+            lines.append(
+                f"| {page.page_index + 1} | {_seconds(page.observed_seconds)} | {page.status} |"
+            )
+    else:
+        lines.append("No page has a measured duration yet.")
+    lines.append("")
 
     lines += ["", "## Risk reasons", ""]
     if report.risk_reasons:
@@ -501,6 +653,8 @@ class ReportComparison:
     #: Bucket-index -> count delta of the risk distribution (empty when either
     #: side has no distribution).
     risk_bucket_deltas: dict[int, int]
+    #: Engine -> observed-seconds delta (None when either side is unmeasured).
+    engine_seconds_delta: dict[str, float | None]
 
 
 def _report_number(payload: dict[str, Any], key: str) -> float:
@@ -537,6 +691,29 @@ def compare_report_dicts(old: dict[str, Any], new: dict[str, Any]) -> ReportComp
             delta = int(new_count) - int(old_count)
             if delta:
                 deltas[index] = delta
+    old_engines = {
+        str(item.get("engine")): item.get("observed_seconds")
+        for item in (old_timing.get("engines") or [])
+        if isinstance(item, dict)
+    }
+    new_engines = {
+        str(item.get("engine")): item.get("observed_seconds")
+        for item in (new_timing.get("engines") or [])
+        if isinstance(item, dict)
+    }
+    engine_seconds_delta: dict[str, float | None] = {}
+    for engine in sorted(set(old_engines) | set(new_engines)):
+        old_value = old_engines.get(engine)
+        new_value = new_engines.get(engine)
+        if (
+            isinstance(old_value, (int, float))
+            and not isinstance(old_value, bool)
+            and isinstance(new_value, (int, float))
+            and not isinstance(new_value, bool)
+        ):
+            engine_seconds_delta[engine] = float(new_value) - float(old_value)
+        else:
+            engine_seconds_delta[engine] = None
     return ReportComparison(
         pages_total_delta=int(
             _report_number(new, "pages_total") - _report_number(old, "pages_total")
@@ -555,6 +732,7 @@ def compare_report_dicts(old: dict[str, Any], new: dict[str, Any]) -> ReportComp
             else float(new_seconds) - float(old_seconds)
         ),
         risk_bucket_deltas=deltas,
+        engine_seconds_delta=engine_seconds_delta,
     )
 
 
@@ -585,6 +763,11 @@ def render_comparison_markdown(comparison: ReportComparison) -> str:
             + " |"
         ),
     ]
+    if comparison.engine_seconds_delta:
+        lines += ["", "## Engine timing delta", "", "| Engine | Delta s |", "| --- | ---: |"]
+        for engine in sorted(comparison.engine_seconds_delta):
+            delta = comparison.engine_seconds_delta[engine]
+            lines.append(f"| {engine} | {'—' if delta is None else _delta_text(delta)} |")
     if comparison.risk_bucket_deltas:
         lines += ["", "## Risk distribution delta", "", "| Bucket | Delta |", "| --- | ---: |"]
         for index in sorted(comparison.risk_bucket_deltas):
