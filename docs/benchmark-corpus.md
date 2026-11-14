@@ -137,3 +137,17 @@ PY
 
 `validate_corpus()` 会拒绝：绝对路径、越界路径、缺失或空文件、空转写、
 以及没有任何 case 的 manifest。
+
+## Multilingual corpus workflow (issues #62/#68)
+
+1. Build pages from a redistributable source PDF with
+   `analysis/build_corpus.py --pdf ... --pages ... --page-spec spec.json`
+   (per-page `language` / `direction` / `tags` overrides).
+2. Transcribe each `ground_truth/*.txt` by hand; the builder leaves them empty
+   on purpose and `validate_corpus()` refuses to score empty references.
+3. Track coverage with `scribeforge benchmark --manifest corpus/manifest.json
+   --out status.md --annotation-status`: pages per language and direction,
+   remaining empty transcriptions, and the quality-gate verdict. The command
+   exits 2 until every case is annotated, so CI can gate on it.
+4. Only then run the engines; `benchmark --check-only` still fails on missing
+   license, missing images, or underrepresented languages.

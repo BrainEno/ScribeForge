@@ -32,6 +32,7 @@ from pathlib import Path
 from PIL import Image
 
 from scribeforge.adapters.pdf_pages import PdfPageSource
+from scribeforge.benchmark.annotation import PageOverride, load_page_spec, resolve_case_metadata
 from scribeforge.benchmark.corpus import validate_corpus
 from scribeforge.benchmark.manifest import load_manifest
 
@@ -73,8 +74,13 @@ def build_corpus(
     dpi: int,
     source_note: str,
     tags: tuple[str, ...] = ("body",),
+    page_spec: dict[int, PageOverride] | None = None,
 ) -> dict[str, object]:
-    """Create images, manifest and empty transcription files; return the manifest."""
+    """Create images, manifest and empty transcription files; return the manifest.
+
+    ``page_spec`` optionally overrides language/direction/tags per physical page
+    index (issue #62/#68 multilingual corpora); unknown spec keys are rejected.
+    """
 
     if direction is not None and direction not in DIRECTIONS:
         raise ValueError(f"unknown direction: {direction}")
@@ -82,9 +88,20 @@ def build_corpus(
         raise ValueError("at least one page index is required")
     if len(set(pages)) != len(pages):
         raise ValueError("page indexes must be unique")
+    page_spec = page_spec or {}
+    unknown = sorted(set(page_spec) - set(pages))
+    if unknown:
+        raise ValueError(f"page spec covers pages not in the selected pages: {unknown}")
 
     cases: list[dict[str, object]] = []
     for page_index in pages:
+        case_language, case_direction, case_tags = resolve_case_metadata(
+            page_index=page_index,
+            default_language=language,
+            default_direction=direction,
+            default_tags=tags,
+            spec=page_spec,
+        )
         case_id = _page_id(name, page_index)
         image_path = Path("images") / f"page_{page_index:03d}.png"
         truth_path = Path("ground_truth") / f"{case_id}.txt"
@@ -99,11 +116,11 @@ def build_corpus(
             "id": case_id,
             "image": image_path.as_posix(),
             "ground_truth": truth_path.as_posix(),
-            "language": language,
-            "tags": list(tags),
+            "language": case_language,
+            "tags": list(case_tags),
         }
-        if direction is not None:
-            case["direction"] = direction
+        if case_direction is not None:
+            case["direction"] = case_direction
         cases.append(case)
 
     manifest: dict[str, object] = {
@@ -136,6 +153,16 @@ def main() -> int:
     parser.add_argument("--dpi", type=int, default=200)
     parser.add_argument("--tags", default="body", help="Comma-separated tags.")
     parser.add_argument("--source", default="", help="Provenance and rights note.")
+    parser.add_argument(
+        "--page-spec",
+        type=Path,
+        default=None,
+        help=(
+            "Optional JSON file with per-page overrides: "
+            '{"pages": {"12": {"language": "ja", "direction": "vertical-rl", '
+            '"tags": ["vertical"]}}} (#62/#68 multilingual corpora).'
+        ),
+    )
     args = parser.parse_args()
 
     pages = tuple(int(value) for value in args.pages.split(",") if value.strip())
@@ -149,6 +176,7 @@ def main() -> int:
         dpi=args.dpi,
         source_note=args.source,
         tags=tuple(tag for tag in args.tags.split(",") if tag.strip()),
+        page_spec=load_page_spec(args.page_spec),
     )
 
     manifest = load_manifest(args.out / "manifest.json")

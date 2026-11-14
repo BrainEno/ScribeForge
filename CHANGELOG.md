@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Corpus annotation tooling (issues #62/#68): `scribeforge.benchmark.annotation`
+  adds per-page spec overrides (`load_page_spec` / `resolve_case_metadata`) so
+  one PDF can yield a multilingual corpus, and an annotation-status report
+  (`annotation_status`, Markdown + schema-v1 JSON) showing per-language and
+  per-direction coverage, empty/missing ground truths and the quality-gate
+  verdict. `scribeforge benchmark --annotation-status [--quality-json]` writes
+  it to `--out` and exits 2 while annotations are incomplete;
+  `benchmark/analysis/build_corpus.py --page-spec spec.json` applies the
+  per-page overrides when building a corpus.
+
 - Technology-route backends are first-class by name (issue #90): `setup
   --json --backend paddleocr-vl|surya` repairs the named optional backend,
   `runtime-status` (Markdown/JSON) and the final `setup --json` record report
