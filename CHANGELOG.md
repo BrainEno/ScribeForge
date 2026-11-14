@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Benchmark trend history (issues #62/#68/#90):
+  `scribeforge benchmark --history runs.jsonl` appends every scored run's
+  schema-v1 report JSON as one JSONL line, and the new `benchmark-trend`
+  subcommand renders per-engine metric series (aggregate, language, direction,
+  case, vertical reading-order scopes) across those runs. A metric whose last
+  `--window` deltas are all adverse beyond `--max-adverse-pp` fails the
+  `--fail-on-trend` gate (exit 3). N/A values are skipped, never read as 0.
 - Benchmark regression comparison (issues #62/#68/#90):
   `scribeforge.benchmark.regression` compares two schema-v1
   `benchmark --report-json` payloads metric by metric — aggregate,
