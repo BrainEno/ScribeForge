@@ -452,9 +452,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setup.add_argument(
         "--backend",
-        choices=("mineru", "paddleocr"),
+        choices=("mineru", "paddleocr", "paddleocr-vl", "surya"),
         default=None,
-        help="Repair only this OCR backend (requires --json).",
+        help=(
+            "Repair only this OCR backend (requires --json); the optional "
+            "technology-route backends paddleocr-vl and surya are accepted by name."
+        ),
     )
     setup.add_argument(
         "--cancelable",
@@ -2867,16 +2870,17 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
     layout = RuntimeLayout(runtime_root)
     profile = overview.hardware
     backends: dict[str, dict[str, object]] = {}
-    for name, backend_status in (
-        ("mineru", overview.mineru),
-        ("paddleocr", overview.paddleocr),
-    ):
+    optional_backends = getattr(overview, "optional_backends", {}) or {}
+    named = [("mineru", overview.mineru, False), ("paddleocr", overview.paddleocr, False)]
+    named += [(name, status, True) for name, status in sorted(optional_backends.items())]
+    for name, backend_status, optional in named:
         environment = layout.environment_dir(name)
         backends[name] = {
             "state": backend_status.state,
             "failed_step": backend_status.failed_step,
             "environment_path": str(environment),
             "environment_exists": environment.is_dir(),
+            "optional": optional,
         }
 
     paths = {
@@ -3000,12 +3004,18 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
         inspection_error = f"Could not inspect final runtime state: {exc}"
         message = f"{message}; {inspection_error}" if message else inspection_error
         backend_states: dict[str, dict[str, object]] = {
-            name: {"state": "unknown", "failed_step": None} for name in ("mineru", "paddleocr")
+            name: {"state": "unknown", "failed_step": None}
+            for name in ("mineru", "paddleocr", "paddleocr-vl", "surya")
         }
     else:
         backend_states = {}
-        for name in ("mineru", "paddleocr"):
-            status = getattr(overview, name)
+        optional_backends = getattr(overview, "optional_backends", {}) or {}
+        statuses = {
+            "mineru": overview.mineru,
+            "paddleocr": overview.paddleocr,
+            **optional_backends,
+        }
+        for name, status in statuses.items():
             state = getattr(status, "state", "unknown")
             failed_step = getattr(status, "failed_step", None)
             backend_states[name] = {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from scribeforge.runtime.manager import (
@@ -26,7 +26,13 @@ class RuntimeOverview:
     uv_available: bool
     mineru: RuntimeStatus
     paddleocr: RuntimeStatus
+    #: Health of the optional technology-route backends (issue #90), keyed by
+    #: backend name. Absent in older callers; consumers use ``getattr``.
+    optional_backends: dict[str, RuntimeStatus] = field(default_factory=dict)
 
+
+#: Optional technology-route backends (issue #90) reported by name in status.
+OPTIONAL_ROUTE_BACKENDS: tuple[str, ...] = ("paddleocr-vl", "surya")
 
 HardwareProbe = Callable[[], HardwareProfile]
 UvEnsurer = Callable[[Path, str, str], str]
@@ -68,6 +74,7 @@ class RuntimeSetupWorkflow:
             uv_available=uv_available,
             mineru=manager.status("mineru"),
             paddleocr=manager.status("paddleocr"),
+            optional_backends={name: manager.status(name) for name in OPTIONAL_ROUTE_BACKENDS},
         )
 
     def install(self, *, on_event: Callable[[RuntimeEvent], None] | None = None) -> None:
