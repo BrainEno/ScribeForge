@@ -27,7 +27,7 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
       - name: Format Dart source
-        run: dart format --set-exit-if-changed . || (dart format . && git diff -- clients/flutter_desktop | head -200 | python -c 'import sys; print("::error title=DART FORMAT DIFF::" + sys.stdin.read().replace("%", "%25").replace("\n", "%0A"))')
+        run: dart format --set-exit-if-changed .
       - name: Analyze Flutter client
         id: analyze
         shell: bash
