@@ -33,13 +33,11 @@ jobs:
         shell: bash
         run: |
           echo "::notice title=STEP::format start"
-          if ! dart format --set-exit-if-changed .; then
-            dart format .
-            git diff -- clients/flutter_desktop | head -300 > /tmp/fmt.diff || true
-            python -c 'from pathlib import Path; print("::error title=DART FORMAT DIFF::" + Path("/tmp/fmt.diff").read_text().replace("%", "%25").replace("\n", "%0A"))'
-            exit 1
-          fi
+          dart format . || true
+          git diff -- clients/flutter_desktop > /tmp/fmt.diff || true
+          python3 -c 'from pathlib import Path; d = Path("/tmp/fmt.diff").read_text(); print("::error title=DART FORMAT DIFF::" + d.replace("%", "%25").replace("\n", "%0A")[:8000])'
           echo "::notice title=STEP::format done"
+          dart format --set-exit-if-changed .
       - name: Analyze Flutter client
         id: analyze
         shell: bash
