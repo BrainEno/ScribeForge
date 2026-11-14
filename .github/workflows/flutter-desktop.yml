@@ -27,7 +27,14 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
       - name: Format Dart source
-        run: dart format --set-exit-if-changed .
+        shell: bash
+        run: |
+          if ! dart format --set-exit-if-changed .; then
+            dart format .
+            git diff -- clients/flutter_desktop | head -300 > /tmp/fmt.diff || true
+            python -c 'from pathlib import Path; print("::error title=DART FORMAT DIFF::" + Path("/tmp/fmt.diff").read_text().replace("%", "%25").replace("\n", "%0A"))'
+            exit 1
+          fi
       - name: Analyze Flutter client
         id: analyze
         shell: bash
