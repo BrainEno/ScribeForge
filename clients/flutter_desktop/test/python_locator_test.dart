@@ -162,7 +162,8 @@ void main() {
           return const <String>[];
         },
         probe: (executable, arguments) async {
-          if (executable.endsWith(r'Python312\python.exe')) {
+          if (executable.contains(r'\Packages\') &&
+              executable.endsWith(r'Python312\python.exe')) {
             return arguments.contains('--version') ? 'Python 3.12.11' : '';
           }
           return null;
