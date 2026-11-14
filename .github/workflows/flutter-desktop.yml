@@ -25,16 +25,21 @@ jobs:
           channel: stable
           cache: true
       - name: Resolve dependencies
-        run: flutter pub get
+        run: |
+          echo "::notice title=STEP::pub get start"
+          flutter pub get
+          echo "::notice title=STEP::pub get done"
       - name: Format Dart source
         shell: bash
         run: |
+          echo "::notice title=STEP::format start"
           if ! dart format --set-exit-if-changed .; then
             dart format .
             git diff -- clients/flutter_desktop | head -300 > /tmp/fmt.diff || true
             python -c 'from pathlib import Path; print("::error title=DART FORMAT DIFF::" + Path("/tmp/fmt.diff").read_text().replace("%", "%25").replace("\n", "%0A"))'
             exit 1
           fi
+          echo "::notice title=STEP::format done"
       - name: Analyze Flutter client
         id: analyze
         shell: bash
