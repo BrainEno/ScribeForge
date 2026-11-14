@@ -21,13 +21,21 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from scribeforge.observability import redact_text
+from scribeforge.observability import get_run_id, redact_text
 
 
 def event_line(
-    event: str, fields: dict[str, Any] | None = None, *, now: float | None = None
+    event: str,
+    fields: dict[str, Any] | None = None,
+    *,
+    now: float | None = None,
+    run: str | None = None,
 ) -> str:
     """Build one JSONL line for ``event``; pure and deterministic when ``now`` is given.
+
+    Every line carries a ``run`` field (the current invocation's run id from
+    :func:`scribeforge.observability.get_run_id`, or an explicit ``run``) so
+    event lines can be correlated with the CLI's log lines.
 
     String field values are redacted *before* JSON encoding: on Windows the
     encoder escapes backslashes, so redacting the finished line would miss
@@ -37,6 +45,7 @@ def event_line(
     payload: dict[str, Any] = {
         "ts": round(time.time() if now is None else now, 3),
         "event": event,
+        "run": run if run is not None else get_run_id(),
     }
     if fields:
         payload.update(
@@ -96,6 +105,7 @@ def summarize_events(lines: Sequence[str]) -> dict[str, Any]:
     book_elapsed: float | None = None
     slowest: tuple[int, float] | None = None
     total_page_seconds = 0.0
+    run_id: str | None = None
     for line in lines:
         line = line.strip()
         if not line:
@@ -107,6 +117,8 @@ def summarize_events(lines: Sequence[str]) -> dict[str, Any]:
         event = payload.get("event")
         if not isinstance(event, str):
             continue
+        if run_id is None and isinstance(payload.get("run"), str) and payload["run"]:
+            run_id = payload["run"]
         counts[event] = counts.get(event, 0) + 1
         if event == "page_failed" and isinstance(payload.get("page_index"), int):
             failed_pages.append(payload["page_index"])
@@ -121,6 +133,7 @@ def summarize_events(lines: Sequence[str]) -> dict[str, Any]:
                 if slowest is None or float(elapsed) > slowest[1]:
                     slowest = (payload["page_index"], float(elapsed))
     return {
+        "run": run_id,
         "events": counts,
         "failed_pages": sorted(failed_pages),
         "book_elapsed_seconds": book_elapsed,

@@ -17,11 +17,36 @@ scribeforge --log-level debug --log-file run.log process book.pdf --store Book.s
   applies to the logger and to the log file.
 - `--log-file PATH` attaches a `RotatingFileHandler` (5 MiB per file, 3 backups).
   Parent directories are created as needed.
-- Every handler uses `RedactingFormatter`: the user's home directory is replaced
-  with `~` in each rendered line (tracebacks included), so log files are safe to
-  attach to bug reports.
+- `--log-format` selects the line format: `text` (default) or `json`.
+- Every handler redacts before emitting: the user's home directory becomes `~`
+  (tracebacks included), and common secret shapes are masked with `<redacted>`
+  — `Bearer <token>` headers (scheme kept), well-known API-key prefixes
+  (`sk-…`, `ghp_…`, `xoxb-…`, …), and `key: value` / `key=value` credentials
+  (`api_key`, `password`, `client_secret`, …; the key name is kept, the value
+  is masked). Log files are safe to attach to bug reports.
 - `configure_logging()` is idempotent: repeated calls replace handlers instead of
   duplicating output.
+
+## JSON log format and run ids
+
+```bash
+scribeforge --log-level debug --log-format json --log-file run.jsonl status --store Book.scribeforge
+```
+
+With `--log-format json` every line of every handler (console and rotating
+file) is one JSON object with a stable schema:
+
+```json
+{"ts": "2026-11-05T10:00:00+0000", "level": "INFO", "logger": "scribeforge.cli", "run": "1a2b3c4d", "message": "..."}
+```
+
+`exception` is added when a record carries traceback info. Each CLI invocation
+gets a fresh 8-hex-char `run` id (`observability.new_run_id`); the same id tags
+every line of the invocation's JSONL pipeline event log (see below), so log
+lines and events can be correlated across files. Redaction happens before JSON
+encoding, so Windows paths never leak through backslash escaping.
+
+## Structured pipeline events (JSONL)
 
 ## Structured pipeline events (JSONL)
 
@@ -36,9 +61,11 @@ Event kinds: `book_started` (pages, effective max_workers, gpu_memory_mib),
 `page_started` / `page_finished` (page_index, elapsed_seconds),
 `page_failed` (page_index, error, elapsed_seconds), and `book_finished`
 (succeeded, failed, elapsed_seconds) or `book_aborted` on cancellation.
-The file is truncated at the start of each run, every line is redacted like
-the text log, and the sink is thread-safe because page events are emitted
-from pool workers.
+Every line also carries `run` — the invocation's run id, matching the `run`
+field of `--log-format json` log lines. The file is truncated at the start of
+each run, every line is redacted like the text log, and the sink is thread-safe
+because page events are emitted from pool workers. `events` and `report
+--events-file` summaries surface the run id as `run` when present.
 
 `stage_finished` (stage, page_index, elapsed_seconds) is emitted for every
 executed page stage, so per-engine timings are recoverable; skipped

@@ -59,7 +59,9 @@ from scribeforge.domain.preprocess import (
 )
 from scribeforge.domain.vlm import VLMReviewer
 from scribeforge.observability import (
+    DEFAULT_LOG_FORMAT,
     DEFAULT_LOG_LEVEL,
+    LOG_FORMATS,
     LOG_LEVELS,
     configure_logging,
     get_logger,
@@ -339,6 +341,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help="Also write logs to this rotating file; home-directory paths are redacted.",
+    )
+    parser.add_argument(
+        "--log-format",
+        choices=sorted(LOG_FORMATS),
+        default=DEFAULT_LOG_FORMAT,
+        help=(
+            "Log line format: 'text' (default) or 'json' (one JSON object per line "
+            "with ts/level/logger/run/message; issue #69)."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -1008,7 +1019,7 @@ def run(
 
     args = build_parser().parse_args(list(argv))
     out = sys.stdout if stdout is None else stdout
-    configure_logging(args.log_level, args.log_file)
+    configure_logging(args.log_level, args.log_file, log_format=args.log_format)
     cli_log = get_logger("cli")
     cli_log.info("command=%s log_level=%s", args.command, args.log_level)
     if args.command == "setup":

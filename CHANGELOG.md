@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Structured JSON logging, run ids and secret redaction (issue #69):
+  `--log-format json` emits one JSON object per log line (`ts` / `level` /
+  `logger` / `run` / `message`, plus `exception` for tracebacks). Every CLI
+  invocation gets a fresh 8-hex run id that also tags every line of the
+  `process --events-file` JSONL log and the `events` / `report` summaries, so
+  logs and events correlate across files. `redact_text` now also masks common
+  secret shapes (`Bearer` tokens, `sk-…`/`ghp_…`/`xoxb-…` keys, and
+  `password:`/`api_key=`-style credentials) in addition to the home directory.
 - Benchmark trend history (issues #62/#68/#90):
   `scribeforge benchmark --history runs.jsonl` appends every scored run's
   schema-v1 report JSON as one JSONL line, and the new `benchmark-trend`
