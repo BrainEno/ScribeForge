@@ -58,11 +58,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Frozen backend --help failed" }
           $originalPath = $env:PATH
           $env:PATH = "$env:SystemRoot\System32"
-          $report = & $backend runtime-status --json 2>&1 | Out-String
+          $PSNativeCommandUseErrorActionPreference = $false
+          $report = cmd /c "`"$backend`" runtime-status --json 2>&1"
           $exitCode = $LASTEXITCODE
+          $PSNativeCommandUseErrorActionPreference = $true
           $env:PATH = $originalPath
           if ($exitCode -ne 0) {
-            $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($report))
+            $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$report"))
             Write-Host "::error title=PKGPROBE::$enc"
             throw "Frozen runtime-status failed: $report"
           }
