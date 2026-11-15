@@ -284,10 +284,7 @@ void main() {
       findsOneWidget,
     );
     final initButton = tester.widget<FilledButton>(
-      find.ancestor(
-        of: find.byKey(const ValueKey('initialize-runtime-button')),
-        matching: find.byType(FilledButton),
-      ),
+      find.byKey(const ValueKey('initialize-runtime-button')),
     );
     expect(initButton.onPressed, isNull);
     expect(tester.takeException(), isNull);
