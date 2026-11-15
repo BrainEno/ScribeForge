@@ -34,9 +34,7 @@ class ProcessingReportLoader {
         onError: errors.write,
       );
     } on Object catch (error) {
-      throw ProcessingReportLoadException(
-        '无法启动处理报告命令：$error。请确认命令行工具路径正确后重试。',
-      );
+      throw ProcessingReportLoadException('无法启动处理报告命令：$error。请确认命令行工具路径正确后重试。');
     }
     final text = output.toString().trim();
     if (exitCode != 0) {

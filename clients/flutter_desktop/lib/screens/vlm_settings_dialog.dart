@@ -135,7 +135,8 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
     final host = Uri.tryParse(settings.endpoint.trim())?.host ?? '';
     if (_isRemoteHost(host) && !_confirmRemoteSend) {
       setState(() {
-        _testOutput = '本次测试会把图片发送到远程端点 $host。'
+        _testOutput =
+            '本次测试会把图片发送到远程端点 $host。'
             '请先勾选“我确认发送到远程端点”，或改用本机地址。';
       });
       return;
@@ -143,7 +144,8 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
 
     setState(() {
       _testing = true;
-      _testOutput = '正在测试：图片 $imagePath → ${settings.endpoint.trim()} '
+      _testOutput =
+          '正在测试：图片 $imagePath → ${settings.endpoint.trim()} '
           '(模型 ${settings.model})…';
     });
     final output = StringBuffer();
@@ -204,8 +206,9 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
   String _apiKeyGuidance(String name) {
     if (widget.operatingSystem == 'windows') {
       return '未检测到环境变量 $name。可在 PowerShell 中运行 '
-          'setx $name "你的密钥"（永久生效），或在当前窗口用 '
-          r'$env:' + '$name="你的密钥"' +
+              'setx $name "你的密钥"（永久生效），或在当前窗口用 '
+              r'$env:' +
+          '$name="你的密钥"' +
           '；设置后需要重启本应用才能生效。';
     }
     return '未检测到环境变量 $name。可在终端运行 export $name="你的密钥" '
@@ -464,9 +467,8 @@ class _VlmSettingsDialogState extends State<VlmSettingsDialog> {
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
                     key: const ValueKey('copy-vlm-test-output-button'),
-                    onPressed: () => Clipboard.setData(
-                      ClipboardData(text: _testOutput!),
-                    ),
+                    onPressed: () =>
+                        Clipboard.setData(ClipboardData(text: _testOutput!)),
                     icon: const Icon(Icons.copy, size: 16),
                     label: const Text('复制结果'),
                   ),

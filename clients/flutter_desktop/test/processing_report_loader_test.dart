@@ -3,7 +3,12 @@ import 'package:scribeforge_desktop/services/cli_executor.dart';
 import 'package:scribeforge_desktop/services/processing_report_loader.dart';
 
 class _FakeExecutor implements ScribeForgeCliExecutor {
-  _FakeExecutor({required this.exitCode, this.stdout = '', this.stderr = '', this.throwing});
+  _FakeExecutor({
+    required this.exitCode,
+    this.stdout = '',
+    this.stderr = '',
+    this.throwing,
+  });
 
   final int exitCode;
   final String stdout;

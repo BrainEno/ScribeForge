@@ -100,7 +100,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('shows a positive hint when the key variable exists', (tester) async {
+  testWidgets('shows a positive hint when the key variable exists', (
+    tester,
+  ) async {
     await showDialogUnderTest(
       tester,
       executor: _FakeExecutor(),
@@ -116,7 +118,11 @@ void main() {
     tester,
   ) async {
     final picker = _FakeFilePicker('/tmp/picked.png');
-    await showDialogUnderTest(tester, executor: _FakeExecutor(), filePicker: picker);
+    await showDialogUnderTest(
+      tester,
+      executor: _FakeExecutor(),
+      filePicker: picker,
+    );
     await tester.tap(find.byKey(const ValueKey('pick-vlm-test-image-button')));
     await tester.pumpAndSettle();
     expect(picker.called, isTrue);
@@ -132,8 +138,10 @@ void main() {
 
     // Summary states file/host/model before sending.
     expect(find.textContaining('vlm.example.com'), findsWidgets);
-    expect(find.byKey(const ValueKey('confirm-remote-vlm-send-checkbox')),
-        findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('confirm-remote-vlm-send-checkbox')),
+      findsOneWidget,
+    );
 
     final imageField = find.byWidgetPredicate(
       (widget) =>
@@ -149,7 +157,9 @@ void main() {
     expect(find.textContaining('请先勾选'), findsOneWidget);
 
     // Confirm and retry — the probe runs with vlm-check arguments.
-    await tester.tap(find.byKey(const ValueKey('confirm-remote-vlm-send-checkbox')));
+    await tester.tap(
+      find.byKey(const ValueKey('confirm-remote-vlm-send-checkbox')),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('用图片测试…'));
     await tester.pumpAndSettle();

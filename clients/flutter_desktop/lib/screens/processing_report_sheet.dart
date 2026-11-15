@@ -35,7 +35,8 @@ class ProcessingReportSheet extends StatefulWidget {
   final Future<String?> Function(
     ProcessingReportSnapshot report, {
     required bool markdown,
-  })? exportHandler;
+  })?
+  exportHandler;
 
   @override
   State<ProcessingReportSheet> createState() => _ProcessingReportSheetState();
@@ -62,8 +63,7 @@ class _ProcessingReportSheetState extends State<ProcessingReportSheet> {
       _error = null;
       _notice = null;
     });
-    final loader =
-        widget.loader ?? const ProcessingReportLoader();
+    final loader = widget.loader ?? const ProcessingReportLoader();
     try {
       final report = await loader.load(
         executable: widget.executable,
@@ -204,19 +204,14 @@ class _ProcessingReportSheetState extends State<ProcessingReportSheet> {
         children: <Widget>[
           OutlinedButton.icon(
             key: const ValueKey('copy-report-json-button'),
-            onPressed: canCopy
-                ? () => _copy(' JSON 报告', report.rawJson)
-                : null,
+            onPressed: canCopy ? () => _copy(' JSON 报告', report.rawJson) : null,
             icon: const Icon(Icons.code, size: 16),
             label: const Text('复制 JSON'),
           ),
           OutlinedButton.icon(
             key: const ValueKey('copy-report-markdown-button'),
             onPressed: canCopy
-                ? () => _copy(
-                    ' Markdown 摘要',
-                    processingReportMarkdown(report),
-                  )
+                ? () => _copy(' Markdown 摘要', processingReportMarkdown(report))
                 : null,
             icon: const Icon(Icons.article_outlined, size: 16),
             label: const Text('复制 Markdown'),
@@ -224,9 +219,7 @@ class _ProcessingReportSheetState extends State<ProcessingReportSheet> {
           if (widget.exportHandler != null) ...<Widget>[
             OutlinedButton.icon(
               key: const ValueKey('export-report-markdown-button'),
-              onPressed: canCopy
-                  ? () => _export(markdown: true)
-                  : null,
+              onPressed: canCopy ? () => _export(markdown: true) : null,
               icon: const Icon(Icons.save_alt, size: 16),
               label: const Text('导出 Markdown'),
             ),
@@ -335,7 +328,8 @@ class _ProcessingReportSheetState extends State<ProcessingReportSheet> {
       _summaryCard(
         '复核率',
         _percent(report.review.reviewRequiredRatio),
-        subtitle: '待处理 ${report.review.openPairs} · 高风险 ${report.review.openHighRisk}',
+        subtitle:
+            '待处理 ${report.review.openPairs} · 高风险 ${report.review.openHighRisk}',
       ),
       _summaryCard('高风险配对', '${report.highRiskPairsTotal}'),
     ],

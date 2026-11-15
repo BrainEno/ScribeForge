@@ -124,7 +124,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('while processing, does not load or show stale data', (tester) async {
+  testWidgets('while processing, does not load or show stale data', (
+    tester,
+  ) async {
     var loads = 0;
     final loader = _FailThenSucceedLoader(() {
       loads++;

@@ -60,20 +60,17 @@ class ProcessingReportSnapshot {
       riskReasons: _stringIntMap(json['risk_reasons']),
       riskDistribution: [
         for (final raw in _list(json['risk_distribution']))
-          if (raw is Map)
-            RiskBucket.fromMap(Map<String, dynamic>.from(raw)),
+          if (raw is Map) RiskBucket.fromMap(Map<String, dynamic>.from(raw)),
       ],
       highRiskPairsTotal: _int(json['high_risk_pairs_total']),
       timing: TimingSummary.fromMap(_map(json['timing'])),
       slowestPages: [
         for (final raw in _list(json['slowest_pages']))
-          if (raw is Map)
-            SlowestPage.fromMap(Map<String, dynamic>.from(raw)),
+          if (raw is Map) SlowestPage.fromMap(Map<String, dynamic>.from(raw)),
       ],
       stages: [
         for (final raw in _list(json['stages']))
-          if (raw is Map)
-            StageSummary.fromMap(Map<String, dynamic>.from(raw)),
+          if (raw is Map) StageSummary.fromMap(Map<String, dynamic>.from(raw)),
       ],
       pages: [
         for (final raw in _list(json['pages']))
@@ -196,9 +193,7 @@ class EngineTiming {
       engine: json['engine'] is String ? json['engine'] as String : '',
       stage: json['stage'] is String ? json['stage'] as String : '',
       timedJobs: ProcessingReportSnapshot._int(json['timed_jobs']),
-      unavailableJobs: ProcessingReportSnapshot._int(
-        json['unavailable_jobs'],
-      ),
+      unavailableJobs: ProcessingReportSnapshot._int(json['unavailable_jobs']),
       observedSeconds: ratio(json['observed_seconds']),
       share: ratio(json['share']),
       meanSeconds: ratio(json['mean_seconds']),
@@ -235,16 +230,13 @@ class TimingSummary {
           ? observed.toDouble()
           : null,
       timedJobs: ProcessingReportSnapshot._int(json['timed_jobs']),
-      unavailableJobs: ProcessingReportSnapshot._int(
-        json['unavailable_jobs'],
-      ),
+      unavailableJobs: ProcessingReportSnapshot._int(json['unavailable_jobs']),
       bottleneckStage: json['bottleneck_stage'] is String
           ? json['bottleneck_stage'] as String
           : null,
       engines: [
         for (final raw in ProcessingReportSnapshot._list(json['engines']))
-          if (raw is Map)
-            EngineTiming.fromMap(Map<String, dynamic>.from(raw)),
+          if (raw is Map) EngineTiming.fromMap(Map<String, dynamic>.from(raw)),
       ],
     );
   }
@@ -341,8 +333,9 @@ class PageReportEntry {
       highRiskPairs: ProcessingReportSnapshot._int(json['high_risk_pairs']),
       openPairs: ProcessingReportSnapshot._int(json['open_pairs']),
       riskReasons: <String, int>{
-        for (final entry
-            in ProcessingReportSnapshot._map(json['risk_reasons']).entries)
+        for (final entry in ProcessingReportSnapshot._map(
+          json['risk_reasons'],
+        ).entries)
           entry.key: entry.value is int ? entry.value as int : 0,
       },
       observedSeconds: seconds is num && seconds.isFinite
@@ -364,19 +357,25 @@ String processingReportMarkdown(ProcessingReportSnapshot report) {
   final buffer = StringBuffer()
     ..writeln('# 处理报告：${report.title.isEmpty ? '未命名项目' : report.title}')
     ..writeln()
-    ..writeln('- 页数：${report.pagesTotal}（OCR 完成 ${report.ocrCompletePages}，'
-        '失败 ${report.failedPages}，进行中 ${report.runningPages}）')
-    ..writeln('- 实测总耗时：${seconds(report.timing.observedSeconds)}'
-        '（${report.timing.scope}；已计时任务 ${report.timing.timedJobs}，'
-        '未计时 ${report.timing.unavailableJobs}）')
+    ..writeln(
+      '- 页数：${report.pagesTotal}（OCR 完成 ${report.ocrCompletePages}，'
+      '失败 ${report.failedPages}，进行中 ${report.runningPages}）',
+    )
+    ..writeln(
+      '- 实测总耗时：${seconds(report.timing.observedSeconds)}'
+      '（${report.timing.scope}；已计时任务 ${report.timing.timedJobs}，'
+      '未计时 ${report.timing.unavailableJobs}）',
+    )
     ..writeln('- 瓶颈阶段：${report.timing.bottleneckStage ?? 'N/A（无已计时任务）'}')
-    ..writeln('- 复核率：${percent(report.review.reviewRequiredRatio)}'
-        '（机器自动采纳 ${report.review.acceptedAutomatic}，'
-        'VLM 采纳 ${report.review.acceptedVlm}，'
-        '人工采纳 ${report.review.acceptedHuman}，'
-        '待处理 ${report.review.openPairs}，'
-        '其中高风险 ${report.review.openHighRisk}，'
-        '阻塞 ${report.review.openBlocked}）')
+    ..writeln(
+      '- 复核率：${percent(report.review.reviewRequiredRatio)}'
+      '（机器自动采纳 ${report.review.acceptedAutomatic}，'
+      'VLM 采纳 ${report.review.acceptedVlm}，'
+      '人工采纳 ${report.review.acceptedHuman}，'
+      '待处理 ${report.review.openPairs}，'
+      '其中高风险 ${report.review.openHighRisk}，'
+      '阻塞 ${report.review.openBlocked}）',
+    )
     ..writeln('- 高风险配对总数：${report.highRiskPairsTotal}');
   if (report.timing.engines.isNotEmpty) {
     buffer
@@ -400,7 +399,9 @@ String processingReportMarkdown(ProcessingReportSnapshot report) {
       ..writeln('| 页码 | 实测耗时 |')
       ..writeln('| --- | --- |');
     for (final page in report.slowestPages) {
-      buffer.writeln('| ${page.pageIndex + 1} | ${seconds(page.observedSeconds)} |');
+      buffer.writeln(
+        '| ${page.pageIndex + 1} | ${seconds(page.observedSeconds)} |',
+      );
     }
   }
   if (report.riskDistribution.isNotEmpty) {
