@@ -112,5 +112,84 @@ void main() {
       expect(snapshot.coreBackendNames, ['mineru', 'paddleocr']);
       expect(snapshot.optionalBackendNames, ['paddleocr-vl', 'surya']);
     });
+
+    test('parses the disk preflight and per-backend estimates (#214)', () {
+      final snapshot = RuntimeStatusSnapshot.fromJsonText('''
+{
+  "schema_version": 1,
+  "runtime_root": "/runtime",
+  "runtime_root_exists": true,
+  "uv_available": true,
+  "hardware": {},
+  "paths": {},
+  "backends": {
+    "mineru": {"state": "ready", "failed_step": null,
+      "environment_path": "/runtime/envs/mineru", "environment_exists": true,
+      "optional": false,
+      "estimates": {"download_bytes": 6442450944, "install_bytes": 8589934592,
+        "model_bytes": 4294967296, "total_bytes": 19327352832, "note": "含模型"}},
+    "paddleocr": {"state": "missing", "failed_step": null,
+      "environment_path": "/runtime/envs/paddleocr", "environment_exists": false,
+      "optional": false, "estimates": {"download_bytes": 1, "install_bytes": 2,
+        "model_bytes": 3, "total_bytes": 6, "note": ""}}
+  },
+  "disk": {
+    "path": "/runtime",
+    "runtime_root": "/runtime",
+    "free_bytes": 5000000000,
+    "total_bytes": 500000000000,
+    "used_bytes": 495000000000,
+    "required_bytes": 30000000000,
+    "headroom_factor": 1.1,
+    "sufficient": false,
+    "missing_bytes": 25000000000,
+    "advice": "预计需要约 27.9 GB，当前盘剩余 4.7 GB，还差约 23.3 GB。",
+    "estimated": true,
+    "tools_download_bytes": 31457280,
+    "backends": {
+      "mineru": {"download_bytes": 6442450944, "install_bytes": 8589934592,
+        "model_bytes": 4294967296, "total_bytes": 19327352832, "note": "含模型"}
+    }
+  }
+}
+''');
+      final disk = snapshot.disk;
+      expect(disk, isNotNull);
+      expect(disk!.path, '/runtime');
+      expect(disk.freeBytes, 5000000000);
+      expect(disk.requiredBytes, 30000000000);
+      expect(disk.sufficient, isFalse);
+      expect(disk.missingBytes, 25000000000);
+      expect(disk.advice, contains('还差约'));
+      expect(disk.backends['mineru']?.totalBytes, 19327352832);
+      expect(snapshot.backends['mineru']?.estimates?.formatTotal(), '18.0 GB');
+      expect(snapshot.backends['paddleocr']?.estimates?.totalBytes, 6);
+    });
+
+    test('disk preflight is null for older CLI reports', () {
+      final snapshot = RuntimeStatusSnapshot.fromJsonText('''
+{
+  "schema_version": 1,
+  "runtime_root": "/runtime",
+  "runtime_root_exists": true,
+  "uv_available": true,
+  "hardware": {},
+  "paths": {},
+  "backends": {}
+}
+''');
+      expect(snapshot.disk, isNull);
+      expect(snapshot.backends, isEmpty);
+    });
+  });
+
+  group('formatBytes', () {
+    test('formats byte sizes in human units', () {
+      expect(formatBytes(0), '0 B');
+      expect(formatBytes(512), '512 B');
+      expect(formatBytes(2048), '2.0 KB');
+      expect(formatBytes(5 * 1024 * 1024), '5.0 MB');
+      expect(formatBytes(12 * 1024 * 1024 * 1024 + 512 * 1024 * 1024), '12.5 GB');
+    });
   });
 }

@@ -31,6 +31,19 @@ class ScribeForgeCli {
     '--json',
   ];
 
+  static List<String> runtimeCleanArguments({
+    String? runtimeRoot,
+    bool cache = false,
+    bool models = false,
+    bool json = true,
+  }) => <String>[
+    'runtime-clean',
+    if (runtimeRoot != null) ...<String>['--runtime-root', runtimeRoot],
+    if (cache) '--cache',
+    if (models) '--models',
+    if (json) '--json',
+  ];
+
   static List<String> runtimeStatusArguments({String? runtimeRoot}) => <String>[
     'runtime-status',
     if (runtimeRoot != null && runtimeRoot.trim().isNotEmpty) ...[

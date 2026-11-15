@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -1585,6 +1586,12 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             '选择扫描书籍的 PDF 或页面图片，运行可恢复的双引擎 OCR 与校对管线。',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
+          const SizedBox(height: 6),
+          Text(
+            _engineComboSummary(),
+            key: const ValueKey('engine-combo-summary'),
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+          ),
           const SizedBox(height: 20),
           Row(
             children: <Widget>[
@@ -2335,6 +2342,119 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   // ========================================================= 设置页面
 
+  /// First-run disk budget for the settings card (issue #214); null when no
+  /// preflight has been reported yet.
+  String? _diskBudgetLine() {
+    final disk = _runtimeStatus?.disk;
+    if (disk == null) return null;
+    final required = formatBytes(disk.requiredBytes);
+    final free = formatBytes(disk.freeBytes);
+    return disk.sufficient
+        ? '磁盘预算（预估）：首跑约需 $required，当前盘剩余 $free。'
+        : '磁盘预算（预估）：首跑约需 $required，当前盘剩余 $free，还差约 '
+          '${formatBytes(disk.missingBytes)}。';
+  }
+
+  bool get _diskInsufficient =>
+      _runtimeStatus?.disk != null && !_runtimeStatus!.disk!.sufficient;
+
+  String get _diskAdvice => _runtimeStatus?.disk?.advice ?? '';
+
+  bool _runtimeCleaning = false;
+
+  /// Runs `runtime-clean` and reports the freed space (issue #214).
+  Future<void> _cleanRuntimeArtifacts() async {
+    final root = _runtimeStatus?.runtimeRoot;
+    if (root == null || root.isEmpty) {
+      setState(() => _error = '尚未检测到运行时根目录，请先刷新运行时状态。');
+      return;
+    }
+    setState(() {
+      _runtimeCleaning = true;
+      _error = null;
+    });
+    var output = '';
+    try {
+      final exitCode = await _cliExecutor.run(
+        executable: _cliExecutable,
+        arguments: ScribeForgeCli.runtimeCleanArguments(runtimeRoot: root),
+        onOutput: (chunk) => output += chunk,
+        onError: (chunk) => output += chunk,
+      );
+      if (!mounted) return;
+      if (exitCode != 0) {
+        setState(() {
+          _runtimeCleaning = false;
+          _error = '清理失败（退出码 $exitCode）：${output.trim()}';
+        });
+        return;
+      }
+      var freed = 0;
+      try {
+        final decoded = jsonDecode(output);
+        if (decoded is Map && decoded['freed_bytes'] is num) {
+          freed = (decoded['freed_bytes'] as num).toInt();
+        }
+      } on FormatException {
+        // Non-JSON output: still a success exit; show raw text.
+      }
+      setState(() {
+        _runtimeCleaning = false;
+        _notice = '已清理运行时临时文件，释放约 ${formatBytes(freed)}。';
+      });
+      await _refreshRuntimeStatus();
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _runtimeCleaning = false;
+        _error = '清理失败：$error';
+      });
+    }
+  }
+
+  /// Engines that will take part in processing, read from runtime-status
+  /// (issue #215): ready core engines first, then installed optional routes.
+  String _engineComboSummary() {
+    final status = _runtimeStatus;
+    if (status == null) return '当前引擎组合：尚未检测运行时状态。';
+    final ready = <String>[
+      for (final name in status.backendNames)
+        if (status.backends[name]?.state == 'ready') name,
+    ];
+    if (ready.isEmpty) return '当前引擎组合：尚无就绪引擎，请先初始化环境。';
+    final labels = ready
+        .map(
+          (name) => switch (name) {
+            'mineru' => 'MinerU',
+            'paddleocr' => 'PaddleOCR',
+            'paddleocr-vl' => 'PaddleOCR-VL',
+            'surya' => 'Surya',
+            _ => name,
+          },
+        )
+        .join(' + ');
+    final optional = ready.where(
+      (name) => status.backends[name]?.optional == true,
+    );
+    final suffix = optional.isEmpty ? '' : '（含可选引擎 ${optional.join(', ')}）';
+    return '当前引擎组合：$labels$suffix';
+  }
+
+  String _backendDisplayLabel(String name) => switch (name) {
+    'mineru' => 'MinerU',
+    'paddleocr' => 'PaddleOCR',
+    'paddleocr-vl' => 'PaddleOCR-VL',
+    'surya' => 'Surya',
+    _ => name,
+  };
+
+  /// Per-backend size estimate suffix for the settings list (issue #214).
+  String _backendEstimateSuffix(RuntimeBackendSnapshot backend) {
+    final estimate = backend.estimates;
+    if (estimate == null || estimate.totalBytes <= 0) return '';
+    return ' · 预估 ${formatBytes(estimate.totalBytes)}';
+  }
+
   Widget _buildInitializationCard() {
     final origin = _backendResolution?.origin;
     final coreLabel = switch (origin) {
@@ -2381,6 +2501,27 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   : '处理核心未连接。完整桌面安装包会附带该组件；请重新检测，或重新安装完整桌面版。开发者仍可在下方指定 CLI。',
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (_diskBudgetLine() != null) ...<Widget>[
+              const SizedBox(height: 6),
+              Text(
+                _diskBudgetLine()!,
+                key: const ValueKey('disk-budget-line'),
+                style: TextStyle(
+                  color: _diskInsufficient
+                      ? Colors.red.shade700
+                      : Colors.grey.shade700,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+            if (_diskInsufficient && _diskAdvice.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 4),
+              Text(
+                _diskAdvice,
+                key: const ValueKey('disk-insufficient-advice'),
+                style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+              ),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -2388,7 +2529,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               children: <Widget>[
                 FilledButton.icon(
                   key: const ValueKey('initialize-runtime-button'),
-                  onPressed: _backendConnected && !_runtimeLoading && !_busy
+                  // Issue #214: never start the first run when the runtime
+                  // root drive cannot fit the estimated footprint.
+                  onPressed:
+                      _backendConnected &&
+                          !_runtimeLoading &&
+                          !_busy &&
+                          !_diskInsufficient
                       ? _showInitialization
                       : null,
                   icon: const Icon(Icons.download),
@@ -2480,13 +2627,33 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               Text('根目录：${_runtimeStatus!.runtimeRoot}'),
               Text('存在：${_runtimeStatus!.runtimeRootExists}'),
               Text('uv 可用：${_runtimeStatus!.uvAvailable}'),
+              if (_runtimeStatus!.disk != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '磁盘：${_runtimeStatus!.disk!.path} 剩余 '
+                  '${formatBytes(_runtimeStatus!.disk!.freeBytes)} / 共 '
+                  '${formatBytes(_runtimeStatus!.disk!.totalBytes)}'
+                  '（首跑预估需要 ${formatBytes(_runtimeStatus!.disk!.requiredBytes)}）',
+                  key: const ValueKey('runtime-disk-line'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _runtimeStatus!.disk!.sufficient
+                        ? Colors.grey.shade600
+                        : Colors.red.shade700,
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               Text('后端：', style: const TextStyle(fontWeight: FontWeight.w600)),
               ..._runtimeStatus!.backends.entries.map(
                 (entry) => Padding(
                   padding: const EdgeInsets.only(left: 16, top: 4),
                   child: Text(
-                    '${entry.key}: ${entry.value.state} ${entry.value.environmentExists ? '' : '(环境未安装)'}',
+                    '${_backendDisplayLabel(entry.key)}: ${entry.value.state} '
+                    '${entry.value.environmentExists ? '' : '(环境未安装)'}'
+                    '${entry.value.optional ? ' · 可选引擎' : ''}'
+                    '${_backendEstimateSuffix(entry.value)}',
+                    key: ValueKey('runtime-backend-${entry.key}'),
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ),
@@ -2499,6 +2666,21 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               onTap: () {
                 _refreshRuntimeStatus();
               },
+            ),
+            // Issue #214: actionable cleanup when the disk preflight is short.
+            ListTile(
+              title: const Text('清理运行时临时文件'),
+              subtitle: const Text('删除未完成的临时环境目录；模型与缓存默认保留'),
+              trailing: _runtimeCleaning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_sweep_outlined),
+              onTap: _runtimeLoading || _runtimeCleaning
+                  ? null
+                  : _cleanRuntimeArtifacts,
             ),
           ],
         ),

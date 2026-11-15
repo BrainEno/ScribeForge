@@ -293,4 +293,142 @@ void main() {
     expect(installedBackend, 'paddleocr-vl');
     expect(tester.takeException(), isNull);
   });
+  testWidgets('shows estimated byte progress and retention policy (#214)', (
+    tester,
+  ) async {
+    await showSetupDialog(
+      tester,
+      runSetup:
+          ({
+            required backend,
+            required onMessage,
+            required onDiagnostic,
+          }) async {
+            onMessage(
+              RuntimeSetupMessage.fromJsonLine(
+                '{"schema_version":1,"type":"progress","backend":"mineru",'
+                '"phase":"install","state":"step_completed","step":"install",'
+                '"completed_steps":3,"total_steps":4,'
+                '"downloaded_bytes":6442450944,"installed_bytes":8589934592}',
+              ),
+            );
+            onMessage(
+              RuntimeSetupMessage.fromJsonLine(
+                '{"schema_version":1,"type":"progress","backend":"mineru",'
+                '"phase":"complete","state":"ready","step":null,'
+                '"completed_steps":4,"total_steps":4,'
+                '"downloaded_bytes":10737418240,"installed_bytes":8589934592}',
+              ),
+            );
+            onMessage(
+              RuntimeSetupMessage.fromJsonLine(
+                '{"schema_version":1,"type":"result","action":"install",'
+                '"success":true,"message":null,'
+                '"retention":{"kept":["models"],"cleaned":[],'
+                '"policy":"取消或失败后模型与缓存会保留。"},'
+                '"backends":{'
+                '"mineru":{"state":"ready","failed_step":null},'
+                '"paddleocr":{"state":"ready","failed_step":null}}}',
+              ),
+            );
+            return 0;
+          },
+    );
+
+    await tester.tap(find.text('开始安装全部后端'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('预估下载 10.0 GB'), findsWidgets);
+    expect(find.textContaining('预估占用 8.0 GB'), findsWidgets);
+    expect(find.byKey(const ValueKey('retention-policy-text')), findsOneWidget);
+    expect(find.textContaining('模型与缓存会保留'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('accepts progress for optional route backends (#215)', (
+    tester,
+  ) async {
+    final status = RuntimeStatusSnapshot.fromJsonText('''
+{
+  "schema_version": 1,
+  "runtime_root": "/runtime",
+  "runtime_root_exists": true,
+  "uv_available": true,
+  "hardware": {},
+  "paths": {},
+  "backends": {
+    "mineru": {"state": "ready", "failed_step": null,
+      "environment_path": "/r/mineru", "environment_exists": true},
+    "paddleocr": {"state": "ready", "failed_step": null,
+      "environment_path": "/r/paddle", "environment_exists": true},
+    "surya": {"state": "missing", "failed_step": null,
+      "environment_path": "/r/surya", "environment_exists": false,
+      "optional": true}
+  }
+}
+''');
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showDialog<bool>(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => RuntimeSetupDialog(
+                  runtimeStatus: status,
+                  runSetup:
+                      ({
+                        required backend,
+                        required onMessage,
+                        required onDiagnostic,
+                      }) async {
+                        expect(backend, 'surya');
+                        onMessage(
+                          RuntimeSetupMessage.fromJsonLine(
+                            '{"schema_version":1,"type":"progress",'
+                            '"backend":"surya","phase":"models",'
+                            '"state":"step_completed","step":"layout-models",'
+                            '"completed_steps":1,"total_steps":1,'
+                            '"downloaded_bytes":3221225472,'
+                            '"installed_bytes":4294967296}',
+                          ),
+                        );
+                        onMessage(
+                          RuntimeSetupMessage.fromJsonLine(
+                            '{"schema_version":1,"type":"result",'
+                            '"action":"repair","backend":"surya","success":true,'
+                            '"message":null,'
+                            '"backends":{"surya":{"state":"ready",'
+                            '"failed_step":null}}}',
+                          ),
+                        );
+                        return 0;
+                      },
+                ),
+              ),
+              child: const Text('打开配置'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开配置'));
+    await tester.pumpAndSettle();
+    // Expand the advanced section and install the optional engine.
+    await tester.tap(find.text('高级 / 实验性引擎（可选）'));
+    await tester.pumpAndSettle();
+    final installButton = find.text('安装 Surya');
+    await tester.ensureVisible(installButton);
+    await tester.pumpAndSettle();
+    await tester.tap(installButton);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Surya · 准备模型'), findsWidgets);
+    expect(find.textContaining('预估下载 3.0 GB'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
 }
