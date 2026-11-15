@@ -55,6 +55,18 @@ class ScribeForgeCli {
         '--cancelable',
       ];
 
+  static List<String> reportArguments({
+    required String storePath,
+    int? projectId,
+    bool json = true,
+  }) => <String>[
+    'report',
+    '--store',
+    storePath,
+    if (projectId != null) ...['--project', projectId.toString()],
+    if (json) '--json',
+  ];
+
   static List<String> reviewArguments({
     required String storePath,
     bool includePageFurniture = false,
