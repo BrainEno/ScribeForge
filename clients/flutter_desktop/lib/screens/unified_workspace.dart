@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/processing_report.dart';
 import '../models/project_status.dart';
 import '../models/review_queue.dart';
 import '../models/review_queue_navigation.dart';
@@ -18,6 +19,7 @@ import '../services/cli_executor.dart';
 import '../services/cli_path_validator.dart';
 import '../services/cli_runner.dart';
 import '../services/desktop_file_picker.dart';
+import '../services/processing_report_loader.dart';
 import '../services/python_locator.dart';
 import '../services/settings_store.dart';
 import '../services/workspace_file_system.dart';
@@ -26,6 +28,7 @@ import '../widgets/review_alignment_evidence.dart';
 import '../widgets/review_keyboard_shortcuts.dart';
 import '../widgets/workspace_help_dialog.dart';
 import 'candidate_comparison_screen.dart';
+import 'processing_report_sheet.dart';
 import 'project_safety_screen.dart';
 import 'runtime_setup_dialog.dart';
 import 'vlm_settings_dialog.dart';
@@ -144,11 +147,13 @@ class UnifiedWorkspace extends StatefulWidget {
     this.backendProvisioner,
     this.pythonLocator,
     this.cliPathValidator,
+    this.reportLoader,
   });
 
   final ScribeForgeCliExecutor? cliExecutor;
   final DesktopBackendResolver? backendResolver;
   final CliPathValidator? cliPathValidator;
+  final ProcessingReportLoader? reportLoader;
   final DesktopFilePicker? filePicker;
   final DesktopSettingsStore? settingsStore;
   final WorkspaceFileSystem? fileSystem;
@@ -186,6 +191,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   late final BackendEnvironmentProvisioner _provisioner;
   late final PythonLocator _pythonLocator;
   late final CliPathValidator _cliPathValidator;
+  late final ProcessingReportLoader _reportLoader;
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
   String _backendPython = '';
   String _backendSourcePath = '';
@@ -287,6 +293,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         widget.pythonLocator ??
         PythonLocator(environment: Platform.environment);
     _cliPathValidator = widget.cliPathValidator ?? const CliPathValidator();
+    _reportLoader = widget.reportLoader ?? const ProcessingReportLoader();
     _loadSettings();
   }
 
@@ -1057,16 +1064,52 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         setState(() => _error = message);
         return;
       }
+      var notice = settings.enabled
+          ? 'VLM 已启用；处理时会按此配置发送复核裁切图。'
+          : 'VLM 已关闭；处理不会发送复核裁切图。';
+      // Issue #217: after saving, probe connectivity with the built-in sample
+      // crop so a misconfigured endpoint is caught immediately. The API key
+      // itself is never persisted — only the environment variable name.
+      if (settings.enabled && settings.isConfigured) {
+        final probe = await _probeVlmConnectivity(settings);
+        notice = probe == null ? notice : '$notice$probe';
+      }
+      if (!mounted) return;
       setState(() {
         _vlmSettings = settings;
-        _notice = settings.enabled
-            ? 'VLM 已启用；处理时会按此配置发送复核裁切图。'
-            : 'VLM 已关闭；处理不会发送复核裁切图。';
+        _notice = notice;
         _error = null;
       });
     } on Object catch (error) {
       if (!mounted) return;
       setState(() => _error = '保存 VLM 设置失败：$error');
+    }
+  }
+
+  /// Runs `vlm-check` once with the built-in sample crop (issue #217).
+  ///
+  /// Returns a short Chinese suffix describing the outcome, or null when the
+  /// probe cannot run (e.g. CLI missing) so the save notice stays unchanged.
+  Future<String?> _probeVlmConnectivity(DesktopVlmSettings settings) async {
+    try {
+      final sample = await writeBuiltInVlmSampleImage();
+      var output = '';
+      final exitCode = await _cliExecutor.run(
+        executable: _cliExecutable,
+        arguments: ScribeForgeCli.vlmCheckArguments(
+          imagePath: sample.path,
+          vlmSettings: settings,
+        ),
+        onOutput: (chunk) => output += chunk,
+        onError: (chunk) => output += chunk,
+      );
+      if (exitCode == 0) {
+        return ' 连通性探测成功。';
+      }
+      final detail = output.trim().isEmpty ? '' : '：${output.trim()}';
+      return ' 连通性探测失败（退出码 $exitCode）$detail';
+    } on Object {
+      return null;
     }
   }
 
@@ -1626,6 +1669,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                 onPressed: _busy ? null : _chooseProjectStoreDirectory,
                 icon: const Icon(Icons.drive_file_move_outline, size: 16),
                 label: const Text('更改项目存储目录'),
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const ValueKey('open-report-button'),
+                onPressed: _showProcessingReport,
+                icon: const Icon(Icons.assessment_outlined, size: 16),
+                label: const Text('查看处理报告'),
               ),
             ),
           ],
@@ -2847,6 +2899,46 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     await _refreshRuntimeStatus();
     await _refreshStatus();
     await _refreshReviewQueue();
+  }
+
+  void _showProcessingReport() {
+    final storePath =
+        _projectStorePath ??
+        (_pdfPath == null ? null : ScribeForgeCli.defaultStorePath(_pdfPath!));
+    if (storePath == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => ProcessingReportSheet(
+        executable: _cliExecutable,
+        storePath: storePath,
+        loader: _reportLoader,
+        processing: _processing,
+        exportHandler: _exportProcessingReport,
+      ),
+    );
+  }
+
+  Future<String?> _exportProcessingReport(
+    ProcessingReportSnapshot report, {
+    required bool markdown,
+  }) async {
+    final directory = await _filePicker.getDirectoryPath(
+      dialogTitle: '选择报告导出目录',
+    );
+    if (!mounted || directory == null || directory.trim().isEmpty) {
+      return null;
+    }
+    final stamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(RegExp(r'[:.]'), '-')
+        .substring(0, 19);
+    final fileName = markdown ? 'report-$stamp.md' : 'report-$stamp.json';
+    final file = File(ScribeForgeCli.joinPath(directory.trim(), fileName));
+    await file.writeAsString(
+      markdown ? processingReportMarkdown(report) : report.rawJson,
+    );
+    return file.path;
   }
 
   Future<String?> _promptString(String title, String initialValue) async {
