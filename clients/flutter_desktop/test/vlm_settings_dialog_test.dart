@@ -6,10 +6,10 @@ import 'package:scribeforge_desktop/services/desktop_file_picker.dart';
 import 'package:scribeforge_desktop/services/settings_store.dart';
 
 class _FakeExecutor implements ScribeForgeCliExecutor {
-  _FakeExecutor({this.exitCode = 0, this.stdout = ''});
+  _FakeExecutor();
 
-  final int exitCode;
-  final String stdout;
+  int exitCode = 0;
+  String stdout = '';
   List<String>? lastArguments;
 
   @override
@@ -35,7 +35,7 @@ class _FakeFilePicker implements DesktopFilePicker {
   bool called = false;
 
   @override
-  Future<String?> pickDirectory({String? dialogTitle}) async => null;
+  Future<String?> getDirectoryPath({String? dialogTitle}) async => null;
 
   @override
   Future<String?> pickFile({

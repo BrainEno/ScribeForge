@@ -473,7 +473,7 @@ class _ProcessingReportSheetState extends State<ProcessingReportSheet> {
     },
     border: TableBorder.all(color: Colors.grey.shade300, width: 0.5),
     children: <TableRow>[
-      const TableRow(
+      TableRow(
         children: <Widget>[
           _PageCell.header('页码'),
           _PageCell.header('状态'),
