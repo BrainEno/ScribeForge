@@ -37,7 +37,6 @@ jobs:
       - name: Build the frozen backend
         shell: pwsh
         run: |
-          Write-Host "::notice title=PKG STEP::build frozen backend start"
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
           python -m pip install --upgrade pip
@@ -47,7 +46,6 @@ jobs:
       - name: Smoke-test the frozen backend without Python on PATH
         shell: pwsh
         run: |
-          Write-Host "::notice title=PKG STEP::smoke start"
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
           $backend = (Resolve-Path "dist/backend/scribeforge.exe").Path
@@ -90,16 +88,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           flutter create --platforms=windows --project-name scribeforge_desktop .
           flutter pub get
-          Write-Host "::notice title=PKG STEP::flutter test start"
-          flutter test --reporter expanded --no-color test/backend_resolver_test.dart test/backend_diagnostics_test.dart 2>&1 | Tee-Object -FilePath flutter_test_tail.txt
-          if ($LASTEXITCODE -ne 0) {
-            Get-Content flutter_test_tail.txt -Tail 60 | ForEach-Object {
-              $line = $_ -replace '%', '%25'
-              Write-Host "::error title=PKG FLUTTER TEST TAIL::${line -replace "`n", '%0A'}"
-            }
-            throw "flutter unit tests failed"
-          }
-          Write-Host "::notice title=PKG STEP::flutter build start"
+          flutter test test/backend_resolver_test.dart test/backend_diagnostics_test.dart
           flutter build windows --release
 
       - name: Assemble the self-contained desktop folder
