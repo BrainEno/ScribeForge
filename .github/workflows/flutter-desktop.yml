@@ -31,9 +31,24 @@ jobs:
       - name: Format Dart source
         shell: bash
         run: |
+          echo "::notice title=STEP::format start"
           dart format . || true
           git diff -- . > /tmp/fmt.diff || true
-          python3 -c 'from pathlib import Path; d = Path("/tmp/fmt.diff").read_text(); print("::error title=DART FORMAT DIFF::" + d.replace("%", "%25").replace("\n", "%0A")[:8000])'
+          git diff --name-only -- . | while IFS= read -r f; do
+            echo "::error title=FMT FILE::${f//%/%25}"
+          done
+          python3 - <<'PYEOF' || python - <<'PYEOF2'
+          from pathlib import Path
+          d = Path("/tmp/fmt.diff").read_text()
+          for i in range(0, len(d), 3000):
+              print("::error title=DART FORMAT DIFF part %d::" % (i // 3000) + d[i:i+3000].replace("%", "%25").replace("\n", "%0A"))
+          PYEOF
+          from pathlib import Path
+          d = Path("/tmp/fmt.diff").read_text()
+          for i in range(0, len(d), 3000):
+              print("::error title=DART FORMAT DIFF part %d::" % (i // 3000) + d[i:i+3000].replace("%", "%25").replace("\n", "%0A"))
+          PYEOF2
+          echo "::notice title=STEP::format done"
           dart format --set-exit-if-changed .
       - name: Analyze Flutter client
         id: analyze
@@ -102,9 +117,22 @@ jobs:
           echo "::notice title=WIN STEP::format start"
           dart format . || true
           git diff -- . > /tmp/fmt.diff || true
-          python3 -c 'from pathlib import Path; d = Path("/tmp/fmt.diff").read_text(); print("::error title=DART FORMAT DIFF WIN::" + d.replace("%", "%25").replace("\n", "%0A")[:8000])'
-          dart format --set-exit-if-changed .
+          git diff --name-only -- . | while IFS= read -r f; do
+            echo "::error title=FMT FILE::${f//%/%25}"
+          done
+          python3 - <<'PYEOF' || python - <<'PYEOF2'
+          from pathlib import Path
+          d = Path("/tmp/fmt.diff").read_text()
+          for i in range(0, len(d), 3000):
+              print("::error title=DART FORMAT DIFF WIN part %d::" % (i // 3000) + d[i:i+3000].replace("%", "%25").replace("\n", "%0A"))
+          PYEOF
+          from pathlib import Path
+          d = Path("/tmp/fmt.diff").read_text()
+          for i in range(0, len(d), 3000):
+              print("::error title=DART FORMAT DIFF WIN part %d::" % (i // 3000) + d[i:i+3000].replace("%", "%25").replace("\n", "%0A"))
+          PYEOF2
           echo "::notice title=WIN STEP::format done"
+          dart format --set-exit-if-changed .
       - name: Analyze Flutter client
         shell: bash
         run: |
