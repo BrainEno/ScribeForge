@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Desktop settings persistence is now atomic and lossless (issues #216/#218):
+  all writes to `settings.json` go through a serialized queue (100+ concurrent
+  saves keep every field), are written to `settings.json.tmp`, fsynced, then
+  renamed over the main file, so an interrupted write never leaves a torn
+  config. A corrupt `settings.json` is quarantined to
+  `settings.corrupt-<timestamp>.json` and surfaced in the UI as a visible
+  recovery banner instead of being silently reset. Saves return a
+  `SettingsSaveResult`; on failure the UI keeps the user's input and offers
+  a retry.
+- The custom CLI path in 设置 is validated before it is persisted (issue
+  #221): the new `CliPathValidator` checks existence, directory/non-executable
+  rejection, and runs `<path> --help` (or `--version` for the Python
+  interpreter path) with a timeout and cancellation. Invalid paths are never
+  saved — the old configured value stays in effect — and the settings row
+  shows the detected origin (内置核心 / 已初始化的本地环境 / 自定义路径 /
+  PATH 开发模式) plus the probe result.
+
 - Desktop first-run initialization is hardened (issue #212):
   `PythonLocator` rejects the Windows Microsoft Store app-execution alias
   (exit 9009 / "Microsoft Store" probe output), requires a working
@@ -20,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The runtime setup dialog is now driven by the `runtime-status` schema
+  instead of a hardcoded backend list (issue #215): all reported backends are
+  parsed (including the `optional` flag), core engines render as top-level
+  cards, and the optional technology-route engines from #90 (PaddleOCR-VL,
+  Surya) appear in a collapsed "高级 / 实验性引擎（可选）" section with a
+  volume/license note and a per-engine install button that runs
+  `setup --backend <name>` for just that engine.
 - Structured JSON logging, run ids and secret redaction (issue #69):
   `--log-format json` emits one JSON object per log line (`ts` / `level` /
   `logger` / `run` / `message`, plus `exception` for tracebacks). Every CLI

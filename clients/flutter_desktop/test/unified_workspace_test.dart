@@ -191,33 +191,39 @@ class _MemorySettingsStore extends DesktopSettingsStore {
   Future<String> loadBackendPython() async => _backendPython;
 
   @override
-  Future<void> saveBackendPython(String pythonExecutable) async {
+  Future<SettingsSaveResult> saveBackendPython(String pythonExecutable) async {
     _backendPython = pythonExecutable;
+    return SettingsSaveResult.ok();
   }
 
   @override
   Future<String> loadBackendSourcePath() async => _backendSourcePath;
 
   @override
-  Future<void> saveBackendSourcePath(String sourcePath) async {
+  Future<SettingsSaveResult> saveBackendSourcePath(String sourcePath) async {
     _backendSourcePath = sourcePath;
+    return SettingsSaveResult.ok();
   }
 
   @override
   Future<String?> loadLastProjectStore() async => _lastProjectStore;
 
   @override
-  Future<void> saveLastProjectStore(String storePath) async {
+  Future<SettingsSaveResult> saveLastProjectStore(String storePath) async {
     final value = storePath.trim();
     _lastProjectStore = value.isEmpty ? null : value;
+    return SettingsSaveResult.ok();
   }
 
   @override
   Future<DesktopVlmSettings> loadVlmSettings() async => _vlmSettings;
 
   @override
-  Future<void> saveVlmSettings(DesktopVlmSettings settings) async {
+  Future<SettingsSaveResult> saveVlmSettings(
+    DesktopVlmSettings settings,
+  ) async {
     _vlmSettings = settings;
+    return SettingsSaveResult.ok();
   }
 }
 

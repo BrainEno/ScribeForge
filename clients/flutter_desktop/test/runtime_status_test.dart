@@ -74,5 +74,43 @@ void main() {
 ''');
       expect(snapshot.backends, isEmpty);
     });
+
+    test('parses optional technology-route backends (#90/#215)', () {
+      final snapshot = RuntimeStatusSnapshot.fromJsonText('''
+{
+  "schema_version": 1,
+  "runtime_root": "/runtime",
+  "runtime_root_exists": true,
+  "uv_available": true,
+  "hardware": {},
+  "paths": {},
+  "backends": {
+    "mineru": {"state": "ready", "failed_step": null,
+      "environment_path": "/runtime/envs/mineru", "environment_exists": true,
+      "optional": false},
+    "paddleocr": {"state": "ready", "failed_step": null,
+      "environment_path": "/runtime/envs/paddleocr", "environment_exists": true,
+      "optional": false},
+    "paddleocr-vl": {"state": "missing", "failed_step": null,
+      "environment_path": "/runtime/envs/paddleocr-vl", "environment_exists": false,
+      "optional": true},
+    "surya": {"state": "missing", "failed_step": null,
+      "environment_path": "/runtime/envs/surya", "environment_exists": false,
+      "optional": true}
+  }
+}
+''');
+      expect(snapshot.backends.length, 4);
+      expect(snapshot.backends['paddleocr-vl']?.optional, isTrue);
+      expect(snapshot.backends['mineru']?.optional, isFalse);
+      expect(snapshot.backendNames, [
+        'mineru',
+        'paddleocr',
+        'paddleocr-vl',
+        'surya',
+      ]);
+      expect(snapshot.coreBackendNames, ['mineru', 'paddleocr']);
+      expect(snapshot.optionalBackendNames, ['paddleocr-vl', 'surya']);
+    });
   });
 }

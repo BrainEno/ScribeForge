@@ -30,7 +30,21 @@ class RuntimeSetupDialog extends StatefulWidget {
 }
 
 class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
-  static const List<String> _backendNames = <String>['mineru', 'paddleocr'];
+  /// Fallback core engines when no runtime-status snapshot is available yet.
+  static const List<String> _fallbackCoreBackends = <String>[
+    'mineru',
+    'paddleocr',
+  ];
+
+  /// Core engines that "开始安装全部后端" installs, taken from the
+  /// runtime-status schema (issue #215) instead of a hardcoded list.
+  List<String> get _coreBackends =>
+      widget.runtimeStatus?.coreBackendNames ?? _fallbackCoreBackends;
+
+  /// Optional technology-route backends (#90), rendered in the advanced
+  /// section and installed only on explicit request.
+  List<String> get _optionalBackends =>
+      widget.runtimeStatus?.optionalBackendNames ?? const <String>[];
 
   final Map<String, RuntimeSetupMessage> _latestProgress =
       <String, RuntimeSetupMessage>{};
@@ -70,7 +84,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
       _diagnostic = null;
       _latestProgress.clear();
       _activity.clear();
-      final targets = backend == null ? _backendNames : <String>[backend];
+      final targets = backend == null ? _coreBackends : <String>[backend];
       for (final name in targets) {
         _stateOverrides[name] = 'installing';
         _failedSteps.remove(name);
@@ -187,7 +201,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
 
   double get _overallFraction {
     final targets = _activeTarget == null
-        ? _backendNames
+        ? _coreBackends
         : <String>[_activeTarget!];
     if (targets.isEmpty) return 0;
     final total = targets.fold<double>(
@@ -225,6 +239,8 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
   String _backendLabel(String backend) => switch (backend) {
     'mineru' => 'MinerU',
     'paddleocr' => 'PaddleOCR',
+    'paddleocr-vl' => 'PaddleOCR-VL',
+    'surya' => 'Surya',
     _ => backend,
   };
 
@@ -344,9 +360,14 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                   Text(_progressDescription(_activeProgress)),
                   const SizedBox(height: 8),
                 ],
-                _backendCard('mineru'),
-                const SizedBox(height: 8),
-                _backendCard('paddleocr'),
+                for (final backend in _coreBackends) ...<Widget>[
+                  _backendCard(backend),
+                  const SizedBox(height: 8),
+                ],
+                if (_optionalBackends.isNotEmpty) ...<Widget>[
+                  _optionalBackendsSection(),
+                  const SizedBox(height: 8),
+                ],
                 if (_result != null && !_running) ...<Widget>[
                   const SizedBox(height: 12),
                   _resultBanner(),
@@ -418,12 +439,46 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
     );
   }
 
-  Widget _backendCard(String backend) {
+  /// Collapsed section for the optional technology-route engines (#90/#215):
+  /// visible in the dialog with their volume/license note, installed only via
+  /// the per-backend repair button.
+  Widget _optionalBackendsSection() {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 12),
+          title: const Text(
+            '高级 / 实验性引擎（可选）',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: Text(
+            '第二/第三识别意见，开源免费；首次安装体积较大，可稍后按需安装。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          children: <Widget>[
+            for (final backend in _optionalBackends) ...<Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: _backendCard(backend, optional: true),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _backendCard(String backend, {bool optional = false}) {
     final progress = _latestProgress[backend];
     final state = _backendState(backend);
     final snapshot = widget.runtimeStatus?.backends[backend];
     final failedStep = _failedSteps[backend] ?? snapshot?.failedStep;
     final isTarget = _activeTarget == null || _activeTarget == backend;
+    final actionLabel = optional
+        ? '安装 ${_backendLabel(backend)}'
+        : '只修复 ${_backendLabel(backend)}';
     final statusColor = switch (state) {
       'ready' => Colors.green.shade700,
       'failed' => Theme.of(context).colorScheme.error,
@@ -503,7 +558,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                     ? null
                     : () => _startSetup(backend: backend),
                 icon: const Icon(Icons.build_outlined),
-                label: Text('只修复 ${_backendLabel(backend)}'),
+                label: Text(actionLabel),
               ),
             ),
           ],

@@ -109,7 +109,10 @@ void main() {
       ),
     );
     final outputPath = backupCall[backupCall.indexOf('--out') + 1];
-    expect(outputPath, startsWith('/tmp/archives/Study-backup-'));
+    expect(
+      outputPath.replaceAll('\\', '/'),
+      startsWith('/tmp/archives/Study-backup-'),
+    );
     expect(outputPath, endsWith('.zip'));
     expect(backupCall, isNot(contains('--overwrite')));
   });
@@ -178,7 +181,10 @@ void main() {
       ]);
       final restoreCall = cli.calls.last;
       final targetPath = restoreCall[restoreCall.indexOf('--to') + 1];
-      expect(targetPath, startsWith('/tmp/restored-projects/'));
+      expect(
+        targetPath.replaceAll('\\', '/'),
+        startsWith('/tmp/restored-projects/'),
+      );
       expect(targetPath, contains('restored'));
       expect(targetPath, isNot(storePath));
       expect(restoredStorePath, targetPath);

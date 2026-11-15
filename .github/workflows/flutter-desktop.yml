@@ -1,6 +1,8 @@
 name: Flutter Desktop
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -65,3 +67,31 @@ jobs:
           if [ -f flutter_test_output.txt ]; then
             python -c 'from pathlib import Path; lines = Path("flutter_test_output.txt").read_text(errors="replace").splitlines(); markers = ("══╡", "Expected:", "Actual:", "Which:", "The following", "Failed assertion:", "NoSuchMethodError", "Timed out", "Some tests failed"); tail = [line.strip()[:500] for line in lines[-60:] if line.strip()]; contexts = [line.strip()[:500] for index, line in enumerate(lines) if "EXCEPTION CAUGHT" in line for line in lines[index:min(index + 24, len(lines))] if line.strip()]; diagnostics = [line.strip()[:500] for line in lines if "[E]" in line or any(marker in line for marker in markers)]; selected = list(dict.fromkeys(contexts + diagnostics + tail[-12:]))[:40]; message = "%0A".join(line.replace("%", "%25") for line in selected); print(f"::error title=Flutter test failures::{message}")'
           fi
+
+  flutter-desktop-windows:
+    # Issue #220: the same analyze/format/test gates must pass on a real
+    # Windows runner; the ubuntu job alone cannot prove desktop deliverability.
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: clients/flutter_desktop
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Format Dart source
+        run: dart format --set-exit-if-changed .
+      - name: Analyze Flutter client
+        shell: bash
+        run: flutter analyze --machine
+      - name: Run Flutter tests on Windows
+        shell: bash
+        run: flutter test --reporter expanded --no-color --timeout 3m

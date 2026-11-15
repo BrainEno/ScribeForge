@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/models/runtime_setup.dart';
+import 'package:scribeforge_desktop/models/runtime_status.dart';
 import 'package:scribeforge_desktop/screens/runtime_setup_dialog.dart';
 
 void main() {
@@ -202,6 +203,94 @@ void main() {
     expect(find.text('重新安装全部后端'), findsOneWidget);
     expect(find.text('已取消'), findsOneWidget);
     expect(find.text('取消配置'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('renders optional engines in the advanced section only', (
+    tester,
+  ) async {
+    final status = RuntimeStatusSnapshot.fromJsonText('''
+{
+  "schema_version": 1,
+  "runtime_root": "/runtime",
+  "runtime_root_exists": true,
+  "uv_available": true,
+  "hardware": {"os": "linux"},
+  "paths": {},
+  "backends": {
+    "mineru": {"state": "ready", "failed_step": null,
+      "environment_path": "/runtime/envs/mineru", "environment_exists": true,
+      "optional": false},
+    "paddleocr": {"state": "ready", "failed_step": null,
+      "environment_path": "/runtime/envs/paddleocr", "environment_exists": true,
+      "optional": false},
+    "paddleocr-vl": {"state": "missing", "failed_step": null,
+      "environment_path": "/runtime/envs/paddleocr-vl",
+      "environment_exists": false, "optional": true},
+    "surya": {"state": "missing", "failed_step": null,
+      "environment_path": "/runtime/envs/surya", "environment_exists": false,
+      "optional": true}
+  }
+}
+''');
+    String? installedBackend;
+    tester.view.physicalSize = const Size(1280, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showDialog<bool>(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => RuntimeSetupDialog(
+                  runtimeStatus: status,
+                  runSetup:
+                      ({
+                        required backend,
+                        required onMessage,
+                        required onDiagnostic,
+                      }) async {
+                        installedBackend = backend;
+                        onMessage(
+                          RuntimeSetupMessage.fromJsonLine(
+                            '{"schema_version":1,"type":"result",'
+                            '"action":"install","success":true,"message":null,'
+                            '"backends":{"paddleocr-vl":{"state":"ready",'
+                            '"failed_step":null}}}',
+                          ),
+                        );
+                        return 0;
+                      },
+                ),
+              ),
+              child: const Text('打开配置'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开配置'));
+    await tester.pumpAndSettle();
+
+    // Core engines render as top-level cards; optional ones are collapsed
+    // inside the advanced section (#215).
+    expect(find.text('MinerU'), findsOneWidget);
+    expect(find.text('PaddleOCR'), findsOneWidget);
+    expect(find.text('高级 / 实验性引擎（可选）'), findsOneWidget);
+    expect(find.text('PaddleOCR-VL'), findsNothing);
+    await tester.tap(find.text('高级 / 实验性引擎（可选）'));
+    await tester.pumpAndSettle();
+    expect(find.text('PaddleOCR-VL'), findsOneWidget);
+    expect(find.text('Surya'), findsOneWidget);
+
+    // Installing one optional engine passes only that backend to setup.
+    await tester.tap(find.text('安装 PaddleOCR-VL'));
+    await tester.pumpAndSettle();
+    expect(installedBackend, 'paddleocr-vl');
     expect(tester.takeException(), isNull);
   });
 }

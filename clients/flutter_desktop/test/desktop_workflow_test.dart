@@ -705,7 +705,10 @@ void main() {
       tester,
       () => harness.cli.calls.any(
         (arguments) =>
-            arguments.first == 'status' && arguments.contains('/fake/store'),
+            arguments.first == 'status' &&
+            arguments
+                .map((argument) => argument.replaceAll('\\', '/'))
+                .contains('/fake/store'),
       ),
       description: 'the remembered project store to be reopened',
     );
@@ -792,38 +795,45 @@ class _MemorySettingsStore extends DesktopSettingsStore {
   Future<String> loadBackendPython() async => _backendPython;
 
   @override
-  Future<void> saveBackendPython(String pythonExecutable) async {
+  Future<SettingsSaveResult> saveBackendPython(String pythonExecutable) async {
     _backendPython = pythonExecutable;
+    return SettingsSaveResult.ok();
   }
 
   @override
   Future<String> loadBackendSourcePath() async => _backendSourcePath;
 
   @override
-  Future<void> saveBackendSourcePath(String sourcePath) async {
+  Future<SettingsSaveResult> saveBackendSourcePath(String sourcePath) async {
     _backendSourcePath = sourcePath;
+    return SettingsSaveResult.ok();
   }
 
   @override
-  Future<void> saveCliExecutable(String executable) async {
+  Future<SettingsSaveResult> saveCliExecutable(String executable) async {
     _cliExecutable = executable;
+    return SettingsSaveResult.ok();
   }
 
   @override
   Future<String?> loadLastProjectStore() async => _lastProjectStore;
 
   @override
-  Future<void> saveLastProjectStore(String storePath) async {
+  Future<SettingsSaveResult> saveLastProjectStore(String storePath) async {
     final value = storePath.trim();
     _lastProjectStore = value.isEmpty ? null : value;
+    return SettingsSaveResult.ok();
   }
 
   @override
   Future<DesktopVlmSettings> loadVlmSettings() async => _vlmSettings;
 
   @override
-  Future<void> saveVlmSettings(DesktopVlmSettings settings) async {
+  Future<SettingsSaveResult> saveVlmSettings(
+    DesktopVlmSettings settings,
+  ) async {
     _vlmSettings = settings;
+    return SettingsSaveResult.ok();
   }
 }
 
@@ -839,7 +849,8 @@ class _FakeWorkspaceFileSystem implements WorkspaceFileSystem {
   final Set<String> _existingFiles;
 
   void addProjectStore(String storePath) {
-    _existingFiles.add('$storePath${Platform.pathSeparator}project.sqlite3');
+    // Mirror the app's joinPath so the fake matches on every platform.
+    _existingFiles.add(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
   }
 
   @override

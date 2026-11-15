@@ -1,6 +1,14 @@
 name: Windows Desktop Package
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/windows-desktop.yml"
+      - "packaging/**"
+      - "clients/flutter_desktop/**"
+      - "src/scribeforge/**"
+      - "pyproject.toml"
   pull_request:
     paths:
       - ".github/workflows/windows-desktop.yml"
