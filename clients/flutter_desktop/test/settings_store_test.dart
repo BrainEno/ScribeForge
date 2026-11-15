@@ -121,4 +121,131 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  test('saves report success through SettingsSaveResult', () async {
+    final store = DesktopSettingsStore(directory: temporary);
+    final result = await store.saveCliExecutable('/opt/scribeforge');
+    expect(result.ok, isTrue);
+    expect(result.error, isNull);
+  });
+
+  test('100+ concurrent saves keep every field', () async {
+    final store = DesktopSettingsStore(directory: temporary);
+    final futures = <Future<SettingsSaveResult>>[];
+    for (var i = 0; i < 120; i++) {
+      futures.add(store.saveCliExecutable('/cli-$i'));
+      futures.add(store.saveBackendPython('/python-$i'));
+      futures.add(store.saveBackendSourcePath('/src-$i'));
+      futures.add(store.saveLastProjectStore('/store-$i'));
+      futures.add(
+        store.saveVlmSettings(
+          DesktopVlmSettings(
+            enabled: true,
+            endpoint: 'http://127.0.0.1:$i/v1',
+            model: 'model-$i',
+            timeoutSeconds: 30 + i.toDouble(),
+          ),
+        ),
+      );
+    }
+    final results = await Future.wait(futures);
+    expect(results.every((result) => result.ok), isTrue);
+
+    // After the serialized queue drains, exactly one value per field
+    // survives and the file is still valid JSON.
+    final reloaded = DesktopSettingsStore(directory: temporary);
+    expect(await reloaded.loadCliExecutable(), startsWith('/cli-'));
+    expect(await reloaded.loadBackendPython(), startsWith('/python-'));
+    expect(await reloaded.loadBackendSourcePath(), startsWith('/src-'));
+    expect(await reloaded.loadLastProjectStore(), startsWith('/store-'));
+    final vlm = await reloaded.loadVlmSettings();
+    expect(vlm.enabled, isTrue);
+    expect(vlm.model, startsWith('model-'));
+    expect(vlm.endpoint, contains('/v1'));
+  });
+
+  test('an interrupted write leaves the previous settings.json intact', () async {
+    var failOnce = true;
+    final store = DesktopSettingsStore(
+      directory: temporary,
+      beforeRename: (tmpFile, bytes) async {
+        if (failOnce) {
+          failOnce = false;
+          throw StateError('simulated crash before rename');
+        }
+      },
+    );
+    final first = await store.saveCliExecutable('/good/cli');
+    expect(first.ok, isTrue);
+
+    final crashed = await store.saveBackendPython('/broken/python');
+    expect(crashed.ok, isFalse);
+    expect(crashed.error, contains('simulated crash'));
+
+    // The main file still parses and still holds the pre-crash value.
+    final reloaded = DesktopSettingsStore(directory: temporary);
+    expect(await reloaded.loadCliExecutable(), '/good/cli');
+    expect(await reloaded.loadBackendPython(), isEmpty);
+
+    // A later save succeeds and the queue is not wedged by the failure.
+    final retry = await store.saveBackendPython('/fixed/python');
+    expect(retry.ok, isTrue);
+    expect(await reloaded.loadBackendPython(), '/fixed/python');
+  });
+
+  test('a corrupt settings.json is quarantined, backed up and reported', () async {
+    final settingsFile = File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    );
+    await settingsFile.writeAsString('{not json');
+    SettingsCorruption? reported;
+    final store = DesktopSettingsStore(
+      directory: temporary,
+      onCorruption: (corruption) => reported = corruption,
+    );
+
+    expect(await store.loadCliExecutable(), 'scribeforge');
+    expect(store.pendingCorruption, isNotNull);
+    expect(reported, isNotNull);
+    expect(reported!.backupPath, contains('settings.corrupt-'));
+    expect(await File(reported!.backupPath).exists(), isTrue);
+    expect(await File(reported!.backupPath).readAsString(), '{not json');
+    // The corrupt file no longer sits at the main path.
+    expect(await settingsFile.exists(), isFalse);
+
+    store.clearPendingCorruption();
+    expect(store.pendingCorruption, isNull);
+
+    // The store is usable again immediately after quarantine.
+    final result = await store.saveCliExecutable('/recovered/cli');
+    expect(result.ok, isTrue);
+    expect(
+      await DesktopSettingsStore(directory: temporary).loadCliExecutable(),
+      '/recovered/cli',
+    );
+  });
+
+  test('a non-object JSON settings file is treated as corruption', () async {
+    final settingsFile = File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    );
+    await settingsFile.writeAsString('[1, 2, 3]');
+    final store = DesktopSettingsStore(directory: temporary);
+    expect(await store.loadLastProjectStore(), isNull);
+    expect(store.pendingCorruption, isNotNull);
+  });
+
+  test('update() applies a mutation atomically and reports failures', () async {
+    final store = DesktopSettingsStore(directory: temporary);
+    final result = await store.update((settings) {
+      settings['custom_key'] = 'custom-value';
+      settings['cli_executable'] = '/cli';
+    });
+    expect(result.ok, isTrue);
+    final raw = await File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    ).readAsString();
+    expect(raw, contains('custom_key'));
+    expect(raw, contains('/cli'));
+  });
 }

@@ -15,6 +15,7 @@ import '../services/backend_environment.dart';
 import '../services/backend_resolver.dart';
 import '../services/candidate_comparison_store.dart';
 import '../services/cli_executor.dart';
+import '../services/cli_path_validator.dart';
 import '../services/cli_runner.dart';
 import '../services/desktop_file_picker.dart';
 import '../services/python_locator.dart';
@@ -142,10 +143,12 @@ class UnifiedWorkspace extends StatefulWidget {
     this.backendResolver,
     this.backendProvisioner,
     this.pythonLocator,
+    this.cliPathValidator,
   });
 
   final ScribeForgeCliExecutor? cliExecutor;
   final DesktopBackendResolver? backendResolver;
+  final CliPathValidator? cliPathValidator;
   final DesktopFilePicker? filePicker;
   final DesktopSettingsStore? settingsStore;
   final WorkspaceFileSystem? fileSystem;
@@ -182,6 +185,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   late final WorkspaceFileSystem _fileSystem;
   late final BackendEnvironmentProvisioner _provisioner;
   late final PythonLocator _pythonLocator;
+  late final CliPathValidator _cliPathValidator;
   String _cliExecutable = ScribeForgeCli.defaultExecutable;
   String _backendPython = '';
   String _backendSourcePath = '';
@@ -198,6 +202,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   bool _cancelRequested = false;
   String? _notice;
   String? _error;
+  bool _cliProbing = false;
+  String? _cliProbeMessage;
+  SettingsCorruption? _settingsCorruption;
 
   ProjectStatusSnapshot? _projectStatus;
   bool _statusLoading = false;
@@ -279,6 +286,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _pythonLocator =
         widget.pythonLocator ??
         PythonLocator(environment: Platform.environment);
+    _cliPathValidator = widget.cliPathValidator ?? const CliPathValidator();
     _loadSettings();
   }
 
@@ -311,6 +319,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       venvCliPath: venvCliPath,
     );
     if (!mounted) return;
+    final corruption = _settingsStore.pendingCorruption;
     setState(() {
       _cliExecutable = resolution.executable;
       _backendResolution = resolution;
@@ -318,6 +327,10 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _backendPython = backendPython;
       _backendSourcePath = backendSourcePath;
       _lastProjectStorePath = lastProjectStore;
+      if (corruption != null) {
+        _settingsCorruption = corruption;
+        _notice = corruption.message;
+      }
     });
     await _refreshRuntimeStatus();
     await _refreshStatus();
@@ -626,7 +639,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   void _rememberProjectStore(String storePath) {
-    unawaited(_settingsStore.saveLastProjectStore(storePath));
+    unawaited(
+      _settingsStore.saveLastProjectStore(storePath).then((result) {
+        if (!result.ok && mounted) {
+          setState(() => _error = '保存最近项目失败：${result.error}');
+        }
+      }),
+    );
   }
 
   Future<void> _openProject() async {
@@ -1031,8 +1050,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     );
     if (!mounted || settings == null) return;
     try {
-      await _settingsStore.saveVlmSettings(settings);
+      final result = await _settingsStore.saveVlmSettings(settings);
       if (!mounted) return;
+      if (!result.ok) {
+        final message = '保存 VLM 设置失败：${result.error}。可重新打开配置后重试。';
+        setState(() => _error = message);
+        return;
+      }
       setState(() {
         _vlmSettings = settings;
         _notice = settings.enabled
@@ -2349,32 +2373,23 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
             ),
             const SizedBox(height: 20),
+            if (_settingsCorruption != null) ...<Widget>[
+              _buildCorruptionCard(),
+              const SizedBox(height: 12),
+            ],
             _buildInitializationCard(),
             const SizedBox(height: 12),
             _buildBackendEnvironmentCard(),
             const SizedBox(height: 12),
             ListTile(
               title: const Text('命令行工具'),
-              subtitle: Text(_cliExecutable),
+              subtitle: Text(
+                '$_cliExecutable\n来源：$_backendOriginLabel'
+                '${_cliProbeMessage == null ? '' : '\n$_cliProbeMessage '}',
+              ),
               trailing: IconButton(
                 icon: const Icon(Icons.edit),
-                onPressed: () async {
-                  final value = await _promptString('命令行工具路径', _cliExecutable);
-                  if (value != null && value.trim().isNotEmpty) {
-                    await _settingsStore.saveCliExecutable(value.trim());
-                    final resolution = await _backendResolver.resolve(
-                      value.trim(),
-                    );
-                    if (!mounted) return;
-                    setState(() {
-                      _cliExecutable = resolution.executable;
-                      _backendResolution = resolution;
-                    });
-                    await _refreshRuntimeStatus();
-                    await _refreshStatus();
-                    await _refreshReviewQueue();
-                  }
-                },
+                onPressed: _busy || _cliProbing ? null : _editCliExecutable,
               ),
             ),
             ListTile(
@@ -2510,10 +2525,43 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       'Python 解释器路径',
       _backendPython.isEmpty ? 'python3' : _backendPython,
     );
-    if (value == null || value.trim().isEmpty) return;
-    await _settingsStore.saveBackendPython(value.trim());
+    if (!mounted || value == null || value.trim().isEmpty) return;
+    final candidate = value.trim();
+    // Validate before persisting (issue #221): a Python path that cannot
+    // even answer `--version` is rejected and the old value stays in effect.
+    setState(() {
+      _cliProbing = true;
+      _cliProbeMessage = '正在检测 Python：$candidate';
+      _error = null;
+    });
+    final probe = await const CliPathValidator(
+      probeArguments: <String>['--version'],
+    ).probe(candidate);
     if (!mounted) return;
-    setState(() => _backendPython = value.trim());
+    if (!probe.ok) {
+      setState(() {
+        _cliProbing = false;
+        _cliProbeMessage = null;
+        _error = '未保存 Python 路径（旧配置保持不变）。${probe.hint ?? ''}';
+      });
+      return;
+    }
+    final result = await _settingsStore.saveBackendPython(candidate);
+    if (!mounted) return;
+    if (!result.ok) {
+      setState(() {
+        _cliProbing = false;
+        _cliProbeMessage = null;
+        _error = '保存 Python 路径失败：${result.error}。输入已保留，可重试。';
+      });
+      return;
+    }
+    setState(() {
+      _cliProbing = false;
+      _backendPython = candidate;
+      _cliProbeMessage = 'Python 检测通过：${probe.output.split('\n').first}';
+      _error = null;
+    });
   }
 
   Future<void> _pickBackendSourcePath() async {
@@ -2521,9 +2569,16 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       dialogTitle: '选择 ScribeForge 源码仓库目录（包含 pyproject.toml）',
     );
     if (picked == null || picked.trim().isEmpty) return;
-    await _settingsStore.saveBackendSourcePath(picked.trim());
+    final result = await _settingsStore.saveBackendSourcePath(picked.trim());
     if (!mounted) return;
-    setState(() => _backendSourcePath = picked.trim());
+    if (!result.ok) {
+      setState(() => _error = '保存源码目录失败：${result.error}。输入已保留，可重试。');
+      return;
+    }
+    setState(() {
+      _backendSourcePath = picked.trim();
+      _error = null;
+    });
   }
 
   Future<void> _provisionBackendEnvironment() async {
@@ -2578,9 +2633,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         sourcePath = picked.trim();
       }
     }
-    await _settingsStore.saveBackendPython(python);
-    await _settingsStore.saveBackendSourcePath(sourcePath);
+    final pythonSave = await _settingsStore.saveBackendPython(python);
+    final sourceSave = await _settingsStore.saveBackendSourcePath(sourcePath);
     if (!mounted) return;
+    if (!pythonSave.ok || !sourceSave.ok) {
+      final failed = !pythonSave.ok ? pythonSave.error : sourceSave.error;
+      setState(() => _error = '后端路径已生效，但保存设置失败：$failed。可在设置页重试。');
+    }
     setState(() {
       _backendPython = python;
       _backendSourcePath = sourcePath;
@@ -2623,7 +2682,13 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     // through the freshly installed CLI right after the venv is ready.
     await _downloadModelsWith(result.cliExecutable);
 
-    await _settingsStore.saveCliExecutable(result.cliExecutable);
+    final cliSave = await _settingsStore.saveCliExecutable(
+      result.cliExecutable,
+    );
+    if (!mounted) return;
+    if (!cliSave.ok) {
+      setState(() => _error = '环境已就绪，但保存命令行工具路径失败：${cliSave.error}。可在设置页重试。');
+    }
     final resolution = await _backendResolver.resolve(result.cliExecutable);
     if (!mounted) return;
     setState(() {
@@ -2684,6 +2749,106 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   /// 简单的文本输入对话框。
+  String get _backendOriginLabel => switch (_backendResolution?.origin) {
+    DesktopBackendOrigin.bundled => '内置核心',
+    DesktopBackendOrigin.provisionedVenv => '已初始化的本地环境',
+    DesktopBackendOrigin.custom => '自定义路径',
+    DesktopBackendOrigin.developmentPath => 'PATH 开发模式',
+    null => '未检测',
+  };
+
+  Widget _buildCorruptionCard() {
+    final corruption = _settingsCorruption!;
+    return Card(
+      color: Colors.amber.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(Icons.warning_amber_rounded, color: Colors.amber.shade800),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    corruption.message,
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '备份文件：${corruption.backupPath}',
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                _settingsStore.clearPendingCorruption();
+                setState(() => _settingsCorruption = null);
+              },
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Prompts for a custom CLI path and validates it *before* persisting
+  /// (issue #221): an invalid path is never saved and the old configured
+  /// value stays in effect.
+  Future<void> _editCliExecutable() async {
+    final value = await _promptString('命令行工具路径', _cliExecutable);
+    if (!mounted || value == null || value.trim().isEmpty) return;
+    final candidate = value.trim();
+    setState(() {
+      _cliProbing = true;
+      _cliProbeMessage = '正在检测：$candidate';
+      _error = null;
+    });
+    final probe = await _cliPathValidator.probe(candidate);
+    if (!mounted) return;
+    if (!probe.ok) {
+      setState(() {
+        _cliProbing = false;
+        _cliProbeMessage = '无法运行：${probe.status.name}';
+        _error = '未保存命令行工具路径（旧配置保持不变）。${probe.hint ?? ''}';
+      });
+      return;
+    }
+    final saved = await _settingsStore.saveCliExecutable(candidate);
+    if (!mounted) return;
+    if (!saved.ok) {
+      setState(() {
+        _cliProbing = false;
+        _cliProbeMessage = null;
+        _error = '检测通过但保存失败：${saved.error}。输入已保留，可重试。';
+      });
+      return;
+    }
+    final venvCliPath = BackendVenvPaths(_backendVenvDirectory).cliExecutable;
+    final resolution = await _backendResolver.resolve(
+      candidate,
+      venvCliPath: venvCliPath,
+    );
+    if (!mounted) return;
+    setState(() {
+      _cliProbing = false;
+      _cliExecutable = resolution.executable;
+      _backendResolution = resolution;
+      _cliProbeMessage = probe.hint;
+    });
+    await _refreshRuntimeStatus();
+    await _refreshStatus();
+    await _refreshReviewQueue();
+  }
+
   Future<String?> _promptString(String title, String initialValue) async {
     final controller = TextEditingController(text: initialValue);
     return showDialog<String>(
