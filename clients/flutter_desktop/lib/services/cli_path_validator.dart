@@ -224,10 +224,7 @@ class CliPathValidator {
       final file = File(path);
       if (!await file.exists()) return null;
       final fileStat = await file.stat();
-      return CliPathStatResult(
-        type: fileStat.type,
-        permissions: fileStat.mode,
-      );
+      return CliPathStatResult(type: fileStat.type, permissions: fileStat.mode);
     } on FileSystemException {
       return null;
     }

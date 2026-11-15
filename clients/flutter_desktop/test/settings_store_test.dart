@@ -167,12 +167,12 @@ void main() {
   test(
     'an interrupted write leaves the previous settings.json intact',
     () async {
-      var failOnce = true;
+      var crashNext = false;
       final store = DesktopSettingsStore(
         directory: temporary,
         beforeRename: (tmpFile, bytes) async {
-          if (failOnce) {
-            failOnce = false;
+          if (crashNext) {
+            crashNext = false;
             throw StateError('simulated crash before rename');
           }
         },
@@ -180,6 +180,7 @@ void main() {
       final first = await store.saveCliExecutable('/good/cli');
       expect(first.ok, isTrue);
 
+      crashNext = true;
       final crashed = await store.saveBackendPython('/broken/python');
       expect(crashed.ok, isFalse);
       expect(crashed.error, contains('simulated crash'));

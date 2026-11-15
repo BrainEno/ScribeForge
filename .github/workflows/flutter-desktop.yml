@@ -87,7 +87,7 @@ jobs:
         if: failure()
         run: |
           if [ -f flutter_test_output.txt ]; then
-            python -c 'from pathlib import Path; lines = Path("flutter_test_output.txt").read_text(errors="replace").splitlines(); markers = ("══╡", "Expected:", "Actual:", "Which:", "The following", "Failed assertion:", "NoSuchMethodError", "Timed out", "Some tests failed"); tail = [line.strip()[:500] for line in lines[-60:] if line.strip()]; contexts = [line.strip()[:500] for index, line in enumerate(lines) if "EXCEPTION CAUGHT" in line for line in lines[index:min(index + 24, len(lines))] if line.strip()]; diagnostics = [line.strip()[:500] for line in lines if "[E]" in line or any(marker in line for marker in markers)]; selected = list(dict.fromkeys(contexts + diagnostics + tail[-12:]))[:40]; message = "%0A".join(line.replace("%", "%25") for line in selected); print(f"::error title=Flutter test failures::{message}")'
+            python -c 'from pathlib import Path; lines = Path("flutter_test_output.txt").read_text(errors="replace").splitlines(); markers = ("══╡", "Expected:", "Actual:", "Which:", "The following", "Failed assertion:", "NoSuchMethodError", "Timed out", "Some tests failed"); tail = [line.strip()[:500] for line in lines[-60:] if line.strip()]; contexts = [line.strip()[:500] for index, line in enumerate(lines) if ("EXCEPTION CAUGHT" in line or "[E]" in line) for line in lines[index:min(index + 16, len(lines))] if line.strip()]; diagnostics = [line.strip()[:500] for line in lines if "[E]" in line or any(marker in line for marker in markers)]; selected = list(dict.fromkeys(contexts + diagnostics + tail[-12:]))[:40]; message = "%0A".join(line.replace("%", "%25") for line in selected); print(f"::error title=Flutter test failures::{message}")'
           fi
 
   flutter-desktop-windows:
@@ -135,7 +135,7 @@ jobs:
         shell: bash
         run: |
           echo "::notice title=WIN STEP::analyze start"
-          flutter analyze --machine 2>&1 | Tee-Object -FilePath analyze_win.txt
+          flutter analyze --machine 2>&1 | tee analyze_win.txt
           python3 -c 'from pathlib import Path; d = Path("analyze_win.txt").read_text(errors="replace"); print("::error title=WIN ANALYZE::" + d.replace("%", "%25").replace("\n", "%0A")[:6000])'
       - name: Run Flutter tests on Windows
         shell: bash

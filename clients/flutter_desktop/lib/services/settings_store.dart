@@ -202,7 +202,7 @@ class DesktopSettingsStore {
     return DesktopVlmSettings.fromJson(settings['vlm_settings']);
   }
 
-  Future<SettingsSaveResult> saveVlmSettings(DesktopVlmSettings settings) {
+  Future<SettingsSaveResult> saveVlmSettings(DesktopVlmSettings settings) async {
     if (!settings.timeoutSeconds.isFinite || settings.timeoutSeconds <= 0) {
       throw ArgumentError.value(
         settings.timeoutSeconds,
