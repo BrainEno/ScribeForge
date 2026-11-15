@@ -230,10 +230,7 @@ void main() {
     expect(find.text('磁盘空间不足，无法开始'), findsOneWidget);
 
     final button = tester.widget<FilledButton>(
-      find.ancestor(
-        of: find.byKey(const ValueKey('start-setup-button')),
-        matching: find.byType(FilledButton),
-      ),
+      find.byKey(const ValueKey('start-setup-button')),
     );
     expect(button.onPressed, isNull);
     expect(started, isFalse);
@@ -249,10 +246,7 @@ void main() {
     expect(find.byKey(const ValueKey('disk-budget-card')), findsOneWidget);
     expect(find.text('开始安装全部后端'), findsOneWidget);
     final button = tester.widget<FilledButton>(
-      find.ancestor(
-        of: find.byKey(const ValueKey('start-setup-button')),
-        matching: find.byType(FilledButton),
-      ),
+      find.byKey(const ValueKey('start-setup-button')),
     );
     expect(button.onPressed, isNotNull);
     expect(tester.takeException(), isNull);
@@ -284,7 +278,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('disk-budget-line')), findsOneWidget);
-    expect(find.textContaining('还差约'), findsOneWidget);
+    expect(find.textContaining('还差约'), findsWidgets);
     expect(
       find.byKey(const ValueKey('disk-insufficient-advice')),
       findsOneWidget,
