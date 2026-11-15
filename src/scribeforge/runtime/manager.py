@@ -24,6 +24,7 @@ from scribeforge.runtime.process import (
     RuntimeCommandTimeoutError,
     run_runtime_process,
 )
+from scribeforge.runtime.sizes import estimate_backend
 
 __all__ = [
     "RuntimeCommandOutputLimitError",
@@ -98,6 +99,10 @@ class RuntimeEvent:
     step: str | None
     completed_steps: int
     total_steps: int
+    # Issue #214: cumulative byte counters so the UI can show real progress of
+    # the *estimated* download/install footprint (estimates, not measurements).
+    downloaded_bytes: int = 0
+    installed_bytes: int = 0
 
 
 class RuntimeInstallError(RuntimeError):
@@ -184,7 +189,19 @@ class RuntimeManager:
 
         self._set_status(backend.name, RuntimeStatus("ready"))
         total = len(backend.steps) + len(backend.model_steps) + len(backend.health_checks)
-        self._emit(RuntimeEvent(backend.name, "complete", "ready", None, total, total))
+        estimate = estimate_backend(backend.name)
+        self._emit(
+            RuntimeEvent(
+                backend.name,
+                "complete",
+                "ready",
+                None,
+                total,
+                total,
+                estimate.download_bytes + estimate.model_bytes,
+                estimate.install_bytes,
+            )
+        )
 
     @staticmethod
     def _relocate_backend(backend: RuntimeBackendPlan, staging: Path) -> RuntimeBackendPlan:
@@ -240,54 +257,45 @@ class RuntimeManager:
         )
         total = sum(len(steps) for _, steps in phases)
         completed = 0
+        # Issue #214: phase-completed byte counters derived from the curated
+        # per-backend estimates; they describe expected progress, never exact
+        # transferred bytes.
+        estimate = estimate_backend(backend.name)
+        downloaded = 0
+        installed = 0
         self._set_status(backend.name, RuntimeStatus("installing"))
+
+        def event(phase: str, state: str, step: str | None) -> RuntimeEvent:
+            return RuntimeEvent(
+                backend.name,
+                phase,
+                state,
+                step,
+                completed,
+                total,
+                downloaded,
+                installed,
+            )
 
         for phase, steps in phases:
             if not steps:
                 continue
             phase_state = "installing" if phase == "install" else phase
             self._set_status(backend.name, RuntimeStatus(phase_state))
-            self._emit(RuntimeEvent(backend.name, phase, "started", None, completed, total))
+            self._emit(event(phase, "started", None))
             for step in steps:
-                self._emit(
-                    RuntimeEvent(
-                        backend.name,
-                        phase,
-                        "step_started",
-                        step.name,
-                        completed,
-                        total,
-                    )
-                )
+                self._emit(event(phase, "step_started", step.name))
                 try:
                     self._run_step(step, environment)
                 except ProcessingCancelled:
                     failed_step = step.name if phase == "install" else f"{phase}:{step.name}"
                     self._set_status(backend.name, RuntimeStatus("cancelled", failed_step))
-                    self._emit(
-                        RuntimeEvent(
-                            backend.name,
-                            phase,
-                            "cancelled",
-                            step.name,
-                            completed,
-                            total,
-                        )
-                    )
+                    self._emit(event(phase, "cancelled", step.name))
                     raise
                 except Exception as exc:
                     failed_step = step.name if phase == "install" else f"{phase}:{step.name}"
                     self._set_status(backend.name, RuntimeStatus("failed", failed_step))
-                    self._emit(
-                        RuntimeEvent(
-                            backend.name,
-                            phase,
-                            "failed",
-                            step.name,
-                            completed,
-                            total,
-                        )
-                    )
+                    self._emit(event(phase, "failed", step.name))
                     detail = ""
                     if isinstance(exc, subprocess.CalledProcessError):
                         detail = (exc.stderr or exc.stdout or "").strip()
@@ -298,17 +306,13 @@ class RuntimeManager:
                     suffix = f": {detail}" if detail else ""
                     raise RuntimeInstallError(f"{backend.name}:{failed_step}{suffix}") from exc
                 completed += 1
-                self._emit(
-                    RuntimeEvent(
-                        backend.name,
-                        phase,
-                        "step_completed",
-                        step.name,
-                        completed,
-                        total,
-                    )
-                )
-            self._emit(RuntimeEvent(backend.name, phase, "completed", None, completed, total))
+                self._emit(event(phase, "step_completed", step.name))
+            if phase == "install":
+                installed = estimate.install_bytes
+                downloaded += estimate.download_bytes
+            elif phase == "models":
+                downloaded += estimate.model_bytes
+            self._emit(event(phase, "completed", None))
 
     def _run_step(self, step: InstallStep, environment: dict[str, str]) -> None:
         timeout_seconds = self._timeout_seconds or step.timeout_seconds

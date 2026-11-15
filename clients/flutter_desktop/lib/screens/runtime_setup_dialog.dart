@@ -308,7 +308,100 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
     final count = progress.totalSteps > 0
         ? '（${progress.completedSteps}/${progress.totalSteps} 步已完成）'
         : '';
-    return '$backend · $phase$step $count'.trim();
+    final bytes = _byteProgressText(progress);
+    return '$backend · $phase$step $count $bytes'.trim();
+  }
+
+  /// Estimated byte progress for a setup message (issue #214). Estimates,
+  /// never measured transfers; empty until the CLI reports counters.
+  String _byteProgressText(RuntimeSetupMessage progress) {
+    if (progress.downloadedBytes <= 0 && progress.installedBytes <= 0) {
+      return '';
+    }
+    final parts = <String>[
+      if (progress.downloadedBytes > 0)
+        '预估下载 ${formatBytes(progress.downloadedBytes)}',
+      if (progress.installedBytes > 0)
+        '预估占用 ${formatBytes(progress.installedBytes)}',
+    ];
+    return '· ${parts.join('，')}';
+  }
+
+  /// First-run disk budget (issue #214): total estimate vs. free space on
+  /// the runtime-root drive. Null when the CLI did not report a preflight.
+  DiskPreflight? get _diskPreflight => widget.runtimeStatus?.disk;
+
+  bool get _diskInsufficient =>
+      _diskPreflight != null && !_diskPreflight!.sufficient;
+
+  String _diskBudgetSummary() {
+    final disk = _diskPreflight;
+    if (disk == null) return '';
+    final required = formatBytes(disk.requiredBytes);
+    final free = formatBytes(disk.freeBytes);
+    return disk.sufficient
+        ? '磁盘预算：预计首跑需要约 $required，当前盘（${disk.path}）剩余 $free，空间足够。'
+        : '磁盘预算：预计首跑需要约 $required，当前盘（${disk.path}）剩余 $free，还差约 '
+              '${formatBytes(disk.missingBytes)}。';
+  }
+
+  Widget _diskBudgetCard() {
+    final disk = _diskPreflight;
+    if (disk == null) return const SizedBox.shrink();
+    final colorScheme = Theme.of(context).colorScheme;
+    final insufficient = !disk.sufficient;
+    return Card(
+      key: ValueKey(
+        insufficient ? 'disk-insufficient-card' : 'disk-budget-card',
+      ),
+      margin: EdgeInsets.zero,
+      color: insufficient ? colorScheme.errorContainer : Colors.blue.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(
+                  insufficient ? Icons.warning_amber_rounded : Icons.storage,
+                  color: insufficient
+                      ? colorScheme.error
+                      : Colors.blue.shade800,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    '磁盘预算（预估值，非实测）',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(_diskBudgetSummary()),
+            for (final entry in disk.backends.entries) ...<Widget>[
+              const SizedBox(height: 2),
+              Text(
+                '${_backendLabel(entry.key)}：下载 ${formatBytes(entry.value.downloadBytes)}'
+                ' / 安装后占用 ${formatBytes(entry.value.installBytes)}'
+                ' / 模型 ${formatBytes(entry.value.modelBytes)}'
+                '（合计 ${formatBytes(entry.value.totalBytes)}）',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (insufficient && disk.advice.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 6),
+              Text(
+                disk.advice,
+                key: const ValueKey('preflight-insufficient-advice'),
+                style: TextStyle(color: colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   String _hardwareSummary() {
@@ -351,6 +444,8 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                   const SizedBox(height: 4),
                   const Text('运行时工具尚未安装；配置期间会自动准备所需工具。'),
                 ],
+                const SizedBox(height: 8),
+                _diskBudgetCard(),
                 const SizedBox(height: 16),
                 if (_running) ...<Widget>[
                   const LinearProgressIndicator(),
@@ -419,7 +514,10 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
           child: Text(_attempted ? '完成' : '稍后配置'),
         ),
         FilledButton.icon(
-          onPressed: _running ? null : () => _startSetup(),
+          key: const ValueKey('start-setup-button'),
+          // Issue #214: never start the first run when the runtime-root drive
+          // cannot fit the estimated footprint.
+          onPressed: _running || _diskInsufficient ? null : () => _startSetup(),
           icon: _running
               ? const SizedBox(
                   width: 16,
@@ -430,6 +528,8 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
           label: Text(
             _running
                 ? '配置中…'
+                : _diskInsufficient
+                ? '磁盘空间不足，无法开始'
                 : _attempted
                 ? '重新安装全部后端'
                 : '开始安装全部后端',
@@ -521,6 +621,15 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
+            if (snapshot?.estimates != null) ...<Widget>[
+              const SizedBox(height: 4),
+              Text(
+                '预估：下载 ${formatBytes(snapshot!.estimates!.downloadBytes)}'
+                ' / 占用 ${formatBytes(snapshot.estimates!.totalBytes)}'
+                '${snapshot.estimates!.note.isEmpty ? '' : '（${snapshot.estimates!.note}）'}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             if (progress != null) ...<Widget>[
               const SizedBox(height: 8),
               Text('阶段：${_phaseLabel(progress.phase)}'),
@@ -531,7 +640,8 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                 LinearProgressIndicator(value: progress.fractionComplete),
                 const SizedBox(height: 3),
                 Text(
-                  '已完成 ${progress.completedSteps} / ${progress.totalSteps} 步',
+                  '已完成 ${progress.completedSteps} / ${progress.totalSteps} 步'
+                  '${_byteProgressText(progress)}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
@@ -606,6 +716,14 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                 if (message != null && message.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 4),
                   SelectableText(message, style: TextStyle(color: foreground)),
+                ],
+                if (_result?.retentionPolicy != null) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(
+                    '磁盘保留策略：${_result!.retentionPolicy!}',
+                    key: const ValueKey('retention-policy-text'),
+                    style: TextStyle(color: foreground, fontSize: 12),
+                  ),
                 ],
               ],
             ),

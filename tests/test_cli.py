@@ -1523,11 +1523,17 @@ def test_setup_json_streams_progress_and_final_backend_states(
         "step": "download",
         "completed_steps": 2,
         "total_steps": 5,
+        # Issue #214: progress records carry estimated byte counters.
+        "downloaded_bytes": 0,
+        "installed_bytes": 0,
     }
     assert records[-1]["action"] == "install"
     assert records[-1]["success"] is True
     assert records[-1]["backends"]["mineru"]["state"] == "ready"
     assert records[-1]["backends"]["paddleocr"]["state"] == "ready"
+    # Issue #214: the final result states the keep/clean policy.
+    assert "retention" in records[-1]
+    assert "保留" in records[-1]["retention"]["policy"]
 
 
 def test_setup_json_repairs_only_requested_backend_and_reports_failure(
@@ -2334,6 +2340,43 @@ def test_runtime_status_json_reports_managed_backend_state_read_only(
     assert report["backends"]["paddleocr"]["failed_step"] == "models:download"
     assert report["paths"]["models"] == str(runtime_root / "models")
     assert state_path.read_bytes() == before
+
+
+def test_runtime_status_json_includes_disk_preflight_and_estimates(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #214: runtime-status --json carries size estimates + disk preflight."""
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    monkeypatch.setattr(runtime_probe, "_nvidia_profile", lambda *, timeout_seconds: None)
+    monkeypatch.setattr(runtime_probe, "_ram_mb", lambda *, timeout_seconds: 16 * 1024)
+
+    code = run(["runtime-status", "--runtime-root", str(runtime_root), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    report = json.loads(captured.out)
+    disk = report["disk"]
+    assert disk["estimated"] is True
+    # sufficient must agree with the raw numbers, whatever the runner's disk is.
+    assert disk["sufficient"] == (disk["free_bytes"] >= disk["required_bytes"])
+    assert disk["missing_bytes"] == max(0, disk["required_bytes"] - disk["free_bytes"])
+    assert disk["required_bytes"] > 0
+    assert disk["free_bytes"] > 0
+    assert set(disk["backends"]) == {"mineru", "paddleocr"}
+    # Every backend entry carries its own three-phase estimate.
+    for backend in report["backends"].values():
+        estimates = backend["estimates"]
+        assert estimates["download_bytes"] > 0
+        assert estimates["install_bytes"] > 0
+        assert estimates["model_bytes"] > 0
+        assert estimates["total_bytes"] == (
+            estimates["download_bytes"] + estimates["install_bytes"] + estimates["model_bytes"]
+        )
+    assert report["backends"]["paddleocr-vl"]["optional"] is True
+    assert report["backends"]["surya"]["optional"] is True
 
 
 def test_runtime_status_json_reports_missing_backends(

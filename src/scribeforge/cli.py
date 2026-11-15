@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Thread
-from typing import TextIO
+from typing import Any, TextIO, cast
 
 from scribeforge.adapters.candidate_epub import build_candidate_epub
 from scribeforge.adapters.docx import write_docx
@@ -499,6 +499,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     runtime_status.add_argument(
         "--json", action="store_true", help="Emit a stable JSON status report."
+    )
+
+    runtime_clean = subparsers.add_parser(
+        "runtime-clean",
+        help=(
+            "Free disk space by removing disposable runtime artifacts "
+            "(staging/previous environments, optionally cache and models)."
+        ),
+    )
+    runtime_clean.add_argument(
+        "--runtime-root",
+        type=Path,
+        default=None,
+        help="Private runtime directory (default: the per-user ScribeForge runtime folder).",
+    )
+    runtime_clean.add_argument(
+        "--cache",
+        action="store_true",
+        help="Also remove the download cache (models are kept).",
+    )
+    runtime_clean.add_argument(
+        "--models",
+        action="store_true",
+        help="Also remove downloaded models (they will be re-downloaded on next setup).",
+    )
+    runtime_clean.add_argument(
+        "--json", action="store_true", help="Emit a stable JSON cleanup report."
     )
 
     vlm_check = subparsers.add_parser(
@@ -1030,6 +1057,8 @@ def run(
             return _setup(args, out)
     if args.command == "runtime-status":
         return _runtime_status(args, out)
+    if args.command == "runtime-clean":
+        return _runtime_clean(args, out)
     if args.command == "vlm-check":
         return _vlm_check(args, out)
     if args.command == "status":
@@ -3156,10 +3185,15 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
 
     layout = RuntimeLayout(runtime_root)
     profile = overview.hardware
+    from scribeforge.runtime.sizes import estimate_payload, preflight
+
     backends: dict[str, dict[str, object]] = {}
     optional_backends = getattr(overview, "optional_backends", {}) or {}
     named = [("mineru", overview.mineru, False), ("paddleocr", overview.paddleocr, False)]
     named += [(name, status, True) for name, status in sorted(optional_backends.items())]
+    # Issue #214: per-backend size estimates travel with each backend entry so
+    # the desktop UI can budget the first run before any download starts.
+    estimates = estimate_payload(name for name, _, _ in named)
     for name, backend_status, optional in named:
         environment = layout.environment_dir(name)
         backends[name] = {
@@ -3168,7 +3202,12 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
             "environment_path": str(environment),
             "environment_exists": environment.is_dir(),
             "optional": optional,
+            "estimates": estimates.get(name, {}),
         }
+    # Issue #214: disk preflight for the core first-run backends; the UI blocks
+    # "初始化环境" when the runtime-root drive cannot fit the estimate.
+    core_names = [name for name, _, optional in named if not optional]
+    disk = cast(dict[str, Any], preflight(runtime_root, core_names))
 
     paths = {
         "models": str(layout.models_dir),
@@ -3194,10 +3233,12 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
         "hardware": hardware,
         "paths": paths,
         "backends": backends,
+        "disk": disk,
     }
 
     if args.json:
-        print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out)
+        # ASCII-safe: frozen Windows consoles are cp1252 and would crash on Chinese (#214)
+        print(json.dumps(report, ensure_ascii=True, sort_keys=True), file=out)
     else:
         print(f"Runtime root: {runtime_root}", file=out)
         print(f"uv: {'available' if overview.uv_available else 'missing'}", file=out)
@@ -3215,8 +3256,54 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
             failed_step = backend_report["failed_step"]
             suffix = f" (failed step: {failed_step})" if failed_step else ""
             print(f"{name}: {backend_report['state']}{suffix}", file=out)
+        from scribeforge.runtime.sizes import format_bytes
+
         print(f"Models: {paths['models']}", file=out)
         print(f"Cache: {paths['cache']}", file=out)
+        print(
+            f"Disk: free {format_bytes(int(disk['free_bytes']))} / "
+            f"total {format_bytes(int(disk['total_bytes']))} on {disk['path']}",
+            file=out,
+        )
+        print(
+            f"First-run estimate: ~{format_bytes(int(disk['required_bytes']))} "
+            f"({'sufficient' if disk['sufficient'] else 'INSUFFICIENT — see advice'})",
+            file=out,
+        )
+        print(f"Advice: {disk['advice']}", file=out)
+    return EXIT_OK
+
+
+def _runtime_clean(args: argparse.Namespace, out: TextIO) -> int:
+    """Remove disposable runtime artifacts and report freed bytes (issue #214)."""
+    from scribeforge.runtime.cleanup import clean_runtime_artifacts
+
+    runtime_root: Path = (
+        args.runtime_root if args.runtime_root is not None else default_runtime_root()
+    )
+    try:
+        report = cast(
+            dict[str, Any],
+            clean_runtime_artifacts(
+                runtime_root,
+                include_cache=bool(args.cache),
+                include_models=bool(args.models),
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - cleanup must stay actionable
+        print(f"error: could not clean runtime artifacts: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    from scribeforge.runtime.sizes import format_bytes
+
+    if args.json:
+        # ASCII-safe: frozen Windows consoles are cp1252 and would crash on Chinese (#214)
+        print(json.dumps(report, ensure_ascii=True, sort_keys=True), file=out)
+    else:
+        print(f"Runtime root: {runtime_root}", file=out)
+        print(f"Freed: {format_bytes(int(report['freed_bytes']))}", file=out)
+        for removed in report["removed"]:
+            print(f"removed: {removed}", file=out)
+        print(f"Kept: {', '.join(str(item) for item in report['kept'])}", file=out)
     return EXIT_OK
 
 
@@ -3266,8 +3353,14 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
             "step": event.step,
             "completed_steps": event.completed_steps,
             "total_steps": event.total_steps,
+            # Issue #214: cumulative estimated byte counters (not measured
+            # transfers) so the UI can render download/install progress.
+            "downloaded_bytes": event.downloaded_bytes,
+            "installed_bytes": event.installed_bytes,
         }
-        print(json.dumps(record, ensure_ascii=False, sort_keys=True), file=out, flush=True)
+        print(
+            json.dumps(record, ensure_ascii=True, sort_keys=True), file=out, flush=True
+        )  # ASCII-safe for frozen cp1252 consoles (#214)
 
     try:
         if args.backend is None:
@@ -3323,6 +3416,8 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
             result_code = EXIT_PARTIAL
             message = "One or more requested OCR backends are not ready."
 
+    # Issue #214: make the keep/clean policy explicit after success, failure
+    # or cancellation, so users know exactly what remains on disk.
     report = {
         "schema_version": 1,
         "type": "result",
@@ -3332,8 +3427,27 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
         "success": message is None,
         "message": message,
         "backends": backend_states,
+        "retention": {
+            "kept": [
+                "models",
+                "cache",
+                "tools",
+                "ready backend environments",
+                "runtime-state.json",
+            ],
+            "cleaned": [
+                "staging environments (.name.staging-*)",
+                "previous environments (.name.previous-*)",
+            ],
+            "policy": (
+                "取消或失败后：已完成的后端环境、模型与缓存会保留以便断点续装；"
+                "未完成的临时环境目录会被清理。重新运行会复用已有产物，不会重复下载。"
+            ),
+        },
     }
-    print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out, flush=True)
+    print(
+        json.dumps(report, ensure_ascii=True, sort_keys=True), file=out, flush=True
+    )  # ASCII-safe for frozen cp1252 consoles (#214)
     return result_code
 
 

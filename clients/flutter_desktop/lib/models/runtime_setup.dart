@@ -11,9 +11,12 @@ class RuntimeSetupMessage {
     this.step,
     this.completedSteps = 0,
     this.totalSteps = 0,
+    this.downloadedBytes = 0,
+    this.installedBytes = 0,
     this.action,
     this.success,
     this.message,
+    this.retentionPolicy,
     this.backends = const <String, RuntimeSetupBackendResult>{},
   });
 
@@ -24,9 +27,17 @@ class RuntimeSetupMessage {
   final String? step;
   final int completedSteps;
   final int totalSteps;
+
+  /// Cumulative estimated bytes for the progress message (issue #214).
+  /// Estimates, not measured transfers.
+  final int downloadedBytes;
+  final int installedBytes;
   final String? action;
   final bool? success;
   final String? message;
+
+  /// Keep/clean policy text from the final result (issue #214).
+  final String? retentionPolicy;
   final Map<String, RuntimeSetupBackendResult> backends;
 
   bool get isProgress => type == RuntimeSetupMessageType.progress;
@@ -51,7 +62,9 @@ class RuntimeSetupMessage {
     switch (json['type']) {
       case 'progress':
         final backend = _requiredString(json, 'backend');
-        if (backend != 'mineru' && backend != 'paddleocr') {
+        // All four planned backends may report progress, including the
+        // optional technology-route engines when repaired by name (#215).
+        if (!_knownBackends.contains(backend)) {
           throw FormatException(
             'Unknown OCR backend in setup progress: $backend',
           );
@@ -73,6 +86,8 @@ class RuntimeSetupMessage {
           step: json['step'] is String ? json['step'] as String : null,
           completedSteps: completedSteps,
           totalSteps: totalSteps,
+          downloadedBytes: _optionalInt(json, 'downloaded_bytes'),
+          installedBytes: _optionalInt(json, 'installed_bytes'),
         );
       case 'result':
         final action = _requiredString(json, 'action');
@@ -91,20 +106,23 @@ class RuntimeSetupMessage {
           );
         }
         final backends = <String, RuntimeSetupBackendResult>{};
-        for (final name in const <String>['mineru', 'paddleocr']) {
-          final raw = rawBackends[name];
-          if (raw is Map) {
-            backends[name] = RuntimeSetupBackendResult.fromMap(
-              Map<String, dynamic>.from(raw),
+        for (final entry in rawBackends.entries) {
+          if (entry.value is Map && _knownBackends.contains(entry.key)) {
+            backends[entry.key] = RuntimeSetupBackendResult.fromMap(
+              Map<String, dynamic>.from(entry.value as Map),
             );
           }
         }
+        final retention = json['retention'];
         return RuntimeSetupMessage._(
           type: RuntimeSetupMessageType.result,
           backend: json['backend'] is String ? json['backend'] as String : null,
           action: action,
           success: json['success'] as bool,
           message: json['message'] is String ? json['message'] as String : null,
+          retentionPolicy: retention is Map && retention['policy'] is String
+              ? retention['policy'] as String
+              : null,
           backends: Map<String, RuntimeSetupBackendResult>.unmodifiable(
             backends,
           ),
@@ -112,6 +130,18 @@ class RuntimeSetupMessage {
       default:
         throw FormatException('Unknown setup message type: ${json['type']}');
     }
+  }
+
+  static const Set<String> _knownBackends = <String>{
+    'mineru',
+    'paddleocr',
+    'paddleocr-vl',
+    'surya',
+  };
+
+  static int _optionalInt(Map<String, dynamic> json, String field) {
+    final value = json[field];
+    return value is num && value >= 0 ? value.toInt() : 0;
   }
 
   static String _requiredString(Map<String, dynamic> json, String field) {
