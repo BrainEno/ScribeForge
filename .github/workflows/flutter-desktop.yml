@@ -34,7 +34,7 @@ jobs:
           echo "::notice title=STEP::format start"
           dart format --output=none --set-exit-if-changed . 2>&1 | while IFS= read -r line; do
             echo "::error title=FMT LINE STEP::${line//%/%25}"
-          done
+          done || true
           echo "::notice title=STEP::format probed"
           dart format . || true
           git diff -- . > /tmp/fmt.diff || true
@@ -119,7 +119,7 @@ jobs:
           echo "::notice title=WIN STEP::format start"
           dart format --output=none --set-exit-if-changed . 2>&1 | while IFS= read -r line; do
             echo "::error title=FMT LINE WIN STEP::${line//%/%25}"
-          done
+          done || true
           echo "::notice title=WIN STEP::format probed"
           dart format . || true
           git diff -- . > /tmp/fmt.diff || true
