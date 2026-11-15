@@ -37,25 +37,22 @@ jobs:
           git diff --name-only -- . | while IFS= read -r f; do
             echo "::error title=FMT FILE::${f//%/%25}"
           done
-          python3 - <<'PYEOF' || python - <<'PYEOF2'
-          from pathlib import Path
-          d = Path("/tmp/fmt.diff").read_text()
-          for i in range(0, len(d), 3000):
-              print("::error title=DART FORMAT DIFF part %d::" % (i // 3000) + d[i:i+3000].replace("%", "%25").replace("\n", "%0A"))
-          PYEOF
-          from pathlib import Path
-          d = Path("/tmp/fmt.diff").read_text()
-          for i in range(0, len(d), 3000):
-              print("::error title=DART FORMAT DIFF part %d::" % (i // 3000) + d[i:i+3000].replace("%", "%25").replace("\n", "%0A"))
-          PYEOF2
+          split -b 3000 /tmp/fmt.diff /tmp/fmtpart.
+          for part in /tmp/fmtpart.*; do
+            msg=$(cat "$part" | sed 's/%/%25/g' | tr '\n' ' ' | sed 's/ /%0A/g')
+            echo "::error title=DART FORMAT DIFF::${msg:0:3800}"
+          done
           echo "::notice title=STEP::format done"
           dart format --set-exit-if-changed .
+          echo "::notice title=STEP::format gate passed"
       - name: Analyze Flutter client
         id: analyze
         shell: bash
         run: |
+          echo "::notice title=STEP::analyze start"
           set -o pipefail
           flutter analyze --machine 2>&1 | tee analyze_output.txt
+          echo "::notice title=STEP::analyze done"
       - name: Surface analyzer diagnostics
         if: failure() && steps.analyze.outcome == 'failure'
         shell: bash
@@ -74,13 +71,17 @@ jobs:
       - name: Run replaceable desktop workflow tests
         shell: bash
         run: |
+          echo "::notice title=STEP::workflow test start"
           set -o pipefail
           timeout --signal=TERM --kill-after=30s 90s flutter test --reporter expanded --no-color --timeout 3m test/desktop_workflow_test.dart 2>&1 | tee flutter_test_output.txt
+          echo "::notice title=STEP::workflow test done"
       - name: Run Flutter tests
         shell: bash
         run: |
+          echo "::notice title=STEP::full test start"
           set -o pipefail
           timeout --signal=TERM --kill-after=30s 8m flutter test --reporter expanded --no-color --timeout 3m 2>&1 | tee -a flutter_test_output.txt
+          echo "::notice title=STEP::full test done"
       - name: Show Flutter test failures as annotations
         if: failure()
         run: |
