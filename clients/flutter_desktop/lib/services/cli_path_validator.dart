@@ -230,8 +230,8 @@ class CliPathValidator {
       final lower = path.toLowerCase();
       return executableExtensions.any(lower.endsWith);
     }
-    // POSIX: require at least one execute bit.
-    return fileStat.permissions & 0o111 != 0;
+    // POSIX: require at least one execute bit (0x49 == 0o111).
+    return fileStat.permissions & 0x49 != 0;
   }
 
   Future<CliProcessOutcome> _runProcess(

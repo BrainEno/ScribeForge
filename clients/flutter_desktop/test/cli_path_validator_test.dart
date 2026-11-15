@@ -5,7 +5,7 @@ import 'package:scribeforge_desktop/services/cli_path_validator.dart';
 
 FileStat _fileStat({
   FileSystemEntityType type = FileSystemEntityType.file,
-  int permissions = 0o755,
+  int permissions = 0x1ED, // 0o755
 }) =>
     _FakeStat(type: type, permissions: permissions);
 
@@ -58,7 +58,7 @@ void main() {
     test('rejects a non-executable file on POSIX', () async {
       final validator = CliPathValidator(
         operatingSystem: 'linux',
-        stat: (_) async => _fileStat(permissions: 0o644),
+        stat: (_) async => _fileStat(permissions: 0x1A4), // 0o644
         processRunner: (executable, arguments, {isCancelled}) async {
           throw StateError('probe must not run for a non-executable file');
         },
@@ -71,7 +71,7 @@ void main() {
       var ranWith = '';
       final validator = CliPathValidator(
         operatingSystem: 'windows',
-        stat: (_) async => _fileStat(permissions: 0o644),
+        stat: (_) async => _fileStat(permissions: 0x1A4), // 0o644
         processRunner: (executable, arguments, {isCancelled}) async {
           ranWith = '$executable ${arguments.join(' ')}';
           return const CliProcessOutcome(
