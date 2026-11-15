@@ -141,5 +141,11 @@ jobs:
         shell: bash
         run: |
           echo "::notice title=WIN STEP::test start"
-          flutter test --reporter expanded --no-color --timeout 3m 2>&1 | tail -60 | python3 -c 'import sys; print("::error title=WIN TEST TAIL::" + sys.stdin.read().replace("%", "%25").replace("\n", "%0A"))'
+          flutter test --reporter expanded --no-color --timeout 3m > win_full.txt 2>&1 || true
+          grep -n -A 12 '\[E\]' win_full.txt | head -120 | sed 's/%/%25/g' | tr '\n' '~' | sed 's/~/ %0A /g' | cut -c1-3500 | while IFS= read -r line; do
+            echo "::error title=WIN TEST ERR::${line:0:3400}"
+          done
+          tail -5 win_full.txt | sed 's/%/%25/g' | tr '\n' '~' | sed 's/~/ %0A /g' | while IFS= read -r line; do
+            echo "::error title=WIN TEST TAIL::${line:0:3400}"
+          done
           flutter test --timeout 3m
