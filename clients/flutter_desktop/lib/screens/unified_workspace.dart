@@ -1067,19 +1067,20 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       var notice = settings.enabled
           ? 'VLM 已启用；处理时会按此配置发送复核裁切图。'
           : 'VLM 已关闭；处理不会发送复核裁切图。';
-      // Issue #217: after saving, probe connectivity with the built-in sample
-      // crop so a misconfigured endpoint is caught immediately. The API key
-      // itself is never persisted — only the environment variable name.
-      if (settings.enabled && settings.isConfigured) {
-        final probe = await _probeVlmConnectivity(settings);
-        notice = probe == null ? notice : '$notice$probe';
-      }
-      if (!mounted) return;
       setState(() {
         _vlmSettings = settings;
         _notice = notice;
         _error = null;
       });
+      // Issue #217: after saving, probe connectivity with the built-in sample
+      // crop so a misconfigured endpoint is caught immediately. The API key
+      // itself is never persisted — only the environment variable name.
+      if (settings.enabled && settings.isConfigured) {
+        final probe = await _probeVlmConnectivity(settings);
+        if (mounted && probe != null) {
+          setState(() => _notice = '$notice$probe');
+        }
+      }
     } on Object catch (error) {
       if (!mounted) return;
       setState(() => _error = '保存 VLM 设置失败：$error');
