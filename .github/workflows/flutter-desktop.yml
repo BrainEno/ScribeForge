@@ -29,7 +29,17 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
       - name: Format Dart source
-        run: dart format --set-exit-if-changed .
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! dart format --set-exit-if-changed .; then
+            dart format --output=none . || true
+            git diff -- . | while IFS= read -r line; do
+              enc=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r/%0D/g')
+              printf '::error title=FMT::%s\n' "$enc"
+            done || true
+            exit 1
+          fi
       - name: Analyze Flutter client
         id: analyze
         shell: bash
