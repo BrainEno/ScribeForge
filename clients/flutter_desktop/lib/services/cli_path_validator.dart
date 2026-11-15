@@ -63,14 +63,23 @@ class CliProcessOutcome {
   bool get launchFailed => launchError != null;
 }
 
-typedef CliProcessRunner =
-    Future<CliProcessOutcome> Function(
-      String executable,
-      List<String> arguments, {
-      bool Function()? isCancelled,
-    });
+typedef CliProcessRunner = Future<CliProcessOutcome> Function(
+  String executable,
+  List<String> arguments, {
+  bool Function()? isCancelled,
+});
 
-typedef CliPathStat = Future<FileStat?> Function(String path);
+/// Minimal file metadata the validator needs; avoids mocking `FileStat`.
+class CliPathStatResult {
+  const CliPathStatResult({required this.type, required this.permissions});
+
+  final FileSystemEntityType type;
+
+  /// POSIX permission bits (from `FileStat.mode`).
+  final int permissions;
+}
+
+typedef CliPathStat = Future<CliPathStatResult?> Function(String path);
 
 /// Validates a user-supplied ScribeForge CLI path *before* it is persisted
 /// (issue #221): the path must point to an existing, executable file, and
@@ -147,19 +156,16 @@ class CliPathValidator {
     final runner = processRunner ?? _runProcess;
     final CliProcessOutcome outcome;
     try {
-      outcome = await runner(
-        path,
-        probeArguments,
-        isCancelled: isCancelled,
-      ).timeout(
-        timeout,
-        onTimeout: () => const CliProcessOutcome(
-          exitCode: -1,
-          stdout: '',
-          stderr: '',
-          timedOut: true,
-        ),
-      );
+      outcome = await runner(path, probeArguments, isCancelled: isCancelled)
+          .timeout(
+            timeout,
+            onTimeout: () => const CliProcessOutcome(
+              exitCode: -1,
+              stdout: '',
+              stderr: '',
+              timedOut: true,
+            ),
+          );
     } on ProcessException catch (error) {
       return CliPathProbeResult(
         status: CliPathProbeStatus.launchFailed,
@@ -197,7 +203,8 @@ class CliPathValidator {
         path: path,
         exitCode: outcome.exitCode,
         output: output,
-        hint: '"$path --help" 退出码为 ${outcome.exitCode}（应为 0）。'
+        hint:
+            '"$path --help" 退出码为 ${outcome.exitCode}（应为 0）。'
             '该文件可能损坏或不是 ScribeForge CLI。',
       );
     }
@@ -210,18 +217,23 @@ class CliPathValidator {
     );
   }
 
-  Future<FileStat?> _statOf(String path) async {
+  Future<CliPathStatResult?> _statOf(String path) async {
     final stat = this.stat;
     if (stat != null) return stat(path);
     try {
-      if (!await File(path).exists()) return null;
-      return await File(path).stat();
+      final file = File(path);
+      if (!await file.exists()) return null;
+      final fileStat = await file.stat();
+      return CliPathStatResult(
+        type: fileStat.type,
+        permissions: fileStat.mode,
+      );
     } on FileSystemException {
       return null;
     }
   }
 
-  bool _looksExecutable(String path, FileStat fileStat) {
+  bool _looksExecutable(String path, CliPathStatResult fileStat) {
     final os = operatingSystem ?? Platform.operatingSystem;
     if (os == 'windows') {
       // On Windows executability is decided by the extension; the process
@@ -263,11 +275,14 @@ class CliPathValidator {
       });
     }
     var timedOut = false;
-    final exitCode = await process.exitCode.timeout(timeout, onTimeout: () {
-      timedOut = true;
-      process.kill();
-      return -1;
-    });
+    final exitCode = await process.exitCode.timeout(
+      timeout,
+      onTimeout: () {
+        timedOut = true;
+        process.kill();
+        return -1;
+      },
+    );
     cancelTimer?.cancel();
     await Future.wait<void>(<Future<void>>[stdoutDone, stderrDone]);
     await process.stdin.close();

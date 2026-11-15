@@ -3,24 +3,13 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/services/cli_path_validator.dart';
 
-FileStat _fileStat({
+CliPathStatResult _fileStat({
   FileSystemEntityType type = FileSystemEntityType.file,
   int permissions = 0x1ED, // 0o755
-}) =>
-    _FakeStat(type: type, permissions: permissions);
+}) => _statOf(type, permissions);
 
-class _FakeStat implements FileStat {
-  _FakeStat({required this.type, required this.permissions});
-
-  @override
-  final FileSystemEntityType type;
-
-  @override
-  final int permissions;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
+CliPathStatResult _statOf(FileSystemEntityType type, int permissions) =>
+    CliPathStatResult(type: type, permissions: permissions);
 
 void main() {
   group('CliPathValidator', () {
@@ -93,7 +82,7 @@ void main() {
         operatingSystem: 'linux',
         stat: (_) async => _fileStat(),
         processRunner: (executable, arguments, {isCancelled}) async {
-          throw ProcessException('no such file', executable);
+          throw ProcessException('no such file', <String>[executable]);
         },
       );
       final result = await validator.probe('/opt/scribeforge/cli');
