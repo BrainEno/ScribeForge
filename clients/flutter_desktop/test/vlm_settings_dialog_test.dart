@@ -123,7 +123,10 @@ void main() {
       executor: _FakeExecutor(),
       filePicker: picker,
     );
-    await tester.tap(find.byKey(const ValueKey('pick-vlm-test-image-button')));
+    final pickButton = find.byKey(const ValueKey('pick-vlm-test-image-button'));
+    await tester.ensureVisible(pickButton);
+    await tester.pumpAndSettle();
+    await tester.tap(pickButton);
     await tester.pumpAndSettle();
     expect(picker.called, isTrue);
     expect(find.text('/tmp/picked.png'), findsOneWidget);
@@ -151,17 +154,25 @@ void main() {
 
     // Tap "用图片测试…" without confirming — the probe must not run.
     await tester.enterText(imageField, '/tmp/picked.png');
-    await tester.tap(find.text('用图片测试…'));
+    final testButton = find.text('用图片测试…');
+    await tester.ensureVisible(testButton);
+    await tester.pumpAndSettle();
+    await tester.tap(testButton);
     await tester.pumpAndSettle();
     expect(executor.lastArguments, isNull);
     expect(find.textContaining('请先勾选'), findsOneWidget);
 
     // Confirm and retry — the probe runs with vlm-check arguments.
-    await tester.tap(
-      find.byKey(const ValueKey('confirm-remote-vlm-send-checkbox')),
+    final checkbox = find.byKey(
+      const ValueKey('confirm-remote-vlm-send-checkbox'),
     );
+    await tester.ensureVisible(checkbox);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('用图片测试…'));
+    await tester.tap(checkbox);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(testButton);
+    await tester.pumpAndSettle();
+    await tester.tap(testButton);
     await tester.pumpAndSettle();
     expect(executor.lastArguments, isNotNull);
     expect(executor.lastArguments, contains('vlm-check'));
