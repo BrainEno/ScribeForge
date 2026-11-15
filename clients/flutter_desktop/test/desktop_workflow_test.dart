@@ -849,7 +849,8 @@ class _FakeWorkspaceFileSystem implements WorkspaceFileSystem {
   final Set<String> _existingFiles;
 
   void addProjectStore(String storePath) {
-    _existingFiles.add('$storePath${Platform.pathSeparator}project.sqlite3');
+    // Mirror the app's joinPath so the fake matches on every platform.
+    _existingFiles.add(ScribeForgeCli.joinPath(storePath, 'project.sqlite3'));
   }
 
   @override
