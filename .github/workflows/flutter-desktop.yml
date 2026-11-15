@@ -36,6 +36,15 @@ jobs:
             echo "::error title=FMT LINE STEP::${line//%/%25}"
           done
           echo "::notice title=STEP::format probed"
+          dart format . || true
+          git diff -- . > /tmp/fmt.diff || true
+          split -b 2500 /tmp/fmt.diff /tmp/fmtpart. || true
+          for part in /tmp/fmtpart.*; do
+            [ -e "$part" ] || continue
+            msg=$(cat "$part" | sed 's/%/%25/g' | tr '\n' '~' | sed 's/~/ %0A /g')
+            echo "::error title=DART FORMAT DIFF::${msg:0:3500}"
+          done
+          rm -f /tmp/fmtpart.*
           dart format --set-exit-if-changed .
       - name: Analyze Flutter client
         id: analyze
@@ -112,6 +121,15 @@ jobs:
             echo "::error title=FMT LINE WIN STEP::${line//%/%25}"
           done
           echo "::notice title=WIN STEP::format probed"
+          dart format . || true
+          git diff -- . > /tmp/fmt.diff || true
+          split -b 2500 /tmp/fmt.diff /tmp/fmtpart. || true
+          for part in /tmp/fmtpart.*; do
+            [ -e "$part" ] || continue
+            msg=$(cat "$part" | sed 's/%/%25/g' | tr '\n' '~' | sed 's/~/ %0A /g')
+            echo "::error title=DART FORMAT DIFF WIN::${msg:0:3500}"
+          done
+          rm -f /tmp/fmtpart.*
           dart format --set-exit-if-changed .
       - name: Analyze Flutter client
         shell: bash
