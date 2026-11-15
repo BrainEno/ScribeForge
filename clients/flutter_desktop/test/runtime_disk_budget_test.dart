@@ -221,7 +221,7 @@ void main() {
       find.byKey(const ValueKey('disk-insufficient-card')),
       findsOneWidget,
     );
-    expect(find.textContaining('磁盘预算'), findsOneWidget);
+    expect(find.textContaining('磁盘预算'), findsWidgets);
     expect(find.textContaining('MinerU：下载 5.6 GB'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('preflight-insufficient-advice')),

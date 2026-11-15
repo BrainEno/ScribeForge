@@ -426,7 +426,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(installButton);
     await tester.pumpAndSettle();
-    expect(find.textContaining('Surya · 准备模型'), findsWidgets);
+    expect(find.textContaining('Surya：完成'), findsWidgets);
     expect(find.textContaining('预估下载 3.0 GB'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
