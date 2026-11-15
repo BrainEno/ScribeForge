@@ -101,7 +101,9 @@ jobs:
           dart format --set-exit-if-changed .
       - name: Analyze Flutter client
         shell: bash
-        run: flutter analyze --machine
+        run: |
+          flutter analyze --machine 2>&1 | Tee-Object -FilePath analyze_win.txt
+          python3 -c 'from pathlib import Path; d = Path("analyze_win.txt").read_text(errors="replace"); print("::error title=WIN ANALYZE::" + d.replace("%", "%25").replace("\n", "%0A")[:6000])'
       - name: Run Flutter tests on Windows
         shell: bash
         run: |

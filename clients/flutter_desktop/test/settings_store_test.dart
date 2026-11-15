@@ -164,34 +164,37 @@ void main() {
     expect(vlm.endpoint, contains('/v1'));
   });
 
-  test('an interrupted write leaves the previous settings.json intact', () async {
-    var failOnce = true;
-    final store = DesktopSettingsStore(
-      directory: temporary,
-      beforeRename: (tmpFile, bytes) async {
-        if (failOnce) {
-          failOnce = false;
-          throw StateError('simulated crash before rename');
-        }
-      },
-    );
-    final first = await store.saveCliExecutable('/good/cli');
-    expect(first.ok, isTrue);
+  test(
+    'an interrupted write leaves the previous settings.json intact',
+    () async {
+      var failOnce = true;
+      final store = DesktopSettingsStore(
+        directory: temporary,
+        beforeRename: (tmpFile, bytes) async {
+          if (failOnce) {
+            failOnce = false;
+            throw StateError('simulated crash before rename');
+          }
+        },
+      );
+      final first = await store.saveCliExecutable('/good/cli');
+      expect(first.ok, isTrue);
 
-    final crashed = await store.saveBackendPython('/broken/python');
-    expect(crashed.ok, isFalse);
-    expect(crashed.error, contains('simulated crash'));
+      final crashed = await store.saveBackendPython('/broken/python');
+      expect(crashed.ok, isFalse);
+      expect(crashed.error, contains('simulated crash'));
 
-    // The main file still parses and still holds the pre-crash value.
-    final reloaded = DesktopSettingsStore(directory: temporary);
-    expect(await reloaded.loadCliExecutable(), '/good/cli');
-    expect(await reloaded.loadBackendPython(), isEmpty);
+      // The main file still parses and still holds the pre-crash value.
+      final reloaded = DesktopSettingsStore(directory: temporary);
+      expect(await reloaded.loadCliExecutable(), '/good/cli');
+      expect(await reloaded.loadBackendPython(), isEmpty);
 
-    // A later save succeeds and the queue is not wedged by the failure.
-    final retry = await store.saveBackendPython('/fixed/python');
-    expect(retry.ok, isTrue);
-    expect(await reloaded.loadBackendPython(), '/fixed/python');
-  });
+      // A later save succeeds and the queue is not wedged by the failure.
+      final retry = await store.saveBackendPython('/fixed/python');
+      expect(retry.ok, isTrue);
+      expect(await reloaded.loadBackendPython(), '/fixed/python');
+    },
+  );
 
   test('a corrupt settings.json is quarantined, backed up and reported', () async {
     final settingsFile = File(

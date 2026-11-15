@@ -103,10 +103,12 @@ void main() {
       expect(snapshot.backends.length, 4);
       expect(snapshot.backends['paddleocr-vl']?.optional, isTrue);
       expect(snapshot.backends['mineru']?.optional, isFalse);
-      expect(
-        snapshot.backendNames,
-        ['mineru', 'paddleocr', 'paddleocr-vl', 'surya'],
-      );
+      expect(snapshot.backendNames, [
+        'mineru',
+        'paddleocr',
+        'paddleocr-vl',
+        'surya',
+      ]);
       expect(snapshot.coreBackendNames, ['mineru', 'paddleocr']);
       expect(snapshot.optionalBackendNames, ['paddleocr-vl', 'surya']);
     });

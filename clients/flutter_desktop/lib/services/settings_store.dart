@@ -41,8 +41,10 @@ typedef SettingsClock = DateTime Function();
 /// Test hook invoked after the temporary file is fully written and fsynced
 /// but before it is renamed over `settings.json`; throwing simulates a crash
 /// in the middle of a write.
-typedef SettingsWriteHook =
-    Future<void> Function(File tmpFile, List<int> bytes);
+typedef SettingsWriteHook = Future<void> Function(
+  File tmpFile,
+  List<int> bytes,
+);
 
 class DesktopVlmSettings {
   const DesktopVlmSettings({
