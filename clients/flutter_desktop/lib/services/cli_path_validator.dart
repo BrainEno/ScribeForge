@@ -157,15 +157,14 @@ class CliPathValidator {
     final CliProcessOutcome outcome;
     try {
       outcome = await runner(path, probeArguments, isCancelled: isCancelled)
-          .timeout(
-            timeout,
-            onTimeout: () => const CliProcessOutcome(
-              exitCode: -1,
-              stdout: '',
-              stderr: '',
-              timedOut: true,
-            ),
-          );
+          .timeout(timeout);
+    } on TimeoutException {
+      return CliPathProbeResult(
+        status: CliPathProbeStatus.timedOut,
+        path: path,
+        hint: '运行 "$path ${probeArguments.join(' ')}" 超过 '
+            '${timeout.inSeconds} 秒未退出，已判定为不可用。',
+      );
     } on ProcessException catch (error) {
       return CliPathProbeResult(
         status: CliPathProbeStatus.launchFailed,
@@ -185,7 +184,7 @@ class CliPathValidator {
       return CliPathProbeResult(
         status: CliPathProbeStatus.timedOut,
         path: path,
-        hint: '运行 "$path --help" 超过 ${timeout.inSeconds} 秒未退出，已判定为不可用。',
+        hint: '运行 "$path ${probeArguments.join(' ')}" 超时，已判定为不可用。',
       );
     }
     if (outcome.launchFailed) {
@@ -272,14 +271,14 @@ class CliPathValidator {
       });
     }
     var timedOut = false;
-    final exitCode = await process.exitCode.timeout(
-      timeout,
-      onTimeout: () {
-        timedOut = true;
-        process.kill();
-        return -1;
-      },
-    );
+    final int exitCode;
+    try {
+      exitCode = await process.exitCode.timeout(timeout);
+    } on TimeoutException {
+      timedOut = true;
+      process.kill();
+      exitCode = -1;
+    }
     cancelTimer?.cancel();
     await Future.wait<void>(<Future<void>>[stdoutDone, stderrDone]);
     await process.stdin.close();
