@@ -91,21 +91,29 @@ jobs:
           channel: stable
           cache: true
       - name: Resolve dependencies
-        run: flutter pub get
+        shell: bash
+        run: |
+          echo "::notice title=WIN STEP::pub get start"
+          flutter pub get
+          echo "::notice title=WIN STEP::pub get done"
       - name: Format Dart source
         shell: bash
         run: |
+          echo "::notice title=WIN STEP::format start"
           dart format . || true
           git diff -- . > /tmp/fmt.diff || true
           python3 -c 'from pathlib import Path; d = Path("/tmp/fmt.diff").read_text(); print("::error title=DART FORMAT DIFF WIN::" + d.replace("%", "%25").replace("\n", "%0A")[:8000])'
           dart format --set-exit-if-changed .
+          echo "::notice title=WIN STEP::format done"
       - name: Analyze Flutter client
         shell: bash
         run: |
+          echo "::notice title=WIN STEP::analyze start"
           flutter analyze --machine 2>&1 | Tee-Object -FilePath analyze_win.txt
           python3 -c 'from pathlib import Path; d = Path("analyze_win.txt").read_text(errors="replace"); print("::error title=WIN ANALYZE::" + d.replace("%", "%25").replace("\n", "%0A")[:6000])'
       - name: Run Flutter tests on Windows
         shell: bash
         run: |
+          echo "::notice title=WIN STEP::test start"
           flutter test --reporter expanded --no-color --timeout 3m 2>&1 | tail -60 | python3 -c 'import sys; print("::error title=WIN TEST TAIL::" + sys.stdin.read().replace("%", "%25").replace("\n", "%0A"))'
           flutter test --timeout 3m

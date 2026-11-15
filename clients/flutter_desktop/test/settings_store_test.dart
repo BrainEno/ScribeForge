@@ -196,37 +196,40 @@ void main() {
     },
   );
 
-  test('a corrupt settings.json is quarantined, backed up and reported', () async {
-    final settingsFile = File(
-      '${temporary.path}${Platform.pathSeparator}settings.json',
-    );
-    await settingsFile.writeAsString('{not json');
-    SettingsCorruption? reported;
-    final store = DesktopSettingsStore(
-      directory: temporary,
-      onCorruption: (corruption) => reported = corruption,
-    );
+  test(
+    'a corrupt settings.json is quarantined, backed up and reported',
+    () async {
+      final settingsFile = File(
+        '${temporary.path}${Platform.pathSeparator}settings.json',
+      );
+      await settingsFile.writeAsString('{not json');
+      SettingsCorruption? reported;
+      final store = DesktopSettingsStore(
+        directory: temporary,
+        onCorruption: (corruption) => reported = corruption,
+      );
 
-    expect(await store.loadCliExecutable(), 'scribeforge');
-    expect(store.pendingCorruption, isNotNull);
-    expect(reported, isNotNull);
-    expect(reported!.backupPath, contains('settings.corrupt-'));
-    expect(await File(reported!.backupPath).exists(), isTrue);
-    expect(await File(reported!.backupPath).readAsString(), '{not json');
-    // The corrupt file no longer sits at the main path.
-    expect(await settingsFile.exists(), isFalse);
+      expect(await store.loadCliExecutable(), 'scribeforge');
+      expect(store.pendingCorruption, isNotNull);
+      expect(reported, isNotNull);
+      expect(reported!.backupPath, contains('settings.corrupt-'));
+      expect(await File(reported!.backupPath).exists(), isTrue);
+      expect(await File(reported!.backupPath).readAsString(), '{not json');
+      // The corrupt file no longer sits at the main path.
+      expect(await settingsFile.exists(), isFalse);
 
-    store.clearPendingCorruption();
-    expect(store.pendingCorruption, isNull);
+      store.clearPendingCorruption();
+      expect(store.pendingCorruption, isNull);
 
-    // The store is usable again immediately after quarantine.
-    final result = await store.saveCliExecutable('/recovered/cli');
-    expect(result.ok, isTrue);
-    expect(
-      await DesktopSettingsStore(directory: temporary).loadCliExecutable(),
-      '/recovered/cli',
-    );
-  });
+      // The store is usable again immediately after quarantine.
+      final result = await store.saveCliExecutable('/recovered/cli');
+      expect(result.ok, isTrue);
+      expect(
+        await DesktopSettingsStore(directory: temporary).loadCliExecutable(),
+        '/recovered/cli',
+      );
+    },
+  );
 
   test('a non-object JSON settings file is treated as corruption', () async {
     final settingsFile = File(
