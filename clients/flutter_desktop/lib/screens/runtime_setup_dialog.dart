@@ -342,7 +342,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
     return disk.sufficient
         ? '磁盘预算：预计首跑需要约 $required，当前盘（${disk.path}）剩余 $free，空间足够。'
         : '磁盘预算：预计首跑需要约 $required，当前盘（${disk.path}）剩余 $free，还差约 '
-          '${formatBytes(disk.missingBytes)}。';
+              '${formatBytes(disk.missingBytes)}。';
   }
 
   Widget _diskBudgetCard() {
@@ -351,7 +351,9 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
     final colorScheme = Theme.of(context).colorScheme;
     final insufficient = !disk.sufficient;
     return Card(
-      key: ValueKey(insufficient ? 'disk-insufficient-card' : 'disk-budget-card'),
+      key: ValueKey(
+        insufficient ? 'disk-insufficient-card' : 'disk-budget-card',
+      ),
       margin: EdgeInsets.zero,
       color: insufficient ? colorScheme.errorContainer : Colors.blue.shade50,
       child: Padding(

@@ -2352,7 +2352,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     return disk.sufficient
         ? '磁盘预算（预估）：首跑约需 $required，当前盘剩余 $free。'
         : '磁盘预算（预估）：首跑约需 $required，当前盘剩余 $free，还差约 '
-          '${formatBytes(disk.missingBytes)}。';
+              '${formatBytes(disk.missingBytes)}。';
   }
 
   bool get _diskInsufficient =>

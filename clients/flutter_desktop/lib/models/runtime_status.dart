@@ -50,7 +50,9 @@ class RuntimeStatusSnapshot {
       paths: _asMap(json['paths']),
       backends: backends,
       disk: json['disk'] is Map
-          ? DiskPreflight.fromMap(Map<String, dynamic>.from(json['disk'] as Map))
+          ? DiskPreflight.fromMap(
+              Map<String, dynamic>.from(json['disk'] as Map),
+            )
           : null,
     );
   }
@@ -207,7 +209,9 @@ String formatBytes(int value) {
   var size = value.toDouble();
   for (final unit in const <String>['B', 'KB', 'MB', 'GB', 'TB']) {
     if (size < 1024 || unit == 'TB') {
-      return unit == 'B' ? '${size.toInt()} $unit' : '${size.toStringAsFixed(1)} $unit';
+      return unit == 'B'
+          ? '${size.toInt()} $unit'
+          : '${size.toStringAsFixed(1)} $unit';
     }
     size /= 1024;
   }

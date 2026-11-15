@@ -217,10 +217,16 @@ void main() {
     final status = RuntimeStatusSnapshot.fromJsonText(_statusWithDisk);
     await _showSetupDialog(tester, status, wasStarted: () => started = true);
 
-    expect(find.byKey(const ValueKey('disk-insufficient-card')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('disk-insufficient-card')),
+      findsOneWidget,
+    );
     expect(find.textContaining('磁盘预算'), findsOneWidget);
     expect(find.textContaining('MinerU：下载 5.6 GB'), findsOneWidget);
-    expect(find.byKey(const ValueKey('preflight-insufficient-advice')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('preflight-insufficient-advice')),
+      findsOneWidget,
+    );
     expect(find.text('磁盘空间不足，无法开始'), findsOneWidget);
 
     final button = tester.widget<FilledButton>(
@@ -280,7 +286,10 @@ void main() {
 
     expect(find.byKey(const ValueKey('disk-budget-line')), findsOneWidget);
     expect(find.textContaining('还差约'), findsOneWidget);
-    expect(find.byKey(const ValueKey('disk-insufficient-advice')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('disk-insufficient-advice')),
+      findsOneWidget,
+    );
     final initButton = tester.widget<FilledButton>(
       find.ancestor(
         of: find.byKey(const ValueKey('initialize-runtime-button')),
@@ -347,10 +356,7 @@ void main() {
     await tester.tap(find.descendant(of: rail, matching: find.text('处理')));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('当前引擎组合：MinerU + PaddleOCR'),
-      findsOneWidget,
-    );
+    expect(find.text('当前引擎组合：MinerU + PaddleOCR'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

@@ -189,7 +189,10 @@ void main() {
       expect(formatBytes(512), '512 B');
       expect(formatBytes(2048), '2.0 KB');
       expect(formatBytes(5 * 1024 * 1024), '5.0 MB');
-      expect(formatBytes(12 * 1024 * 1024 * 1024 + 512 * 1024 * 1024), '12.5 GB');
+      expect(
+        formatBytes(12 * 1024 * 1024 * 1024 + 512 * 1024 * 1024),
+        '12.5 GB',
+      );
     });
   });
 }

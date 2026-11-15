@@ -430,5 +430,4 @@ void main() {
     expect(find.textContaining('预估下载 3.0 GB'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
-
 }

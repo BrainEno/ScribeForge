@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Thread
-from typing import TextIO
+from typing import Any, TextIO, cast
 
 from scribeforge.adapters.candidate_epub import build_candidate_epub
 from scribeforge.adapters.docx import write_docx
@@ -3207,7 +3207,7 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
     # Issue #214: disk preflight for the core first-run backends; the UI blocks
     # "初始化环境" when the runtime-root drive cannot fit the estimate.
     core_names = [name for name, _, optional in named if not optional]
-    disk = preflight(runtime_root, core_names)
+    disk = cast(dict[str, Any], preflight(runtime_root, core_names))
 
     paths = {
         "models": str(layout.models_dir),
@@ -3281,10 +3281,13 @@ def _runtime_clean(args: argparse.Namespace, out: TextIO) -> int:
         args.runtime_root if args.runtime_root is not None else default_runtime_root()
     )
     try:
-        report = clean_runtime_artifacts(
-            runtime_root,
-            include_cache=bool(args.cache),
-            include_models=bool(args.models),
+        report = cast(
+            dict[str, Any],
+            clean_runtime_artifacts(
+                runtime_root,
+                include_cache=bool(args.cache),
+                include_models=bool(args.models),
+            ),
         )
     except Exception as exc:  # noqa: BLE001 - cleanup must stay actionable
         print(f"error: could not clean runtime artifacts: {exc}", file=sys.stderr)
