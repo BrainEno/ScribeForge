@@ -243,9 +243,8 @@ void main() {
   testWidgets('setup dialog allows the first run when disk is sufficient', (
     tester,
   ) async {
-    var started = false;
     final status = RuntimeStatusSnapshot.fromJsonText(_statusDiskOk);
-    await _showSetupDialog(tester, status, wasStarted: () => started = true);
+    await _showSetupDialog(tester, status, wasStarted: () => false);
 
     expect(find.byKey(const ValueKey('disk-budget-card')), findsOneWidget);
     expect(find.text('开始安装全部后端'), findsOneWidget);

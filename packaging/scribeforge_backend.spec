@@ -22,7 +22,12 @@ analysis = Analysis(
     pathex=[str(SOURCE)],
     binaries=pdfium_binaries + opencc_binaries,
     datas=worker_datas + pdfium_datas + opencc_datas,
-    hiddenimports=pdfium_hidden_imports + opencc_hidden_imports,
+    hiddenimports=pdfium_hidden_imports
+    + opencc_hidden_imports
+    + [
+        "scribeforge.runtime.sizes",
+        "scribeforge.runtime.cleanup",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
