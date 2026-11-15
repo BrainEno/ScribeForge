@@ -48,26 +48,15 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
-          trap {
-            $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$_ | $($_.InvocationInfo.PositionMessage)"))
-            Write-Host "::error title=PKGTRAP::$enc"
-            continue
-          }
           $backend = (Resolve-Path "dist/backend/scribeforge.exe").Path
           & $backend --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Frozen backend --help failed" }
           $originalPath = $env:PATH
           $env:PATH = "$env:SystemRoot\System32"
-          $PSNativeCommandUseErrorActionPreference = $false
-          $report = cmd /c "`"$backend`" runtime-status --json 2>&1"
+          $report = & $backend runtime-status --json | Out-String
           $exitCode = $LASTEXITCODE
-          $PSNativeCommandUseErrorActionPreference = $true
           $env:PATH = $originalPath
-          if ($exitCode -ne 0) {
-            $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$report"))
-            Write-Host "::error title=PKGPROBE::$enc"
-            throw "Frozen runtime-status failed: $report"
-          }
+          if ($exitCode -ne 0) { throw "Frozen runtime-status failed: $report" }
           $status = $report | ConvertFrom-Json
           if ($status.schema_version -ne 1) { throw "Invalid runtime status" }
           $workerRoot = "dist/backend/_internal/worker-src/scribeforge/workers"
