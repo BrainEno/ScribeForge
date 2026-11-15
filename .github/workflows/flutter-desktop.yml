@@ -34,9 +34,14 @@ jobs:
           set -o pipefail
           if ! dart format --set-exit-if-changed .; then
             dart format --output=none . || true
-            git diff -- . | while IFS= read -r line; do
-              enc=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r/%0D/g')
-              printf '::error title=FMT::%s\n' "$enc"
+            git diff -- . | base64 -w0 > /tmp/fmt.b64 || true
+            total=$(( ($(wc -c < /tmp/fmt.b64) + 2999) / 3000 ))
+            [ "$total" -lt 1 ] && total=1
+            i=1
+            while [ "$i" -le "$total" ]; do
+              chunk=$(cut -c $(( (i-1)*3000 + 1 ))-$(( i*3000 )) /tmp/fmt.b64)
+              printf '::error title=FMTB64::%s/%s:%s\n' "$i" "$total" "$chunk"
+              i=$(( i + 1 ))
             done || true
             exit 1
           fi
