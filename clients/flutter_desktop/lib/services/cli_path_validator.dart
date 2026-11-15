@@ -156,13 +156,17 @@ class CliPathValidator {
     final runner = processRunner ?? _runProcess;
     final CliProcessOutcome outcome;
     try {
-      outcome = await runner(path, probeArguments, isCancelled: isCancelled)
-          .timeout(timeout);
+      outcome = await runner(
+        path,
+        probeArguments,
+        isCancelled: isCancelled,
+      ).timeout(timeout);
     } on TimeoutException {
       return CliPathProbeResult(
         status: CliPathProbeStatus.timedOut,
         path: path,
-        hint: '运行 "$path ${probeArguments.join(' ')}" 超过 '
+        hint:
+            '运行 "$path ${probeArguments.join(' ')}" 超过 '
             '${timeout.inSeconds} 秒未退出，已判定为不可用。',
       );
     } on ProcessException catch (error) {
@@ -271,13 +275,12 @@ class CliPathValidator {
       });
     }
     var timedOut = false;
-    final int exitCode;
+    var exitCode = -1;
     try {
       exitCode = await process.exitCode.timeout(timeout);
     } on TimeoutException {
       timedOut = true;
       process.kill();
-      exitCode = -1;
     }
     cancelTimer?.cancel();
     await Future.wait<void>(<Future<void>>[stdoutDone, stderrDone]);
