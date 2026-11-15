@@ -48,6 +48,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
+          trap {
+            $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("$_ | $($_.InvocationInfo.PositionMessage)"))
+            Write-Host "::error title=PKGTRAP::$enc"
+            continue
+          }
           $backend = (Resolve-Path "dist/backend/scribeforge.exe").Path
           & $backend --help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "Frozen backend --help failed" }
