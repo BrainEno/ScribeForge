@@ -705,7 +705,10 @@ void main() {
       tester,
       () => harness.cli.calls.any(
         (arguments) =>
-            arguments.first == 'status' && arguments.contains('/fake/store'),
+            arguments.first == 'status' &&
+            arguments
+                .map((argument) => argument.replaceAll('\\', '/'))
+                .contains('/fake/store'),
       ),
       description: 'the remembered project store to be reopened',
     );
