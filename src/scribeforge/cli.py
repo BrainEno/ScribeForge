@@ -3237,7 +3237,8 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
     }
 
     if args.json:
-        print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out)
+        # ASCII-safe: frozen Windows consoles are cp1252 and would crash on Chinese (#214)
+        print(json.dumps(report, ensure_ascii=True, sort_keys=True), file=out)
     else:
         print(f"Runtime root: {runtime_root}", file=out)
         print(f"uv: {'available' if overview.uv_available else 'missing'}", file=out)
@@ -3295,7 +3296,8 @@ def _runtime_clean(args: argparse.Namespace, out: TextIO) -> int:
     from scribeforge.runtime.sizes import format_bytes
 
     if args.json:
-        print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out)
+        # ASCII-safe: frozen Windows consoles are cp1252 and would crash on Chinese (#214)
+        print(json.dumps(report, ensure_ascii=True, sort_keys=True), file=out)
     else:
         print(f"Runtime root: {runtime_root}", file=out)
         print(f"Freed: {format_bytes(int(report['freed_bytes']))}", file=out)
@@ -3356,7 +3358,9 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
             "downloaded_bytes": event.downloaded_bytes,
             "installed_bytes": event.installed_bytes,
         }
-        print(json.dumps(record, ensure_ascii=False, sort_keys=True), file=out, flush=True)
+        print(
+            json.dumps(record, ensure_ascii=True, sort_keys=True), file=out, flush=True
+        )  # ASCII-safe for frozen cp1252 consoles (#214)
 
     try:
         if args.backend is None:
@@ -3441,7 +3445,9 @@ def _setup_json(args: argparse.Namespace, out: TextIO) -> int:
             ),
         },
     }
-    print(json.dumps(report, ensure_ascii=False, sort_keys=True), file=out, flush=True)
+    print(
+        json.dumps(report, ensure_ascii=True, sort_keys=True), file=out, flush=True
+    )  # ASCII-safe for frozen cp1252 consoles (#214)
     return result_code
 
 
