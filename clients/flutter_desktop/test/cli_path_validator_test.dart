@@ -23,6 +23,7 @@ void main() {
 
     test('rejects a path that does not exist', () async {
       final validator = CliPathValidator(
+        operatingSystem: 'linux',
         stat: (_) async => null,
         processRunner: (executable, arguments, {isCancelled}) async {
           throw StateError('probe must not run for a missing path');
@@ -35,6 +36,7 @@ void main() {
 
     test('rejects a directory', () async {
       final validator = CliPathValidator(
+        operatingSystem: 'linux',
         stat: (_) async => _fileStat(type: FileSystemEntityType.directory),
         processRunner: (executable, arguments, {isCancelled}) async {
           throw StateError('probe must not run for a directory');
@@ -92,6 +94,7 @@ void main() {
 
     test('reports launchFailed from an outcome launch error', () async {
       final validator = CliPathValidator(
+        operatingSystem: 'linux',
         stat: (_) async => _fileStat(),
         processRunner: (executable, arguments, {isCancelled}) async {
           return CliProcessOutcome.launchFailed('permission denied');
@@ -104,6 +107,7 @@ void main() {
 
     test('rejects a binary whose probe exits non-zero', () async {
       final validator = CliPathValidator(
+        operatingSystem: 'linux',
         stat: (_) async => _fileStat(),
         processRunner: (executable, arguments, {isCancelled}) async {
           return const CliProcessOutcome(
@@ -121,6 +125,7 @@ void main() {
 
     test('reports timedOut probes', () async {
       final validator = CliPathValidator(
+        operatingSystem: 'linux',
         timeout: const Duration(milliseconds: 1),
         stat: (_) async => _fileStat(),
         processRunner: (executable, arguments, {isCancelled}) async {
@@ -134,6 +139,7 @@ void main() {
 
     test('honours cancellation before saving', () async {
       final validator = CliPathValidator(
+        operatingSystem: 'linux',
         stat: (_) async => _fileStat(),
         processRunner: (executable, arguments, {isCancelled}) async {
           return const CliProcessOutcome(
@@ -175,6 +181,7 @@ void main() {
 
     test('a bare command name skips the file checks and probes PATH', () async {
       final validator = CliPathValidator(
+        operatingSystem: 'linux',
         stat: (_) async => throw StateError('bare names must not be stat-ed'),
         processRunner: (executable, arguments, {isCancelled}) async {
           expect(executable, 'scribeforge');
