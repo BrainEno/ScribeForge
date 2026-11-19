@@ -34,8 +34,7 @@ import 'project_safety_screen.dart';
 import 'runtime_setup_dialog.dart';
 import 'vlm_settings_dialog.dart';
 
-/// 主窗口"下一步"引导条可采取的操作。
-enum NextStepAction {
+/// 主窗口\"下一步\"引导条可采取的操作。\nenum NextStepAction {
   none,
   configureBackend,
   initEnvironment,
@@ -47,8 +46,7 @@ enum NextStepAction {
   goExport,
 }
 
-/// 一条"下一步"建议：一句中文说明 + 一个可点击操作。
-class NextStepGuidance {
+/// 一条\"下一步\"建议：一句中文说明 + 一个可点击操作。\nclass NextStepGuidance {
   const NextStepGuidance(this.action, this.message, {this.count});
 
   final NextStepAction action;
@@ -56,8 +54,7 @@ class NextStepGuidance {
   final int? count;
 }
 
-/// 由原始状态计算唯一的下一步建议（纯函数，便于穷举单测）。
-NextStepGuidance nextStepGuidance({
+/// 由原始状态计算唯一的下一步建议（纯函数，便于穷举单测）。\nNextStepGuidance nextStepGuidance({
   required bool backendChecked,
   required bool backendLaunchFailed,
   required bool runtimeSetupRequired,
@@ -124,20 +121,7 @@ NextStepGuidance nextStepGuidance({
   );
 }
 
-/// 一体化书籍数字化工作台。
-///
-/// 面向新手使用者：把「导入书籍 → 运行处理 → 复核决策 → 导出 EPUB/DOCX」
-/// 全流程聚合在一个窗口里，无需接触命令行。首次启动会引导完成运行时
-/// 配置（setup），之后所有操作都通过界面按钮完成。
-///
-/// 与 Python CLI 保持一致的语义：
-/// - `process`：导入并运行整条管线（OCR / 对齐 / 风险 / 复核 / 决策）
-/// - `review`：列出尚需人工决定的配对
-/// - `resolve`：记录一条人工决策
-/// - `confirm`：标记空白页 / 非文本页
-/// - `export`：写出 EPUB 3 或 DOCX
-/// - `runtime-status` / `setup`：运行时与首次配置
-class UnifiedWorkspace extends StatefulWidget {
+/// 一体化书籍数字化工作台。\n///\n/// 面向新手使用者：把「导入书籍 → 运行处理 → 复核决策 → 导出 EPUB/DOCX」\n/// 全流程聚合在一个窗口里，无需接触命令行。首次启动会引导完成运行时\n/// 配置（setup），之后所有操作都通过界面按钮完成。\n///\n/// 与 Python CLI 保持一致的语义：\n/// - `process`：导入并运行整条管线（OCR / 对齐 / 风险 / 复核 / 决策）\n/// - `review`：列出尚需人工决定的配对\n/// - `resolve`：记录一条人工决策\n/// - `confirm`：标记空白页 / 非文本页\n/// - `export`：写出 EPUB 3 或 DOCX\n/// - `runtime-status` / `setup`：运行时与首次配置\nclass UnifiedWorkspace extends StatefulWidget {
   const UnifiedWorkspace({
     super.key,
     this.cliExecutor,
@@ -225,8 +209,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   RuntimeStatusSnapshot? _runtimeStatus;
   bool _runtimeLoading = true;
 
-  // 复核队列（来自 `scribeforge review --json` 的稳定契约）
-  final List<ReviewQueueItem> _reviewQueue = [];
+  // 复核队列（来自 `scribeforge review --json` 的稳定契约）\n  final List<ReviewQueueItem> _reviewQueue = [];
   bool _reviewLoading = false;
   bool _includePageFurnitureInReview = false;
   int _selectedReviewIndex = 0;
@@ -236,8 +219,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     debugLabel: 'review-decision-input',
   );
 
-  // 导出表单控制器（需在 dispose 中释放）
-  final _exportOutputController = TextEditingController();
+  // 导出表单控制器（需在 dispose 中释放）\n  final _exportOutputController = TextEditingController();
   String? _exportOutputDirectory;
   final _exportLanguageController = TextEditingController(text: 'zh');
   final _exportTitleController = TextEditingController();
@@ -247,8 +229,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   var _exportStrictAcceptance = false;
   var _exportIncludePageFurniture = false;
 
-  // 复核队列每条项的输入控制器（键：projectId-pageIndex-pairIndex）
-  final Map<String, TextEditingController> _reviewControllers = {};
+  // 复核队列每条项的输入控制器（键：projectId-pageIndex-pairIndex）\n  final Map<String, TextEditingController> _reviewControllers = {};
 
   TextEditingController _reviewControllerFor(ReviewQueueItem item) {
     final key = '${item.projectId}-${item.pageIndex}-${item.pairIndex}';
@@ -393,6 +374,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         });
         return;
       }
+
       final arguments = ScribeForgeCli.statusArguments(storePath: storePath);
       final buffer = StringBuffer();
       final exitCode = await _cliExecutor.run(
@@ -540,10 +522,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       });
     } finally {
       if (mounted) {
-        setState(() {
-          _runtimeLoading = false;
-          _runtimeChecked = true;
-        });
+        setState(() => _runtimeLoading = false);
       }
     }
   }
@@ -664,9 +643,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     await _openProjectAt(storePath);
   }
 
-  /// Validates and loads the project store at [storePath]; shared by the
-  /// file picker and the one-click "继续上次项目" resume action.
-  Future<void> _openProjectAt(String storePath) async {
+  /// Validates and loads the project store at [storePath]; shared by the\n  /// file picker and the one-click \"继续上次项目\" resume action.\n  Future<void> _openProjectAt(String storePath) async {
     final databasePath = ScribeForgeCli.joinPath(storePath, 'project.sqlite3');
     if (!await _fileSystem.fileExists(databasePath)) {
       setState(() => _error = '所选文件夹中没有 ScribeForge 项目数据库。');
@@ -994,8 +971,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         modified: modified,
         includePageFurniture: includePageFurniture,
       );
-      // 布局与严格校验：CLI 支持 --layout 与 --strict-acceptance，这里拼接。
-      final allArgs = <String>[...arguments];
+      // 布局与严格校验：CLI 支持 --layout 与 --strict-acceptance，这里拼接。\n      final allArgs = <String>[...arguments];
       allArgs.addAll(<String>['--layout', layoutChapter ? 'chapter' : 'page']);
       if (strictAcceptance) allArgs.add('--strict-acceptance');
 
@@ -1027,7 +1003,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     if (directory == null) return;
     var stem = _exportTitleController.text.trim();
     if (stem.isEmpty) stem = 'book';
-    stem = stem.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+    stem = stem.replaceAll(RegExp(r'[<>:\"/\\\\|?*]'), '_');
     if (stem.isEmpty) stem = 'book';
     final extension = _exportFormatEpub ? 'epub' : 'docx';
     _exportOutputController.text = ScribeForgeCli.joinPath(
@@ -1088,11 +1064,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     }
   }
 
-  /// Runs `vlm-check` once with the built-in sample crop (issue #217).
-  ///
-  /// Returns a short Chinese suffix describing the outcome, or null when the
-  /// probe cannot run (e.g. CLI missing) so the save notice stays unchanged.
-  Future<String?> _probeVlmConnectivity(DesktopVlmSettings settings) async {
+  /// Runs `vlm-check` once with the built-in sample crop (issue #217).\n  ///\n  /// Returns a short Chinese suffix describing the outcome, or null when the\n  /// probe cannot run (e.g. CLI missing) so the save notice stays unchanged.\n  Future<String?> _probeVlmConnectivity(DesktopVlmSettings settings) async {
     try {
       final sample = await writeBuiltInVlmSampleImage();
       var output = '';
@@ -2362,8 +2334,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   bool _runtimeCleaning = false;
 
-  /// Runs `runtime-clean` and reports the freed space (issue #214).
-  Future<void> _cleanRuntimeArtifacts() async {
+  /// Runs `runtime-clean` and reports the freed space (issue #214).\n  Future<void> _cleanRuntimeArtifacts() async {
     final root = _runtimeStatus?.runtimeRoot;
     if (root == null || root.isEmpty) {
       setState(() => _error = '尚未检测到运行时根目录，请先刷新运行时状态。');
@@ -2448,8 +2419,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     _ => name,
   };
 
-  /// Per-backend size estimate suffix for the settings list (issue #214).
-  String _backendEstimateSuffix(RuntimeBackendSnapshot backend) {
+  /// Per-backend size estimate suffix for the settings list (issue #214).\n  String _backendEstimateSuffix(RuntimeBackendSnapshot backend) {
     final estimate = backend.estimates;
     if (estimate == null || estimate.totalBytes <= 0) return '';
     return ' · 预估 ${formatBytes(estimate.totalBytes)}';
@@ -2667,8 +2637,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                 _refreshRuntimeStatus();
               },
             ),
-            // Issue #214: actionable cleanup when the disk preflight is short.
-            ListTile(
+            // Issue #214: actionable cleanup when the disk preflight is short.\n            ListTile(
               title: const Text('清理运行时临时文件'),
               subtitle: const Text('删除未完成的临时环境目录；模型与缓存默认保留'),
               trailing: _runtimeCleaning
@@ -2714,11 +2683,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             const SizedBox(height: 8),
             Text(
               'Python 解释器：${_backendPython.isEmpty ? '未设置（将自动检测系统 Python）' : _backendPython}',
-              style: const TextStyle(fontSize: 12),
+              style: TextStyle(fontSize: 12),
             ),
             Text(
               '源码目录：${_backendSourcePath.isEmpty ? '未设置（将自动向上检测）' : _backendSourcePath}',
-              style: const TextStyle(fontSize: 12),
+              style: TextStyle(fontSize: 12),
             ),
             Text(
               '虚拟环境目录：$_backendVenvDirectory',
@@ -2820,8 +2789,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     var python = _backendPython.trim();
     var pythonArgs = <String>[];
     if (python.isEmpty) {
-      // #184: never ask a novice for a path — probe the system first.
-      setState(() => _backendBusy = true);
+      // #184: never ask a novice for a path — probe the system first.\n      setState(() => _backendBusy = true);
       final detected = await _pythonLocator.detect();
       if (!mounted) return;
       setState(() => _backendBusy = false);
@@ -2848,14 +2816,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
               ),
             ],
           ),
-        );
-        return;
-      }
-      python = detected.executable;
-      pythonArgs = detected.arguments;
-      setState(() => _notice = '自动检测到系统 Python：${detected.label}');
-    }
-    var sourcePath = _backendSourcePath.trim();
+        );\n        return;\n      }\n      python = detected.executable;\n      pythonArgs = detected.arguments;\n      setState(() => _notice = '自动检测到系统 Python：${detected.label}');\n    }\n    var sourcePath = _backendSourcePath.trim();
     if (sourcePath.isEmpty) {
       final detected = await _provisioner.detectBackendSourcePath();
       if (detected != null) {
@@ -2983,8 +2944,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     return ok;
   }
 
-  /// 简单的文本输入对话框。
-  String get _backendOriginLabel => switch (_backendResolution?.origin) {
+  /// 简单的文本输入对话框。\n  String get _backendOriginLabel => switch (_backendResolution?.origin) {
     DesktopBackendOrigin.bundled => '内置核心',
     DesktopBackendOrigin.provisionedVenv => '已初始化的本地环境',
     DesktopBackendOrigin.custom => '自定义路径',
@@ -3052,7 +3012,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     if (!probe.ok) {
       setState(() {
         _cliProbing = false;
-        _cliProbeMessage = '无法运行：${probe.status.name}';
+        _cliProbeMessage = null;
         _error = '未保存命令行工具路径（旧配置保持不变）。${probe.hint ?? ''}';
       });
       return;
@@ -3074,7 +3034,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     );
     if (!mounted) return;
     setState(() {
-      _cliProbing = false;
       _cliExecutable = resolution.executable;
       _backendResolution = resolution;
       _cliProbeMessage = probe.hint;
