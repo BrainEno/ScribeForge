@@ -178,6 +178,10 @@ class ReviewQueueSnapshot {
 }
 
 class ReviewQueueItem {
+  static final _tokenPattern = RegExp(
+    r'^v[1-9][0-9]{0,18}:r(?:0|[1-9][0-9]{0,18})$',
+  );
+
   const ReviewQueueItem({
     required this.projectId,
     required this.projectTitle,
@@ -245,10 +249,7 @@ class ReviewQueueItem {
     final reviewToken = json['review_token'];
     final ocrFrameImagePath = json['ocr_frame_image_path'];
     if ((reviewToken != null &&
-            (reviewToken is! String ||
-                !RegExp(
-                  r'^v[1-9][0-9]{0,18}:r(?:0|[1-9][0-9]{0,18})$',
-                ).hasMatch(reviewToken))) ||
+            (reviewToken is! String || !_tokenPattern.hasMatch(reviewToken))) ||
         pageIndex is! int ||
         pairIndex is! int ||
         rawScore is! num ||
