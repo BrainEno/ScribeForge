@@ -11,6 +11,10 @@ void main() {
   testWidgets(
     'reads adjacent receipt and rechecks with optional project comparison',
     (tester) async {
+      tester.view.physicalSize = const Size(900, 1050);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final cli = _Verifier();
       await tester.pumpWidget(
         MaterialApp(
