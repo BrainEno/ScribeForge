@@ -632,9 +632,9 @@ void main() {
     tester,
   ) async {
     await createHarness(tester);
-    String banner() =>
-        (tester.widget(find.byKey(const ValueKey('next-step-message'))) as Text)
-            .data!;
+    String banner() => (tester.widget(
+      find.byKey(const ValueKey('next-step-message')),
+    ) as Text).data!;
 
     // Fresh app: nothing imported yet.
     expect(banner(), contains('导入一本'));
@@ -669,10 +669,9 @@ void main() {
     'the next-step banner offers one-click init when the runtime is missing',
     (tester) async {
       await createHarness(tester, runtimeReady: false);
-      String banner() =>
-          (tester.widget(find.byKey(const ValueKey('next-step-message')))
-                  as Text)
-              .data!;
+      String banner() => (tester.widget(
+        find.byKey(const ValueKey('next-step-message')),
+      ) as Text).data!;
       expect(banner(), contains('初始化'));
       await tester.tap(find.byKey(const ValueKey('next-step-action')));
       await pumpUntil(
@@ -690,9 +689,9 @@ void main() {
     await settings.saveLastProjectStore('/fake/store');
     final harness = await createHarness(tester, settingsStore: settings);
     harness.cli.fileSystem.addProjectStore('/fake/store');
-    String banner() =>
-        (tester.widget(find.byKey(const ValueKey('next-step-message'))) as Text)
-            .data!;
+    String banner() => (tester.widget(
+      find.byKey(const ValueKey('next-step-message')),
+    ) as Text).data!;
 
     await pumpUntil(
       tester,
@@ -782,11 +781,11 @@ class _Harness {
 }
 
 class _MemorySettingsStore extends DesktopSettingsStore {
+  _MemorySettingsStore() : super();
+
   @override
   Future<RuntimeLocationPreferences> loadRuntimeLocations() async =>
       const RuntimeLocationPreferences();
-
-  _MemorySettingsStore() : super();
 
   String _cliExecutable = DesktopSettingsStore.defaultCliExecutable;
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
