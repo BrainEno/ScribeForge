@@ -9,8 +9,9 @@ import '../services/desktop_file_picker.dart';
 import '../services/runtime_location_service.dart';
 import '../services/settings_store.dart';
 
-typedef ActivateRuntimeLocation =
-    Future<SettingsSaveResult> Function(RuntimeLocation location);
+typedef ActivateRuntimeLocation = Future<SettingsSaveResult> Function(
+  RuntimeLocation location,
+);
 
 enum _LocationPhase { editing, checking, preparing, saving }
 
