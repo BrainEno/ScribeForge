@@ -437,20 +437,18 @@ class _HistoryRecordScreenState extends State<_HistoryRecordScreen> {
   }
 
   Future<void> _copy(ReviewHistoryRecord record) async {
+    var message = '已复制当前决策摘要。';
     try {
       await Clipboard.setData(
         ClipboardData(text: record.describeForClipboard()),
       );
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('已复制当前决策摘要。')));
     } on PlatformException {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('剪贴板不可用，请手动选择文字。')));
+      message = '剪贴板不可用，请手动选择文字。';
     }
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _metadata(ReviewHistoryRecord record) => Card(
