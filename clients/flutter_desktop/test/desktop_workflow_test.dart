@@ -174,6 +174,24 @@ void main() {
       );
       expect(harness.cli.lastHumanDecisionText, '鸦');
       expect(find.text('暂无待处理配对。'), findsOneWidget);
+      final resolveCall = harness.cli.calls.singleWhere(
+        (arguments) => arguments.first == 'resolve',
+      );
+      expect(resolveCall[resolveCall.indexOf('--review-token') + 1], 'v1:r0');
+
+      // Accepted rows remain discoverable after leaving the pending queue.
+      await tester.tap(find.byKey(const ValueKey('open-review-history')));
+      await tester.pumpAndSettle();
+      expect(find.text('复核决策历史'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('history-decision-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('决策 #1'), findsOneWidget);
+      expect(find.text('verification_run:1'), findsOneWidget);
+      expect(find.text('鸦'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
 
       await openTab(tester, '导出');
       await tester.tap(
@@ -1020,6 +1038,37 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
         return 0;
       case 'review':
         onOutput(jsonEncode(_reviewPayload()));
+        return 0;
+      case 'review-history':
+        onOutput(
+          jsonEncode(<String, Object?>{
+            'schema_version': 1,
+            'project_id': 1,
+            'project_title': 'Sample',
+            'snapshot_id': 1,
+            'next_before_id': null,
+            'decisions': <Map<String, Object?>>[
+              <String, Object?>{
+                'id': 1,
+                'page_index': 0,
+                'pair_index': 0,
+                'actor': 'human',
+                'created_at': '2026-11-20 00:00:00',
+                'text': lastHumanDecisionText,
+                'text_truncated': false,
+                'evidence_refs': <String>['verification_run:1'],
+                'citation_invalid': false,
+                'verification_id': 1,
+                'current_verification_id': 1,
+                'binding': 'current',
+                'latest_for_pair': true,
+                'previous_decision_id': null,
+                'risk_score': 0.8,
+                'risk_reasons': <String>['text_disagreement'],
+              },
+            ],
+          }),
+        );
         return 0;
       case 'resolve':
         final page = args[args.indexOf('--page') + 1];
