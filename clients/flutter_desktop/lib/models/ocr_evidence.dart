@@ -260,5 +260,23 @@ class EvidenceFields {
     return value.map(EvidenceFields.new).toList(growable: false);
   }
 
+  List<String> strings(String key) {
+    final value = _fields[key];
+    if (value is! List || value.any((item) => item is! String)) {
+      throw _invalid(key);
+    }
+    return List<String>.unmodifiable(value.cast<String>());
+  }
+
+  List<double> numbers(String key) {
+    final value = _fields[key];
+    if (value is! List || value.any((item) => item is! num || !item.isFinite)) {
+      throw _invalid(key);
+    }
+    return List<double>.unmodifiable(
+      value.cast<num>().map((item) => item.toDouble()),
+    );
+  }
+
   FormatException _invalid(String key) => FormatException('无效的证据字段：$key。');
 }

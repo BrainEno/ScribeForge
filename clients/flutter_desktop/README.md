@@ -162,3 +162,19 @@ batch IDs, `--section lines --page N --run OCR_ID` for raw lines, and
 `--section pairs --page N --run VERIFICATION_ID` for alignment. List sections
 return `next_after` for `--after`. Text and large groups are explicitly marked
 when previewed; there are no database migrations or decision writes.
+
+### Search saved evidence across a book
+
+From **书籍 → 浏览 OCR 证据 → 全书证据检索**, search either raw OCR
+lines (including alternate runs) or saved decision records. Optional physical
+page bounds use one-based numbering in the app. Decision searches may be
+filtered by actor. Matching is literal and case-sensitive; it does not convert
+variants or match across records. Open a result for longer context and its
+stored provenance. The latest-record marker does not certify export eligibility.
+
+The CLI equivalent is `evidence-search --store DIR --project-id ID --source ocr
+--term=TEXT`. For decisions, choose `--source decisions` and optionally pass
+`--actor`. CLI physical page indexes are zero-based. Pass `--snapshot-id` and
+`--before-id` from the response to page through the same result sequence; use
+`--record-id` with the snapshot to retrieve a longer excerpt. This command is
+read-only and never invokes OCR or sends content to a remote model.
