@@ -209,3 +209,18 @@ Use its token with `confirm --project-id ID --confirmation-token TOKEN --json` t
 bind a write. Preview requires saved digest evidence; audit/rehash older projects
 first. Existing unguarded CLI confirmations retain their prior semantics. Stores
 with new bound confirmations use schema 16; keep a backup before downgrading.
+
+### Verify an exported EPUB or DOCX
+
+Open **导出 → 校验已导出的文件**. Keep the book, `.receipt.json` and
+`.normalization.json` together. The check compares local byte counts and
+SHA-256 fingerprints and can compare the receipt's recorded source fingerprint
+with the current project's source. For older exports it reports separately
+whether only a normalization report matches or no receipt is available.
+
+`verify-export --file PATH` performs the same read-only check without opening
+the book archive. Optionally pass `--source-sha256 DIGEST`. It returns a JSON
+assessment; inspect `status` even if the command exits zero. A local receipt is
+not a signature, does not verify the newest project decisions, and cannot prove
+provenance if all companion files were replaced together. If a write was
+interrupted, re-export to a new path and retain the original files for review.

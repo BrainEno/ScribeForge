@@ -246,6 +246,12 @@ class EvidenceFields {
     throw _invalid(key);
   }
 
+  bool? optionalFlag(String key) {
+    final value = _fields[key];
+    if (value == null || value is bool) return value as bool?;
+    throw _invalid(key);
+  }
+
   String text(String key) => optionalText(key) ?? (throw _invalid(key));
   String? optionalText(String key) {
     final value = _fields[key];

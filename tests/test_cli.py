@@ -1236,6 +1236,11 @@ def test_export_normalization_is_auditable_and_never_rewrites_accepted_decisions
     cli_report = json.loads(captured.out)
     assert cli_report["normalization"]["policy"] == policy
     assert cli_report["normalization"]["change_count"] > 0
+    assert Path(cli_report["receipt"]).is_file()
+    assert run(["verify-export", "--file", str(out_path)]) == 0
+    verification = json.loads(capsys.readouterr().out)
+    assert verification["status"] == "consistent"
+    assert verification["receipt"]["policy"] == policy
     report_path = Path(f"{out_path}.normalization.json")
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["policy"] == policy

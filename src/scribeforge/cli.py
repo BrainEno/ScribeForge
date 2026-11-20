@@ -17,8 +17,8 @@ from threading import Thread
 from typing import Any, TextIO, cast
 
 from scribeforge.adapters.candidate_epub import build_candidate_epub
-from scribeforge.adapters.docx import write_docx
-from scribeforge.adapters.epub import write_epub
+from scribeforge.adapters.docx import build_docx
+from scribeforge.adapters.epub import build_epub
 from scribeforge.adapters.export_common import write_atomic
 from scribeforge.adapters.openai_compatible_vlm import OpenAICompatibleVLMReviewer
 from scribeforge.adapters.opencc_text import opencc_simplifier
@@ -62,6 +62,12 @@ from scribeforge.export_readiness import (
     ReadinessOptions,
     read_export_readiness,
     strict_acceptance_blocks,
+)
+from scribeforge.export_receipt import (
+    FileFingerprint,
+    make_export_receipt,
+    receipt_path,
+    verify_export_artifact,
 )
 from scribeforge.observability import (
     DEFAULT_LOG_FORMAT,
@@ -815,6 +821,14 @@ def build_parser() -> argparse.ArgumentParser:
     ui = subparsers.add_parser("ui", help="Open the read-only desktop shell for a project store.")
     ui.add_argument("--store", type=Path, required=True, help="Project store directory.")
 
+    verify_export = subparsers.add_parser(
+        "verify-export", help="Check the bytes of an EPUB or DOCX against local export sidecars."
+    )
+    verify_export.add_argument("--file", type=Path, required=True)
+    verify_export.add_argument(
+        "--source-sha256", help="Compare to the expected source document digest."
+    )
+
     readiness = subparsers.add_parser(
         "export-readiness", help="Assess trusted export content without writing any output files."
     )
@@ -1274,6 +1288,8 @@ def _dispatch(
         return _textless_preview(args, out)
     if args.command == "confirm":
         return _confirm(args, out)
+    if args.command == "verify-export":
+        return _verify_export(args, out)
     if args.command == "export-readiness":
         return _export_readiness(args, out)
     if args.command == "export":
@@ -2541,6 +2557,16 @@ def _confirm(args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK
 
 
+def _verify_export(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        result = verify_export_artifact(args.file, expected_source=args.source_sha256)
+    except (ValueError, OSError) as exc:
+        print(f"error: could not verify export: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(json.dumps(result, ensure_ascii=True, allow_nan=False), file=out)
+    return EXIT_OK
+
+
 def _export_readiness(args: argparse.Namespace, out: TextIO) -> int:
     try:
         result = read_export_readiness(
@@ -2696,9 +2722,8 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
 
     try:
         if suffix == ".epub":
-            write_epub(
+            data = build_epub(
                 book,
-                args.out,
                 identifier=f"urn:scribeforge:{project.source_sha256}",
                 language=args.language,
                 modified=modified,
@@ -2707,25 +2732,41 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
                 normalization=normalization_policy.value,
             )
         else:
-            write_docx(
+            data = build_docx(
                 book,
-                args.out,
                 identifier=f"urn:scribeforge:{project.source_sha256}",
                 language=args.language,
                 modified=modified,
                 author=author,
                 normalization=normalization_policy.value,
             )
-        output_sha256 = hashlib.sha256(args.out.read_bytes()).hexdigest()
+        output = FileFingerprint.from_bytes(data)
+        write_atomic(args.out, data)
+        del data
+        output_sha256 = output.sha256
+        normalization_bytes = normalization_report_json(
+            derived.report, output_file=args.out.name, output_sha256=output_sha256
+        ).encode("utf-8")
+        write_atomic(normalization_path, normalization_bytes)
+        receipt = receipt_path(args.out)
         write_atomic(
-            normalization_path,
-            normalization_report_json(
-                derived.report,
-                output_file=args.out.name,
-                output_sha256=output_sha256,
-            ).encode("utf-8"),
+            receipt,
+            make_export_receipt(
+                args.out,
+                artifact=output,
+                normalization=FileFingerprint.from_bytes(normalization_bytes),
+                source_sha256=project.source_sha256,
+                project_id=project.id,
+                title=book.title,
+                timestamp=modified.isoformat(),
+                strict_acceptance=args.strict_acceptance,
+                include_page_furniture=args.include_page_furniture,
+                policy=normalization_policy.value,
+                pages=len(book.pages),
+                accepted_pairs=summary.pairs,
+            ),
         )
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
@@ -2735,6 +2776,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
     if args.json:
         report = {
             "output": str(args.out),
+            "receipt": str(receipt),
             "pages": len(book.pages),
             "chapters": len(book.chapters),
             "images": len(book.images),
@@ -2786,6 +2828,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_OK
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    print(f"export receipt: {receipt}", file=out)
     print(
         f"normalization: {derived.report.policy.value} "
         f"({len(derived.report.changes)} change(s)); "
