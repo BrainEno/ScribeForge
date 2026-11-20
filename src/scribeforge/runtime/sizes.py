@@ -134,10 +134,11 @@ def estimate_payload(backend_names: Iterable[str]) -> dict[str, dict[str, int | 
     return payload
 
 
-def required_bytes(backend_names: Iterable[str]) -> int:
+def required_bytes(backend_names: Iterable[str], *, reuse_models: bool = False) -> int:
     """Total bytes the runtime root drive should have free, headroom included."""
     names = list(backend_names)
-    total = sum(estimate_backend(name).total_bytes for name in names)
+    estimates = [estimate_backend(name) for name in names]
+    total = sum(item.total_bytes - (item.model_bytes if reuse_models else 0) for item in estimates)
     total += TOOLS_DOWNLOAD_BYTES if names else 0
     return int(total * HEADROOM_FACTOR)
 
@@ -153,6 +154,7 @@ def preflight(
     backend_names: Iterable[str],
     *,
     usage_probe: DiskUsageProbe = disk_usage,
+    reuse_models: bool = False,
 ) -> dict[str, object]:
     """Decide whether first-run setup can start on the runtime-root drive.
 
@@ -170,7 +172,7 @@ def preflight(
     if not probe_path.exists():
         probe_path = Path(root.anchor or ".")
     usage = usage_probe(probe_path)
-    required = required_bytes(names)
+    required = required_bytes(names, reuse_models=reuse_models)
     free = int(usage.free)
     sufficient = free >= required
     missing = max(0, required - free)

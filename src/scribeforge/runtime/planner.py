@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scribeforge.adapters.runtime_workers import runtime_environment, worker_source_root
 from scribeforge.runtime.environment import paddle_model_root
+from scribeforge.runtime.location import external_model_location
 from scribeforge.runtime.models import (
     DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS,
     DEFAULT_MODEL_STEP_TIMEOUT_SECONDS,
@@ -210,6 +211,9 @@ def build_runtime_plan(
         "use_textline_orientation=False); "
         "print(paddle.__version__)"
     )
+    if external_model_location() is not None:
+        # The sample worker verifies locked files before opening external weights.
+        paddle_health = "import paddle, paddleocr; print(paddle.__version__)"
     paddle = RuntimeBackendPlan(
         name="paddleocr",
         environment_dir=layout.environment_dir("paddleocr"),
@@ -329,6 +333,7 @@ def build_runtime_plan(
             model_steps=tuple(
                 replace(step, timeout_seconds=DEFAULT_MODEL_STEP_TIMEOUT_SECONDS)
                 for step in backend.model_steps
+                if backend.optional or external_model_location() is None
             ),
             health_checks=tuple(
                 replace(step, timeout_seconds=DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS)
