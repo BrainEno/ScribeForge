@@ -165,6 +165,20 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
     }
   }
 
+  Future<void> _openExportVerification() => Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) => ExportVerificationScreen(
+        service: ExportVerificationService(
+          executor: _cliExecutor,
+          executable: _cliExecutable,
+        ),
+        filePicker: _filePicker,
+        lastOutput: _exportOutputController.text,
+        sourceDigest: _projectStatus?.sourceSha256,
+      ),
+    ),
+  );
+
   void _updateExportOutputPath() {
     final directory = _exportOutputDirectory;
     if (directory == null) return;
@@ -238,13 +252,25 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
           const SizedBox(height: 10),
-          OutlinedButton.icon(
-            key: const ValueKey('open-export-readiness'),
-            onPressed: _busy || _projectStatus == null
-                ? null
-                : _inspectExportReadiness,
-            icon: const Icon(Icons.fact_check_outlined),
-            label: const Text('导出前检查'),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: <Widget>[
+              OutlinedButton.icon(
+                key: const ValueKey('open-export-readiness'),
+                onPressed: _busy || _projectStatus == null
+                    ? null
+                    : _inspectExportReadiness,
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('导出前检查'),
+              ),
+              OutlinedButton.icon(
+                key: const ValueKey('open-export-verification'),
+                onPressed: _busy ? null : _openExportVerification,
+                icon: const Icon(Icons.verified_outlined),
+                label: const Text('校验已导出的文件'),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           _buildExportForm(),

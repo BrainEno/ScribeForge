@@ -30,6 +30,8 @@ jobs:
           --fail-under=85
       - name: Annotate core test failure
         if: failure()
+        env:
+          PYTHONIOENCODING: utf-8
         run: python .github/scripts/report_pytest_failure.py core-tests.xml
 
       - name: Set up Java for official EPUBCheck
@@ -73,4 +75,6 @@ jobs:
           --junitxml=python-314-tests.xml
       - name: Annotate Python 3.14 test failure
         if: failure()
+        env:
+          PYTHONIOENCODING: utf-8
         run: python .github/scripts/report_pytest_failure.py python-314-tests.xml
