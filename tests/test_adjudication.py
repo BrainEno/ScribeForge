@@ -1095,3 +1095,82 @@ def test_search_input_validation(source, term, options, error) -> None:
 
     with pytest.raises(ValueError, match=error):
         EvidenceSearchQuery(1, source, term, **options)
+
+
+def test_export_readiness_lists_content_blockers_without_writes(tmp_path: Path, capsys) -> None:
+    import json
+
+    from scribeforge.cli import run
+
+    store, project, verification, _, _ = _two_engine_page(tmp_path)
+    adjudicate_verification(store, project, verification)
+    store.add_page(project, 1, "pages/1.png", 100, 200)
+    store.add_page(project, 2, "pages/2.png", 100, 200)
+    primary = store.record_ocr(project, PageOCRResult(2, "primary", "1", ()))
+    secondary = store.record_ocr(project, PageOCRResult(2, "secondary", "1", ()))
+    store.record_verification(
+        primary, secondary, PageAlignment(2, "primary", "secondary", ()), (), ()
+    )
+    database = tmp_path / "project.sqlite3"
+    before = database.read_bytes()
+    args = ["export-readiness", "--store", str(tmp_path), "--include-page-furniture"]
+    assert run([*args, "--limit", "1"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ready"] and report["blocking_count"] == 3
+    assert report["matching_count"] == 3
+    assert report["issue_counts"] == {
+        "unresolved_pair": 1,
+        "unverified_page": 1,
+        "unconfirmed_page": 1,
+    }
+    (pair,) = report["issues"]
+    assert (pair["page_index"], pair["pair_index"]) == (0, 0)
+    assert report["options"]["include_page_furniture"]
+    assert run([*args, "--page", "2"]) == 0
+    scoped = json.loads(capsys.readouterr().out)
+    assert scoped["blocking_count"] == 3 and scoped["matching_count"] == 1
+    (blank,) = scoped["issues"]
+    assert blank["kind"] == "unconfirmed_page" and blank["ink"] is None
+    assert database.read_bytes() == before
+    assert run([*args, "--page", "9"]) == 2
+    assert "physical page was not found" in capsys.readouterr().err
+
+
+def test_export_readiness_rejects_a_concurrent_database_commit(tmp_path: Path, monkeypatch) -> None:
+    from scribeforge import export_readiness
+
+    store, project, verification, _, _ = _two_engine_page(tmp_path)
+    adjudicate_verification(store, project, verification)
+    record_human_decision(store, project, 0, 0, "鸦")
+    assemble = export_readiness.assemble_verified_content
+
+    def concurrent_write(*args, **kwargs):
+        result = assemble(*args, **kwargs)
+        record_human_decision(store, project, 0, 0, "雅")
+        return result
+
+    monkeypatch.setattr(export_readiness, "assemble_verified_content", concurrent_write)
+    with pytest.raises(ValueError, match="project changed"):
+        export_readiness.read_export_readiness(
+            tmp_path / "project.sqlite3", export_readiness.ReadinessOptions()
+        )
+
+
+def test_export_readiness_reports_missing_required_image_with_page(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from scribeforge import export_readiness
+    from scribeforge.pipeline.assembly import PageImageError
+
+    _two_engine_page(tmp_path)
+
+    def image_failure(*args, **kwargs):
+        raise PageImageError("recorded raster digest differs", page_index=0)
+
+    monkeypatch.setattr(export_readiness, "assemble_verified_content", image_failure)
+    report = export_readiness.read_export_readiness(
+        tmp_path / "project.sqlite3", export_readiness.ReadinessOptions()
+    )
+    (issue,) = report["issues"]
+    assert issue["kind"] == "page_image"
+    assert issue["page_index"] == 0 and issue["blocking"]

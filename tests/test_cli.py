@@ -3443,6 +3443,19 @@ def test_strict_acceptance_refuses_an_unspot_checked_export(
     )
     capsys.readouterr()
 
+    readiness = ["export-readiness", "--store", str(store_dir)]
+    assert run(readiness) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ready"] and report["blocking_count"] == 0
+    (check,) = report["issues"]
+    assert check["kind"] == "spot_check" and not check["blocking"]
+    assert report["summary"]["machine_accepted"] == 1
+    assert run([*readiness, "--strict-acceptance"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert not report["ready"] and report["blocking_count"] == 1
+    assert report["issues"][0]["blocking"]
+    assert not out_path.exists()
+
     code = run(
         [
             "export",

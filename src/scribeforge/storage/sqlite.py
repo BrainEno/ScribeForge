@@ -233,8 +233,9 @@ class CropInputEvidence:
 class SQLiteStore:
     SCHEMA_VERSION = 15
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self._path = path
+        self._read_only = read_only
         self._ownership_guard = threading.RLock()
         # Writer locks are keyed by (project_id, page_index): page jobs run under
         # a page-granular lock (issue #70), while book-level stages (page_index
@@ -336,7 +337,11 @@ class SQLiteStore:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self._path)
+        connection = (
+            sqlite3.connect(f"{self._path.resolve().as_uri()}?mode=ro", uri=True)
+            if self._read_only
+            else sqlite3.connect(self._path)
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         try:

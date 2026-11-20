@@ -279,6 +279,10 @@ class PageImageError(ValueError):
     complete and is not.
     """
 
+    def __init__(self, message: str, *, page_index: int | None = None) -> None:
+        self.page_index = page_index
+        super().__init__(message)
+
 
 def _page_images(
     store: SQLiteStore,
@@ -337,7 +341,10 @@ def _page_images(
             caption = ""
         else:
             continue
-        images.append(_load_image(page, assets[page.page_index], image_role, caption=caption))
+        try:
+            images.append(_load_image(page, assets[page.page_index], image_role, caption=caption))
+        except PageImageError as exc:
+            raise PageImageError(str(exc), page_index=page.page_index) from exc
     return tuple(images)
 
 

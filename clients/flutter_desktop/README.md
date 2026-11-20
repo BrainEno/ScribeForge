@@ -178,3 +178,19 @@ The CLI equivalent is `evidence-search --store DIR --project-id ID --source ocr
 `--before-id` from the response to page through the same result sequence; use
 `--record-id` with the snapshot to retrieve a longer excerpt. This command is
 read-only and never invokes OCR or sends content to a remote model.
+
+### Check trusted export before writing files
+
+Open **导出 → 导出前检查**. The check uses the same content assembly and strict
+acceptance gate as trusted export. It lists unresolved pairs, unverified pages,
+unconfirmed textless pages, evidence failures and spot checks. Select a physical
+page to narrow the issue list or follow a link into review, page evidence,
+decision history, processing or project safety. Filtering does not change the
+whole-book verdict. An ink measurement is not permission to mark a page blank.
+
+The matching CLI command is `export-readiness --store DIR`, with optional
+`--strict-acceptance`, `--include-page-furniture`, and `--page N` (zero-based).
+It returns JSON and exits successfully for a completed assessment even if the
+report is blocked; inspect `ready` and `blocking_count`. The check does not
+migrate the store or write exports. A pass does not validate output metadata,
+destination paths or file writing, and the actual export always checks again.
