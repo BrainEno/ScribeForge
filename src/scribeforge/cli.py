@@ -96,6 +96,7 @@ from scribeforge.pipeline.structure import (
     build_book_structure,
     persist_book_structure,
 )
+from scribeforge.pipeline.textless_review import submit_textless_confirmation, textless_preview
 from scribeforge.processing_report import (
     build_processing_report,
     processing_report_json,
@@ -781,11 +782,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verification and VLM version from review JSON; refuses stale evidence.",
     )
 
+    textless = subparsers.add_parser(
+        "textless-preview", help="Get checked raster and confirmation history."
+    )
+    textless.add_argument("--store", type=Path, required=True)
+    textless.add_argument("--project-id", type=int, required=True)
+    textless.add_argument("--page", type=int, required=True)
+
     confirm = subparsers.add_parser(
         "confirm",
         help="Record that a page carries no text (a blank leaf or a plate).",
     )
     confirm.add_argument("--store", type=Path, required=True, help="Project store directory.")
+    confirm.add_argument("--project-id", type=int, help="Required with an evidence token.")
+    confirm.add_argument("--confirmation-token", help="Bind the decision to a textless preview.")
+    confirm.add_argument(
+        "--json", action="store_true", help="Return a structured confirmation receipt."
+    )
     confirm.add_argument("--page", type=int, required=True, help="Zero-based page index.")
     confirm.add_argument(
         "--kind",
@@ -1257,6 +1270,8 @@ def _dispatch(
         return _review_history(args, out)
     if args.command == "resolve":
         return _resolve(args, out)
+    if args.command == "textless-preview":
+        return _textless_preview(args, out)
     if args.command == "confirm":
         return _confirm(args, out)
     if args.command == "export-readiness":
@@ -2434,6 +2449,17 @@ def _resolve(args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK
 
 
+def _textless_preview(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        store = SQLiteStore(StoreLayout(args.store).db_path, read_only=True)
+        result = textless_preview(store, args.project_id, args.page)
+    except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+        print(f"error: could not prepare textless preview: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(json.dumps(result, ensure_ascii=True, allow_nan=False), file=out)
+    return EXIT_OK
+
+
 def _confirm(args: argparse.Namespace, out: TextIO) -> int:
     """Record that a page has no text, so a textless page is not a guess.
 
@@ -2450,6 +2476,45 @@ def _confirm(args: argparse.Namespace, out: TextIO) -> int:
     projects = store.list_projects()
     if not projects:
         print("error: no projects in store", file=sys.stderr)
+        return EXIT_FATAL
+
+    if args.confirmation_token is not None:
+        if args.project_id is None:
+            print("error: --project-id is required with --confirmation-token", file=sys.stderr)
+            return EXIT_FATAL
+        try:
+            confirmation_id = submit_textless_confirmation(
+                store,
+                args.project_id,
+                args.page,
+                token=args.confirmation_token,
+                kind=args.kind,
+                reason=args.reason,
+            )
+        except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+            print(f"error: confirmation not recorded: {exc}", file=sys.stderr)
+            return EXIT_FATAL
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "id": confirmation_id,
+                        "project_id": args.project_id,
+                        "page_index": args.page,
+                        "kind": args.kind,
+                    }
+                ),
+                file=out,
+            )
+        else:
+            print(
+                f"confirmed page {args.page} as {args.kind} (confirmation #{confirmation_id})",
+                file=out,
+            )
+        return EXIT_OK
+    if args.project_id is not None or args.json:
+        print("error: --project-id and --json require --confirmation-token", file=sys.stderr)
         return EXIT_FATAL
 
     project = projects[0]

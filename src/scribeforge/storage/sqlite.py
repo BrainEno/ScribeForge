@@ -112,6 +112,9 @@ class PageConfirmation:
     ink_ratio: float | None
     created_at: str
 
+    verification_id: int | None = None
+    raster_sha256: str | None = None
+
     def __post_init__(self) -> None:
         if self.kind not in ("blank", "non_text"):
             raise ValueError("page confirmation kind must be 'blank' or 'non_text'")
@@ -231,7 +234,7 @@ class CropInputEvidence:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 15
+    SCHEMA_VERSION = 16
 
     def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self._path = path
@@ -423,6 +426,16 @@ class SQLiteStore:
             if version < 15:
                 self._create_v15(connection)
                 connection.execute("PRAGMA user_version = 15")
+
+            if version < 16:
+                connection.execute("""
+                    CREATE TABLE IF NOT EXISTS page_confirmation_evidence (
+                        confirmation_id INTEGER PRIMARY KEY REFERENCES page_confirmations(id),
+                        verification_id INTEGER NOT NULL REFERENCES verification_runs(id),
+                        raster_sha256 TEXT NOT NULL CHECK(length(raster_sha256) = 64)
+                    )
+                    """)
+                connection.execute("PRAGMA user_version = 16")
 
     @staticmethod
     def _create_v15(connection: sqlite3.Connection) -> None:
@@ -2834,6 +2847,8 @@ class SQLiteStore:
         actor: str,
         reason: str,
         ink_ratio: float | None = None,
+        expected_page: PageRecord | None = None,
+        expected_verification_id: int | None = None,
     ) -> int:
         """Record that a page has no text, and on what authority.
 
@@ -2842,8 +2857,50 @@ class SQLiteStore:
         intact even if a later reader disagrees.
         """
 
+        guarded = expected_page is not None or expected_verification_id is not None
+        if guarded and (expected_page is None or expected_verification_id is None):
+            raise ValueError("guarded confirmation requires page and verification evidence")
         with self._connection() as connection:
+            if guarded:
+                connection.execute("BEGIN IMMEDIATE")
             page_id = self._page_id(connection, project_id, page_index)
+            if expected_page is not None:
+                self._require_current_page(connection, project_id, expected_page)
+                evidence = expected_page.asset_evidence()
+                if expected_page.id != page_id or evidence is None:
+                    raise ValueError("page has no matching recorded raster evidence")
+                current = connection.execute(
+                    "SELECT MAX(id) FROM verification_runs WHERE page_id=?", (page_id,)
+                ).fetchone()[0]
+                if current != expected_verification_id:
+                    raise ValueError("verification changed; reload the original page")
+                text = connection.execute(
+                    "SELECT 1 FROM alignments WHERE verification_run_id=? LIMIT 1", (current,)
+                ).fetchone()
+                raw_text = connection.execute(
+                    """
+                    SELECT 1 FROM verification_runs v JOIN ocr_lines l
+                       ON l.run_id IN (v.primary_run_id, v.secondary_run_id)
+                    WHERE v.id=? LIMIT 1
+                    """,
+                    (current,),
+                ).fetchone()
+                if text is not None or raw_text is not None:
+                    raise ValueError(
+                        "verification contains OCR lines or alignments; do not mark this page textless"
+                    )
+                duplicate = connection.execute(
+                    """
+                    SELECT c.id, e.verification_id FROM page_confirmations c
+                    LEFT JOIN page_confirmation_evidence e ON e.confirmation_id=c.id
+                    WHERE c.page_id=? ORDER BY c.id DESC LIMIT 1
+                    """,
+                    (page_id,),
+                ).fetchone()
+                if duplicate is not None and duplicate["verification_id"] in (None, current):
+                    raise ValueError(
+                        "this page already has a confirmation; reload the original page"
+                    )
             cursor = connection.execute(
                 """
                 INSERT INTO page_confirmations(page_id, kind, actor, reason, ink_ratio)
@@ -2851,19 +2908,26 @@ class SQLiteStore:
                 """,
                 (page_id, kind, actor, reason, ink_ratio),
             )
-            return self._last_id(cursor)
+            confirmation_id = self._last_id(cursor)
+            if expected_page is not None:
+                connection.execute(
+                    "INSERT INTO page_confirmation_evidence VALUES (?, ?, ?)",
+                    (confirmation_id, expected_verification_id, expected_page.page_asset_sha256),
+                )
+            return confirmation_id
 
     def list_page_confirmations(
         self, project_id: int, page_index: int
     ) -> tuple[PageConfirmation, ...]:
         with self._connection() as connection:
             page_id = self._page_id(connection, project_id, page_index)
+            columns, join = self._confirmation_evidence_sql(connection, "c")
             rows = connection.execute(
-                """
-                SELECT id, kind, actor, reason, ink_ratio, created_at
-                FROM page_confirmations
-                WHERE page_id = ?
-                ORDER BY id
+                f"""
+                SELECT c.id, c.kind, c.actor, c.reason, c.ink_ratio, c.created_at, {columns}
+                FROM page_confirmations c {join}
+                WHERE c.page_id = ?
+                ORDER BY c.id
                 """,
                 (page_id,),
             ).fetchall()
@@ -2876,21 +2940,33 @@ class SQLiteStore:
                     reason=str(row["reason"]),
                     ink_ratio=(None if row["ink_ratio"] is None else float(row["ink_ratio"])),
                     created_at=str(row["created_at"]),
+                    verification_id=row["verification_id"],
+                    raster_sha256=row["raster_sha256"],
                 )
                 for row in rows
             )
+
+    @staticmethod
+    def _confirmation_evidence_sql(connection: sqlite3.Connection, alias: str) -> tuple[str, str]:
+        if connection.execute("PRAGMA user_version").fetchone()[0] < 16:
+            return "NULL AS verification_id, NULL AS raster_sha256", ""
+        return (
+            "e.verification_id, e.raster_sha256",
+            f"LEFT JOIN page_confirmation_evidence e ON e.confirmation_id={alias}.id",
+        )
 
     def latest_page_confirmations(self, project_id: int) -> dict[int, PageConfirmation]:
         """Newest confirmation per confirmed page of a project."""
 
         with self._connection() as connection:
             self._require_project(connection, project_id)
+            columns, join = self._confirmation_evidence_sql(connection, "confirmations")
             rows = connection.execute(
-                """
+                f"""
                 SELECT pages.page_index, confirmations.id, confirmations.kind,
                        confirmations.actor, confirmations.reason,
-                       confirmations.ink_ratio, confirmations.created_at
-                FROM page_confirmations AS confirmations
+                       confirmations.ink_ratio, confirmations.created_at, {columns}
+                FROM page_confirmations AS confirmations {join}
                 JOIN pages ON pages.id = confirmations.page_id
                 WHERE pages.project_id = ?
                 ORDER BY confirmations.id
@@ -2908,6 +2984,8 @@ class SQLiteStore:
                     reason=str(row["reason"]),
                     ink_ratio=(None if row["ink_ratio"] is None else float(row["ink_ratio"])),
                     created_at=str(row["created_at"]),
+                    verification_id=row["verification_id"],
+                    raster_sha256=row["raster_sha256"],
                 )
             return latest
 

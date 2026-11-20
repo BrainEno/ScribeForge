@@ -26,7 +26,7 @@ from scribeforge.domain.content import (
 )
 from scribeforge.domain.furniture import detect_page_furniture
 from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
-from scribeforge.domain.page_asset import PageAssetError
+from scribeforge.domain.page_asset import PageAssetError, verify_page_asset
 from scribeforge.domain.paragraphs import LineRole
 from scribeforge.domain.structure import BookStructure, PageRole
 from scribeforge.domain.text_assembly import assemble_group_text
@@ -133,7 +133,24 @@ def assemble_verified_content(
             # Zero pairs is not evidence of a blank page: two crashed workers, a
             # mis-decoded raster and an empty leaf all look like this. Only an
             # explicit confirmation makes it exportable.
-            if page.page_index in confirmations:
+            confirmation = confirmations.get(page.page_index)
+            if confirmation is not None and confirmation.verification_id is not None:
+                if (
+                    confirmation.verification_id != verification_id
+                    or confirmation.raster_sha256 != page.page_asset_sha256
+                ):
+                    confirmation = None
+                else:
+                    try:
+                        evidence = page.asset_evidence()
+                        if evidence is None:
+                            raise PageAssetError("recorded raster evidence is missing")
+                        verify_page_asset(
+                            Path(page.source_image), evidence, what=f"page {page.page_index}"
+                        )
+                    except PageAssetError as exc:
+                        raise PageImageError(str(exc), page_index=page.page_index) from exc
+            if confirmation is not None:
                 confirmed_blank.append(page.page_index)
                 pages.append(
                     VerifiedPage(
@@ -146,6 +163,9 @@ def assemble_verified_content(
             else:
                 unconfirmed_pages.append(page.page_index)
             continue
+        current_confirmation = confirmations.get(page.page_index)
+        if current_confirmation is not None and current_confirmation.verification_id is not None:
+            confirmations.pop(page.page_index)
         page_furniture = furniture.get(page.page_index, {})
         primary_result = store.load_ocr_run(record.primary_run_id)
         secondary_result = store.load_ocr_run(record.secondary_run_id)
@@ -320,7 +340,12 @@ def _page_images(
         # never mirrored.
         if page.lines and role is not PageRole.PLATE:
             continue
-        if role is PageRole.COVER:
+        if confirmation is not None and confirmation.verification_id is not None:
+            if confirmation.kind == "blank":
+                continue
+            image_role = PageImageRole.FIGURE
+            caption = ""
+        elif role is PageRole.COVER:
             image_role = PageImageRole.COVER
             caption = ""
         elif role is PageRole.PLATE:

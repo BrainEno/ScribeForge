@@ -12,6 +12,7 @@ enum ExportReadinessDestination {
   review,
   evidence,
   history,
+  textless,
   safety,
 }
 
@@ -348,6 +349,11 @@ class _IssueCard extends StatelessWidget {
           ExportReadinessDestination.safety,
         );
       case ExportIssueKind.unconfirmedPage:
+        yield _button(
+          '核对原页并确认',
+          Icons.draw_outlined,
+          ExportReadinessDestination.textless,
+        );
         yield _button(
           '前往处理',
           Icons.auto_awesome,

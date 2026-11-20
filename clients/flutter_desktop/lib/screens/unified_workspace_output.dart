@@ -137,6 +137,29 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
             pairIndex: link.pair,
           ),
         );
+      case ExportReadinessDestination.textless:
+        final page = link.page;
+        if (page == null) return;
+        final saved = await Navigator.of(context).push<bool>(
+          MaterialPageRoute<bool>(
+            builder: (_) => TextlessConfirmationScreen(
+              service: TextlessConfirmationService(
+                executor: _cliExecutor,
+                executable: _cliExecutable,
+                storePath: store,
+                project: projectId,
+                page: page,
+              ),
+            ),
+          ),
+        );
+        if (!mounted || _projectStorePath != store) return;
+        await _refreshStatus(waitForInFlight: true);
+        if (mounted && _projectStorePath == store && saved == true) {
+          _updateWorkspace(
+            () => _notice = '已记录第 ${page + 1} 页的无文字确认，可重新执行导出前检查。',
+          );
+        }
       case ExportReadinessDestination.safety:
         _updateWorkspace(() => _selectedIndex = 5);
     }
