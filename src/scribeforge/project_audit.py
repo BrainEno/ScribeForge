@@ -123,6 +123,7 @@ def audit_project_store(store_path: Path) -> ProjectAuditReport:
                 """
             ).fetchall()
             _audit_decision_bindings(connection, findings)
+            _audit_textless_bindings(connection, findings)
             audit_model_evidence(
                 connection,
                 lambda code, severity, message, path: findings.append(
@@ -326,6 +327,56 @@ def _audit_decision_bindings(connection: sqlite3.Connection, findings: list[Audi
                     "warning",
                     f"project {page['project_id']} page {int(page['page_index']) + 1} "
                     f"pair {decision['pair_index']}: decision {decision['id']} {message}.",
+                )
+            )
+
+
+def _audit_textless_bindings(connection: sqlite3.Connection, findings: list[AuditFinding]) -> None:
+    if connection.execute("PRAGMA user_version").fetchone()[0] < 16:
+        return
+    rows = connection.execute(
+        """
+        SELECT c.id, c.actor, p.project_id, p.page_index, p.source_image,
+               p.page_asset_sha256, e.raster_sha256, e.verification_id,
+               v.page_id AS run_page_id, p.id AS page_id,
+               (SELECT MAX(n.id) FROM verification_runs n WHERE n.page_id=p.id) AS latest,
+               EXISTS(SELECT 1 FROM alignments a WHERE a.verification_run_id=v.id) AS aligned,
+               EXISTS(SELECT 1 FROM ocr_lines l
+                      WHERE l.run_id IN (v.primary_run_id,v.secondary_run_id)) AS raw_lines,
+               c.id=(SELECT MAX(n.id) FROM page_confirmations n WHERE n.page_id=c.page_id) AS newest
+        FROM page_confirmation_evidence e
+        JOIN page_confirmations c ON c.id=e.confirmation_id
+        JOIN pages p ON p.id=c.page_id
+        LEFT JOIN verification_runs v ON v.id=e.verification_id
+        ORDER BY p.project_id, p.page_index, c.id
+        """
+    )
+    for row in rows:
+        location = f"project {row['project_id']} page {int(row['page_index']) + 1} confirmation {row['id']}"
+        if (
+            row["run_page_id"] != row["page_id"]
+            or row["aligned"]
+            or row["raw_lines"]
+            or row["actor"] != "human"
+        ):
+            findings.append(
+                AuditFinding(
+                    "textless_confirmation_invalid",
+                    "error",
+                    f"{location} does not cite a human-reviewed zero-line verification on the same page.",
+                    str(row["source_image"]),
+                )
+            )
+        elif row["newest"] and (
+            row["verification_id"] != row["latest"]
+            or row["raster_sha256"] != row["page_asset_sha256"]
+        ):
+            findings.append(
+                AuditFinding(
+                    "textless_confirmation_historical",
+                    "warning",
+                    f"{location} cites a previous verification or raster. Keep the historical record; inspect the current page before exporting.",
+                    str(row["source_image"]),
                 )
             )
 

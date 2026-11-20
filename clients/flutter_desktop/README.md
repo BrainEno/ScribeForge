@@ -194,3 +194,18 @@ It returns JSON and exits successfully for a completed assessment even if the
 report is blocked; inspect `ready` and `blocking_count`. The check does not
 migrate the store or write exports. A pass does not validate output metadata,
 destination paths or file writing, and the actual export always checks again.
+
+### Confirm a textless page after inspecting the original
+
+From **导出 → 导出前检查 → 无文字页待确认 → 核对原页并确认**, inspect
+and zoom the original saved PNG or JPEG, choose blank or non-text illustration,
+and give a reason. If the scan contains missed text, return to processing instead.
+The app checks the preview digest before showing it and the core rechecks the
+verification and raster before appending the human confirmation. A later OCR
+verification makes that confirmation historical; it is not reused by export.
+
+The `textless-preview` CLI returns view evidence and recent confirmation history.
+Use its token with `confirm --project-id ID --confirmation-token TOKEN --json` to
+bind a write. Preview requires saved digest evidence; audit/rehash older projects
+first. Existing unguarded CLI confirmations retain their prior semantics. Stores
+with new bound confirmations use schema 16; keep a backup before downgrading.
