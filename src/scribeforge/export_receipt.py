@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import stat
 from dataclasses import dataclass, field
@@ -36,9 +37,11 @@ class FileFingerprint:
 
 
 def _identity(file: BinaryIO) -> tuple[int, int, int, int, int]:
-    import os
-
     info = os.fstat(file.fileno())
+    return _stat_identity(info)
+
+
+def _stat_identity(info: os.stat_result) -> tuple[int, int, int, int, int]:
     if not stat.S_ISREG(info.st_mode):
         raise ValueError("not a regular file")
     return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
@@ -51,7 +54,7 @@ def _ensure_regular(path: Path) -> None:
 
 def fingerprint(path: Path) -> FileFingerprint:
     """Stream bytes without loading the entire EPUB/DOCX into memory."""
-    _ensure_regular(path)
+    path_before = _stat_identity(path.stat())
     digest = hashlib.sha256()
     size = 0
     with path.open("rb") as file:
@@ -61,14 +64,9 @@ def fingerprint(path: Path) -> FileFingerprint:
             size += len(chunk)
         if before != _identity(file) or size != before[2]:
             raise ValueError(f"file changed while reading: {path.name}")
-        after = path.stat()
-        if (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        ) != before:
+        # Windows may report different device/inode fields for path and
+        # descriptor stats. Compare each kind of snapshot with its own kind.
+        if _stat_identity(path.stat()) != path_before:
             raise ValueError(f"file was replaced while reading: {path.name}")
     return FileFingerprint(size, digest.hexdigest())
 
