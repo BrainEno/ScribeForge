@@ -182,7 +182,7 @@ class _ReviewWorkspacePageState extends State<ReviewWorkspacePage> {
       const Text('比较原始候选和图像。只有明确记录后，人工决策才会写入证据链。'),
       const SizedBox(height: 4),
       Text(
-        '快捷键：Alt+←/→ 切换；Ctrl+J 聚焦决策；Ctrl+G 跳页；Alt+1/2/3 填入候选；Ctrl+Enter 记录。',
+        '快捷键：Alt+←/→ 上一项/下一项；Ctrl+J 聚焦决策输入；Ctrl+G 聚焦跳页；Alt+1/2/3 填入候选；Ctrl+Enter 明确记录。',
         style: Theme.of(context).textTheme.bodySmall,
       ),
       const SizedBox(height: 14),
