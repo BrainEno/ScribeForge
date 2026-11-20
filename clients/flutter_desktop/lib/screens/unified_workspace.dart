@@ -10,6 +10,7 @@ import '../models/processing_report.dart';
 import '../models/project_status.dart';
 import '../models/review_queue.dart';
 import '../models/review_queue_navigation.dart';
+import '../models/runtime_location.dart';
 import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
 import '../services/backend_diagnostics.dart';
@@ -22,6 +23,7 @@ import '../services/cli_runner.dart';
 import '../services/desktop_file_picker.dart';
 import '../services/processing_report_loader.dart';
 import '../services/python_locator.dart';
+import '../services/runtime_location_service.dart';
 import '../services/settings_store.dart';
 import '../services/workspace_file_system.dart';
 import '../theme/scribe_theme.dart';
@@ -31,6 +33,7 @@ import '../widgets/workspace_help_dialog.dart';
 import 'candidate_comparison_screen.dart';
 import 'processing_report_sheet.dart';
 import 'project_safety_screen.dart';
+import 'runtime_location_dialog.dart';
 import 'runtime_setup_dialog.dart';
 import 'vlm_settings_dialog.dart';
 
@@ -186,6 +189,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   late final DesktopSettingsStore _settingsStore;
   late final ScribeForgeCliExecutor _cliExecutor;
+  late final ScribeForgeCliExecutor _rawCliExecutor;
+  RuntimeLocationPreferences _runtimeLocations =
+      const RuntimeLocationPreferences();
   late final DesktopBackendResolver _backendResolver;
   late final DesktopFilePicker _filePicker;
   late final WorkspaceFileSystem _fileSystem;
@@ -284,7 +290,11 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   void initState() {
     super.initState();
     _settingsStore = widget.settingsStore ?? DesktopSettingsStore();
-    _cliExecutor = widget.cliExecutor ?? ProcessScribeForgeCliExecutor();
+    _rawCliExecutor = widget.cliExecutor ?? ProcessScribeForgeCliExecutor();
+    _cliExecutor = RuntimeLocationExecutor(
+      _rawCliExecutor,
+      () => _runtimeLocations.active,
+    );
     _backendResolver = widget.backendResolver ?? const DesktopBackendResolver();
     _filePicker = widget.filePicker ?? const PluginDesktopFilePicker();
     _fileSystem = widget.fileSystem ?? const IoWorkspaceFileSystem();
@@ -318,6 +328,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   Future<void> _loadSettings() async {
     final executable = await _settingsStore.loadCliExecutable();
     final vlmSettings = await _settingsStore.loadVlmSettings();
+    final locations = await _settingsStore.loadRuntimeLocations();
     final backendPython = await _settingsStore.loadBackendPython();
     final backendSourcePath = await _settingsStore.loadBackendSourcePath();
     final lastProjectStore = await _settingsStore.loadLastProjectStore();
@@ -332,6 +343,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       _cliExecutable = resolution.executable;
       _backendResolution = resolution;
       _vlmSettings = vlmSettings;
+      _runtimeLocations = locations;
       _backendPython = backendPython;
       _backendSourcePath = backendSourcePath;
       _lastProjectStorePath = lastProjectStore;
@@ -2558,6 +2570,58 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     );
   }
 
+  Future<void> _openRuntimeLocations() async {
+    if (_busy || _runtimeLoading || _runtimeCleaning) return;
+    final before = _runtimeLocations;
+    final changed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => RuntimeLocationDialog(
+        preferences: before,
+        activeRuntimeRoot: _runtimeStatus?.runtimeRoot,
+        filePicker: _filePicker,
+        service: RuntimeLocationService(_rawCliExecutor, _cliExecutable),
+        activate: (location) async {
+          final result = await _settingsStore.activateRuntimeLocation(
+            expected: before.active,
+            next: location,
+          );
+          if (mounted && result.ok) {
+            setState(() => _runtimeLocations = before.activate(location));
+          }
+          return result;
+        },
+      ),
+    );
+    if (!mounted || changed != true) return;
+    await _refreshRuntimeStatus();
+    if (!mounted || !_ocrRuntimeReady) return;
+    setState(() {
+      _notice = '已切换运行环境，可以导入或继续处理书籍。';
+      _selectedIndex = _pdfPath == null ? 0 : 1;
+    });
+  }
+
+  Widget _buildRuntimeLocationTile() {
+    final locations = _runtimeLocations;
+    final active = locations.active;
+    return ListTile(
+      key: const ValueKey('runtime-location-settings'),
+      leading: const Icon(Icons.folder_copy_outlined),
+      title: const Text('运行环境与模型位置'),
+      subtitle: Text(
+        active.isDefault
+            ? '当前使用默认位置。空间不足时可选另一块磁盘，或复用已有模型。'
+            : '运行目录：${active.runtimeRoot.isEmpty ? "系统默认" : active.runtimeRoot}\n'
+                  '模型目录：${active.usesExistingModels ? active.modelsRoot : "由运行环境管理"}',
+      ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: _busy || _runtimeLoading || _runtimeCleaning
+          ? null
+          : _openRuntimeLocations,
+    );
+  }
+
   Widget _buildSettingsPage() {
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -2619,6 +2683,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   : const Icon(Icons.play_arrow),
               onTap: _runtimeLoading ? null : _openRuntimeSetup,
             ),
+            _buildRuntimeLocationTile(),
             if (_runtimeStatus != null) ...[
               const Divider(),
               const Text(

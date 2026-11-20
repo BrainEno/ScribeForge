@@ -351,7 +351,15 @@ def build_parser() -> argparse.ArgumentParser:
             "with ts/level/logger/run/message; issue #69)."
         ),
     )
+    parser.add_argument("--location-profile", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--model-location", type=Path, help="Reuse an existing managed model layout."
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
+    location_check = subparsers.add_parser(
+        "runtime-location-check", help="Check a candidate runtime location without installing."
+    )
+    location_check.add_argument("--runtime-root", type=Path)
 
     process = subparsers.add_parser(
         "process", help="Import a scanned book and run the pipeline over every page."
@@ -1046,6 +1054,98 @@ def run(
 
     args = build_parser().parse_args(list(argv))
     out = sys.stdout if stdout is None else stdout
+    from scribeforge.runtime.location import (
+        LocationError,
+        RuntimeLocation,
+        location_report,
+        model_location_scope,
+    )
+
+    check = args.command == "runtime-location-check"
+    explicit = args.location_profile or args.model_location is not None
+    location_commands = {
+        "setup",
+        "runtime-status",
+        "runtime-clean",
+        "process",
+        "repair",
+        "benchmark",
+    }
+    if check or explicit or args.command in location_commands:
+        root = getattr(args, "runtime_root", None)
+        if root is None:
+            store = getattr(args, "store", None)
+            root = (
+                runtime_root_for_store(store)
+                if args.command in {"process", "repair"} and store is not None and not explicit
+                else default_runtime_root()
+            )
+        try:
+            if check:
+                report = location_report(root, args.model_location, platform.system().lower())
+                print(json.dumps(report, ensure_ascii=True), file=out)
+                return EXIT_OK
+            location = (
+                RuntimeLocation.resolve(root, args.model_location)
+                if explicit
+                else RuntimeLocation.from_bound_root(root)
+            )
+            if location is not None:
+                if args.command not in location_commands:
+                    raise LocationError(
+                        "unsupported_command", "This command does not use a runtime location."
+                    )
+                args.location_profile = True
+                args.runtime_root = location.root
+                with model_location_scope(location.models):
+                    if args.command == "setup":
+                        if not args.json:
+                            raise LocationError(
+                                "json_required", "Location-aware setup requires --json."
+                            )
+                        location.check_paths()
+                        with location.configuration_lock():
+                            if args.backend is None:
+                                report = location_report(
+                                    location.root, location.models, platform.system().lower()
+                                )
+                                disk = cast(dict[str, object], report["disk"])
+                                if disk["sufficient"] is not True:
+                                    raise LocationError("disk_space", str(disk["advice"]))
+                            location.claim()
+                            return _dispatch(args, out, engine_factory, benchmark_engine_factory)
+                    if args.command == "runtime-clean":
+                        location.check_binding()
+                        if args.models and location.models is not None:
+                            raise LocationError(
+                                "external_models",
+                                "External model directories are not managed by cleanup.",
+                            )
+                        with location.configuration_lock():
+                            return _dispatch(args, out, engine_factory, benchmark_engine_factory)
+                    location.check_paths()
+                    return _dispatch(args, out, engine_factory, benchmark_engine_factory)
+        except (OSError, LocationError) as exc:
+            if check:
+                failure = {
+                    "schema_version": 1,
+                    "ok": False,
+                    "code": exc.code if isinstance(exc, LocationError) else "io_error",
+                    "message": str(exc),
+                }
+                print(json.dumps(failure, ensure_ascii=True), file=out)
+            else:
+                print(f"error: runtime location: {exc}", file=sys.stderr)
+            return EXIT_FATAL
+    return _dispatch(args, out, engine_factory, benchmark_engine_factory)
+
+
+def _dispatch(
+    args: argparse.Namespace,
+    out: TextIO,
+    engine_factory: EngineFactory | None,
+    benchmark_engine_factory: BenchmarkEngineFactory | None,
+) -> int:
     configure_logging(args.log_level, args.log_file, log_format=args.log_format)
     cli_log = get_logger("cli")
     cli_log.info("command=%s log_level=%s", args.command, args.log_level)
@@ -3206,12 +3306,28 @@ def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
         }
     # Issue #214: disk preflight for the core first-run backends; the UI blocks
     # "初始化环境" when the runtime-root drive cannot fit the estimate.
+    from scribeforge.runtime.location import external_model_location
+
     core_names = [name for name, _, optional in named if not optional]
-    disk = cast(dict[str, Any], preflight(runtime_root, core_names))
+    model_location = external_model_location()
+    if args.location_profile or model_location is not None:
+        core_names = [
+            name
+            for name in core_names
+            if backends[name]["state"] != "ready"
+            or not layout.python_executable(name, profile.os_name).is_file()
+        ]
+        for name in core_names:
+            if backends[name]["state"] == "ready":
+                backends[name]["state"] = "missing"
+    disk = cast(
+        dict[str, Any], preflight(runtime_root, core_names, reuse_models=model_location is not None)
+    )
+    models_path = model_location or layout.models_dir
 
     paths = {
-        "models": str(layout.models_dir),
-        "models_exists": layout.models_dir.is_dir(),
+        "models": str(models_path),
+        "models_exists": models_path.is_dir(),
         "cache": str(layout.cache_dir),
         "cache_exists": layout.cache_dir.is_dir(),
         "tools": str(layout.tools_dir),

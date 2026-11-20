@@ -81,3 +81,29 @@ read a user project or enable remote VLM. A failed sample is reported at the
 without reinstalling it; the per-engine repair action still explicitly rebuilds
 its environment. The synthetic check is not an OCR accuracy benchmark or a
 substitute for a clean Windows installation and real-model acceptance run.
+
+## Select a different runtime or reuse an existing model directory
+
+Open **Settings → 运行环境与模型位置**. Select an empty dedicated folder, or an
+existing ScribeForge runtime folder. Leave the models field blank to download
+managed models there; to reuse models, select the `models` folder of an existing
+managed installation. It must contain the MinerU model layout and both locked
+PaddleOCR model directories under `paddleocr/verified`.
+
+1. **检查目录** checks for a writable target, a compatible directory layout and
+   free space before setup. Disk requirements are estimates for missing core
+   environments; the preflight does not establish model integrity.
+2. **配置并运行示例** installs missing dependencies and runs both OCR workers.
+   In reuse mode, setup does not download the core weights into the source
+   directory. The candidate's cache and environments stay under its own root.
+3. **启用此环境** saves the selection only once both checks pass. Previous files
+   stay where they are; the app remembers the last selection to make it easy to
+   recheck and switch back. If a drive is disconnected, reconnect it or pick a
+   different location; there is no silent model fallback.
+
+A runtime root is bound to a single model location. To use different existing
+models, prepare a separate runtime root. Do not delete a source model folder
+while another runtime uses it. This feature configures locations, not model
+migration, a generic model importer, or support for arbitrary model versions.
+Developers can make the same check with
+`scribeforge --model-location PATH runtime-location-check --runtime-root DIR`.

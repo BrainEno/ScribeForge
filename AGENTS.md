@@ -5,15 +5,13 @@ These rules apply to all repository work.
 ## Product invariant
 ScribeForge is an evidence-grade transcription system. Never silently “improve” source text. OCR, normalization, verification, and editorial text are separate layers. Every accepted OCR decision must remain traceable to source page coordinates and engine evidence.
 
-## Mandatory TDD
-Use Red -> Green -> Refactor for every behavior change:
-1. Write or update a test that expresses the desired behavior.
-2. Run it and confirm it fails for the expected reason.
-3. Implement the smallest production change that passes.
-4. Run the focused test, then the full fast suite.
-5. Refactor only while tests stay green.
-
-Bug fixes require a regression test reproducing the bug first. Do not weaken/delete a valid test merely to make CI green.
+## Development and testing
+Choose the development approach that fits the change. Test-first is useful for
+stable contracts and reproducible bugs; exploratory prototypes, UI iterations,
+and refactors may start with implementation. Before marking work complete,
+cover changed behavior and relevant failure paths with tests, and run the
+focused tests followed by the applicable fast suite. Add regression coverage
+for bugs; do not weaken a valid test merely to make CI green.
 
 ## Test boundaries
 - Unit tests: pure domain logic, alignment, risk, normalization, storage rules.
@@ -30,7 +28,7 @@ Pipeline stages must be restartable and page-granular. Persist results before re
 
 ## Definition of done
 A slice is done only when:
-- tests were added first and now pass;
+- tests cover the changed behavior and pass;
 - type/lint checks pass (`ruff check .`, `ruff format --check .`, `mypy src`);
 - no source evidence is overwritten;
 - failure/retry behavior is defined;
@@ -40,6 +38,13 @@ A slice is done only when:
 - docs/schema are updated when contracts change;
 - no fake implementation is presented as working OCR.
 
-## Scope discipline
-Current priority: benchmark -> core contracts -> persistence -> adapters -> alignment/risk -> verification -> export -> desktop UI.
-Do not add accounts, cloud sync, mobile apps, payments, collaboration, or decorative UI before the core pipeline is proven.
+## Scope and initiative
+Let the user's goal determine priorities and scope, not a fixed order of
+subsystems. Implement coherent features across UI, CLI, runtime, and storage
+when the end-to-end experience benefits. Product experiments and new features
+are welcome; for changes that materially affect privacy, compatibility, or
+stored data, make the impact explicit and define how to recover.
+
+There is no repository-wide line-count target or requirement to minimize a
+patch. Respect task-specific deliverables, and use the code needed to finish
+them without padding diffs or adding unrelated work.

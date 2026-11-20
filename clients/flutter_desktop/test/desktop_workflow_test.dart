@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scribeforge_desktop/models/runtime_location.dart';
 import 'package:scribeforge_desktop/screens/unified_workspace.dart';
 import 'package:scribeforge_desktop/services/backend_resolver.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
@@ -781,6 +782,10 @@ class _Harness {
 
 class _MemorySettingsStore extends DesktopSettingsStore {
   _MemorySettingsStore() : super();
+
+  @override
+  Future<RuntimeLocationPreferences> loadRuntimeLocations() async =>
+      const RuntimeLocationPreferences();
 
   String _cliExecutable = DesktopSettingsStore.defaultCliExecutable;
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();

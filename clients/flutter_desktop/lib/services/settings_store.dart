@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../models/runtime_location.dart';
+
 /// Outcome of a single settings save attempt.
 ///
 /// Saves never throw for I/O problems: the UI decides how to present
@@ -196,6 +198,24 @@ class DesktopSettingsStore {
       }
     });
   }
+
+  Future<RuntimeLocationPreferences> loadRuntimeLocations() async {
+    final settings = await _readSettings();
+    return RuntimeLocationPreferences.fromJson(settings['runtime_locations']);
+  }
+
+  Future<SettingsSaveResult> activateRuntimeLocation({
+    required RuntimeLocation expected,
+    required RuntimeLocation next,
+  }) => update((settings) {
+    final saved = RuntimeLocationPreferences.fromJson(
+      settings['runtime_locations'],
+    );
+    if (saved.active != expected) {
+      throw StateError('运行目录设置已变更，请重新打开位置设置。');
+    }
+    settings['runtime_locations'] = saved.activate(next).toJson();
+  });
 
   Future<DesktopVlmSettings> loadVlmSettings() async {
     final settings = await _readSettings();
