@@ -446,9 +446,8 @@ class _HistoryRecordScreenState extends State<_HistoryRecordScreen> {
       message = '剪贴板不可用，请手动选择文字。';
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _metadata(ReviewHistoryRecord record) => Card(
