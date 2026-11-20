@@ -2645,8 +2645,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             ],
             _buildInitializationCard(),
             const SizedBox(height: 12),
-            _buildRuntimeLocationTile(),
-            const SizedBox(height: 12),
             _buildBackendEnvironmentCard(),
             const SizedBox(height: 12),
             ListTile(
@@ -2685,6 +2683,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                   : const Icon(Icons.play_arrow),
               onTap: _runtimeLoading ? null : _openRuntimeSetup,
             ),
+            _buildRuntimeLocationTile(),
             if (_runtimeStatus != null) ...[
               const Divider(),
               const Text(
