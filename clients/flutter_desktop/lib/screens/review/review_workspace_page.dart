@@ -25,6 +25,7 @@ class ReviewWorkspacePage extends StatefulWidget {
     required this.onSelect,
     required this.onIncludePageFurniture,
     this.onHistory,
+    this.onSupersededDrafts,
   });
 
   final String? storePath;
@@ -41,6 +42,7 @@ class ReviewWorkspacePage extends StatefulWidget {
   final ValueChanged<int> onSelect;
   final ValueChanged<bool> onIncludePageFurniture;
   final ValueChanged<ReviewQueueItem?>? onHistory;
+  final VoidCallback? onSupersededDrafts;
 
   @override
   State<ReviewWorkspacePage> createState() => _ReviewWorkspacePageState();
@@ -228,6 +230,12 @@ class _ReviewWorkspacePageState extends State<ReviewWorkspacePage> {
                   : () => widget.onHistory!(null),
               icon: const Icon(Icons.history),
               label: const Text('决策历史'),
+            ),
+          if (widget.onSupersededDrafts != null)
+            OutlinedButton.icon(
+              onPressed: widget.busy ? null : widget.onSupersededDrafts,
+              icon: const Icon(Icons.edit_note),
+              label: const Text('旧版本草稿'),
             ),
           if (!_query.isDefault)
             TextButton(onPressed: _clearFilters, child: const Text('清除筛选')),
