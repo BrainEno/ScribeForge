@@ -115,3 +115,17 @@ flutter test
 ```
 
 The Python CLI and desktop UI can also be tested independently from the repository root with `python -m pytest`.
+
+### Review a long queue
+
+In the review workspace, **筛选与排序** can narrow the current view to a physical
+page range, literal candidate text, a risk reason, evidence availability or
+session marks. **浏览当前队列** jumps to a displayed pair without recording a
+decision. Hidden pairs still count toward pending review and can still block
+trusted export. Marks and filters are temporary and reset when switching books.
+
+**放大或比较图像证据** opens the saved crop, original page, or the available OCR
+coordinate frame. Zoom and pan do not change evidence. When comparing frames,
+select one pane to zoom it; the viewer does not infer or overlay a mapping
+between the original and preprocessed frames. Short and narrow windows use the
+page menu in the app bar instead of the side rail.
