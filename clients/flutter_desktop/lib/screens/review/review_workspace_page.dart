@@ -24,6 +24,7 @@ class ReviewWorkspacePage extends StatefulWidget {
     required this.onRefresh,
     required this.onSelect,
     required this.onIncludePageFurniture,
+    this.onHistory,
   });
 
   final String? storePath;
@@ -39,6 +40,7 @@ class ReviewWorkspacePage extends StatefulWidget {
   final Future<void> Function() onRefresh;
   final ValueChanged<int> onSelect;
   final ValueChanged<bool> onIncludePageFurniture;
+  final ValueChanged<ReviewQueueItem?>? onHistory;
 
   @override
   State<ReviewWorkspacePage> createState() => _ReviewWorkspacePageState();
@@ -218,6 +220,15 @@ class _ReviewWorkspacePageState extends State<ReviewWorkspacePage> {
             icon: const Icon(Icons.filter_alt_outlined),
             label: const Text('筛选与排序'),
           ),
+          if (widget.onHistory != null)
+            OutlinedButton.icon(
+              key: const ValueKey('open-review-history'),
+              onPressed: widget.projectId == null || widget.busy
+                  ? null
+                  : () => widget.onHistory!(null),
+              icon: const Icon(Icons.history),
+              label: const Text('决策历史'),
+            ),
           if (!_query.isDefault)
             TextButton(onPressed: _clearFilters, child: const Text('清除筛选')),
         ],
@@ -285,6 +296,12 @@ class _ReviewWorkspacePageState extends State<ReviewWorkspacePage> {
               onPressed: () => _jumpToPage(result, _jump.text),
               child: const Text('跳转'),
             ),
+            if (widget.onHistory != null)
+              IconButton(
+                tooltip: '查看此页组的决策历史',
+                onPressed: widget.busy ? null : () => widget.onHistory!(item),
+                icon: const Icon(Icons.history),
+              ),
             IconButton(
               tooltip: '浏览当前队列',
               onPressed: widget.busy ? null : () => _browse(result),

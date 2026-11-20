@@ -2920,6 +2920,7 @@ class SQLiteStore:
         expected_page: PageRecord | None = None,
         expected_verification_id: int | None = None,
         require_undecided: bool = False,
+        require_current_reading: bool = False,
     ) -> int:
         """Append an accepted decision, with the risk it was accepted under.
 
@@ -2930,6 +2931,8 @@ class SQLiteStore:
         human corrections can omit it to preserve the append-only revision history.
         """
 
+        if require_current_reading and expected_verification_id is None:
+            raise ValueError("a guarded reading requires an expected verification")
         if risk_score is not None and not 0.0 <= risk_score <= 1.0:
             raise ValueError("risk score must be between 0 and 1")
         with self._connection() as connection:
@@ -2963,6 +2966,19 @@ class SQLiteStore:
                     raise ValueError(
                         "verification citation does not match the expected verification"
                     )
+            if require_current_reading:
+                latest_reading = connection.execute(
+                    """
+                    SELECT MAX(r.id) FROM vlm_reviews r
+                    JOIN review_candidates c ON c.id = r.review_candidate_id
+                    JOIN alignments a ON a.id = c.alignment_id
+                    WHERE a.verification_run_id = ? AND a.pair_index = ?
+                    """,
+                    (expected_verification_id, pair_index),
+                ).fetchone()[0]
+                required_refs = [] if latest_reading is None else [f"vlm_review:{latest_reading}"]
+                if [ref for ref in evidence_refs if ref.startswith("vlm_review:")] != required_refs:
+                    raise ValueError("VLM evidence changed; reload the review queue")
             if (
                 require_undecided
                 and connection.execute(

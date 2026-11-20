@@ -80,6 +80,14 @@ class ReviewDetail:
     secondary_line_indexes: tuple[int, ...] = ()
     alignment_status: AlignmentStatus = AlignmentStatus.MATCHED
     ambiguity: AlignmentAmbiguity | None = None
+    verification_id: int | None = None
+    vlm_review_id: int | None = None
+
+    @property
+    def review_token(self) -> str | None:
+        if self.verification_id is None:
+            return None
+        return _review_token(self.verification_id, self.vlm_review_id)
 
 
 def _line_box(result: PageOCRResult, indexes: tuple[int, ...]) -> BoundingBox | None:
@@ -444,7 +452,13 @@ def review_detail(
         secondary_line_indexes=pair.secondary_line_indexes,
         alignment_status=pair.status,
         ambiguity=pair.ambiguity,
+        verification_id=context.verification_id,
+        vlm_review_id=None if reading is None else reading.id,
     )
+
+
+def _review_token(verification_id: int, reading_id: int | None) -> str:
+    return f"v{verification_id}:r{reading_id or 0}"
 
 
 def record_human_decision(
@@ -453,6 +467,8 @@ def record_human_decision(
     page_index: int,
     pair_index: int,
     text: str,
+    *,
+    review_token: str | None = None,
 ) -> int:
     """Append a human-accepted decision for one pair, citing its evidence.
 
@@ -462,6 +478,10 @@ def record_human_decision(
     """
 
     context = _pair_context(store, project_id, page_index, pair_index)
+    if review_token is not None and review_token != _review_token(
+        context.verification_id, None if context.reading is None else context.reading.id
+    ):
+        raise ValueError("review evidence changed; reload the review queue")
     expected_page = store.verification_page_record(project_id, context.record.id)
     if expected_page.page_index != page_index:
         raise ValueError("verification does not match decision page")
@@ -474,6 +494,10 @@ def record_human_decision(
         evidence_refs=_evidence_refs(context.record, context.reading),
         expected_page=expected_page,
         expected_verification_id=context.record.id,
+        risk_score=context.risk.score,
+        risk_reasons=tuple(reason.value for reason in context.risk.reasons),
+        require_current_reading=review_token is not None,
+        require_undecided=review_token is not None,
     )
 
 

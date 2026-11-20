@@ -884,3 +884,69 @@ def test_latest_decision_for_verification_tolerates_legacy_uncited_single_run(
     assert decision is not None and decision.selected_text == "旧决定"
     with pytest.raises((KeyError, ValueError), match="(?i)verification"):
         store.latest_decision_for_verification(project, 0, 0, verification_id=only + 999)
+
+
+def test_guarded_human_decision_rejects_changed_run_and_duplicate(tmp_path: Path) -> None:
+    from scribeforge.storage.sqlite import DecisionAlreadyExists
+
+    store, project, run, _, _ = _two_engine_page(tmp_path)
+    old = review_detail(store, project, 0, 0).review_token
+    assert old == f"v{run}:r0"
+    current = _repeat_verification(store, run)
+    with pytest.raises(ValueError, match="evidence changed"):
+        record_human_decision(store, project, 0, 0, "old", review_token=old)
+    token = review_detail(store, project, 0, 0).review_token
+    assert token == f"v{current}:r0"
+    recorded = record_human_decision(store, project, 0, 0, "accepted", review_token=token)
+    with pytest.raises(DecisionAlreadyExists):
+        record_human_decision(store, project, 0, 0, "stale", review_token=token)
+    decision = store.list_decisions(project, 0, 0)[0]
+    assert decision.id == recorded and decision.risk_score == 0.5
+
+
+def test_guarded_human_decision_checks_vlm_inside_write(tmp_path: Path, monkeypatch) -> None:
+    store, project, run, _, _ = _two_engine_page(tmp_path)
+    token = review_detail(store, project, 0, 0).review_token
+    original = store.append_decision
+
+    def racing_write(*args, **kwargs):
+        store.record_vlm_review(
+            run,
+            VLMReading(0, 0, "local-vlm", "1.0", "new", True),
+            crop_path="crops/pair-0.png",
+            crop_sha256="e" * 64,
+        )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(store, "append_decision", racing_write)
+    with pytest.raises(ValueError, match="VLM evidence changed"):
+        record_human_decision(store, project, 0, 0, "draft", review_token=token)
+    assert not store.list_decisions(project, 0, 0)
+
+
+def test_history_keeps_revision_and_filter_snapshot(tmp_path: Path) -> None:
+    from scribeforge.storage.review_history import HistoryQuery, read_review_history
+
+    store, project, run, _, _ = _two_engine_page(tmp_path)
+    path = tmp_path / "project.sqlite3"
+    adjudicate_verification(store, project, run)
+    original = record_human_decision(store, project, 0, 0, "𠀀" * 400)
+    revised = record_human_decision(store, project, 0, 0, "新版本")
+    first = read_review_history(path, HistoryQuery(project, actor="human", limit=1))
+    assert first["snapshot_id"] == first["next_before_id"] == revised
+    (latest,) = first["decisions"]
+    assert latest["previous_decision_id"] == original
+    assert latest["binding"] == "current"
+    record_human_decision(store, project, 0, 0, "later")
+    second = read_review_history(
+        path, HistoryQuery(project, actor="human", snapshot_id=revised, before_id=revised, limit=1)
+    )
+    (older,) = second["decisions"]
+    assert older["id"] == original and not older["latest_for_pair"]
+    assert older["text"] == "𠀀" * 320 and older["text_truncated"]
+    detail = read_review_history(path, HistoryQuery(project, decision_id=original))
+    (full,) = detail["decisions"]
+    assert full["text"] == "𠀀" * 400 and not full["text_truncated"]
+    other = store.create_project("Other", "other.pdf", "different")
+    with pytest.raises(ValueError, match="not found"):
+        read_review_history(path, HistoryQuery(other, decision_id=original))

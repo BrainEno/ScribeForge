@@ -129,3 +129,20 @@ coordinate frame. Zoom and pan do not change evidence. When comparing frames,
 select one pane to zoom it; the viewer does not infer or overlay a mapping
 between the original and preprocessed frames. Short and narrow windows use the
 page menu in the app bar instead of the side rail.
+
+### Review decision history
+
+Open **复核 → 决策历史** even after the pending queue is empty. The history is
+read-only and includes human, automatic, and VLM decisions. Filter by physical
+page, pair, or actor; open a record to see accepted text, saved risk and evidence
+references. A reference to the current verification batch does not imply that
+this row is the final export decision. Compare only records that cite the same
+verification batch, since a pair index can refer to different text after reruns.
+
+Desktop review requires a backend that returns `review_token` in `review --json`.
+A write with that token is refused if OCR verification or the VLM reading has
+changed or if a decision was already recorded for that pair. A refreshed queue
+never carries an old-version draft into newer evidence. The CLI provides
+`review-history --store DIR --project-id ID`, which returns schema-versioned JSON;
+pass `--snapshot-id` and `--before-id` to continue a list or `--decision-id` to
+read an individual record. This command does not migrate or write the database.

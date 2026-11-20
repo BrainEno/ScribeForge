@@ -97,6 +97,7 @@ class ScribeForgeCli {
     required int page,
     required int pair,
     required String text,
+    String? reviewToken,
   }) => <String>[
     'resolve',
     '--store',
@@ -106,8 +107,8 @@ class ScribeForgeCli {
     page.toString(),
     '--pair',
     pair.toString(),
-    '--text',
-    text,
+    if (reviewToken != null) ...<String>['--review-token', reviewToken],
+    if (text.startsWith('-')) '--text=$text' else ...<String>['--text', text],
   ];
 
   static List<String> confirmArguments({
