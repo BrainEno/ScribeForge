@@ -71,3 +71,13 @@ the client:
 1. Test installation, launch, upgrade-in-place, and uninstall in a fresh Windows 11 x64 VM without Python or Flutter; verify project/runtime preservation and native PDF import.
 2. Exercise the complete first-run download on controlled test networks and record artifact size, model download size, disk requirements, and failure/recovery behavior. These are not inferred from unit tests.
 3. Publish signed release assets only after signing credentials and SmartScreen/status documentation are available. Keep CI artifacts clearly marked unsigned.
+
+## First-run OCR verification
+
+The managed setup now runs both default OCR workers against a locally generated
+synthetic page before reporting a newly configured engine as ready. It does not
+read a user project or enable remote VLM. A failed sample is reported at the
+`health:sample-ocr` step. Retrying setup checks an existing ready environment
+without reinstalling it; the per-engine repair action still explicitly rebuilds
+its environment. The synthetic check is not an OCR accuracy benchmark or a
+substitute for a clean Windows installation and real-model acceptance run.

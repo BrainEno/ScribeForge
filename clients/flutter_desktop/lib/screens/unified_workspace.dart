@@ -1270,7 +1270,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   void _showInitialization() {
     setState(() => _selectedIndex = 6);
-    if (_backendConnected) unawaited(_openRuntimeSetup(autoStart: true));
+    if (_backendConnected) {
+      unawaited(_openRuntimeSetup(autoStart: !_ocrRuntimeReady));
+    }
   }
 
   NextStepGuidance _nextStep() {
@@ -1329,7 +1331,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     final actionLabel = switch (guidance.action) {
       NextStepAction.none => '',
       NextStepAction.configureBackend => '去设置',
-      NextStepAction.initEnvironment => '一键初始化',
+      NextStepAction.initEnvironment => '下载并配置',
       NextStepAction.importBook => '去导入',
       NextStepAction.resumeLastProject => '继续上次项目',
       NextStepAction.relinkSource => '去关联源文件',
