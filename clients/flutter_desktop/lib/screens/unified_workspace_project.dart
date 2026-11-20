@@ -309,6 +309,25 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
     }
   }
 
+  void _openOcrEvidence() {
+    final path = _projectStorePath;
+    final project = _projectStatus;
+    if (path == null || project == null || _busy) return;
+    final evidence = OcrEvidenceService(
+      executor: _cliExecutor,
+      executable: _cliExecutable,
+      storePath: path,
+      projectId: project.projectId,
+    );
+    unawaited(
+      Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => OcrEvidenceBrowser(service: evidence),
+        ),
+      ),
+    );
+  }
+
   Widget _buildLibraryPage() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -346,6 +365,13 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
                 label: const Text('打开项目文件夹'),
                 onPressed: _busy ? null : _openProject,
               ),
+              if (_projectStatus != null)
+                OutlinedButton.icon(
+                  key: const ValueKey('open-ocr-evidence'),
+                  icon: const Icon(Icons.manage_search),
+                  label: const Text('浏览 OCR 证据'),
+                  onPressed: _busy ? null : _openOcrEvidence,
+                ),
             ],
           ),
           const SizedBox(height: 20),

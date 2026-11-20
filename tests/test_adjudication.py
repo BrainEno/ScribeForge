@@ -950,3 +950,65 @@ def test_history_keeps_revision_and_filter_snapshot(tmp_path: Path) -> None:
     other = store.create_project("Other", "other.pdf", "different")
     with pytest.raises(ValueError, match="not found"):
         read_review_history(path, HistoryQuery(other, decision_id=original))
+
+
+def test_ocr_evidence_browses_immutable_run_and_page_data(tmp_path: Path, capsys) -> None:
+    import json
+
+    from scribeforge.cli import run
+
+    store, project, verification, primary, secondary = _two_engine_page(tmp_path)
+    store.add_page(project, 2, "pages/2.png", 90, 190)
+    replacement = _repeat_verification(store, verification)
+    base = ["ocr-evidence", "--store", str(tmp_path), "--project-id", str(project)]
+
+    def read(*args):
+        assert run([*base, *args]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    database = tmp_path / "project.sqlite3"
+    before = database.read_bytes()
+    first = read("--section", "pages", "--limit", "1")
+    assert first["next_after"] == 0
+    assert first["rows"][0]["verification"] == replacement
+    second = read("--section", "pages", "--after", "0")
+    assert second["rows"][0]["page_index"] == 2
+    assert second["rows"][0]["ocr_runs"] == 0
+    assert second["next_after"] is None
+    overview = read("--section", "page", "--page", "0")
+    assert [r["id"] for r in overview["verifications"]] == [replacement, verification]
+    assert {r["id"] for r in overview["ocr_runs"]} == {primary, secondary}
+    lines = read("--section", "lines", "--page", "0", "--run", str(primary), "--limit", "1")
+    assert lines["next_after"] == 0
+    (line,) = lines["rows"]
+    assert line["text"] == "鸦" and line["min_confidence"] == 0.9
+    pairs = read("--section", "pairs", "--page", "0", "--run", str(verification))
+    assert pairs["rows"][0]["primary"]["lines"][0]["text"] == "鸦"
+    assert pairs["rows"][0]["secondary"]["lines"][0]["text"] == "雅"
+    assert pairs["rows"][0]["conflicts"] == 1
+    assert pairs["rows"][0]["risk_score"] == 0.5
+    assert run([*base, "--section", "lines", "--page", "2", "--run", str(primary)]) != 0
+    assert "does not belong" in capsys.readouterr().err
+    assert run([*base, "--section", "pairs", "--page", "2", "--run", str(verification)]) != 0
+    assert "must belong" in capsys.readouterr().err
+    assert run([*base, "--section", "page", "--page", "99"]) != 0
+    assert "not found" in capsys.readouterr().err
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "section, options, error",
+    [
+        ("invalid", {}, "unknown evidence section"),
+        ("pages", {"page": 0}, "physical page"),
+        ("lines", {"page": 0}, "run is required"),
+        ("page", {"page": 0, "after": 1}, "does not support"),
+        ("pages", {"after": -2}, "identifier"),
+        ("pages", {"limit": 51}, "between 1 and 50"),
+    ],
+)
+def test_ocr_evidence_arguments_are_bounded(section, options, error) -> None:
+    from scribeforge.storage.ocr_evidence import EvidenceQuery
+
+    with pytest.raises(ValueError, match=error):
+        EvidenceQuery(1, section, **options)

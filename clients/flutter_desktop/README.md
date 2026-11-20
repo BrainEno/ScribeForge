@@ -146,3 +146,19 @@ never carries an old-version draft into newer evidence. The CLI provides
 `review-history --store DIR --project-id ID`, which returns schema-versioned JSON;
 pass `--snapshot-id` and `--before-id` to continue a list or `--decision-id` to
 read an individual record. This command does not migrate or write the database.
+
+### Browse saved OCR evidence
+
+Open **书籍 → 浏览 OCR 证据** to browse physical pages even when the review queue
+is empty. Select a page to see the OCR engines, versions, input frame metadata
+and current or historical verification batches. Raw lines display saved text,
+normalized input coordinates and minimum reported token confidence. Verification
+batches display ordered line members, risk, conflict counts and ambiguity;
+these are evidence, not the final reading order or accepted transcription.
+
+The read-only `ocr-evidence --store DIR --project-id ID --section pages` command
+uses physical page indexes (zero-based). Use `--section page --page N` for
+batch IDs, `--section lines --page N --run OCR_ID` for raw lines, and
+`--section pairs --page N --run VERIFICATION_ID` for alignment. List sections
+return `next_after` for `--after`. Text and large groups are explicitly marked
+when previewed; there are no database migrations or decision writes.

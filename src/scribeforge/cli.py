@@ -106,6 +106,7 @@ from scribeforge.project_backup import (
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime.paths import default_runtime_root, runtime_root_for_store
+from scribeforge.storage.ocr_evidence import SECTIONS, EvidenceQuery, read_ocr_evidence
 from scribeforge.storage.review_history import ACTORS, HistoryQuery, read_review_history
 from scribeforge.storage.sqlite import DecisionAlreadyExists, JobAlreadyRunningError, SQLiteStore
 
@@ -718,6 +719,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit schema-versioned review evidence as JSON."
     )
 
+    evidence = subparsers.add_parser("ocr-evidence", help="Browse saved OCR evidence as JSON.")
+    evidence.add_argument("--store", type=Path, required=True)
+    evidence.add_argument("--project-id", type=int, required=True)
+    evidence.add_argument("--section", choices=SECTIONS, required=True)
+    evidence.add_argument("--page", type=int, help="Zero-based physical page index.")
+    evidence.add_argument("--run", type=int, help="OCR run for lines, verification run for pairs.")
+    evidence.add_argument("--after", type=int, default=-1)
+    evidence.add_argument("--limit", type=int, default=25)
+
     history = subparsers.add_parser("review-history", help="Read the append-only decision history.")
     history.add_argument("--store", type=Path, required=True)
     history.add_argument("--project-id", type=int, required=True)
@@ -1200,6 +1210,8 @@ def _dispatch(
         return _restore_project_backup(args, out)
     if args.command == "review":
         return _review(args, out)
+    if args.command == "ocr-evidence":
+        return _ocr_evidence(args, out)
     if args.command == "review-history":
         return _review_history(args, out)
     if args.command == "resolve":
@@ -2280,6 +2292,20 @@ def _bounding_box_json(box: BoundingBox | None) -> dict[str, float] | None:
     if box is None:
         return None
     return {"x": box.x, "y": box.y, "width": box.width, "height": box.height}
+
+
+def _ocr_evidence(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        query = EvidenceQuery(
+            args.project_id, args.section, args.page, args.run, args.after, args.limit
+        )
+        result = read_ocr_evidence(StoreLayout(args.store).db_path, query)
+        payload = json.dumps(result, ensure_ascii=True, allow_nan=False)
+    except (ValueError, sqlite3.Error, OSError) as exc:
+        print(f"error: could not read OCR evidence: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(payload, file=out)
+    return EXIT_OK
 
 
 def _review_history(args: argparse.Namespace, out: TextIO) -> int:
