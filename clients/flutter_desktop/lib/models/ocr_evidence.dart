@@ -254,6 +254,12 @@ class EvidenceFields {
   }
 
   EvidenceFields object(String key) => EvidenceFields(_fields[key]);
+
+  EvidenceFields? optionalObject(String key) {
+    final value = _fields[key];
+    return value == null ? null : EvidenceFields(value);
+  }
+
   List<EvidenceFields> rows(String key) {
     final value = _fields[key];
     if (value is! List) throw _invalid(key);

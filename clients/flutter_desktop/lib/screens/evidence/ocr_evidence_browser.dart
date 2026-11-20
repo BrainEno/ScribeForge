@@ -8,19 +8,23 @@ import '../../services/ocr_evidence_service.dart';
 import 'evidence_search_screen.dart';
 import 'ocr_evidence_list.dart';
 
+Future<void> showOcrEvidencePage(
+  BuildContext context, {
+  required OcrEvidenceService service,
+  required int page,
+}) => Navigator.of(context).push<void>(
+  MaterialPageRoute<void>(
+    builder: (_) => _PageOverview(service: service, page: page),
+  ),
+);
+
 class OcrEvidenceBrowser extends StatelessWidget {
   const OcrEvidenceBrowser({super.key, required this.service});
 
   final OcrEvidenceService service;
 
   void _openPage(BuildContext context, int page) {
-    unawaited(
-      Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => _PageOverview(service: service, page: page),
-        ),
-      ),
-    );
+    unawaited(showOcrEvidencePage(context, service: service, page: page));
   }
 
   Future<void> _jump(BuildContext context) async {

@@ -58,6 +58,90 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
     }
   }
 
+  Future<void> _inspectExportReadiness() async {
+    final store = _projectStorePath;
+    final projectId = _projectStatus?.projectId;
+    if (store == null || projectId == null || _busy) return;
+    final link = await Navigator.of(context).push<ExportReadinessLink>(
+      MaterialPageRoute<ExportReadinessLink>(
+        builder: (_) => ExportReadinessScreen(
+          service: ExportReadinessService(
+            executor: _cliExecutor,
+            executable: _cliExecutable,
+            storePath: store,
+            projectId: projectId,
+          ),
+          options: ExportReadinessOptions(
+            strict: _exportStrictAcceptance,
+            includePageFurniture: _exportIncludePageFurniture,
+          ),
+          sourceMatches: _projectSourceMatches,
+        ),
+      ),
+    );
+    if (!mounted ||
+        link == null ||
+        _projectStorePath != store ||
+        _projectStatus?.projectId != projectId)
+      return;
+    switch (link.destination) {
+      case ExportReadinessDestination.processing:
+        _updateWorkspace(() => _selectedIndex = 1);
+      case ExportReadinessDestination.review:
+        _updateWorkspace(() {
+          _selectedIndex = 2;
+          // Export also checks unresolved page furniture, even if normally
+          // hidden by the review queue's default view.
+          _includePageFurnitureInReview = true;
+        });
+        await _refreshReviewQueue();
+        if (!mounted || _projectStorePath != store) return;
+        final index = _reviewQueue.indexWhere(
+          (item) =>
+              item.projectId == projectId &&
+              item.pageIndex == link.page &&
+              item.pairIndex == link.pair,
+        );
+        _updateWorkspace(() {
+          if (index >= 0) {
+            _selectedReviewIndex = index;
+          } else {
+            _notice = '此配对不在最新待复核队列中。请重新运行导出前检查。';
+          }
+        });
+      case ExportReadinessDestination.evidence:
+        final page = link.page;
+        if (page != null) {
+          await showOcrEvidencePage(
+            context,
+            service: OcrEvidenceService(
+              executor: _cliExecutor,
+              executable: _cliExecutable,
+              storePath: store,
+              projectId: projectId,
+            ),
+            page: page,
+          );
+        }
+      case ExportReadinessDestination.history:
+        await showReviewHistory(
+          context,
+          service: ReviewHistoryService(
+            executor: _cliExecutor,
+            executable: _cliExecutable,
+            storePath: store,
+            projectId: projectId,
+          ),
+          filter: ReviewHistoryFilter(
+            pageIndex: link.page,
+            pairIndex: link.pair,
+          ),
+        );
+      case ExportReadinessDestination.safety:
+        _updateWorkspace(() => _selectedIndex = 5);
+    }
+  }
+
   void _updateExportOutputPath() {
     final directory = _exportOutputDirectory;
     if (directory == null) return;
@@ -129,6 +213,15 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
           Text(
             '把已验证的文字写出为 EPUB 3 或 DOCX。',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            key: const ValueKey('open-export-readiness'),
+            onPressed: _busy || _projectStatus == null
+                ? null
+                : _inspectExportReadiness,
+            icon: const Icon(Icons.fact_check_outlined),
+            label: const Text('导出前检查'),
           ),
           const SizedBox(height: 20),
           _buildExportForm(),

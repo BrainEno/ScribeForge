@@ -58,6 +58,11 @@ from scribeforge.domain.preprocess import (
     default_settings,
 )
 from scribeforge.domain.vlm import VLMReviewer
+from scribeforge.export_readiness import (
+    ReadinessOptions,
+    read_export_readiness,
+    strict_acceptance_blocks,
+)
 from scribeforge.observability import (
     DEFAULT_LOG_FORMAT,
     DEFAULT_LOG_LEVEL,
@@ -797,6 +802,19 @@ def build_parser() -> argparse.ArgumentParser:
     ui = subparsers.add_parser("ui", help="Open the read-only desktop shell for a project store.")
     ui.add_argument("--store", type=Path, required=True, help="Project store directory.")
 
+    readiness = subparsers.add_parser(
+        "export-readiness", help="Assess trusted export content without writing any output files."
+    )
+    readiness.add_argument("--store", type=Path, required=True)
+    _add_include_page_furniture_argument(readiness)
+    readiness.add_argument("--strict-acceptance", action="store_true")
+    readiness.add_argument(
+        "--page", type=int, help="Limit issue preview to this physical page index."
+    )
+    readiness.add_argument(
+        "--limit", type=int, default=120, help="Maximum number of returned issues."
+    )
+
     export = subparsers.add_parser(
         "export", help="Write the verified text of a project to EPUB 3 or DOCX."
     )
@@ -1241,6 +1259,8 @@ def _dispatch(
         return _resolve(args, out)
     if args.command == "confirm":
         return _confirm(args, out)
+    if args.command == "export-readiness":
+        return _export_readiness(args, out)
     if args.command == "export":
         return _export(args, out)
     if args.command == "export-candidates":
@@ -2456,6 +2476,25 @@ def _confirm(args: argparse.Namespace, out: TextIO) -> int:
     return EXIT_OK
 
 
+def _export_readiness(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        result = read_export_readiness(
+            StoreLayout(args.store).db_path,
+            ReadinessOptions(
+                include_page_furniture=args.include_page_furniture,
+                strict_acceptance=args.strict_acceptance,
+                page=args.page,
+                limit=args.limit,
+            ),
+        )
+        payload = json.dumps(result, ensure_ascii=True, allow_nan=False)
+    except (ValueError, sqlite3.Error, OSError) as exc:
+        print(f"error: could not check export readiness: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(payload, file=out)
+    return EXIT_OK
+
+
 def _report_blocked_export(exc: UnresolvedContentError, out: TextIO) -> None:
     """Say exactly what is missing, and what command clears each kind."""
 
@@ -2556,7 +2595,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         print("error: no pages to export", file=sys.stderr)
         return EXIT_FATAL
     summary = book.acceptance
-    if args.strict_acceptance and summary.requires_human_review:
+    if strict_acceptance_blocks(book, args.strict_acceptance):
         print(
             "error: --strict-acceptance: "
             f"{len(summary.spot_check)} accepted pair(s) still need a spot check "
