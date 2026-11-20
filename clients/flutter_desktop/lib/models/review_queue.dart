@@ -192,6 +192,7 @@ class ReviewQueueItem {
     required this.vlmUncertain,
     required this.cropPath,
     required this.sourceImagePath,
+    this.reviewToken,
     this.coordinateFrame = 'unknown',
     this.ocrFrameImagePath,
     this.primaryLineIndexes = const <int>[],
@@ -213,6 +214,7 @@ class ReviewQueueItem {
   final bool vlmUncertain;
   final String? cropPath;
   final String sourceImagePath;
+  final String? reviewToken;
   final String coordinateFrame;
   final String? ocrFrameImagePath;
   final List<int> primaryLineIndexes;
@@ -240,8 +242,14 @@ class ReviewQueueItem {
     final rawCropPath = json['crop_path'];
     final sourceImagePath = json['source_image_path'];
     final coordinateFrame = json['coordinate_frame'];
+    final reviewToken = json['review_token'];
     final ocrFrameImagePath = json['ocr_frame_image_path'];
-    if (pageIndex is! int ||
+    if ((reviewToken != null &&
+            (reviewToken is! String ||
+                !RegExp(
+                  r'^v[1-9][0-9]{0,18}:r(?:0|[1-9][0-9]{0,18})$',
+                ).hasMatch(reviewToken))) ||
+        pageIndex is! int ||
         pairIndex is! int ||
         rawScore is! num ||
         !rawScore.isFinite ||
@@ -303,6 +311,7 @@ class ReviewQueueItem {
       vlmUncertain: vlmUncertain,
       cropPath: rawCropPath as String?,
       sourceImagePath: sourceImagePath,
+      reviewToken: reviewToken as String?,
       coordinateFrame: coordinateFrame as String? ?? 'unknown',
       ocrFrameImagePath: ocrFrameImagePath as String?,
       primaryLineIndexes: primaryLineIndexes,

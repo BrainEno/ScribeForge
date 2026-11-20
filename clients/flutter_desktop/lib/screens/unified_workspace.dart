@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../models/processing_report.dart';
 import '../models/project_status.dart';
+import '../models/review_history.dart';
 import '../models/review_queue.dart';
 import '../models/review_queue_navigation.dart';
 import '../models/review_triage.dart';
@@ -23,6 +24,7 @@ import '../services/cli_runner.dart';
 import '../services/desktop_file_picker.dart';
 import '../services/processing_report_loader.dart';
 import '../services/python_locator.dart';
+import '../services/review_history_service.dart';
 import '../services/runtime_location_service.dart';
 import '../services/settings_store.dart';
 import '../services/workspace_file_system.dart';
@@ -31,6 +33,7 @@ import '../widgets/workspace_shell.dart';
 import 'candidate_comparison_screen.dart';
 import 'processing_report_sheet.dart';
 import 'project_safety_screen.dart';
+import 'review/review_history_screen.dart';
 import 'review/review_workspace_page.dart';
 import 'runtime_location_dialog.dart';
 import 'runtime_setup_dialog.dart';
@@ -244,11 +247,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   var _exportStrictAcceptance = false;
   var _exportIncludePageFurniture = false;
 
-  final Map<ReviewItemKey, TextEditingController> _reviewControllers = {};
+  final Map<(ReviewItemKey, String?), TextEditingController>
+  _reviewControllers = {};
+
+  (ReviewItemKey, String?) _draftKey(ReviewQueueItem item) =>
+      (reviewItemKey(item), item.reviewToken);
 
   TextEditingController _reviewControllerFor(ReviewQueueItem item) =>
       _reviewControllers.putIfAbsent(
-        reviewItemKey(item),
+        _draftKey(item),
         TextEditingController.new,
       );
 
@@ -610,6 +617,26 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         return;
       }
       final snapshot = ReviewQueueSnapshot.fromJsonText(output.toString());
+      final visibleDrafts = <ReviewItemKey, String?>{
+        for (final item in snapshot.items)
+          reviewItemKey(item): item.reviewToken,
+      };
+      final previousVersions = <(ReviewItemKey, String?)>{
+        for (final stored in _reviewControllers.keys)
+          if (visibleDrafts.containsKey(stored.$1) &&
+              visibleDrafts[stored.$1] != stored.$2)
+            stored,
+      };
+      final detached = <TextEditingController>[];
+      var hadOldText = false;
+      for (final key in previousVersions) {
+        final controller = _reviewControllers.remove(key);
+        if (controller != null) {
+          hadOldText |= controller.text.isNotEmpty;
+          detached.add(controller);
+        }
+      }
+      _disposeDraftsAfterFrame(detached);
       final selected = _selectedReviewItem;
       final key = selected == null ? null : reviewItemKey(selected);
       setState(() {
@@ -627,6 +654,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
                 delta: 0,
               );
         _error = null;
+        if (hadOldText) _notice = '核验版本已变化，未把旧草稿带入新证据。请重新核对。';
       });
     } catch (error) {
       if (isCurrent()) setState(() => _error = '读取复核队列失败：$error');
@@ -936,11 +964,17 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   ) async {
     final storePath = _projectStorePath;
     final key = reviewItemKey(item);
+    final token = item.reviewToken;
     if (storePath == null ||
+        token == null ||
         _busy ||
         _reviewLoading ||
-        !_reviewQueue.any((candidate) => reviewItemKey(candidate) == key))
+        !_reviewQueue.any(
+          (candidate) =>
+              reviewItemKey(candidate) == key && candidate.reviewToken == token,
+        )) {
       return;
+    }
     setState(() => _busy = true);
     try {
       final arguments = ScribeForgeCli.resolveArguments(
@@ -949,6 +983,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         page: item.pageIndex,
         pair: item.pairIndex,
         text: acceptedText,
+        reviewToken: token,
       );
       final buffer = StringBuffer();
       final exitCode = await _cliExecutor.run(
@@ -966,7 +1001,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             itemCount: _reviewQueue.length,
             delta: 0,
           );
-          final detached = _reviewControllers.remove(key);
+          final detached = _reviewControllers.remove(_draftKey(item));
           if (detached != null) _disposeDraftsAfterFrame([detached]);
           _notice =
               '已记录第 ${item.pageIndex + 1} 页第 ${item.pairIndex + 1} 组的人工决策';
@@ -975,7 +1010,9 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         await _refreshStatus(waitForInFlight: true);
         _focusReviewDecisionInputAfterFrame();
       } else {
-        setState(() => _error = buffer.toString().trim());
+        setState(
+          () => _error = '未记录人工决策。请复制必要的草稿内容，再刷新队列。${buffer.toString().trim()}',
+        );
       }
     } catch (exc) {
       if (!mounted || storePath != _projectStorePath) return;
@@ -1676,6 +1713,27 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     );
   }
 
+  void _openReviewHistory(ReviewQueueItem? item) {
+    final path = _projectStorePath;
+    final project = item?.projectId ?? _projectStatus?.projectId;
+    if (path == null || project == null || _busy) return;
+    unawaited(
+      showReviewHistory(
+        context,
+        service: ReviewHistoryService(
+          executor: _cliExecutor,
+          executable: _cliExecutable,
+          storePath: path,
+          projectId: project,
+        ),
+        filter: ReviewHistoryFilter(
+          pageIndex: item?.pageIndex,
+          pairIndex: item?.pairIndex,
+        ),
+      ),
+    );
+  }
+
   Widget _buildReviewPage() => ReviewWorkspacePage(
     storePath: _projectStorePath,
     projectId: _projectStatus?.projectId,
@@ -1688,6 +1746,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     controllerFor: _reviewControllerFor,
     onRecord: _resolveReviewPair,
     onRefresh: _refreshReviewQueue,
+    onHistory: _openReviewHistory,
     onSelect: (index) => setState(() => _selectedReviewIndex = index),
     onIncludePageFurniture: (include) {
       setState(() => _includePageFurnitureInReview = include);

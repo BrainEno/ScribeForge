@@ -106,7 +106,8 @@ from scribeforge.project_backup import (
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime.paths import default_runtime_root, runtime_root_for_store
-from scribeforge.storage.sqlite import JobAlreadyRunningError, SQLiteStore
+from scribeforge.storage.review_history import ACTORS, HistoryQuery, read_review_history
+from scribeforge.storage.sqlite import DecisionAlreadyExists, JobAlreadyRunningError, SQLiteStore
 
 EXIT_OK = 0
 EXIT_PARTIAL = 1
@@ -717,6 +718,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit schema-versioned review evidence as JSON."
     )
 
+    history = subparsers.add_parser("review-history", help="Read the append-only decision history.")
+    history.add_argument("--store", type=Path, required=True)
+    history.add_argument("--project-id", type=int, required=True)
+    history.add_argument("--page", type=int, help="Zero-based physical page index.")
+    history.add_argument("--pair", type=int, help="Zero-based aligned-pair index; requires --page.")
+    history.add_argument("--actor", choices=ACTORS)
+    history.add_argument("--snapshot-id", type=int, help="Upper bound from the first response.")
+    history.add_argument("--before-id", type=int, help="Exclusive cursor from the prior page.")
+    history.add_argument("--decision-id", type=int, help="Load a single record with extended text.")
+    history.add_argument("--limit", type=int, default=30)
+
     resolve = subparsers.add_parser("resolve", help="Record a human decision for one page pair.")
     resolve.add_argument("--store", type=Path, required=True, help="Project store directory.")
     resolve.add_argument(
@@ -726,6 +738,11 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--pair", type=int, required=True, help="Zero-based aligned-pair index.")
     resolve.add_argument(
         "--text", required=True, help="Literal text the reviewer accepted for the pair."
+    )
+
+    resolve.add_argument(
+        "--review-token",
+        help="Verification and VLM version from review JSON; refuses stale evidence.",
     )
 
     confirm = subparsers.add_parser(
@@ -1183,6 +1200,8 @@ def _dispatch(
         return _restore_project_backup(args, out)
     if args.command == "review":
         return _review(args, out)
+    if args.command == "review-history":
+        return _review_history(args, out)
     if args.command == "resolve":
         return _resolve(args, out)
     if args.command == "confirm":
@@ -2080,14 +2099,16 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                 frame_path = None
                 trusted_crop_path = None
                 try:
-                    verification_id = store.latest_verification_id(project.id, detail.page_index)
+                    verification_id = detail.verification_id
+                    if verification_id is None:
+                        raise ValueError("review has no verification identifier")
                     frame, path = verification_frame(store, project.id, page, verification_id)
                     frame_kind = frame.kind
                     frame_path = str(path)
                     pair_reviews = [
                         review
                         for review in store.list_vlm_reviews(verification_id)
-                        if review.pair_index == detail.pair_index
+                        if review.id == detail.vlm_review_id
                     ]
                     if pair_reviews:
                         evidence = verified_vlm_crop(
@@ -2101,6 +2122,7 @@ def _review(args: argparse.Namespace, out: TextIO) -> int:
                     {
                         "page_index": detail.page_index,
                         "pair_index": detail.pair_index,
+                        "review_token": detail.review_token,
                         "score": detail.score,
                         "reasons": [reason.value for reason in detail.reasons],
                         "furniture_reason": detail.furniture_reason,
@@ -2260,6 +2282,26 @@ def _bounding_box_json(box: BoundingBox | None) -> dict[str, float] | None:
     return {"x": box.x, "y": box.y, "width": box.width, "height": box.height}
 
 
+def _review_history(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        query = HistoryQuery(
+            project_id=args.project_id,
+            page=args.page,
+            pair=args.pair,
+            actor=args.actor,
+            snapshot_id=args.snapshot_id,
+            before_id=args.before_id,
+            decision_id=args.decision_id,
+            limit=args.limit,
+        )
+        payload = read_review_history(StoreLayout(args.store).db_path, query)
+    except (ValueError, sqlite3.Error, OSError) as exc:
+        print(f"error: could not read decision history: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(json.dumps(payload, ensure_ascii=True, sort_keys=True), file=out)
+    return EXIT_OK
+
+
 def _resolve(args: argparse.Namespace, out: TextIO) -> int:
     store = _open_store(args.store)
     if store is None:
@@ -2281,7 +2323,12 @@ def _resolve(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_FATAL
 
     try:
-        decision_id = record_human_decision(store, project.id, args.page, args.pair, args.text)
+        decision_id = record_human_decision(
+            store, project.id, args.page, args.pair, args.text, review_token=args.review_token
+        )
+    except (ValueError, DecisionAlreadyExists) as exc:
+        print(f"error: review decision was not recorded: {exc}", file=sys.stderr)
+        return EXIT_PARTIAL
     except KeyError as exc:
         message = exc.args[0] if exc.args else exc
         print(f"error: {message}", file=sys.stderr)

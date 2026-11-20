@@ -922,6 +922,31 @@ def test_review_json_returns_machine_readable_evidence_and_page_assets(
     assert reviews[0].reading.uncertain is True
     assert reviews[0].crop_path == str(crop)
     assert reviews[0].crop_sha256 == hashlib.sha256(crop.read_bytes()).hexdigest()
+    token = item["review_token"]
+    assert token == f"v{verification_id}:r{reviews[0].id}"
+    resolve = [
+        "resolve",
+        "--store",
+        str(store_dir),
+        "--page",
+        "0",
+        "--pair",
+        "0",
+        "--text=--literal",
+    ]
+    assert run([*resolve, "--review-token", f"v{verification_id}:r0"]) != 0
+    assert "evidence changed" in capsys.readouterr().err
+    assert run([*resolve, "--review-token", token]) == 0
+    capsys.readouterr()
+    history = ["review-history", "--store", str(store_dir), "--project-id", "1"]
+    assert run([*history, "--actor", "human"]) == 0
+    journal = json.loads(capsys.readouterr().out)
+    (entry,) = journal["decisions"]
+    assert entry["text"] == "--literal"
+    assert entry["binding"] == "current"
+    assert f"vlm_review:{reviews[0].id}" in entry["evidence_refs"]
+    assert run([*history, "--pair", "0"]) != 0
+    assert "pair filter requires a page" in capsys.readouterr().err
 
 
 def test_review_json_emits_empty_items_for_a_project_without_reviews(

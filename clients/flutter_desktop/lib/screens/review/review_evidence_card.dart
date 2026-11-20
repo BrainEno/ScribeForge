@@ -37,6 +37,8 @@ class ReviewEvidenceCard extends StatelessWidget {
   final bool busy;
   final int? projectId;
 
+  bool get _canRecord => !busy && item.reviewToken != null;
+
   String _furnitureReasonLabel(String reason) => switch (reason) {
     'engine_block' => 'OCR 布局标记',
     'repeated_in_margin' => '重复页边行',
@@ -127,7 +129,7 @@ class ReviewEvidenceCard extends StatelessWidget {
           _RecordReviewDecisionIntent:
               CallbackAction<_RecordReviewDecisionIntent>(
                 onInvoke: (_) {
-                  if (!busy) {
+                  if (_canRecord) {
                     unawaited(onRecord(item, controller.text));
                   }
                   return null;
@@ -228,6 +230,8 @@ class ReviewEvidenceCard extends StatelessWidget {
                 if (item.coordinateFrame == 'unknown')
                   const Text('OCR 坐标帧未知或无法验证；请勿根据坐标推断原图位置。'),
                 const SizedBox(height: 12),
+                if (item.reviewToken == null)
+                  const Text('此处理核心未提供核验版本；可查看证据，但请更新核心后再记录决策。'),
                 TextField(
                   key: const ValueKey('review-decision-input'),
                   controller: controller,
@@ -271,9 +275,9 @@ class ReviewEvidenceCard extends StatelessWidget {
                     ElevatedButton.icon(
                       icon: const Icon(Icons.fact_check_outlined),
                       label: const Text('记录人工决策'),
-                      onPressed: busy
-                          ? null
-                          : () => onRecord(item, controller.text),
+                      onPressed: _canRecord
+                          ? () => onRecord(item, controller.text)
+                          : null,
                     ),
                   ],
                 ),

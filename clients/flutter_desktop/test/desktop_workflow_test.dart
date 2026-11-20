@@ -756,6 +756,7 @@ Map<String, Object?> _reviewItem(
 ) => <String, Object?>{
   'page_index': pageIndex,
   'pair_index': 0,
+  'review_token': 'v${pageIndex + 1}:r0',
   'score': 0.8,
   'reasons': <String>['text_disagreement'],
   'primary_text': primary,
