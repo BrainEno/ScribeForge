@@ -116,3 +116,30 @@ def test_confirm_rechecks_latest_verification_inside_the_write(tmp_path: Path, m
     with pytest.raises(ValueError, match="verification changed"):
         submit_textless_confirmation(store, project, 0, token=token, kind="blank", reason="checked")
     assert not store.list_page_confirmations(project, 0)
+
+
+def test_audit_distinguishes_historical_and_invalid_bindings(tmp_path: Path) -> None:
+    import sqlite3
+    from contextlib import closing
+
+    from scribeforge.project_audit import audit_project_store
+
+    store, project, _, primary, secondary, _ = _fixture(tmp_path)
+    preview = textless_preview(store, project, 0)
+    confirmation = submit_textless_confirmation(
+        store, project, 0, token=preview["confirmation_token"], kind="blank", reason="checked"
+    )
+    _rerun(store, primary, secondary)
+    assert any(
+        finding.code == "textless_confirmation_historical"
+        for finding in audit_project_store(tmp_path).findings
+    )
+    with closing(sqlite3.connect(tmp_path / "project.sqlite3")) as connection:
+        connection.execute(
+            "UPDATE page_confirmations SET actor='evidence' WHERE id=?", (confirmation,)
+        )
+        connection.commit()
+    assert any(
+        finding.code == "textless_confirmation_invalid"
+        for finding in audit_project_store(tmp_path).findings
+    )
