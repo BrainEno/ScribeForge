@@ -53,3 +53,15 @@ def test_manager_stops_on_failure_and_records_failed_state(tmp_path: Path) -> No
     assert len(executor.calls) == 2
     assert manager.status("mineru").state == "failed"
     assert manager.status("mineru").failed_step == "install"
+
+
+def test_install_reuses_ready_environment_but_explicit_repair_rebuilds(tmp_path: Path) -> None:
+    executor = RecordingExecutor()
+    manager = RuntimeManager(tmp_path, executor)
+    plan = _plan(tmp_path)
+    plan.backends[0].environment_dir.mkdir(parents=True)
+    manager.install(plan)
+    manager.install(plan)
+    assert len(executor.calls) == 2
+    manager.repair(plan, "mineru")
+    assert len(executor.calls) == 4

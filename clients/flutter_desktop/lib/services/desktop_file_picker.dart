@@ -28,6 +28,8 @@ class PluginDesktopFilePicker implements DesktopFilePicker {
   }
 
   @override
-  Future<String?> getDirectoryPath({String? dialogTitle}) =>
-      FilePicker.getDirectoryPath(dialogTitle: dialogTitle);
+  Future<String?> getDirectoryPath({String? dialogTitle}) async {
+    final directory = await FilePicker.pickDirectory(dialogTitle: dialogTitle);
+    return directory?.toFilePath();
+  }
 }

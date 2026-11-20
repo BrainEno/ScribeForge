@@ -135,7 +135,13 @@ class RuntimeManager:
             if backend.optional:
                 continue
             try:
-                self._run_backend(backend)
+                if self.status(backend.name).state == "ready" and backend.environment_dir.is_dir():
+                    # Recheck existing environments without reinstalling. A failed check
+                    # is actionable through explicit per-engine repair.
+                    self._run_backend_steps(replace(backend, steps=(), model_steps=()))
+                    self._mark_ready(backend)
+                else:
+                    self._run_backend(backend)
             except RuntimeInstallError as exc:
                 # One broken backend should not prevent the other OCR engine
                 # from being installed and usable.
@@ -187,6 +193,9 @@ class RuntimeManager:
             if staging is not None:
                 shutil.rmtree(staging, ignore_errors=True)
 
+        self._mark_ready(backend)
+
+    def _mark_ready(self, backend: RuntimeBackendPlan) -> None:
         self._set_status(backend.name, RuntimeStatus("ready"))
         total = len(backend.steps) + len(backend.model_steps) + len(backend.health_checks)
         estimate = estimate_backend(backend.name)

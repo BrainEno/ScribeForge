@@ -72,7 +72,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
   }
 
   Future<void> _startSetup({String? backend}) async {
-    if (_running) return;
+    if (_running || _diskInsufficient) return;
     setState(() {
       _running = true;
       _cancelling = false;
@@ -263,6 +263,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
     'model-integrity' => '校验 MinerU 模型',
     'runtime-version' => '检查 MinerU 版本',
     'pp-ocrv6-models' => '下载 PaddleOCR 模型',
+    'sample-ocr' => '识别内置示例',
     'runtime-and-models' => '校验 PaddleOCR 运行环境与模型',
     'verify' => '验证运行环境',
     null => '等待步骤开始',
@@ -511,7 +512,13 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
           onPressed: _running
               ? null
               : () => Navigator.of(context).pop(_attempted),
-          child: Text(_attempted ? '完成' : '稍后配置'),
+          child: Text(
+            _result?.success == true && _exitCode == 0
+                ? '返回工作台'
+                : _attempted
+                ? '关闭'
+                : '稍后配置',
+          ),
         ),
         FilledButton.icon(
           key: const ValueKey('start-setup-button'),
@@ -531,7 +538,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                 : _diskInsufficient
                 ? '磁盘空间不足，无法开始'
                 : _attempted
-                ? '重新安装全部后端'
+                ? '重试配置'
                 : '开始安装全部后端',
           ),
         ),

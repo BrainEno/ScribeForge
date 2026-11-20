@@ -173,6 +173,7 @@ Future<void> _showSetupDialog(
   WidgetTester tester,
   RuntimeStatusSnapshot status, {
   required bool Function() wasStarted,
+  bool autoStart = false,
 }) async {
   tester.view.physicalSize = const Size(1280, 1000);
   tester.view.devicePixelRatio = 1;
@@ -188,6 +189,7 @@ Future<void> _showSetupDialog(
               barrierDismissible: false,
               builder: (_) => RuntimeSetupDialog(
                 runtimeStatus: status,
+                autoStart: autoStart,
                 runSetup:
                     ({
                       required backend,
@@ -215,7 +217,12 @@ void main() {
   ) async {
     var started = false;
     final status = RuntimeStatusSnapshot.fromJsonText(_statusWithDisk);
-    await _showSetupDialog(tester, status, wasStarted: () => started = true);
+    await _showSetupDialog(
+      tester,
+      status,
+      wasStarted: () => started = true,
+      autoStart: true,
+    );
 
     expect(
       find.byKey(const ValueKey('disk-insufficient-card')),

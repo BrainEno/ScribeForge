@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from scribeforge.adapters.runtime_workers import worker_source_root
-from scribeforge.runtime.environment import build_runtime_environment, paddle_model_root
+from scribeforge.adapters.runtime_workers import runtime_environment, worker_source_root
+from scribeforge.runtime.environment import paddle_model_root
 from scribeforge.runtime.models import (
     DEFAULT_HEALTH_CHECK_TIMEOUT_SECONDS,
     DEFAULT_MODEL_STEP_TIMEOUT_SECONDS,
@@ -119,7 +119,15 @@ def _locked_install_step(
 
 
 def _environment_items(layout: RuntimeLayout) -> tuple[tuple[str, str], ...]:
-    return tuple(build_runtime_environment(layout).items())
+    return tuple(runtime_environment(layout).items())
+
+
+def _ocr_sample_step(python: Path, backend: str) -> InstallStep:
+    return InstallStep(
+        "sample-ocr",
+        (str(python), "-m", "scribeforge.workers.runtime_ocr_smoke", backend),
+        timeout_seconds=DEFAULT_MODEL_STEP_TIMEOUT_SECONDS,
+    )
 
 
 def build_runtime_plan(
@@ -180,6 +188,7 @@ def build_runtime_plan(
                 ),
             ),
             InstallStep("runtime-version", (str(mineru_main), "version", "--json")),
+            _ocr_sample_step(mineru_python, "mineru"),
         ),
         environment=runtime_environment,
     )
@@ -228,6 +237,7 @@ def build_runtime_plan(
         ),
         health_checks=(
             InstallStep("runtime-and-models", (str(paddle_python), "-c", paddle_health)),
+            _ocr_sample_step(paddle_python, "paddleocr"),
         ),
         environment=runtime_environment,
     )

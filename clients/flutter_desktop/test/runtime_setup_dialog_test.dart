@@ -200,7 +200,7 @@ void main() {
     pending.complete(130);
     await tester.pumpAndSettle();
 
-    expect(find.text('重新安装全部后端'), findsOneWidget);
+    expect(find.text('重试配置'), findsOneWidget);
     expect(find.text('已取消'), findsOneWidget);
     expect(find.text('取消配置'), findsNothing);
     expect(tester.takeException(), isNull);
