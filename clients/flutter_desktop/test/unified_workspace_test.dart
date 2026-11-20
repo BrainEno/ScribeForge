@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scribeforge_desktop/models/runtime_location.dart';
 import 'package:scribeforge_desktop/screens/unified_workspace.dart';
 import 'package:scribeforge_desktop/services/backend_resolver.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
@@ -178,6 +179,10 @@ void main() {
 }
 
 class _MemorySettingsStore extends DesktopSettingsStore {
+  @override
+  Future<RuntimeLocationPreferences> loadRuntimeLocations() async =>
+      const RuntimeLocationPreferences();
+
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   String _backendPython = '';
   String _backendSourcePath = '';

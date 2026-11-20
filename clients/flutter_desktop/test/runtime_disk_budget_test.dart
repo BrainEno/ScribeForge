@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scribeforge_desktop/models/runtime_location.dart';
 import 'package:scribeforge_desktop/models/runtime_status.dart';
 import 'package:scribeforge_desktop/screens/runtime_setup_dialog.dart';
 import 'package:scribeforge_desktop/screens/unified_workspace.dart';
@@ -113,6 +114,10 @@ class _FakeExecutor implements ScribeForgeCliExecutor {
 }
 
 class _MemorySettingsStore extends DesktopSettingsStore {
+  @override
+  Future<RuntimeLocationPreferences> loadRuntimeLocations() async =>
+      const RuntimeLocationPreferences();
+
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   String _cliExecutable = '';
   String _backendPython = '';

@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:scribeforge_desktop/models/runtime_location.dart';
 import 'package:scribeforge_desktop/screens/unified_workspace.dart';
 import 'package:scribeforge_desktop/services/backend_resolver.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
@@ -631,9 +632,9 @@ void main() {
     tester,
   ) async {
     await createHarness(tester);
-    String banner() => (tester.widget(
-      find.byKey(const ValueKey('next-step-message')),
-    ) as Text).data!;
+    String banner() =>
+        (tester.widget(find.byKey(const ValueKey('next-step-message'))) as Text)
+            .data!;
 
     // Fresh app: nothing imported yet.
     expect(banner(), contains('导入一本'));
@@ -668,9 +669,10 @@ void main() {
     'the next-step banner offers one-click init when the runtime is missing',
     (tester) async {
       await createHarness(tester, runtimeReady: false);
-      String banner() => (tester.widget(
-        find.byKey(const ValueKey('next-step-message')),
-      ) as Text).data!;
+      String banner() =>
+          (tester.widget(find.byKey(const ValueKey('next-step-message')))
+                  as Text)
+              .data!;
       expect(banner(), contains('初始化'));
       await tester.tap(find.byKey(const ValueKey('next-step-action')));
       await pumpUntil(
@@ -688,9 +690,9 @@ void main() {
     await settings.saveLastProjectStore('/fake/store');
     final harness = await createHarness(tester, settingsStore: settings);
     harness.cli.fileSystem.addProjectStore('/fake/store');
-    String banner() => (tester.widget(
-      find.byKey(const ValueKey('next-step-message')),
-    ) as Text).data!;
+    String banner() =>
+        (tester.widget(find.byKey(const ValueKey('next-step-message'))) as Text)
+            .data!;
 
     await pumpUntil(
       tester,
@@ -780,6 +782,10 @@ class _Harness {
 }
 
 class _MemorySettingsStore extends DesktopSettingsStore {
+  @override
+  Future<RuntimeLocationPreferences> loadRuntimeLocations() async =>
+      const RuntimeLocationPreferences();
+
   _MemorySettingsStore() : super();
 
   String _cliExecutable = DesktopSettingsStore.defaultCliExecutable;
