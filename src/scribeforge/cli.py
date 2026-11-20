@@ -106,6 +106,10 @@ from scribeforge.project_backup import (
 from scribeforge.runtime.manager import RuntimeManager
 from scribeforge.runtime.models import RuntimeLayout
 from scribeforge.runtime.paths import default_runtime_root, runtime_root_for_store
+from scribeforge.storage.evidence_search import (
+    ACTORS as SEARCH_ACTORS,
+)
+from scribeforge.storage.evidence_search import SOURCES, EvidenceSearchQuery, read_evidence_search
 from scribeforge.storage.ocr_evidence import SECTIONS, EvidenceQuery, read_ocr_evidence
 from scribeforge.storage.review_history import ACTORS, HistoryQuery, read_review_history
 from scribeforge.storage.sqlite import DecisionAlreadyExists, JobAlreadyRunningError, SQLiteStore
@@ -719,6 +723,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit schema-versioned review evidence as JSON."
     )
 
+    search = subparsers.add_parser(
+        "evidence-search", help="Search saved OCR or decisions literally."
+    )
+    search.add_argument("--store", type=Path, required=True)
+    search.add_argument("--project-id", type=int, required=True)
+    search.add_argument("--source", choices=SOURCES, required=True)
+    search.add_argument("--term", required=True)
+    search.add_argument("--page-start", type=int, help="First physical page index (zero-based).")
+    search.add_argument("--page-end", type=int, help="Last physical page index (inclusive).")
+    search.add_argument("--actor", choices=SEARCH_ACTORS)
+    search.add_argument("--snapshot-id", type=int)
+    search.add_argument("--before-id", type=int)
+    search.add_argument(
+        "--record-id", type=int, help="Read a longer excerpt for a matching record."
+    )
+    search.add_argument("--limit", type=int, default=20)
+
     evidence = subparsers.add_parser("ocr-evidence", help="Browse saved OCR evidence as JSON.")
     evidence.add_argument("--store", type=Path, required=True)
     evidence.add_argument("--project-id", type=int, required=True)
@@ -1210,6 +1231,8 @@ def _dispatch(
         return _restore_project_backup(args, out)
     if args.command == "review":
         return _review(args, out)
+    if args.command == "evidence-search":
+        return _evidence_search(args, out)
     if args.command == "ocr-evidence":
         return _ocr_evidence(args, out)
     if args.command == "review-history":
@@ -2292,6 +2315,29 @@ def _bounding_box_json(box: BoundingBox | None) -> dict[str, float] | None:
     if box is None:
         return None
     return {"x": box.x, "y": box.y, "width": box.width, "height": box.height}
+
+
+def _evidence_search(args: argparse.Namespace, out: TextIO) -> int:
+    try:
+        query = EvidenceSearchQuery(
+            project_id=args.project_id,
+            source=args.source,
+            term=args.term,
+            page_start=args.page_start,
+            page_end=args.page_end,
+            actor=args.actor,
+            snapshot_id=args.snapshot_id,
+            before_id=args.before_id,
+            record_id=args.record_id,
+            limit=args.limit,
+        )
+        result = read_evidence_search(StoreLayout(args.store).db_path, query)
+        payload = json.dumps(result, ensure_ascii=True, allow_nan=False)
+    except (ValueError, sqlite3.Error, OSError) as exc:
+        print(f"error: could not search evidence: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(payload, file=out)
+    return EXIT_OK
 
 
 def _ocr_evidence(args: argparse.Namespace, out: TextIO) -> int:

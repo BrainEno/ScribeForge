@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/ocr_evidence.dart';
+import '../../services/evidence_search_service.dart';
 import '../../services/ocr_evidence_service.dart';
+import 'evidence_search_screen.dart';
 import 'ocr_evidence_list.dart';
 
 class OcrEvidenceBrowser extends StatelessWidget {
@@ -38,6 +40,26 @@ class OcrEvidenceBrowser extends StatelessWidget {
     emptyMessage: '项目尚未保存任何物理页。',
     load: (after) => service.pages(after: after),
     actions: <Widget>[
+      IconButton(
+        key: const ValueKey('open-evidence-search'),
+        tooltip: '全书证据检索',
+        icon: const Icon(Icons.search),
+        onPressed: () {
+          final search = EvidenceSearchService(
+            executor: service.executor,
+            executable: service.executable,
+            storePath: service.storePath,
+            projectId: service.projectId,
+          );
+          unawaited(
+            Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => EvidenceSearchScreen(service: search),
+              ),
+            ),
+          );
+        },
+      ),
       IconButton(
         tooltip: '跳到物理页',
         onPressed: () => _jump(context),

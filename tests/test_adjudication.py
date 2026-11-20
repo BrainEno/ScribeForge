@@ -1012,3 +1012,86 @@ def test_ocr_evidence_arguments_are_bounded(section, options, error) -> None:
 
     with pytest.raises(ValueError, match=error):
         EvidenceQuery(1, section, **options)
+
+
+def test_evidence_search_is_literal_snapshot_scoped_and_read_only(tmp_path: Path, capsys) -> None:
+    import json
+
+    from scribeforge.cli import run
+
+    store, project, verification, _, _ = _two_engine_page(tmp_path)
+    term = "𠀀%_--"
+    text = "前" * 100 + term + "後" * 100
+    read_only_path = tmp_path / "project.sqlite3"
+    original = record_human_decision(store, project, 0, 0, text)
+    revised = record_human_decision(store, project, 0, 0, f"新版{term}")
+    store.add_page(project, 1, "pages/1.png", 100, 200)
+    unverified = store.record_ocr(
+        project, PageOCRResult(1, "spare", "2", (_line(text, 0.1), _line("no wildcards", 0.5)))
+    )
+    other = store.create_project("Other", "other.pdf", "other")
+    store.add_page(other, 0, "pages/0.png", 100, 200)
+    store.record_ocr(other, PageOCRResult(0, "other", "2", (_line(term, 0.1),)))
+    base = ["evidence-search", "--store", str(tmp_path), "--project-id", str(project)]
+
+    def search(*args):
+        assert run([*base, *args]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    before = read_only_path.read_bytes()
+    ocr = search("--source", "ocr", f"--term={term}", "--page-start", "1")
+    (hit,) = ocr["hits"]
+    assert hit["run_id"] == unverified and hit["role_in_latest_verification"] == "unverified"
+    assert hit["excerpt"]["match"] == term and hit["excerpt"]["omitted_before"]
+    assert (
+        search("--source", "ocr", "--term=鸦")["hits"][0]["role_in_latest_verification"]
+        == "primary"
+    )
+    assert (
+        search("--source", "ocr", "--term=雅")["hits"][0]["role_in_latest_verification"]
+        == "secondary"
+    )
+    assert search("--source", "ocr", "--term=鸦乙")["hits"] == []
+    decision_args = ("--source", "decisions", f"--term={term}", "--actor", "human")
+    first = search(*decision_args, "--limit", "1")
+    assert first["snapshot_id"] == first["next_before"] == revised
+    assert first["hits"][0]["binding"] == "current"
+    assert first["hits"][0]["verification_id"] == verification
+    assert read_only_path.read_bytes() == before
+    record_human_decision(store, project, 0, 0, f"刚保存{term}")
+    remaining = search(*decision_args, "--snapshot-id", str(revised), "--before-id", str(revised))
+    (prior,) = remaining["hits"]
+    assert prior["id"] == original and not prior["latest_for_pair"]
+    detail = search(*decision_args, "--snapshot-id", str(revised), "--record-id", str(original))
+    excerpt = detail["hits"][0]["excerpt"]
+    assert excerpt["before"] + excerpt["match"] + excerpt["after"] == text
+    assert not excerpt["omitted_before"] and not excerpt["omitted_after"]
+    assert run([*base, *decision_args, "--snapshot-id", str(revised + 200)]) != 0
+    assert "snapshot is no longer available" in capsys.readouterr().err
+    assert (
+        run([*base, *decision_args, "--snapshot-id", str(revised), "--record-id", str(revised + 1)])
+        != 0
+    )
+    assert "not found in this search snapshot" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "source, term, options, error",
+    [
+        ("unknown", "valid", {}, "source"),
+        ("ocr", " ", {}, "characters"),
+        ("ocr", "a\x00b", {}, "NUL"),
+        ("ocr", "字" * 161, {}, "characters"),
+        ("ocr", "valid", {"page_start": 2, "page_end": 1}, "start page"),
+        ("ocr", "valid", {"actor": "human"}, "actor filter"),
+        ("ocr", "valid", {"before_id": 2}, "pagination requires"),
+        ("ocr", "valid", {"record_id": 2}, "detail requires"),
+        ("ocr", "valid", {"limit": 51}, "search limit"),
+        ("ocr", "valid", {"page_end": -1}, "end page"),
+    ],
+)
+def test_search_input_validation(source, term, options, error) -> None:
+    from scribeforge.storage.evidence_search import EvidenceSearchQuery
+
+    with pytest.raises(ValueError, match=error):
+        EvidenceSearchQuery(1, source, term, **options)
