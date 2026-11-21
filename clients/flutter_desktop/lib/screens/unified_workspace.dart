@@ -552,6 +552,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     required Widget message,
     required Widget action,
   }) {
+    final style = Theme.of(context).textTheme.bodySmall;
     return ColoredBox(
       color: background,
       child: Padding(
@@ -562,9 +563,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
             const SizedBox(width: ScribeSpacing.x2),
             Expanded(
               child: DefaultTextStyle(
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall!.copyWith(color: foreground),
+                style: (style ?? const TextStyle()).copyWith(color: foreground),
                 child: message,
               ),
             ),
