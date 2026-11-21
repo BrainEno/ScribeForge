@@ -306,3 +306,18 @@ def test_report_cli_requires_project_selection_for_multiple_or_empty_stores(
     assert "multiple projects" in capsys.readouterr().err
     assert run(["report", "--store", str(tmp_path), "--project", "999"]) == 2
     assert "unknown project" in capsys.readouterr().err
+
+
+def test_saved_real_report_round_trips_through_comparison(tmp_path: Path) -> None:
+    from scribeforge.report_comparison import CompareOptions, compare_snapshots, load_snapshot
+
+    store, project_id = _project(tmp_path)
+    snapshot = processing_report_dict(build_processing_report(store, project_id))
+    file = tmp_path / "saved.json"
+    file.write_text(json.dumps(snapshot), encoding="utf-8")
+    saved = load_snapshot(file)
+    result = compare_snapshots(saved, saved, CompareOptions(filter="all"))
+    assert result["seconds"]["delta"] == 0
+    assert result["page_counts"]["changed"] == 0
+    assert len(result["pages"]) == 2
+    assert result["pages"][0]["stages"]
