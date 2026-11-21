@@ -26,6 +26,13 @@ int _count(Object? value) {
   return value;
 }
 
+Map<String, int> _readCounts(Object? value) {
+  final entries = _object(value).entries;
+  return Map.unmodifiable({
+    for (final entry in entries) entry.key: _count(entry.value),
+  });
+}
+
 bool _flag(Object? value) {
   if (value is! bool) throw const FormatException('报告响应包含无效标记。');
   return value;
@@ -156,11 +163,7 @@ class ReportComparison {
       order = _text(row['order']),
       offset = _count(row['offset']),
       matched = _count(row['matched']),
-      pageCounts = Map.unmodifiable(
-        _object(
-          row['page_counts'],
-        ).map((key, value) => MapEntry(key, _count(value))),
-      ),
+      pageCounts = _readCounts(row['page_counts']),
       nextOffset = row['next_offset'] == null
           ? null
           : _count(row['next_offset']),
