@@ -707,7 +707,7 @@ void main() {
     final setup = harness.cli.calls.singleWhere(
       (args) => args.first == 'setup',
     );
-    expect(setup, contains('--json-stream'));
+    expect(setup, containsAll(['--json', '--cancelable']));
     expect(commands.first.take(3), ['py', '-3', '-c']);
     expect(commands.last.last, '--help');
     expect(await harness.settingsStore.loadBackendPython(), isEmpty);
