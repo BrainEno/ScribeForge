@@ -23,12 +23,13 @@ void main() {
           theme: ScribeTheme.light,
           builder: (context, child) => ValueListenableBuilder<double>(
             valueListenable: scale,
-            builder: (context, value, _) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: TextScaler.linear(value)),
-              child: child!,
-            ),
+            builder: (context, value, _) {
+              final media = MediaQuery.of(context);
+              return MediaQuery(
+                data: media.copyWith(textScaler: TextScaler.linear(value)),
+                child: child!,
+              );
+            },
           ),
           home: StatefulBuilder(
             builder: (context, setState) => WorkspaceShell(
