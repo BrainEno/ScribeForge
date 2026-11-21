@@ -50,7 +50,7 @@ def _engines(_: Path) -> Engines:
 def _invoke(backend: Path, *arguments: str, expected: int = 0) -> str:
     env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     if os.name == "nt":
-        env["PATH"] = str(Path(env["SystemRoot"]) / "System32")
+        env["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
     env.pop("PYTHONPATH", None)
     result = subprocess.run(
         [str(backend), *arguments],

@@ -39,7 +39,8 @@ archive = PYZ(analysis.pure)
 executable = EXE(
     archive,
     analysis.scripts,
-    [],
+    # Flutter consumes UTF-8 pipes, including paths with non-ASCII names.
+    [("X utf8", None, "OPTION")],
     exclude_binaries=True,
     name="scribeforge",
     debug=False,
