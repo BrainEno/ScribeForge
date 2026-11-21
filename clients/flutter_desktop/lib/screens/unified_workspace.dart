@@ -35,6 +35,8 @@ import '../services/runtime_location_service.dart';
 import '../services/settings_store.dart';
 import '../services/textless_confirmation_service.dart';
 import '../services/workspace_file_system.dart';
+import '../theme/scribe_theme.dart';
+import '../widgets/workspace_components.dart';
 import '../widgets/workspace_help_dialog.dart';
 import '../widgets/workspace_shell.dart';
 import 'candidate_comparison_screen.dart';
@@ -389,7 +391,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         ),
       if (_error != null)
         IconButton(
-          icon: const Icon(Icons.error_outline, color: Colors.amber),
+          icon: const Icon(Icons.close, size: 20),
+          tooltip: '关闭错误提示',
           onPressed: () => setState(() => _error = null),
         ),
     ],
@@ -476,78 +479,99 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       NextStepAction.goReview => '去复核',
       NextStepAction.goExport => '去导出',
     };
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Row(
+    return _workspaceStrip(
+      icon: Icons.arrow_forward_rounded,
+      background: ScribePalette.mist,
+      foreground: ScribePalette.forest,
+      message: Text(
+        '下一步：${guidance.message}',
+        key: const ValueKey('next-step-message'),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      action: TextButton(
+        key: const ValueKey('next-step-action'),
+        onPressed: _busy || _backendBusy
+            ? null
+            : () => unawaited(_runNextStepAction(guidance.action)),
+        child: Text(actionLabel),
+      ),
+    );
+  }
+
+  Widget _buildNoticeBar() {
+    final message = _error ?? _notice;
+    if (message == null) return const SizedBox.shrink();
+    final isError = _error != null;
+    return _workspaceStrip(
+      icon: isError ? Icons.error_outline : Icons.info_outline,
+      background: isError
+          ? ScribePalette.amberSurface
+          : ScribePalette.infoSurface,
+      foreground: isError ? ScribePalette.amber : ScribePalette.info,
+      message: Tooltip(
+        message: message,
+        child: Text(message, maxLines: 2, overflow: TextOverflow.ellipsis),
+      ),
+      action: Row(
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(
-            Icons.lightbulb_outline,
-            color: Theme.of(context).colorScheme.onPrimaryContainer,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '下一步：${guidance.message}',
-              key: const ValueKey('next-step-message'),
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-                fontSize: 12,
+          if (_runtimeSetupActionRequired &&
+              _backendConnected &&
+              _nextStep().action != NextStepAction.initEnvironment)
+            TextButton(
+              onPressed: _busy ? null : _showInitialization,
+              child: const Text('初始化环境'),
+            ),
+          IconButton(
+            tooltip: '查看完整消息',
+            icon: const Icon(Icons.open_in_full, size: 16),
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: Text(isError ? '需要处理的问题' : '操作消息'),
+                content: SingleChildScrollView(child: SelectableText(message)),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('关闭'),
+                  ),
+                ],
               ),
             ),
-          ),
-          TextButton(
-            key: const ValueKey('next-step-action'),
-            onPressed: _busy
-                ? null
-                : () => unawaited(_runNextStepAction(guidance.action)),
-            child: Text(actionLabel),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildNoticeBar() {
-    if (_notice == null && _error == null) return const SizedBox.shrink();
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: _error == null ? Colors.green.shade50 : Colors.amber.shade50,
-      child: Row(
-        children: <Widget>[
-          Icon(
-            _error == null ? Icons.info : Icons.error_outline,
-            color: _error == null
-                ? Colors.green.shade700
-                : Colors.amber.shade700,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              _error ?? _notice!,
-              style: TextStyle(
-                color: _error == null
-                    ? Colors.green.shade800
-                    : Colors.amber.shade800,
-                fontSize: 12,
+  Widget _workspaceStrip({
+    required IconData icon,
+    required Color background,
+    required Color foreground,
+    required Widget message,
+    required Widget action,
+  }) {
+    return ColoredBox(
+      color: background,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: ScribeSpacing.x3),
+        child: Row(
+          children: <Widget>[
+            Icon(icon, color: foreground, size: 17),
+            const SizedBox(width: ScribeSpacing.x2),
+            Expanded(
+              child: DefaultTextStyle(
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall!.copyWith(color: foreground),
+                child: message,
               ),
             ),
-          ),
-          if (_runtimeSetupActionRequired)
-            TextButton(
-              onPressed: _busy ? null : _showInitialization,
-              child: const Text('初始化环境'),
-            ),
-          if (_error != null)
-            IconButton(
-              icon: const Icon(Icons.close, size: 16),
-              onPressed: () => setState(() => _error = null),
-            ),
-        ],
+            const SizedBox(width: ScribeSpacing.x1),
+            action,
+          ],
+        ),
       ),
     );
   }

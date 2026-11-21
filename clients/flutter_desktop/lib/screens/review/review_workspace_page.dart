@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../models/review_queue.dart';
 import '../../models/review_triage.dart';
+import '../../theme/scribe_theme.dart';
 import '../../widgets/review_keyboard_shortcuts.dart';
+import '../../widgets/workspace_components.dart';
 import 'review_evidence_card.dart';
 import 'review_triage_dialog.dart';
 
@@ -178,12 +180,11 @@ class _ReviewWorkspacePageState extends State<ReviewWorkspacePage> {
   Widget _heading(ReviewTriageResult result) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: <Widget>[
-      const Text(
-        '复核队列',
-        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+      const ScribePageHeader(
+        icon: Icons.fact_check_outlined,
+        title: '复核队列',
+        subtitle: '比较原始候选和图像。只有明确记录后，人工决策才会写入证据链。',
       ),
-      const SizedBox(height: 8),
-      const Text('比较原始候选和图像。只有明确记录后，人工决策才会写入证据链。'),
       const SizedBox(height: 4),
       Text(
         '快捷键：Alt+←/→ 上一项/下一项；Ctrl+J 聚焦决策输入；Ctrl+G 聚焦跳页；Alt+1/2/3 填入候选；Ctrl+Enter 明确记录。',
@@ -195,7 +196,7 @@ class _ReviewWorkspacePageState extends State<ReviewWorkspacePage> {
         spacing: 8,
         runSpacing: 6,
         children: <Widget>[
-          ElevatedButton.icon(
+          OutlinedButton.icon(
             icon: Icon(widget.loading ? Icons.hourglass_empty : Icons.refresh),
             label: Text(widget.loading ? '刷新中…' : '刷新队列'),
             onPressed:
@@ -375,11 +376,13 @@ class _ReviewWorkspacePageState extends State<ReviewWorkspacePage> {
       onFocusPageJump: _jumpFocus.requestFocus,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          if (constraints.maxHeight < 550 || constraints.maxWidth < 530) {
+          if (constraints.maxHeight < 550 ||
+              constraints.maxWidth < 530 ||
+              MediaQuery.textScalerOf(context).scale(14) > 18) {
             return SingleChildScrollView(
               key: const PageStorageKey('compact-review-scroll'),
               controller: _evidenceScroll,
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(ScribeSpacing.x3),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[...header, if (evidence != null) evidence],
@@ -387,7 +390,7 @@ class _ReviewWorkspacePageState extends State<ReviewWorkspacePage> {
             );
           }
           return Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(ScribeSpacing.x5),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[

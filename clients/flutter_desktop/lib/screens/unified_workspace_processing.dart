@@ -322,124 +322,128 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
 
   Widget _buildProcessPage() {
     final hasFailedJobs = (_projectStatus?.failedJobs ?? 0) > 0;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Text(
-            '导入并处理书籍',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '选择扫描书籍的 PDF 或页面图片，运行可恢复的双引擎 OCR 与校对管线。',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            this._engineComboSummary(),
-            key: const ValueKey('engine-combo-summary'),
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-          ),
-          const SizedBox(height: 20),
-          WorkspaceFileField(
-            field: InputDecorator(
-              decoration: const InputDecoration(
-                labelText: '源文件',
-                prefixIcon: Icon(Icons.description),
+    return ScribePageBody(
+      children: <Widget>[
+        const ScribePageHeader(
+          icon: Icons.document_scanner_outlined,
+          title: '导入并处理书籍',
+          subtitle: '选择扫描 PDF 或页面图片，运行可恢复的双引擎 OCR。',
+        ),
+        const SizedBox(height: ScribeSpacing.x5),
+        ScribeSectionCard(
+          icon: Icons.description_outlined,
+          title: '源文件与识别',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(
+                this._engineComboSummary(),
+                key: const ValueKey('engine-combo-summary'),
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
               ),
-              child: Text(
-                _pdfPath ?? '尚未选择源文件',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 20),
+              WorkspaceFileField(
+                field: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: '源文件',
+                    prefixIcon: Icon(Icons.description),
+                  ),
+                  child: Text(
+                    _pdfPath ?? '尚未选择源文件',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                action: OutlinedButton.icon(
+                  icon: const Icon(Icons.folder_open),
+                  label: const Text('选择文件'),
+                  onPressed: _busy ? null : _pickPdf,
+                ),
               ),
-            ),
-            action: ElevatedButton.icon(
-              icon: const Icon(Icons.folder_open),
-              label: const Text('选择文件'),
-              onPressed: _busy ? null : _pickPdf,
-            ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: Icon(
+                    _processing
+                        ? (_cancelRequested
+                              ? Icons.hourglass_empty
+                              : Icons.cancel_outlined)
+                        : (_busy ? Icons.hourglass_empty : Icons.play_arrow),
+                  ),
+                  label: Text(
+                    _processing
+                        ? (_cancelRequested ? '正在取消…' : '取消处理')
+                        : (_busy
+                              ? '处理中…'
+                              : (hasFailedJobs ? '重试失败页面' : '开始处理')),
+                  ),
+                  onPressed: _processing
+                      ? (_cancelRequested ? null : _cancelProcessing)
+                      : (_busy ||
+                                _statusLoading ||
+                                _runtimeLoading ||
+                                _pdfPath == null ||
+                                !_projectSourceMatches
+                            ? null
+                            : _runProcess),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    backgroundColor: _processing ? Colors.red.shade700 : null,
+                    foregroundColor: _processing ? Colors.white : null,
+                  ),
+                ),
+              ),
+              if (_busy) ...[
+                const SizedBox(height: 12),
+                const LinearProgressIndicator(),
+                const SizedBox(height: 6),
+                Text(
+                  _projectStatus?.currentJob == null
+                      ? '正在导入页面或准备 OCR 运行时…'
+                      : '当前任务：${_stageLabel(_projectStatus!.currentJob!.stage)}'
+                            '${_projectStatus!.currentJob!.pageIndex == null ? '' : ' · 第 ${_projectStatus!.currentJob!.pageIndex! + 1} 页'}',
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                ),
+              ],
+              if (_pdfPath != null) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  '项目存储目录：',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  _projectStorePath ??
+                      ScribeForgeCli.defaultStorePath(_pdfPath!),
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _busy ? null : _chooseProjectStoreDirectory,
+                    icon: const Icon(Icons.drive_file_move_outline, size: 16),
+                    label: const Text('更改项目存储目录'),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    key: const ValueKey('open-report-button'),
+                    onPressed: _showProcessingReport,
+                    icon: const Icon(Icons.assessment_outlined, size: 16),
+                    label: const Text('查看处理报告'),
+                  ),
+                ),
+              ],
+            ],
           ),
+        ),
+        if (_projectStatus != null) ...[
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              icon: Icon(
-                _processing
-                    ? (_cancelRequested
-                          ? Icons.hourglass_empty
-                          : Icons.cancel_outlined)
-                    : (_busy ? Icons.hourglass_empty : Icons.play_arrow),
-              ),
-              label: Text(
-                _processing
-                    ? (_cancelRequested ? '正在取消…' : '取消处理')
-                    : (_busy ? '处理中…' : (hasFailedJobs ? '重试失败页面' : '开始处理')),
-              ),
-              onPressed: _processing
-                  ? (_cancelRequested ? null : _cancelProcessing)
-                  : (_busy ||
-                            _statusLoading ||
-                            _runtimeLoading ||
-                            _pdfPath == null ||
-                            !_projectSourceMatches
-                        ? null
-                        : _runProcess),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-                backgroundColor: _processing ? Colors.red.shade700 : null,
-                foregroundColor: _processing ? Colors.white : null,
-              ),
-            ),
-          ),
-          if (_busy) ...[
-            const SizedBox(height: 12),
-            const LinearProgressIndicator(),
-            const SizedBox(height: 6),
-            Text(
-              _projectStatus?.currentJob == null
-                  ? '正在导入页面或准备 OCR 运行时…'
-                  : '当前任务：${_stageLabel(_projectStatus!.currentJob!.stage)}'
-                        '${_projectStatus!.currentJob!.pageIndex == null ? '' : ' · 第 ${_projectStatus!.currentJob!.pageIndex! + 1} 页'}',
-              style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
-            ),
-          ],
-          if (_pdfPath != null) ...[
-            const SizedBox(height: 16),
-            const Text(
-              '项目存储目录：',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 4),
-            SelectableText(
-              _projectStorePath ?? ScribeForgeCli.defaultStorePath(_pdfPath!),
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: _busy ? null : _chooseProjectStoreDirectory,
-                icon: const Icon(Icons.drive_file_move_outline, size: 16),
-                label: const Text('更改项目存储目录'),
-              ),
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                key: const ValueKey('open-report-button'),
-                onPressed: _showProcessingReport,
-                icon: const Icon(Icons.assessment_outlined, size: 16),
-                label: const Text('查看处理报告'),
-              ),
-            ),
-          ],
-          if (_projectStatus != null) ...[
-            const SizedBox(height: 16),
-            _buildProjectStatusCard(),
-          ],
+          _buildProjectStatusCard(),
         ],
-      ),
+      ],
     );
   }
 

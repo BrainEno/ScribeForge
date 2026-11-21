@@ -329,60 +329,64 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
   }
 
   Widget _buildLibraryPage() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Text(
-            '已导入的书籍',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '导入新书，或打开已有项目继续处理、复核和导出。',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 8,
-            children: <Widget>[
-              ElevatedButton.icon(
-                icon: const Icon(Icons.add),
-                label: const Text('导入书籍'),
-                onPressed: _busy
-                    ? null
-                    : () async {
-                        await _pickPdf();
-                        if (mounted && _pdfPath != null) {
-                          _updateWorkspace(() => _selectedIndex = 1);
-                        }
-                      },
-              ),
+    return ScribePageBody(
+      children: <Widget>[
+        const ScribePageHeader(
+          icon: Icons.auto_stories_outlined,
+          title: '已导入的书籍',
+          subtitle: '导入新书，或打开已有项目继续处理、复核和导出。',
+        ),
+        const SizedBox(height: ScribeSpacing.x6),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: <Widget>[
+            FilledButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('导入书籍'),
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      await _pickPdf();
+                      if (mounted && _pdfPath != null) {
+                        _updateWorkspace(() => _selectedIndex = 1);
+                      }
+                    },
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.folder_open),
+              label: const Text('打开项目文件夹'),
+              onPressed: _busy ? null : _openProject,
+            ),
+            if (_projectStatus != null)
               OutlinedButton.icon(
-                icon: const Icon(Icons.folder_open),
-                label: const Text('打开项目文件夹'),
-                onPressed: _busy ? null : _openProject,
+                key: const ValueKey('open-ocr-evidence'),
+                icon: const Icon(Icons.manage_search),
+                label: const Text('浏览 OCR 证据'),
+                onPressed: _busy ? null : _openOcrEvidence,
               ),
-              if (_projectStatus != null)
-                OutlinedButton.icon(
-                  key: const ValueKey('open-ocr-evidence'),
-                  icon: const Icon(Icons.manage_search),
-                  label: const Text('浏览 OCR 证据'),
-                  onPressed: _busy ? null : _openOcrEvidence,
-                ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          if (_statusLoading && _projectStatus == null)
-            const LinearProgressIndicator()
-          else if (_projectStatus == null)
-            const Text('尚未选择书籍或打开项目。', style: TextStyle(color: Colors.grey))
-          else
-            _buildProjectStatusCard(),
-        ],
-      ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        if (_statusLoading && _projectStatus == null)
+          const LinearProgressIndicator()
+        else if (_projectStatus == null)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                vertical: ScribeSpacing.x10,
+                horizontal: ScribeSpacing.x4,
+              ),
+              child: ScribeEmptyState(
+                icon: Icons.library_books_outlined,
+                title: '尚未选择书籍或打开项目。',
+                message: '支持扫描 PDF、JPG 和 PNG。导入后可检查识别结果，再生成可阅读的 EPUB。',
+              ),
+            ),
+          )
+        else
+          _buildProjectStatusCard(),
+      ],
     );
   }
 
@@ -432,10 +436,15 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
               style: const TextStyle(fontSize: 12),
             ),
             const SizedBox(height: 8),
-            Text(
-              '任务：${status.succeededJobs} 已完成 · ${status.pendingJobs} 等待 · '
-              '${status.runningJobs} 运行中 · ${status.failedJobs} 失败',
-              style: const TextStyle(fontSize: 12),
+            Wrap(
+              spacing: ScribeSpacing.x2,
+              runSpacing: ScribeSpacing.x2,
+              children: <Widget>[
+                ScribeMetric(label: '已完成任务', value: '${status.succeededJobs}'),
+                ScribeMetric(label: '等待中', value: '${status.pendingJobs}'),
+                ScribeMetric(label: '运行中', value: '${status.runningJobs}'),
+                ScribeMetric(label: '失败任务', value: '${status.failedJobs}'),
+              ],
             ),
             if (status.currentJob != null) ...[
               const SizedBox(height: 6),
