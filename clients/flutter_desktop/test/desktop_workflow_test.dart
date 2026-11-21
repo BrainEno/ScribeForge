@@ -723,9 +723,10 @@ void main() {
     tester,
   ) async {
     await createHarness(tester);
-    String banner() =>
-        (tester.widget(find.byKey(const ValueKey('next-step-message'))) as Text)
-            .data!;
+    String banner() {
+      final key = find.byKey(const ValueKey('next-step-message'));
+      return tester.widget<Text>(key).data!;
+    }
 
     // Fresh app: nothing imported yet.
     expect(banner(), contains('导入一本'));
@@ -760,10 +761,11 @@ void main() {
     'the next-step banner offers one-click init when the runtime is missing',
     (tester) async {
       await createHarness(tester, runtimeReady: false);
-      String banner() =>
-          (tester.widget(find.byKey(const ValueKey('next-step-message')))
-                  as Text)
-              .data!;
+      String banner() {
+        final key = find.byKey(const ValueKey('next-step-message'));
+        return tester.widget<Text>(key).data!;
+      }
+
       expect(banner(), contains('初始化'));
       await tester.tap(find.byKey(const ValueKey('next-step-action')));
       await pumpUntil(
@@ -781,9 +783,10 @@ void main() {
     await settings.saveLastProjectStore('/fake/store');
     final harness = await createHarness(tester, settingsStore: settings);
     harness.cli.fileSystem.addProjectStore('/fake/store');
-    String banner() =>
-        (tester.widget(find.byKey(const ValueKey('next-step-message'))) as Text)
-            .data!;
+    String banner() {
+      final key = find.byKey(const ValueKey('next-step-message'));
+      return tester.widget<Text>(key).data!;
+    }
 
     await pumpUntil(
       tester,
