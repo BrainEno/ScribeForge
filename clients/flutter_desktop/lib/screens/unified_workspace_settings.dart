@@ -271,135 +271,122 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
   }
 
   Widget _buildSettingsPage() {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Text(
-              '设置',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
+    return ScribePageBody(
+      children: <Widget>[
+        const ScribePageHeader(
+          icon: Icons.settings_outlined,
+          title: '设置',
+          subtitle: '配置本机的处理核心、OCR 模型和复核选项。桌面安装包无需预装 Python。',
+        ),
+        const SizedBox(height: ScribeSpacing.x5),
+        if (_settingsCorruption != null) ...<Widget>[
+          _buildCorruptionCard(),
+          const SizedBox(height: 12),
+        ],
+        _buildInitializationCard(),
+        const SizedBox(height: 12),
+        _buildBackendEnvironmentCard(),
+        const SizedBox(height: 12),
+        ListTile(
+          title: const Text('命令行工具'),
+          subtitle: Text(
+            '$_cliExecutable\n来源：$_backendOriginLabel'
+            '${_cliProbeMessage == null ? '' : '\n$_cliProbeMessage '}',
+          ),
+          trailing: IconButton(
+            icon: const Icon(Icons.edit),
+            onPressed: _busy || _cliProbing ? null : _editCliExecutable,
+          ),
+        ),
+        ListTile(
+          title: const Text('视觉模型复核'),
+          subtitle: Text(
+            _vlmSettings.enabled
+                ? '已启用：处理时会按配置发送复核裁切图。'
+                : '默认关闭；未明确启用时不会发送复核裁切图。',
+          ),
+          trailing: TextButton(
+            onPressed: _busy ? null : _openVlmSettings,
+            child: const Text('配置 VLM 复核'),
+          ),
+        ),
+        const Divider(),
+        ListTile(
+          title: const Text('运行时配置 (setup)'),
+          subtitle: const Text('查看后端、阶段与步骤进度，或修复单个后端'),
+          trailing: _runtimeLoading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.play_arrow),
+          onTap: _runtimeLoading ? null : _openRuntimeSetup,
+        ),
+        _buildRuntimeLocationTile(),
+        if (_runtimeStatus != null) ...[
+          const Divider(),
+          const Text('运行时状态', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Text('根目录：${_runtimeStatus!.runtimeRoot}'),
+          Text('存在：${_runtimeStatus!.runtimeRootExists}'),
+          Text('uv 可用：${_runtimeStatus!.uvAvailable}'),
+          if (_runtimeStatus!.disk != null) ...[
+            const SizedBox(height: 4),
             Text(
-              '首次使用点击“初始化环境”。完整桌面版会自动使用内置核心，无需预装 Python。',
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-            if (_settingsCorruption != null) ...<Widget>[
-              _buildCorruptionCard(),
-              const SizedBox(height: 12),
-            ],
-            _buildInitializationCard(),
-            const SizedBox(height: 12),
-            _buildBackendEnvironmentCard(),
-            const SizedBox(height: 12),
-            ListTile(
-              title: const Text('命令行工具'),
-              subtitle: Text(
-                '$_cliExecutable\n来源：$_backendOriginLabel'
-                '${_cliProbeMessage == null ? '' : '\n$_cliProbeMessage '}',
+              '磁盘：${_runtimeStatus!.disk!.path} 剩余 '
+              '${formatBytes(_runtimeStatus!.disk!.freeBytes)} / 共 '
+              '${formatBytes(_runtimeStatus!.disk!.totalBytes)}'
+              '（首跑预估需要 ${formatBytes(_runtimeStatus!.disk!.requiredBytes)}）',
+              key: const ValueKey('runtime-disk-line'),
+              style: TextStyle(
+                fontSize: 12,
+                color: _runtimeStatus!.disk!.sufficient
+                    ? Colors.grey.shade600
+                    : Colors.red.shade700,
               ),
-              trailing: IconButton(
-                icon: const Icon(Icons.edit),
-                onPressed: _busy || _cliProbing ? null : _editCliExecutable,
-              ),
-            ),
-            ListTile(
-              title: const Text('视觉模型复核'),
-              subtitle: Text(
-                _vlmSettings.enabled
-                    ? '已启用：处理时会按配置发送复核裁切图。'
-                    : '默认关闭；未明确启用时不会发送复核裁切图。',
-              ),
-              trailing: TextButton(
-                onPressed: _busy ? null : _openVlmSettings,
-                child: const Text('配置 VLM 复核'),
-              ),
-            ),
-            const Divider(),
-            ListTile(
-              title: const Text('运行时配置 (setup)'),
-              subtitle: const Text('查看后端、阶段与步骤进度，或修复单个后端'),
-              trailing: _runtimeLoading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.play_arrow),
-              onTap: _runtimeLoading ? null : _openRuntimeSetup,
-            ),
-            _buildRuntimeLocationTile(),
-            if (_runtimeStatus != null) ...[
-              const Divider(),
-              const Text(
-                '运行时状态',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Text('根目录：${_runtimeStatus!.runtimeRoot}'),
-              Text('存在：${_runtimeStatus!.runtimeRootExists}'),
-              Text('uv 可用：${_runtimeStatus!.uvAvailable}'),
-              if (_runtimeStatus!.disk != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  '磁盘：${_runtimeStatus!.disk!.path} 剩余 '
-                  '${formatBytes(_runtimeStatus!.disk!.freeBytes)} / 共 '
-                  '${formatBytes(_runtimeStatus!.disk!.totalBytes)}'
-                  '（首跑预估需要 ${formatBytes(_runtimeStatus!.disk!.requiredBytes)}）',
-                  key: const ValueKey('runtime-disk-line'),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _runtimeStatus!.disk!.sufficient
-                        ? Colors.grey.shade600
-                        : Colors.red.shade700,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 8),
-              Text('后端：', style: const TextStyle(fontWeight: FontWeight.w600)),
-              ..._runtimeStatus!.backends.entries.map(
-                (entry) => Padding(
-                  padding: const EdgeInsets.only(left: 16, top: 4),
-                  child: Text(
-                    '${_backendDisplayLabel(entry.key)}: ${entry.value.state} '
-                    '${entry.value.environmentExists ? '' : '(环境未安装)'}'
-                    '${entry.value.optional ? ' · 可选引擎' : ''}'
-                    '${_backendEstimateSuffix(entry.value)}',
-                    key: ValueKey('runtime-backend-${entry.key}'),
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  ),
-                ),
-              ),
-            ],
-            const Divider(),
-            ListTile(
-              title: const Text('刷新运行时状态'),
-              trailing: const Icon(Icons.refresh),
-              onTap: () {
-                _refreshRuntimeStatus();
-              },
-            ),
-            // Issue #214: actionable cleanup when the disk preflight is short.
-            ListTile(
-              title: const Text('清理运行时临时文件'),
-              subtitle: const Text('删除未完成的临时环境目录；模型与缓存默认保留'),
-              trailing: _runtimeCleaning
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.delete_sweep_outlined),
-              onTap: _runtimeLoading || _runtimeCleaning
-                  ? null
-                  : _cleanRuntimeArtifacts,
             ),
           ],
+          const SizedBox(height: 8),
+          Text('后端：', style: const TextStyle(fontWeight: FontWeight.w600)),
+          ..._runtimeStatus!.backends.entries.map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(left: 16, top: 4),
+              child: Text(
+                '${_backendDisplayLabel(entry.key)}: ${entry.value.state} '
+                '${entry.value.environmentExists ? '' : '(环境未安装)'}'
+                '${entry.value.optional ? ' · 可选引擎' : ''}'
+                '${_backendEstimateSuffix(entry.value)}',
+                key: ValueKey('runtime-backend-${entry.key}'),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ),
+          ),
+        ],
+        const Divider(),
+        ListTile(
+          title: const Text('刷新运行时状态'),
+          trailing: const Icon(Icons.refresh),
+          onTap: () {
+            _refreshRuntimeStatus();
+          },
         ),
-      ),
+        // Issue #214: actionable cleanup when the disk preflight is short.
+        ListTile(
+          title: const Text('清理运行时临时文件'),
+          subtitle: const Text('删除未完成的临时环境目录；模型与缓存默认保留'),
+          trailing: _runtimeCleaning
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.delete_sweep_outlined),
+          onTap: _runtimeLoading || _runtimeCleaning
+              ? null
+              : _cleanRuntimeArtifacts,
+        ),
+      ],
     );
   }
 

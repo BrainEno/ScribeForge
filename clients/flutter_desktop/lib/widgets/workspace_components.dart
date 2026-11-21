@@ -265,3 +265,107 @@ class ScribeEmptyState extends StatelessWidget {
     );
   }
 }
+
+/// Centers forms on wide screens without giving narrow windows fixed widths.
+/// The scroll surface stays mounted across navigation and resize.
+class ScribePageBody extends StatelessWidget {
+  const ScribePageBody({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final inset = constraints.maxWidth >= 860
+          ? ScribeSpacing.x8
+          : constraints.maxWidth >= 520
+          ? ScribeSpacing.x5
+          : ScribeSpacing.x3;
+      return SingleChildScrollView(
+        primary: false,
+        padding: EdgeInsets.all(inset),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1080),
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// Keeps both panes in the same widget tree while changing their arrangement.
+class ScribeAdaptivePair extends StatelessWidget {
+  const ScribeAdaptivePair({
+    super.key,
+    required this.primary,
+    required this.secondary,
+    this.splitAt = 810,
+    this.primaryShare = 0.58,
+  });
+
+  final Widget primary;
+  final Widget secondary;
+  final double splitAt;
+  final double primaryShare;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final split =
+          constraints.maxWidth >= splitAt &&
+          MediaQuery.textScalerOf(context).scale(14) <= 18;
+      const gap = ScribeSpacing.x4;
+      final width = constraints.maxWidth;
+      final primaryWidth = split ? (width - gap) * primaryShare : width;
+      return Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: <Widget>[
+          SizedBox(width: primaryWidth, child: primary),
+          SizedBox(
+            width: split ? width - gap - primaryWidth : width,
+            child: secondary,
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class ScribeMetric extends StatelessWidget {
+  const ScribeMetric({super.key, required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: ScribePalette.canvas,
+      borderRadius: BorderRadius.circular(ScribeRadii.control),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: ScribeSpacing.x3,
+        vertical: ScribeSpacing.x2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(value, style: Theme.of(context).textTheme.titleMedium),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    ),
+  );
+}

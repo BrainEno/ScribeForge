@@ -240,3 +240,14 @@ interrupted, re-export to a new path and retain the original files for review.
 CLI：`scribeforge compare-processing-reports --baseline before.json --candidate after.json`
 输出 JSON。`--filter` 和 `--order` 控制页面明细，不影响汇总；下一批使用
 `next_offset` 和两个响应中的 SHA-256（`--baseline-sha256`、`--candidate-sha256`）。
+
+### 工作台的布局与视觉约定
+
+工作台采用浅纸色画布、白色内容卡片和深绿主操作；提示和错误有独立图标与文字，
+不是只靠颜色表达。中文使用本机字体回退，Windows 优先微软雅黑 UI，不需要从网络
+下载字体。页面标题、表单、候选证据和提示分别使用固定的文字层级和 4 点间距节奏。
+
+宽屏显示带文字的侧栏，导出信息与版式选项并排，复核的双 OCR 候选并排。中间尺寸
+保留窄侧栏，窄窗或矮窗改用左上角菜单；内容按可用宽度堆叠，放大文字时也会切换
+为单列。切换布局不会重新创建活动项目或丢弃正在填写的表单。长操作提示可用
+「查看完整消息」展开并复制。识别、证据、决策和导出的约束没有改变。

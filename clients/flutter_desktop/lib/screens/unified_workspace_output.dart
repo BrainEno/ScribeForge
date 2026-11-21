@@ -237,118 +237,132 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
   // ========================================================= 导出页面
 
   Widget _buildExportPage() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Text(
-            '导出成品',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '把已验证的文字写出为 EPUB 3 或 DOCX。',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: <Widget>[
-              OutlinedButton.icon(
-                key: const ValueKey('open-export-readiness'),
-                onPressed: _busy || _projectStatus == null
-                    ? null
-                    : _inspectExportReadiness,
-                icon: const Icon(Icons.fact_check_outlined),
-                label: const Text('导出前检查'),
-              ),
-              OutlinedButton.icon(
-                key: const ValueKey('open-export-verification'),
-                onPressed: _busy ? null : _openExportVerification,
-                icon: const Icon(Icons.verified_outlined),
-                label: const Text('校验已导出的文件'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          _buildExportForm(),
-        ],
-      ),
+    return ScribePageBody(
+      children: <Widget>[
+        const ScribePageHeader(
+          icon: Icons.publish_outlined,
+          title: '导出成品',
+          subtitle: '把已验证的文字写出为 EPUB 3 或 DOCX。先检查阻塞项，再生成文件。',
+        ),
+        const SizedBox(height: ScribeSpacing.x4),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: <Widget>[
+            OutlinedButton.icon(
+              key: const ValueKey('open-export-readiness'),
+              onPressed: _busy || _projectStatus == null
+                  ? null
+                  : _inspectExportReadiness,
+              icon: const Icon(Icons.fact_check_outlined),
+              label: const Text('导出前检查'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('open-export-verification'),
+              onPressed: _busy ? null : _openExportVerification,
+              icon: const Icon(Icons.verified_outlined),
+              label: const Text('校验已导出的文件'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _buildExportForm(),
+      ],
     );
   }
 
   Widget _buildExportForm() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        DropdownButtonFormField<String>(
-          initialValue: _exportFormatEpub ? 'epub' : 'docx',
-          items: const <DropdownMenuItem<String>>[
-            DropdownMenuItem(value: 'epub', child: Text('EPUB 3')),
-            DropdownMenuItem(value: 'docx', child: Text('DOCX')),
-          ],
-          onChanged: (value) => _updateWorkspace(() {
-            _exportFormatEpub = value == 'epub';
-            _updateExportOutputPath();
-          }),
-          decoration: const InputDecoration(labelText: '导出格式'),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _exportOutputController,
-          decoration: const InputDecoration(
-            labelText: '输出文件',
-            hintText: '选择导出文件夹，文件名按书名和格式生成',
-            suffixIcon: Icon(Icons.folder_open_outlined),
+        ScribeAdaptivePair(
+          primary: ScribeSectionCard(
+            icon: Icons.menu_book_outlined,
+            title: '文件与书籍信息',
+            child: Column(
+              children: <Widget>[
+                DropdownButtonFormField<String>(
+                  initialValue: _exportFormatEpub ? 'epub' : 'docx',
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem(value: 'epub', child: Text('EPUB 3')),
+                    DropdownMenuItem(value: 'docx', child: Text('DOCX')),
+                  ],
+                  onChanged: (value) => _updateWorkspace(() {
+                    _exportFormatEpub = value == 'epub';
+                    _updateExportOutputPath();
+                  }),
+                  decoration: const InputDecoration(labelText: '导出格式'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _exportOutputController,
+                  decoration: const InputDecoration(
+                    labelText: '输出文件',
+                    hintText: '选择导出文件夹，文件名按书名和格式生成',
+                    suffixIcon: Icon(Icons.folder_open_outlined),
+                  ),
+                  readOnly: true,
+                  onTap: _pickExportOutput,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _exportLanguageController,
+                  decoration: const InputDecoration(
+                    labelText: '语言（BCP 47，如 zh）',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _exportTitleController,
+                  decoration: const InputDecoration(labelText: '书名（可选）'),
+                  onChanged: (_) => _updateWorkspace(_updateExportOutputPath),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _exportAuthorController,
+                  decoration: const InputDecoration(labelText: '作者（可选）'),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
           ),
-          readOnly: true,
-          onTap: _pickExportOutput,
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _exportLanguageController,
-          decoration: const InputDecoration(labelText: '语言（BCP 47，如 zh）'),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _exportTitleController,
-          decoration: const InputDecoration(labelText: '书名（可选）'),
-          onChanged: (_) => _updateWorkspace(_updateExportOutputPath),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _exportAuthorController,
-          decoration: const InputDecoration(labelText: '作者（可选）'),
-        ),
-        const SizedBox(height: 12),
-        CheckboxListTile(
-          value: _exportLayoutChapter,
-          title: const Text('按章节布局（EPUB）'),
-          subtitle: const Text('关闭后每页一个文档（便于核对扫描）'),
-          onChanged: (v) =>
-              _updateWorkspace(() => _exportLayoutChapter = v ?? true),
-        ),
-        CheckboxListTile(
-          value: _exportStrictAcceptance,
-          title: const Text('严格接受校验'),
-          subtitle: const Text('有待抽查的配对时拒绝导出（退出码 2）'),
-          onChanged: (v) =>
-              _updateWorkspace(() => _exportStrictAcceptance = v ?? false),
-        ),
-        CheckboxListTile(
-          value: _exportIncludePageFurniture,
-          title: const Text('保留页眉、页脚与页码'),
-          subtitle: const Text('包含已识别的页边行；未裁决分歧仍会阻止可信导出。'),
-          onChanged: (v) =>
-              _updateWorkspace(() => _exportIncludePageFurniture = v ?? false),
+          secondary: ScribeSectionCard(
+            icon: Icons.tune,
+            title: '版式与校验',
+            child: Column(
+              children: <Widget>[
+                CheckboxListTile(
+                  value: _exportLayoutChapter,
+                  title: const Text('按章节布局（EPUB）'),
+                  subtitle: const Text('关闭后每页一个文档（便于核对扫描）'),
+                  onChanged: (v) =>
+                      _updateWorkspace(() => _exportLayoutChapter = v ?? true),
+                ),
+                CheckboxListTile(
+                  value: _exportStrictAcceptance,
+                  title: const Text('严格接受校验'),
+                  subtitle: const Text('有待抽查的配对时拒绝导出（退出码 2）'),
+                  onChanged: (v) => _updateWorkspace(
+                    () => _exportStrictAcceptance = v ?? false,
+                  ),
+                ),
+                CheckboxListTile(
+                  value: _exportIncludePageFurniture,
+                  title: const Text('保留页眉、页脚与页码'),
+                  subtitle: const Text('包含已识别的页边行；未裁决分歧仍会阻止可信导出。'),
+                  onChanged: (v) => _updateWorkspace(
+                    () => _exportIncludePageFurniture = v ?? false,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
           height: 48,
-          child: ElevatedButton.icon(
+          child: FilledButton.icon(
             icon: Icon(_busy ? Icons.hourglass_empty : Icons.output),
             label: Text(_busy ? '导出中…' : '开始导出'),
             onPressed:

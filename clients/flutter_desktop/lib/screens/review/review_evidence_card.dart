@@ -6,7 +6,9 @@ import 'package:flutter/services.dart';
 
 import '../../models/review_queue.dart';
 import '../../models/review_triage.dart';
+import '../../theme/scribe_theme.dart';
 import '../../widgets/review_alignment_evidence.dart';
+import '../../widgets/workspace_components.dart';
 import 'review_image_inspector.dart';
 
 class _UseReviewCandidateIntent extends Intent {
@@ -59,6 +61,31 @@ class ReviewEvidenceCard extends StatelessWidget {
           const SizedBox(height: 2),
           SelectableText(text == null || text.isEmpty ? '（无文本）' : text),
         ],
+      ),
+    );
+  }
+
+  Widget _candidatePane(BuildContext context, String label, String? text) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: ScribePalette.canvas,
+        border: Border.all(color: ScribePalette.border),
+        borderRadius: BorderRadius.circular(ScribeRadii.card),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(ScribeSpacing.x3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(label, style: theme.textTheme.labelMedium),
+            const SizedBox(height: ScribeSpacing.x2),
+            SelectableText(
+              text == null || text.isEmpty ? '（无文本）' : text,
+              style: theme.textTheme.bodyLarge,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -204,8 +231,21 @@ class ReviewEvidenceCard extends StatelessWidget {
                     '页边家具分类依据',
                     _furnitureReasonLabel(item.furnitureReason!),
                   ),
-                _buildReviewEvidence('OCR 引擎一候选', item.primaryText),
-                _buildReviewEvidence('OCR 引擎二候选', item.secondaryText),
+                ScribeAdaptivePair(
+                  splitAt: 620,
+                  primaryShare: 0.5,
+                  primary: _candidatePane(
+                    context,
+                    'OCR 引擎一候选',
+                    item.primaryText,
+                  ),
+                  secondary: _candidatePane(
+                    context,
+                    'OCR 引擎二候选',
+                    item.secondaryText,
+                  ),
+                ),
+                const SizedBox(height: ScribeSpacing.x2),
                 if (item.vlmText != null) ...[
                   _buildReviewEvidence('VLM 候选（仅供参考）', item.vlmText),
                   if (item.vlmUncertain)
