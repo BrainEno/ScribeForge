@@ -7,6 +7,8 @@ on:
       - ".github/workflows/windows-desktop.yml"
       - "packaging/**"
       - "scripts/smoke_packaged_epub.py"
+      - "scripts/smoke_real_first_book.py"
+      - "scripts/create_paddle_smoke_image.py"
       - "clients/flutter_desktop/**"
       - "src/scribeforge/**"
       - "pyproject.toml"
@@ -15,10 +17,17 @@ on:
       - ".github/workflows/windows-desktop.yml"
       - "packaging/**"
       - "scripts/smoke_packaged_epub.py"
+      - "scripts/smoke_real_first_book.py"
+      - "scripts/create_paddle_smoke_image.py"
       - "clients/flutter_desktop/**"
       - "src/scribeforge/**"
       - "pyproject.toml"
   workflow_dispatch:
+    inputs:
+      real_first_book:
+        description: "Download real OCR models and run installed first-book acceptance"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,7 +35,7 @@ permissions:
 jobs:
   package:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: ${{ inputs.real_first_book && 120 || 30 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -163,3 +172,27 @@ jobs:
             dist/installer/ScribeForge-Setup-x64.exe
             dist/SHA256SUMS.txt
           if-no-files-found: error
+
+      - name: Run installed first-book acceptance with real OCR
+        if: ${{ inputs.real_first_book }}
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+          SMOKE_INSTALL_DIR: ${{ runner.temp }}/ScribeForge Installed Smoke
+          ACCEPTANCE_ROOT: ${{ runner.temp }}/first-book-sandbox
+          ACCEPTANCE_EVIDENCE: ${{ runner.temp }}/first-book-evidence
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          python scripts/smoke_real_first_book.py `
+            "$env:SMOKE_INSTALL_DIR/backend/scribeforge.exe" `
+            --root "$env:ACCEPTANCE_ROOT" --evidence "$env:ACCEPTANCE_EVIDENCE"
+
+      - name: Upload real first-book acceptance evidence
+        if: ${{ always() && inputs.real_first_book }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-real-first-book-evidence
+          path: ${{ runner.temp }}/first-book-evidence
+          if-no-files-found: warn
+          retention-days: 14

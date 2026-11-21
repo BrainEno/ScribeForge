@@ -20,6 +20,9 @@ def _default_font_candidates() -> tuple[Path, ...]:
     )
 
 
+SMOKE_LINES = ("ScribeForge OCR 2026", "Native word boxes 0123456789")
+
+
 def create_smoke_image(output: Path, *, font_path: Path | None = None) -> Path:
     """Create the fixed synthetic input used for protocol-only OCR acceptance."""
 
@@ -34,8 +37,8 @@ def create_smoke_image(output: Path, *, font_path: Path | None = None) -> Path:
     draw = ImageDraw.Draw(image)
     font_large = ImageFont.truetype(str(selected), 64)
     font_small = ImageFont.truetype(str(selected), 52)
-    draw.text((80, 90), "ScribeForge OCR 2026", fill="black", font=font_large)
-    draw.text((80, 260), "Native word boxes 0123456789", fill="black", font=font_small)
+    draw.text((80, 90), SMOKE_LINES[0], fill="black", font=font_large)
+    draw.text((80, 260), SMOKE_LINES[1], fill="black", font=font_small)
     image.save(output)
     return output
 

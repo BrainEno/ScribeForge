@@ -75,7 +75,7 @@ def _require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
-def _check_epub(path: Path) -> None:
+def read_epub_spine(path: Path) -> str:
     with ZipFile(path) as archive:
         first = archive.infolist()[0]
         _require(
@@ -100,8 +100,7 @@ def _check_epub(path: Path) -> None:
             href = items[ref.attrib["idref"]].attrib["href"]
             chapter = ET.fromstring(archive.read((opf_path.parent / href).as_posix()))
             texts.append("".join(chapter.itertext()))
-        text = "\n".join(texts)
-        _require(SIMPLIFIED in text and OTHER not in text, "EPUB lost the accepted OCR decision")
+        return "\n".join(texts)
 
 
 def smoke(backend: Path, root: Path) -> None:
@@ -128,7 +127,8 @@ def smoke(backend: Path, root: Path) -> None:
     _require(not artifact.exists(), "unresolved OCR produced an EPUB")
     _invoke(backend, "resolve", f"--store={store}", "--page=0", "--pair=0", f"--text={ACCEPTED}")
     _invoke(backend, *export)
-    _check_epub(artifact)
+    text = read_epub_spine(artifact)
+    _require(SIMPLIFIED in text and OTHER not in text, "EPUB lost the accepted OCR decision")
     result = json.loads(
         _invoke(backend, "verify-export", f"--file={artifact}", f"--source-sha256={source_digest}")
     )
