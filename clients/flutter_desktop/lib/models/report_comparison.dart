@@ -49,11 +49,13 @@ class ReportDelta {
   final num? after;
   final num? change;
 
-  static Map<String, ReportDelta> readMap(Object? value) => Map.unmodifiable(
-    _object(
-      value,
-    ).map((key, raw) => MapEntry(key, ReportDelta.fromJson(_object(raw)))),
-  );
+  static Map<String, ReportDelta> readMap(Object? value) {
+    final entries = _object(value).entries;
+    return Map.unmodifiable({
+      for (final entry in entries)
+        entry.key: ReportDelta.fromJson(_object(entry.value)),
+    });
+  }
 }
 
 class ReportIdentity {
