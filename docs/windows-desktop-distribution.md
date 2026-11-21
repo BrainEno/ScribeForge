@@ -107,3 +107,20 @@ while another runtime uses it. This feature configures locations, not model
 migration, a generic model importer, or support for arbitrary model versions.
 Developers can make the same check with
 `scribeforge --model-location PATH runtime-location-check --runtime-root DIR`.
+
+### Installed application and EPUB release gate
+
+The Windows Desktop Package workflow installs the newly built per-user installer
+into a fresh directory with spaces, checks that the installed desktop opens a
+window, then invokes the installed backend without Python on its PATH. The EPUB
+smoke first uses the normal processing pipeline with **deterministic OCR fixtures**
+to persist two conflicting readings of a scan in a temporary project. The
+installed backend must refuse export until the conflict is resolved, then produce
+an EPUB 3 with navigation, the accepted text converted using bundled OpenCC data,
+and a receipt that verifies against the source scan. A failed check prevents
+artifact publication; installer logs are uploaded on failure.
+
+This gate exercises the startup and export seams of #220. It is not a real-model
+accuracy benchmark, an installed GUI OCR test, or certification on a fresh end-user
+machine. Real Paddle recognition remains covered separately by the real-model
+smoke workflow; multilingual quality still requires the corpus work in #62/#68.
