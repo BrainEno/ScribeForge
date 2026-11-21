@@ -266,6 +266,10 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
     if (!mounted || attempted != true) return;
     await _refreshRuntimeStatus();
     if (!mounted || !_ocrRuntimeReady) return;
+    _continueAfterRuntimeSetup();
+  }
+
+  void _continueAfterRuntimeSetup() {
     _updateWorkspace(() {
       _selectedIndex = _pdfPath == null ? 0 : 1;
       _notice = '环境已就绪，可以继续导入或处理书籍。';

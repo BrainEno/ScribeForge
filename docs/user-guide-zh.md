@@ -1,18 +1,15 @@
 # ScribeForge 新手使用指南（Windows 优先）
 
-这份指南面向第一次使用 Git、Python、Flutter 和命令行的用户。ScribeForge 会在本机对扫描书籍进行 OCR，保留每页原始读取与复核证据，并允许你明确记录人工决定。**未经复核的 OCR 候选不等于最终定稿。**
+第一次使用请从 **Flutter 桌面工作台** 开始，参照 [README 的桌面端快速开始](../README.md#桌面端快速开始windows-优先)获取 Windows CI 测试包或从源码启动。不用先安装 CLI，也不必先阅读本页的命令行章节。
 
-## 1. 先了解你要做的事情
+## 1. 桌面端主流程
 
-常见工作流程如下：
+1. 打开应用，按顶部引导 **下载并配置**；从源码运行且未找到核心时，先在设置中 **自动创建后端环境**。
+2. 返回工作台并导入扫描 PDF 或图片，点击 **开始处理** 运行 OCR。
+3. 在 **复核** 中查看原页与候选文字，明确记录人工决定。未经复核的 OCR 候选不等于定稿。
+4. 在 **导出** 中运行导出前检查并生成 EPUB 3（也可选 DOCX）。
 
-1. 准备扫描版 PDF 或页面图像。
-2. 安装 ScribeForge Python CLI，并完成一次私有 OCR 运行时配置。
-3. 在 Flutter 桌面工作台导入书籍，运行可恢复的双引擎处理。
-4. 按页查看 OCR / VLM 候选与图像证据，明确记录人工决定。
-5. 从已接受的内容导出 EPUB 3 或 DOCX。
-
-Flutter 工作台负责驱动导入、处理、复核和导出；Python CLI 负责 OCR、证据存储与输出。Windows 是当前优先验证的桌面环境。
+详见 [桌面操作步骤](#7-用-flutter-桌面工作台完成全流程)。下方第 2–6 节只供独立 CLI、自动化或后端开发使用，不是桌面端的安装前置条件。
 
 ## 2. 安装基础软件
 
@@ -327,7 +324,7 @@ cd clients\flutter_desktop
 flutter run -d windows
 ```
 
-首次启动会生成 Windows 桌面 runner 并拉取 Flutter 依赖。bootstrap 脚本会把依赖解析固定到官方 `https://pub.dev` 与 `https://storage.googleapis.com`（可用环境变量 `PUB_HOSTED_URL` / `FLUTTER_STORAGE_BASE_URL` 覆盖）。如果你绕过脚本直接 `flutter run` 时遇到 `Downloaded archive ... had wrong content-hash`（常见于 pub.flutter-io.cn 这类镜像重打包了 pdfrx 归档），请先执行一次 bootstrap 脚本，或在自己的终端里把上述两个环境变量指向官方地址后再运行。macOS/Linux 可分别运行 `sh tool/bootstrap_desktop.sh`，再使用相应平台的 `flutter run` 命令。桌面端负责组织工作流；本机运行时仍需按第 3、4 节安装。目前尚未发布可直接安装的 Windows 预编译包；打包方向与发布验收条件见 [Windows 桌面分发方案](windows-desktop-distribution.md)。
+上方命令仅适用于从源码构建 Flutter 的开发者。已安装 Windows 桌面包的用户可直接启动应用，不需要这些命令或前面的 CLI 安装。bootstrap 默认从官方 Flutter 源拉取依赖；如遇镜像造成的 `wrong content-hash`，先用官方 `pub.dev` 和 `storage.googleapis.com` 重新解析依赖。CI 测试包和正式发布边界见 [Windows 桌面分发方案](windows-desktop-distribution.md)。
 
 ### 7.1 导入或打开项目
 
@@ -340,7 +337,9 @@ flutter run -d windows
 
 ### 7.2 首次运行检查与处理
 
-第一次使用前，进入 **设置**，查看运行时状态；若尚未安装 OCR 运行时，点击 **运行时配置 (setup)**。原生向导会分别显示 MinerU 与 PaddleOCR 的状态、当前安装阶段、步骤计数和失败步骤；全部安装失败或仅单个后端出错时，可从对应后端卡片重试/单独修复。安装完成或失败后，关闭向导会刷新状态；也可随时点击 **刷新运行时状态**。若 Python CLI 不在 PATH 中，推荐在 **设置 → 后端环境（Python 虚拟环境）** 中选择 Python 解释器与 ScribeForge 源码目录（留空会自动向上检测仓库根目录），然后点击 **自动创建后端环境**——客户端会自动创建虚拟环境、安装后端并完成 `--help` 冒烟检查，无需手动敲 venv/pip 命令。也可以继续在 **命令行工具** 中手动填写完整可执行文件路径，例如 `D:\ScribeForge\.venv\Scripts\scribeforge.exe`。
+初次打开桌面包时，点击顶部 **下载并配置**（也可在 **设置 → 运行时配置 (setup)** 打开向导）。桌面包不依赖系统 Python；向导安装私有 Python 3.12、MinerU、PaddleOCR 和模型。网络或磁盘问题解决后，可重新打开向导重试或单独修复失败后端。完成后点击 **返回工作台**，应用会重新检查运行时并引导导入或处理。
+
+源码开发模式找不到后端时，在 **设置 → 后端环境（Python 虚拟环境）→ 自动创建后端环境** 中创建开发用后端；只在自动检测失败时手动选择解释器或仓库目录。后端通过检查后直接进入同一个运行时向导。
 
 进入 **处理** 并点击 **开始处理**。工作台调用 `scribeforge process --cancelable`，同时每秒读取 `scribeforge status --json`，显示已完成双引擎 OCR 的页数、当前运行的页面与阶段、任务计数及失败详情。OCR 页面调用默认期限为 600 秒；点击 **取消处理** 会向 CLI 发送取消消息并终止 worker 及其后代进程。失败或中断的阶段可重试，已保存的页图、OCR 证据和人工决策不会被覆盖。CLI 退出码 1 表示部分页面失败，2 表示源文件、输入或运行时错误，130 表示用户取消。
 

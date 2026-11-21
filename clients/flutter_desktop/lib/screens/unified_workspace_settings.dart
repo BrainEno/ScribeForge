@@ -421,8 +421,8 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
             ),
             const SizedBox(height: 4),
             Text(
-              '无需手动执行命令行：选择 Python 解释器与 ScribeForge 源码目录后点击'
-              '“自动创建后端环境”，客户端会自动创建虚拟环境、安装后端并完成冒烟检查。'
+              '无需手动执行命令行：直接点击'
+              '“自动创建后端环境”，客户端会检测 Python 和源码目录，安装后端并接着配置 OCR。'
               '完整桌面安装包自带后端，无需此步骤。',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
             ),
@@ -532,14 +532,34 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
   }
 
   Future<void> _provisionBackendEnvironment() async {
+    if (_backendBusy) return;
+    _updateWorkspace(() {
+      _backendBusy = true;
+      _error = null;
+    });
+    var connected = false;
+    try {
+      connected = await _createBackendEnvironment();
+    } on Object catch (error) {
+      if (mounted) _updateWorkspace(() => _error = '无法配置 Python 后端：$error');
+    } finally {
+      if (mounted) _updateWorkspace(() => _backendBusy = false);
+    }
+    if (!mounted || !connected) return;
+    if (_ocrRuntimeReady) {
+      _continueAfterRuntimeSetup();
+    } else {
+      await _openRuntimeSetup(autoStart: true);
+    }
+  }
+
+  Future<bool> _createBackendEnvironment() async {
     var python = _backendPython.trim();
     var pythonArgs = <String>[];
     if (python.isEmpty) {
       // #184: never ask a novice for a path — probe the system first.
-      _updateWorkspace(() => _backendBusy = true);
       final detected = await _pythonLocator.detect();
-      if (!mounted) return;
-      _updateWorkspace(() => _backendBusy = false);
+      if (!mounted) return false;
       if (detected == null) {
         await showDialog<void>(
           context: context,
@@ -564,7 +584,7 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
             ],
           ),
         );
-        return;
+        return false;
       }
       python = detected.executable;
       pythonArgs = detected.arguments;
@@ -576,128 +596,64 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
       if (detected != null) {
         sourcePath = detected;
       } else {
+        if (!mounted) return false;
         final picked = await _filePicker.getDirectoryPath(
           dialogTitle: '选择 ScribeForge 源码仓库目录（包含 pyproject.toml）',
         );
-        if (picked == null || picked.trim().isEmpty) return;
+        if (!mounted || picked == null || picked.trim().isEmpty) return false;
         sourcePath = picked.trim();
       }
     }
-    final pythonSave = await _settingsStore.saveBackendPython(python);
-    final sourceSave = await _settingsStore.saveBackendSourcePath(sourcePath);
-    if (!mounted) return;
-    if (!pythonSave.ok || !sourceSave.ok) {
-      final failed = !pythonSave.ok ? pythonSave.error : sourceSave.error;
-      _updateWorkspace(() => _error = '后端路径已生效，但保存设置失败：$failed。可在设置页重试。');
-    }
-    _updateWorkspace(() {
-      _backendPython = python;
-      _backendSourcePath = sourcePath;
-      _backendBusy = true;
-    });
-
-    final venvDirectory = _backendVenvDirectory;
+    if (!mounted) return false;
     final result = await _provisioner.provision(
       pythonExecutable: python,
       pythonArgs: pythonArgs,
       backendSourcePath: sourcePath,
-      venvDirectory: venvDirectory,
+      venvDirectory: _backendVenvDirectory,
     );
-
-    if (!mounted) return;
-    _updateWorkspace(() => _backendBusy = false);
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(result.ok ? '后端环境已就绪' : '后端环境创建失败'),
-        content: SingleChildScrollView(
-          child: Text(
-            result.ok
-                ? '${result.log}\n命令行工具已指向：${result.cliExecutable}'
-                : (result.error ?? '未知错误') + '\n\n' + result.log,
-            style: const TextStyle(fontSize: 12),
+    if (!mounted) return false;
+    if (!result.ok) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('后端环境创建失败'),
+          content: SingleChildScrollView(
+            child: SelectableText('${result.error ?? '未知错误'}\n\n${result.log}'),
           ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+          ],
         ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-    if (!result.ok) return;
+      );
+      return false;
+    }
 
-    // #184: one click must also fetch the OCR models, so run `setup`
-    // through the freshly installed CLI right after the venv is ready.
-    await _downloadModelsWith(result.cliExecutable);
-
+    // Keep the detected launcher automatic: saving just `py` would lose
+    // its `-3` argument on the next rebuild.
+    final sourceSave = await _settingsStore.saveBackendSourcePath(sourcePath);
     final cliSave = await _settingsStore.saveCliExecutable(
       result.cliExecutable,
     );
-    if (!mounted) return;
-    if (!cliSave.ok) {
-      _updateWorkspace(
-        () => _error = '环境已就绪，但保存命令行工具路径失败：${cliSave.error}。可在设置页重试。',
-      );
-    }
     final resolution = await _backendResolver.resolve(result.cliExecutable);
-    if (!mounted) return;
+    if (!mounted) return false;
     _updateWorkspace(() {
+      _backendSourcePath = sourcePath;
       _cliExecutable = resolution.executable;
       _backendResolution = resolution;
-      _notice = '后端环境已就绪，命令行工具指向虚拟环境中的 scribeforge。';
+      _notice = 'Python 后端已就绪，正在检查 OCR 环境。';
     });
     await _refreshRuntimeStatus();
     await _refreshStatus();
     await _refreshReviewQueue();
-  }
-
-  /// Runs `setup` through the freshly installed CLI so the OCR models are
-  /// downloaded without any command-line step (#184). Never throws: the
-  /// outcome is reported in a Chinese dialog and the captured log.
-  Future<bool> _downloadModelsWith(String cliExecutable) async {
-    _updateWorkspace(() => _backendBusy = true);
-    final buffer = StringBuffer();
-    var exitCode = -1;
-    Object? failure;
-    try {
-      exitCode = await _cliExecutor.run(
-        executable: cliExecutable,
-        arguments: ScribeForgeCli.setupArguments(),
-        onOutput: buffer.write,
-        onError: buffer.write,
-      );
-    } on Object catch (exc) {
-      failure = exc;
-    }
     if (!mounted) return false;
-    _updateWorkspace(() => _backendBusy = false);
-    final ok = failure == null && exitCode == 0;
-    final title = ok ? '模型下载完成' : '模型下载未完成';
-    final message = ok
-        ? 'OCR 模型已下载完成，可以直接开始处理书籍。'
-        : '模型下载未完成（退出码 $exitCode${failure == null ? '' : '，$failure'}）。\n'
-              '后端环境已就绪；可以在“运行时配置 (setup)”中重试下载模型。';
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SingleChildScrollView(
-          child: Text(
-            '$message\n\n${buffer.toString().trim()}',
-            style: const TextStyle(fontSize: 12),
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-    return ok;
+    if (!sourceSave.ok || !cliSave.ok) {
+      final failed = !sourceSave.ok ? sourceSave.error : cliSave.error;
+      _updateWorkspace(() => _error = '后端已连接，但保存路径失败：$failed。');
+    }
+    return _backendConnected;
   }
 
   /// 简单的文本输入对话框。

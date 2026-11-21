@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/models/runtime_location.dart';
 import 'package:scribeforge_desktop/screens/unified_workspace.dart';
+import 'package:scribeforge_desktop/services/backend_environment.dart';
 import 'package:scribeforge_desktop/services/backend_resolver.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
 import 'package:scribeforge_desktop/services/cli_runner.dart';
@@ -40,6 +41,7 @@ void main() {
     Object? runtimeError,
     String processError = 'simulated fatal processing failure',
     PythonLocator? pythonLocator,
+    BackendEnvironmentProvisioner? backendProvisioner,
     DesktopSettingsStore? settingsStore,
   }) async {
     late Directory root;
@@ -95,6 +97,7 @@ void main() {
           settingsStore: settings,
           fileSystem: fileSystem,
           pythonLocator: pythonLocator,
+          backendProvisioner: backendProvisioner,
         ),
       ),
     );
@@ -142,11 +145,36 @@ void main() {
   }
 
   testWidgets(
-    'imports, processes, reviews and exports through a replaceable CLI',
+    'first-run setup, import, review and EPUB export use only the desktop',
     (tester) async {
-      final harness = await createHarness(tester);
-
-      await importBook(tester);
+      final harness = await createHarness(tester, runtimeReady: false);
+      final next = find.byKey(const ValueKey('next-step-action'));
+      await tester.tap(next);
+      await pumpUntil(
+        tester,
+        () => find.text('返回工作台').evaluate().isNotEmpty,
+        description: 'the setup wizard finishes',
+      );
+      await tester.tap(find.text('返回工作台'));
+      await pumpUntil(
+        tester,
+        () => find.text('去导入').evaluate().isNotEmpty,
+        description: 'the initialized workbench offers import',
+      );
+      expect(
+        harness.cli.calls.where((args) => args.first == 'setup'),
+        hasLength(1),
+      );
+      expect(
+        harness.cli.calls.where((args) => args.first == 'process'),
+        isEmpty,
+      );
+      await tester.tap(next);
+      await pumpUntil(
+        tester,
+        () => find.text('开始处理').evaluate().isNotEmpty,
+        description: 'import hands off to processing',
+      );
       expect(find.textContaining('Sample.pdf'), findsWidgets);
       await tester.tap(find.text('开始处理'));
       await waitForWorkflowIdle(tester);
@@ -646,13 +674,59 @@ void main() {
     },
   );
 
+  testWidgets('source provisioning hands off to the native OCR wizard', (
+    tester,
+  ) async {
+    final commands = <List<String>>[];
+    final harness = await createHarness(
+      tester,
+      runtimeReady: false,
+      pythonLocator: PythonLocator(
+        operatingSystem: 'windows',
+        probe: (_, arguments) async =>
+            arguments.contains('--version') ? 'Python 3.12.0' : 'ok',
+      ),
+      backendProvisioner: BackendEnvironmentProvisioner(
+        fileExists: (_) async => true,
+        readFile: (_) async => 'name = "scribeforge"',
+        runProcess: (executable, arguments, {onOutput}) async {
+          commands.add([executable, ...arguments]);
+          return 0;
+        },
+      ),
+    );
+    await openTab(tester, '设置');
+    final button = find.byKey(const ValueKey('provision-backend-button'));
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await pumpUntil(
+      tester,
+      () => find.text('返回工作台').evaluate().isNotEmpty,
+      description: 'native OCR setup after Python provisioning',
+    );
+    final setup = harness.cli.calls.singleWhere(
+      (args) => args.first == 'setup',
+    );
+    expect(setup, containsAll(['--json', '--cancelable']));
+    expect(commands.first.take(3), ['py', '-3', '-c']);
+    expect(commands.last.last, '--help');
+    expect(await harness.settingsStore.loadBackendPython(), isEmpty);
+    await tester.tap(find.text('返回工作台'));
+    await pumpUntil(
+      tester,
+      () => find.text('去导入').evaluate().isNotEmpty,
+      description: 'book import after source setup',
+    );
+  });
+
   testWidgets('the next-step banner walks review then export after import', (
     tester,
   ) async {
     await createHarness(tester);
-    String banner() => (tester.widget(
-      find.byKey(const ValueKey('next-step-message')),
-    ) as Text).data!;
+    String banner() {
+      final key = find.byKey(const ValueKey('next-step-message'));
+      return tester.widget<Text>(key).data!;
+    }
 
     // Fresh app: nothing imported yet.
     expect(banner(), contains('导入一本'));
@@ -687,9 +761,11 @@ void main() {
     'the next-step banner offers one-click init when the runtime is missing',
     (tester) async {
       await createHarness(tester, runtimeReady: false);
-      String banner() => (tester.widget(
-        find.byKey(const ValueKey('next-step-message')),
-      ) as Text).data!;
+      String banner() {
+        final key = find.byKey(const ValueKey('next-step-message'));
+        return tester.widget<Text>(key).data!;
+      }
+
       expect(banner(), contains('初始化'));
       await tester.tap(find.byKey(const ValueKey('next-step-action')));
       await pumpUntil(
@@ -707,9 +783,10 @@ void main() {
     await settings.saveLastProjectStore('/fake/store');
     final harness = await createHarness(tester, settingsStore: settings);
     harness.cli.fileSystem.addProjectStore('/fake/store');
-    String banner() => (tester.widget(
-      find.byKey(const ValueKey('next-step-message')),
-    ) as Text).data!;
+    String banner() {
+      final key = find.byKey(const ValueKey('next-step-message'));
+      return tester.widget<Text>(key).data!;
+    }
 
     await pumpUntil(
       tester,
