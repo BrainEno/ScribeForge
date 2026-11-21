@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/windows-desktop.yml"
       - "packaging/**"
+      - "scripts/smoke_packaged_epub.py"
       - "clients/flutter_desktop/**"
       - "src/scribeforge/**"
       - "pyproject.toml"
@@ -13,6 +14,7 @@ on:
     paths:
       - ".github/workflows/windows-desktop.yml"
       - "packaging/**"
+      - "scripts/smoke_packaged_epub.py"
       - "clients/flutter_desktop/**"
       - "src/scribeforge/**"
       - "pyproject.toml"
@@ -115,6 +117,34 @@ jobs:
           }
           & $iscc "/DMyAppVersion=0.1.0" "packaging/windows/ScribeForge.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+
+      - name: Install and open the desktop application
+        shell: pwsh
+        env:
+          SMOKE_INSTALL_DIR: ${{ runner.temp }}/ScribeForge Installed Smoke
+        run: |
+          ./packaging/windows/Test-InstalledDesktop.ps1 `
+            -Installer "dist/installer/ScribeForge-Setup-x64.exe" `
+            -InstallDirectory "$env:SMOKE_INSTALL_DIR" `
+            -InstallerLog "$env:RUNNER_TEMP/scribeforge-installer.log"
+
+      - name: Export and verify EPUB with the installed backend
+        shell: pwsh
+        env:
+          SMOKE_INSTALL_DIR: ${{ runner.temp }}/ScribeForge Installed Smoke
+          PYTHONUTF8: "1"
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          python scripts/smoke_packaged_epub.py "$env:SMOKE_INSTALL_DIR/backend/scribeforge.exe"
+
+      - name: Upload installer diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-smoke-log
+          path: ${{ runner.temp }}/scribeforge-installer.log
+          if-no-files-found: ignore
 
       - name: Record artifact checksums
         shell: pwsh
