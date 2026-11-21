@@ -224,3 +224,19 @@ assessment; inspect `status` even if the command exits zero. A local receipt is
 not a signature, does not verify the newest project decisions, and cannot prove
 provenance if all companion files were replaced together. If a write was
 interrupted, re-export to a new path and retain the original files for review.
+
+### 对比已保存的处理报告
+
+在「处理 → 处理报告」分别导出基准和新版 JSON，再选择「对比已保存报告」。
+主页展示项目与复核计数、阶段耗时和风险原因变化；「页面」可按耗时、复核、
+状态和计时覆盖筛选。点击一页查看各阶段状态、尝试次数和风险原因。
+
+对比只读取两份文件（每份最多 16 MiB），不打开或修改项目。计时代表最近
+一次尝试的累计值；计时口径或覆盖不同的记录不计算对应耗时差。零秒是有效值，
+“—”表示未测量、缺失或不可比较。标题、编号和页码不能证明来源相同；标签或
+页数不一致时默认只看汇总，核对后可手动按页码比较。换页、筛选和排序时会
+核对文件的 SHA-256；文件被替换后可用「重新读取文件」开始新的对比。
+
+CLI：`scribeforge compare-processing-reports --baseline before.json --candidate after.json`
+输出 JSON。`--filter` 和 `--order` 控制页面明细，不影响汇总；下一批使用
+`next_offset` 和两个响应中的 SHA-256（`--baseline-sha256`、`--candidate-sha256`）。

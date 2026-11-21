@@ -17,6 +17,7 @@ class ProcessingReportSheet extends StatefulWidget {
     this.loader,
     this.processing = false,
     this.exportHandler,
+    this.compareHandler,
   });
 
   final String executable;
@@ -29,6 +30,8 @@ class ProcessingReportSheet extends StatefulWidget {
   /// True while a `process` run is active: the sheet must not present stale
   /// data as if it belonged to the in-flight run.
   final bool processing;
+
+  final VoidCallback? compareHandler;
 
   /// Writes the Markdown (or JSON) export of [report] into a user-chosen
   /// directory and returns the written file path. Null disables the buttons.
@@ -216,6 +219,12 @@ class _ProcessingReportSheetState extends State<ProcessingReportSheet> {
             icon: const Icon(Icons.article_outlined, size: 16),
             label: const Text('复制 Markdown'),
           ),
+          if (widget.compareHandler != null)
+            OutlinedButton.icon(
+              onPressed: widget.compareHandler,
+              icon: const Icon(Icons.compare_arrows, size: 16),
+              label: const Text('对比已保存报告'),
+            ),
           if (widget.exportHandler != null) ...<Widget>[
             OutlinedButton.icon(
               key: const ValueKey('export-report-markdown-button'),

@@ -16,6 +16,7 @@ from pathlib import Path
 from threading import Thread
 from typing import Any, TextIO, cast
 
+from scribeforge import report_comparison
 from scribeforge.adapters.candidate_epub import build_candidate_epub
 from scribeforge.adapters.docx import build_docx
 from scribeforge.adapters.epub import build_epub
@@ -821,6 +822,19 @@ def build_parser() -> argparse.ArgumentParser:
     ui = subparsers.add_parser("ui", help="Open the read-only desktop shell for a project store.")
     ui.add_argument("--store", type=Path, required=True, help="Project store directory.")
 
+    comparison = subparsers.add_parser(
+        "compare-processing-reports", help="Compare two saved processing report JSON files."
+    )
+    comparison.add_argument("--baseline", type=Path, required=True)
+    comparison.add_argument("--candidate", type=Path, required=True)
+    comparison.add_argument("--filter", choices=report_comparison.FILTERS, default="changed")
+    comparison.add_argument("--order", choices=report_comparison.ORDERS, default="page")
+    comparison.add_argument("--offset", type=int, default=0)
+    comparison.add_argument("--limit", type=int, default=30)
+    comparison.add_argument("--baseline-sha256")
+    comparison.add_argument("--candidate-sha256")
+    comparison.add_argument("--allow-unmatched", action="store_true")
+
     verify_export = subparsers.add_parser(
         "verify-export", help="Check the bytes of an EPUB or DOCX against local export sidecars."
     )
@@ -1288,6 +1302,8 @@ def _dispatch(
         return _textless_preview(args, out)
     if args.command == "confirm":
         return _confirm(args, out)
+    if args.command == "compare-processing-reports":
+        return _compare_processing_reports(args, out)
     if args.command == "verify-export":
         return _verify_export(args, out)
     if args.command == "export-readiness":
@@ -2554,6 +2570,35 @@ def _confirm(args: argparse.Namespace, out: TextIO) -> int:
         f"confirmed page {args.page} as {args.kind} (confirmation #{confirmation_id}): {reason}",
         file=out,
     )
+    return EXIT_OK
+
+
+def _compare_processing_reports(args: argparse.Namespace, out: TextIO) -> int:
+    snapshots = []
+    for label in ("baseline", "candidate"):
+        try:
+            snapshots.append(report_comparison.load_snapshot(getattr(args, label)))
+        except (ValueError, OSError) as exc:
+            print(f"error: {label} report: {exc}", file=sys.stderr)
+            return EXIT_FATAL
+    try:
+        result = report_comparison.compare_snapshots(
+            snapshots[0],
+            snapshots[1],
+            options=report_comparison.CompareOptions(
+                args.filter,
+                args.order,
+                args.offset,
+                args.limit,
+                args.baseline_sha256,
+                args.candidate_sha256,
+                args.allow_unmatched,
+            ),
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(json.dumps(result, ensure_ascii=True, allow_nan=False), file=out)
     return EXIT_OK
 
 

@@ -451,6 +451,18 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
         executable: _cliExecutable,
         storePath: storePath,
         loader: _reportLoader,
+        projectId: _projectStatus?.projectId,
+        compareHandler: () => Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => ReportComparisonScreen(
+              service: ReportComparisonService(
+                executor: _cliExecutor,
+                executable: _cliExecutable,
+              ),
+              picker: _filePicker,
+            ),
+          ),
+        ),
         processing: _processing,
         exportHandler: _exportProcessingReport,
       ),
