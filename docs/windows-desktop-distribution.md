@@ -124,3 +124,25 @@ This gate exercises the startup and export seams of #220. It is not a real-model
 accuracy benchmark, an installed GUI OCR test, or certification on a fresh end-user
 machine. Real Paddle recognition remains covered separately by the real-model
 smoke workflow; multilingual quality still requires the corpus work in #62/#68.
+
+### Opt-in real first-book acceptance
+
+On the [Windows Desktop Package workflow](https://github.com/BrainEno/ScribeForge/actions/workflows/windows-desktop.yml), select **Run workflow** and enable
+`real_first_book`. Alternatively: `gh workflow run windows-desktop.yml -f real_first_book=true`.
+This adds a download-heavy check after the regular package tests and is not run on
+ordinary pull requests. It starts with a new runtime directory and isolated cache
+paths. The installed backend runs with system Python off PATH; the test harness
+itself uses the runner's Python to generate the sample and inspect outputs.
+
+The acceptance requires both real MinerU and PaddleOCR jobs to succeed on a
+synthetic one-page scan. If there are disagreements, the test records only an
+actual OCR candidate matching an unambiguous printed fragment, using the review
+token. It fails rather than replace missing OCR with reference text. It then checks
+EPUB structure, both text lines in order, and the receipt against the source digest.
+Look for `passed.json` in `windows-real-first-book-evidence`; a failed run retains
+per-step stdout and stderr without uploading model caches. The ordinary unsigned
+CI package artifact does not imply that this separate opt-in stage passed.
+
+This is an installed-backend acceptance on a hosted Windows runner, not a new
+end-user VM audit, manual GUI run or a multilingual OCR quality benchmark. This
+check does not replace the subsequent clean-machine first-book walkthrough.
