@@ -6,24 +6,32 @@ ScribeForge turns scanned books into high-confidence, traceable digital text and
 
 The project is not trying to build yet another OCR engine. It orchestrates multiple OCR/document-analysis engines, detects disagreements, preserves page-level evidence, escalates uncertainty to human review, and can optionally ask a vision-language model to inspect selected crops. **VLM review is off by default; no crop is sent unless the user explicitly enables and configures it.** Every final decision remains traceable to the source scan.
 
-## 新手快速开始（中文）
+## 桌面端快速开始（Windows 优先）
 
-如果你是第一次拉取仓库，建议先阅读 **[中文新手使用指南](./docs/user-guide-zh.md)**。指南涵盖运行环境、扫描 PDF 导入、页级处理进度、人工复核、EPUB/DOCX 导出及常见故障排查。
+**用户和开发者都从 Flutter 桌面工作台开始。** 默认流程是：**打开桌面端 → 初始化环境 → 导入书籍 → OCR 识别 → 人工复核 → 导出 EPUB 3**。Python CLI 是桌面端的本地后端，也可单独用于自动化，不是普通用户的第一步。
 
-源码方式启动 Flutter 一体化工作台（Windows；Python 3.11 或已验证的 Python 3.14.4；Flutter 3.47.7 stable）：
+### 使用 Windows 桌面包
+
+1. 打开 GitHub Actions 的 [Windows Desktop Package](https://github.com/BrainEno/ScribeForge/actions/workflows/windows-desktop.yml?query=branch%3Amain)，选择 `main` 上成功且产物未过期的运行，下载 `ScribeForge-windows-x64-unsigned`（需登录 GitHub）。解包后运行 `ScribeForge-Setup-x64.exe`，或完整解压便携 ZIP 后打开 `scribeforge_desktop.exe`。这些是**未签名的 CI 测试包**，不是正式 Release 附件。
+2. 打开工作台，点击 **下载并配置**。桌面包自带处理核心；首次配置从应用内下载和安装私有 Python 3.12、OCR 依赖和模型，无需提前安装系统 Python、Flutter 或手动运行 pip。首次下载需要网络和足够磁盘空间，向导会显示进度和失败步骤。
+3. 配置完成后点击 **返回工作台 → 去导入**，选择扫描 PDF、JPG 或 PNG，进入 **处理 → 开始处理**。部分页面失败时可重试，不用重建整本书。
+4. 打开 **复核**，对照原页和 OCR 候选；选择候选只填入编辑框，点击 **记录人工决策** 才会接受文本。未确认的无文字页可从 **导出前检查** 打开原页核对。
+5. 打开 **导出**，选择 **EPUB 3** 和输出目录，处理导出前检查发现的问题后点击 **开始导出**。DOCX 也是可选格式。VLM 默认关闭，不是完成上述流程的前提。
+
+### 从源码启动桌面端（开发者）
+
+在 Windows 上准备 Git、Flutter 3.47.7 stable、Windows 桌面构建工具（见 `flutter doctor`）和可创建 venv 的系统 Python（3.11 或已验证的 3.14.4）。先启动桌面端，**不需要提前创建 `.venv`、安装 CLI 或从终端下载模型**：
 
 ```powershell
 git clone https://github.com/BrainEno/ScribeForge.git
-cd ScribeForge
-py -3.14 -m venv .venv # Python 3.11 也可：把 -3.14 换成 -3.11
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-cd clients\flutter_desktop
+cd ScribeForge\clients\flutter_desktop
 .\tool\bootstrap_desktop.ps1
 flutter run -d windows
 ```
 
-启动后使用 **书籍 → 导入书籍 → 处理 → 复核 → 候选比较（可选）→ 导出成品** 完成主要流程；候选比较只记录原始 OCR EPUB 的人工质量评价，不会接受文本或影响可信导出。**设置** 页面可检查 OCR 运行环境并打开现有配置向导。源码开发模式下点击 **设置 → 后端环境 → 自动创建后端环境** 即可一键完成全部配置：客户端会自动探测系统 Python（py -3 / python3 / python 及常见安装路径），自动创建虚拟环境、安装后端、下载 OCR 模型，全程无需手动输入任何命令；开发者仍可手动指定 Python 路径与源码目录作为高级配置。应用通过本地 CLI 与 Python 核心通信，不会自动运行 VLM。当前仓库提供源码开发启动方式，尚未发布预编译桌面安装包；运行工作台需要 Flutter SDK。
+如果未连接处理核心，在 **设置 → 后端环境（Python 虚拟环境）** 点击 **自动创建后端环境**。工作台检测本机 Python 和源码目录，创建并安装开发用后端，然后接入同一个 OCR 运行时向导。若自动检测未找到解释器或仓库，可在设置中手动选择。开发用后端和应用管理的 Python 3.12 OCR 环境彼此独立。
+
+**验证范围：** CI 分别验证桌面首次设置到导出的交互（可替换后端），以及 Windows CI 安装包的启动和 EPUB 导出（固定 OCR 证据）。二者不等于在全新用户机器上用真实模型跑完整本书，也不证明识别准确率。详见 [中文使用指南](./docs/user-guide-zh.md) 和 [Windows 桌面分发方案](./docs/windows-desktop-distribution.md)。
 
 ## Core principles
 
@@ -212,7 +220,6 @@ scribeforge export --store store/ --out book.epub --normalization canonical_vari
 scribeforge export --store store/ --out book.docx --normalization simplified # OpenCC t2s
 scribeforge export --store store/ --out scans.epub --layout page    # facsimile layout
 scribeforge export-candidates --store store/ --out-dir comparison/ # raw OCR EPUB candidates
-cd clients/flutter_desktop && flutter run -d windows # Flutter end-to-end workflow
 scribeforge export --store store/ --out book.epub \
   --title "书名" --author "作者" --modified 2026-10-20T00:00:00Z
 scribeforge ui --store store/                 # keyboard-first desktop review shell
@@ -272,7 +279,7 @@ See:
 - [Desktop shell](./docs/ui.md)
 - [Flutter Desktop comparison client](./clients/flutter_desktop/README.md)
 
-## Development bootstrap
+## Optional Python core and CLI development
 
 Python 3.11 remains the reference runtime. The package metadata allows Python `>=3.10`; CI also exercises the core/CLI on **CPython 3.14.4 on Windows and Linux**. The compatibility job installs the editable development package, checks the CLI entry point, and runs the non-benchmark/non-GPU test suite. Python 3.10 is the declared floor, not a version currently covered by that CI matrix.
 
