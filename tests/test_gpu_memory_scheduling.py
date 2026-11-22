@@ -304,6 +304,8 @@ def test_per_page_vram_sums_declared_engines() -> None:
     assert per_page_vram_mib(both) == 6144
     mixed = (DeclaredVramEngine("a", 2048), FakeEngine("b"))
     assert per_page_vram_mib(mixed) == DEFAULT_PAGE_VRAM_MIB
+    large_known = (DeclaredVramEngine("a", 12288), FakeEngine("b"))
+    assert per_page_vram_mib(large_known) == 12288
     neither = (FakeEngine("a"), FakeEngine("b"))
     assert per_page_vram_mib(neither) == DEFAULT_PAGE_VRAM_MIB
 

@@ -63,16 +63,19 @@ the corresponding `repair` / `benchmark` options).
 Pages are independent, so `process --workers <n>` runs up to `n` pages
 concurrently on a thread pool (the OCR engines are subprocesses, making pages
 I/O-bound). The default `0` picks half the CPU cores; `--workers 1` keeps the
-serial behaviour. Page jobs take a page-granular writer lock, so different pages
+serial behaviour. The desktop workflow explicitly requests one worker to avoid
+unbounded CPU-derived GPU concurrency; the CLI default is unchanged. Page jobs take a page-granular writer lock, so different pages
 never block each other while the same page still conflicts across processes.
 
 On GPU hosts, page parallelism is also capped by a memory budget:
 `process --gpu-memory-mib <MiB>` limits how many pages may be in flight at once.
 Each page costs the sum of its engines' declared VRAM (`vram_mib` on the engine,
-or a conservative 6 GiB default per page), and the worker count becomes
+or at least 6 GiB per page if any footprint is unknown), and the worker count becomes
 `min(--workers, budget // per-page cost)`, never below one. Combine it with the
-VRAM reported by `scribeforge runtime status` (e.g. reserve ~80% of the total
-for ScribeForge on a 16 GiB card: `--gpu-memory-mib 12800`).
+VRAM reported by `scribeforge runtime status`. These are estimates, not hard
+limits: unknown model costs, other applications, model changes and RAM use can
+still cause OOM, and at least one page is always allowed even if it exceeds the
+budget. Measure actual peak usage with headroom before increasing concurrency.
 
 To sanity-check the win before a big run, an opt-in local benchmark proves the
 page pool scales (fake slow engines, 120 pages, serial vs 4 workers must exceed
