@@ -115,7 +115,9 @@ void main() {
         lockTimeout: const Duration(milliseconds: 250),
       );
       expect((await store.saveCliExecutable('/blocked')).ok, isFalse);
-      final file = File('${temporary.path}${Platform.pathSeparator}settings.json');
+      final file = File(
+        '${temporary.path}${Platform.pathSeparator}settings.json',
+      );
       expect(await file.exists(), isFalse);
     } finally {
       process.kill();
