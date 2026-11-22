@@ -48,12 +48,16 @@ typedef SettingsClock = DateTime Function();
 typedef SettingsReadBytes = Future<List<int>> Function(File file);
 
 /// Test hook for a failed quarantine operation.
-typedef SettingsQuarantineHook =
-    Future<void> Function(File source, File backup);
+typedef SettingsQuarantineHook = Future<void> Function(
+  File source,
+  File backup,
+);
 
 /// Called after the temporary file is flushed, before replacing the main file.
-typedef SettingsWriteHook =
-    Future<void> Function(File tmpFile, List<int> bytes);
+typedef SettingsWriteHook = Future<void> Function(
+  File tmpFile,
+  List<int> bytes,
+);
 
 class DesktopVlmSettings {
   const DesktopVlmSettings({

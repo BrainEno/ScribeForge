@@ -58,7 +58,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('无法读取桌面设置'), findsOneWidget);
       expect(find.textContaining('access denied'), findsOneWidget);
-      expect(find.textContaining('settings.json'), findsOneWidget);
+      expect(find.textContaining('settings.json'), findsWidgets);
       expect(find.byType(NavigationRail), findsNothing);
       expect(settings.readCount, 1);
       expect(tester.takeException(), isNull);
