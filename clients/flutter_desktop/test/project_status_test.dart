@@ -70,6 +70,39 @@ void main() {
     expect(current?.importState, 'failed');
   });
 
+  test('uses the verified source count for progress when available', () {
+    final current = ProjectStatusSnapshot.fromJsonText(
+      payload.replaceFirst(
+        '"pages_total": 20,',
+        '"pages_total": 20, "source_pages_total": 100,',
+      ),
+      sourcePath: '/books/Novel.pdf',
+    );
+    expect(current?.sourcePagesTotal, 100);
+    expect(current?.ocrProgress, closeTo(0.14, 0.0001));
+    final legacy = ProjectStatusSnapshot.fromJsonText(
+      payload,
+      sourcePath: '/books/Novel.pdf',
+    );
+    expect(legacy?.sourcePagesTotal, isNull);
+    expect(legacy?.ocrProgress, closeTo(0.7, 0.0001));
+  });
+
+  test('rejects invalid source page counts', () {
+    for (final bad in <String>['0', '-1', '"unknown"']) {
+      expect(
+        () => ProjectStatusSnapshot.fromJsonText(
+          payload.replaceFirst(
+            '"pages_total": 20,',
+            '"pages_total": 20, "source_pages_total": $bad,',
+          ),
+          sourcePath: '/books/Novel.pdf',
+        ),
+        throwsFormatException,
+      );
+    }
+  });
+
   test('parses active page and stage details for live processing progress', () {
     final withActiveJob = payload.replaceFirst(
       '"failed_jobs": [',

@@ -19,6 +19,7 @@ import '../models/runtime_status.dart';
 import '../services/backend_diagnostics.dart';
 import '../services/backend_environment.dart';
 import '../services/backend_resolver.dart';
+import '../services/book_diagnosis_service.dart';
 import '../services/candidate_comparison_store.dart';
 import '../services/cli_executor.dart';
 import '../services/cli_path_validator.dart';
@@ -41,6 +42,7 @@ import '../widgets/workspace_help_dialog.dart';
 import '../widgets/workspace_shell.dart';
 import 'candidate_comparison_screen.dart';
 import 'evidence/ocr_evidence_browser.dart';
+import 'export/book_diagnosis_screen.dart';
 import 'export/export_readiness_screen.dart';
 import 'export/export_verification_screen.dart';
 import 'processing_report_sheet.dart';
@@ -93,6 +95,9 @@ NextStepGuidance nextStepGuidance({
   required int pagesWithBothOcr,
   required int pagesTotal,
   required int reviewQueued,
+  bool importIncomplete = false,
+  bool sourceExtentMismatch = false,
+  bool sourceExtentUnknown = false,
   String? lastProjectStore,
 }) {
   if (!backendChecked) {
@@ -126,6 +131,21 @@ NextStepGuidance nextStepGuidance({
     return const NextStepGuidance(
       NextStepAction.relinkSource,
       '源文件与项目记录不匹配，请重新关联源文件（需 SHA-256 相同）。',
+    );
+  }
+  if (hasProject && sourceExtentMismatch) {
+    return const NextStepGuidance(
+      NextStepAction.goProcess,
+      '项目页数与原书不一致，请先恢复备份或重新导入原书。',
+    );
+  }
+  if (hasProject && importIncomplete) {
+    return const NextStepGuidance(NextStepAction.goProcess, '源文件导入尚未完成，去继续处理。');
+  }
+  if (hasProject && sourceExtentUnknown) {
+    return const NextStepGuidance(
+      NextStepAction.goProcess,
+      '原书总页数尚未核实；请用原文件继续处理或检查导出文件。',
     );
   }
   if (hasProject && pagesWithBothOcr < pagesTotal) {
@@ -502,7 +522,15 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       hasSource: _pdfPath != null,
       sourceMismatch: _projectSourceMismatchMessage != null,
       pagesWithBothOcr: status?.pagesWithBothOcrSuccess ?? 0,
-      pagesTotal: status?.pagesTotal ?? 0,
+      pagesTotal: status?.sourcePagesTotal ?? status?.pagesTotal ?? 0,
+      importIncomplete:
+          (status?.importState != null && status?.importState != 'succeeded') ||
+          (status?.importState == null && status?.sourcePagesTotal != null),
+      sourceExtentMismatch:
+          status?.importState == 'succeeded' &&
+          status?.sourcePagesTotal != null &&
+          status?.pagesTotal != status?.sourcePagesTotal,
+      sourceExtentUnknown: status != null && status.sourcePagesTotal == null,
       reviewQueued: status?.reviewQueued ?? 0,
       lastProjectStore: _lastProjectStorePath,
     );

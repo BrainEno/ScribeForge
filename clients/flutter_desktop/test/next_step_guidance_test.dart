@@ -13,6 +13,9 @@ void main() {
       int pagesWithBothOcr = 0,
       int pagesTotal = 0,
       int reviewQueued = 0,
+      bool importIncomplete = false,
+      bool sourceExtentMismatch = false,
+      bool sourceExtentUnknown = false,
       String? lastProjectStore,
     }) {
       return nextStepGuidance(
@@ -25,6 +28,9 @@ void main() {
         pagesWithBothOcr: pagesWithBothOcr,
         pagesTotal: pagesTotal,
         reviewQueued: reviewQueued,
+        importIncomplete: importIncomplete,
+        sourceExtentMismatch: sourceExtentMismatch,
+        sourceExtentUnknown: sourceExtentUnknown,
         lastProjectStore: lastProjectStore,
       );
     }
@@ -65,6 +71,27 @@ void main() {
         pagesTotal: 3,
       );
       expect(step.action, NextStepAction.relinkSource);
+    });
+
+    test('unfinished import goes to processing even with zero pages', () {
+      final step = guidance(hasProject: true, importIncomplete: true);
+      expect(step.action, NextStepAction.goProcess);
+      expect(step.message, contains('导入尚未完成'));
+    });
+
+    test(
+      'source count mismatch directs user to restore rather than export',
+      () {
+        final step = guidance(hasProject: true, sourceExtentMismatch: true);
+        expect(step.action, NextStepAction.goProcess);
+        expect(step.message, contains('恢复备份'));
+      },
+    );
+
+    test('unknown source count cannot be called a complete book', () {
+      final step = guidance(hasProject: true, sourceExtentUnknown: true);
+      expect(step.action, NextStepAction.goProcess);
+      expect(step.message, contains('尚未核实'));
     });
 
     test('unfinished OCR pages go to the processing page', () {

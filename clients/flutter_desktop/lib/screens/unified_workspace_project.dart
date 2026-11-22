@@ -435,11 +435,37 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
               '${status.pagesWithBothOcrSuccess} / ${status.pagesTotal} 已导入页完成双引擎 OCR',
               style: const TextStyle(fontSize: 12),
             ),
+            if (status.sourcePagesTotal != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                '原书 ${status.sourcePagesTotal} 页 · 已导入 ${status.pagesTotal} 页',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+            if (status.importState == 'succeeded' &&
+                status.sourcePagesTotal != null &&
+                status.pagesTotal != status.sourcePagesTotal) ...[
+              const SizedBox(height: 6),
+              Text(
+                '项目页数与原书不一致；请恢复备份或重新导入，暂不能导出全书。',
+                style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
+              ),
+            ],
+            if (status.importState == 'succeeded' &&
+                status.sourcePagesTotal == null) ...[
+              const SizedBox(height: 6),
+              Text(
+                '原书总页数未知；请用原文件继续处理以核实页数。',
+                style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
+              ),
+            ],
             if (status.importState != 'succeeded') ...[
               const SizedBox(height: 6),
               Text(
                 status.importState == null
-                    ? '原书总页数未知；已导入页数不能证明全书已导入。'
+                    ? (status.sourcePagesTotal == null
+                          ? '原书总页数未知；已导入页数不能证明全书已导入。'
+                          : '导入任务记录缺失；请恢复备份或重新导入原书。')
                     : '源文件导入尚未完成（${status.importState}）；请继续处理，暂不能导出全书。',
                 style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
               ),
