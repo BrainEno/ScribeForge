@@ -44,6 +44,9 @@ class SettingsCorruption {
 
 typedef SettingsClock = DateTime Function();
 
+/// Injects file reads for deterministic I/O failure tests.
+typedef SettingsReadBytes = Future<List<int>> Function(File file);
+
 /// Test hook for a failed quarantine operation.
 typedef SettingsQuarantineHook = Future<void> Function(
   File source,
@@ -126,6 +129,7 @@ class DesktopSettingsStore {
     this.onCorruption,
     this.beforeRename,
     this.quarantineHook,
+    this.readBytes,
   });
 
   static const String defaultCliExecutable = 'scribeforge';
@@ -136,6 +140,7 @@ class DesktopSettingsStore {
   final void Function(SettingsCorruption corruption)? onCorruption;
   final SettingsWriteHook? beforeRename;
   final SettingsQuarantineHook? quarantineHook;
+  final SettingsReadBytes? readBytes;
 
   // Serialize all reads and writes for a path within this isolate, including
   // separate store instances. This is not a cross-process lock.
@@ -297,12 +302,19 @@ class DesktopSettingsStore {
 
   Future<Map<String, dynamic>> _readSettings() async {
     final file = _settingsFile;
-    if (!await file.exists()) {
-      // A successful later quarantine or manual recovery clears a blocked save.
-      if (_pendingCorruption?.backedUp == false) _pendingCorruption = null;
-      return <String, dynamic>{};
+    late final List<int> bytes;
+    try {
+      bytes = await (readBytes?.call(file) ?? file.readAsBytes());
+    } on FileSystemException catch (error) {
+      // Only a genuine missing path is an empty configuration. Permission and
+      // device errors must propagate so neither reads nor writes reset data.
+      final code = error.osError?.errorCode;
+      if (code == 2 || (Platform.isWindows && code == 3)) {
+        if (_pendingCorruption?.backedUp == false) _pendingCorruption = null;
+        return <String, dynamic>{};
+      }
+      rethrow;
     }
-    final bytes = await file.readAsBytes();
     try {
       final decoded = jsonDecode(utf8.decode(bytes));
       if (decoded is Map) {

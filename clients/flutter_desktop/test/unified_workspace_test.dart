@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/models/runtime_location.dart';
@@ -33,6 +35,50 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets(
+    'settings read failure blocks startup and retry restores settings',
+    (tester) async {
+      tester.view.physicalSize = const Size(900, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final settings = _FailingSettingsStore();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: UnifiedWorkspace(
+            cliExecutor: _FakeCliExecutor(),
+            settingsStore: settings,
+            backendResolver: DesktopBackendResolver(
+              fileExists: (_) async => false,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('无法读取桌面设置'), findsOneWidget);
+      expect(find.textContaining('access denied'), findsOneWidget);
+      expect(find.textContaining('settings.json'), findsWidgets);
+      expect(find.byType(NavigationRail), findsNothing);
+      expect(settings.readCount, 1);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byKey(const ValueKey('retry-settings-read')));
+      await tester.pumpAndSettle();
+      expect(find.text('无法读取桌面设置'), findsOneWidget);
+      expect(settings.readCount, 2);
+      expect(tester.takeException(), isNull);
+
+      settings.denied = false;
+      await tester.tap(find.byKey(const ValueKey('retry-settings-read')));
+      await tester.pumpAndSettle();
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.text('无法读取桌面设置'), findsNothing);
+      expect(await settings.loadBackendPython(), '/saved/python');
+      expect(await settings.loadLastProjectStore(), '/saved/book');
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('shows the library and seven workflow destinations', (
     tester,
@@ -230,6 +276,29 @@ class _MemorySettingsStore extends DesktopSettingsStore {
     _vlmSettings = settings;
     return SettingsSaveResult.ok();
   }
+}
+
+class _FailingSettingsStore extends _MemorySettingsStore {
+  bool denied = true;
+  int readCount = 0;
+
+  @override
+  Future<String> loadCliExecutable() async {
+    readCount++;
+    if (denied) {
+      throw const FileSystemException(
+        'access denied',
+        '/protected/settings.json',
+      );
+    }
+    return '/saved/scribeforge';
+  }
+
+  @override
+  Future<String> loadBackendPython() async => '/saved/python';
+
+  @override
+  Future<String?> loadLastProjectStore() async => '/saved/book';
 }
 
 class _FakeCliExecutor implements ScribeForgeCliExecutor {
