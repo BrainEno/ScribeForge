@@ -7,12 +7,18 @@ import 'package:scribeforge_desktop/services/settings_store.dart';
 const worker = 'test/helpers/settings_process_worker.dart';
 
 Future<Process> startWorker(String mode, Directory dir, [String? prefix]) {
-  return Process.start('dart', <String>[
+  final root = Platform.environment['FLUTTER_ROOT'];
+  final executable = Platform.isWindows && root != null
+      ? '$root${Platform.pathSeparator}bin${Platform.pathSeparator}cache'
+            '${Platform.pathSeparator}dart-sdk${Platform.pathSeparator}bin'
+            '${Platform.pathSeparator}dart.exe'
+      : 'dart';
+  return Process.start(executable, <String>[
     worker,
     mode,
     dir.path,
     if (prefix != null) prefix,
-  ], runInShell: Platform.isWindows);
+  ]);
 }
 
 void main() {
