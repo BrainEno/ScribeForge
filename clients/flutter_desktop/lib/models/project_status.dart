@@ -89,6 +89,7 @@ class ProjectStatusSnapshot {
     required this.failedJobDetails,
     required this.activeJobs,
     this.importState,
+    this.sourcePagesTotal,
   });
 
   final int projectId;
@@ -97,6 +98,7 @@ class ProjectStatusSnapshot {
   final String? sourceSha256;
   final int pagesTotal;
   final String? importState;
+  final int? sourcePagesTotal;
   final int pagesWithBothOcrSuccess;
   final int reviewQueued;
   final int pendingJobs;
@@ -110,8 +112,9 @@ class ProjectStatusSnapshot {
       activeJobs.isEmpty ? null : activeJobs.first;
 
   double get ocrProgress {
-    if (pagesTotal <= 0) return 0;
-    return (pagesWithBothOcrSuccess / pagesTotal).clamp(0.0, 1.0).toDouble();
+    final total = sourcePagesTotal ?? pagesTotal;
+    if (total <= 0) return 0;
+    return (pagesWithBothOcrSuccess / total).clamp(0.0, 1.0).toDouble();
   }
 
   String get progressLabel =>
@@ -168,6 +171,7 @@ class ProjectStatusSnapshot {
     final rawFailedJobs = selected['failed_jobs'];
     final rawActiveJobs = selected['active_jobs'];
     final importState = selected['import_state'];
+    final sourcePagesTotal = selected['source_pages_total'];
     if (id is! int ||
         title is! String ||
         sourceUri is! String ||
@@ -178,7 +182,9 @@ class ProjectStatusSnapshot {
         rawJobCounts is! Map ||
         rawFailedJobs is! List ||
         (rawActiveJobs != null && rawActiveJobs is! List) ||
-        (importState != null && importState is! String)) {
+        (importState != null && importState is! String) ||
+        (sourcePagesTotal != null &&
+            (sourcePagesTotal is! int || sourcePagesTotal <= 0))) {
       throw const FormatException('Status JSON has invalid project fields.');
     }
     final counts = Map<String, dynamic>.from(rawJobCounts);
@@ -211,6 +217,7 @@ class ProjectStatusSnapshot {
       sourceSha256: sourceSha256 as String?,
       pagesTotal: pagesTotal,
       importState: importState as String?,
+      sourcePagesTotal: sourcePagesTotal as int?,
       pagesWithBothOcrSuccess: pagesWithBothOcrSuccess,
       reviewQueued: reviewQueued,
       pendingJobs: count('pending'),

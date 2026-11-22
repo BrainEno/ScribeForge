@@ -100,6 +100,7 @@ def diagnose_book(database: Path, source: Path, epub: Path) -> dict[str, object]
         project = projects[0]
         with verified_source_snapshot(source, project.source_sha256) as snapshot:
             source_count = open_page_source(snapshot).page_count
+        recorded_source_count = store.source_page_count(project.id)
         pages = store.list_pages(project.id)
         indexes = {page.page_index for page in pages}
         jobs = store.list_jobs(project.id)
@@ -130,6 +131,10 @@ def diagnose_book(database: Path, source: Path, epub: Path) -> dict[str, object]
         "schema_version": 1,
         "source_sha256_matches_project": True,
         "source_physical_pages": source_count,
+        "recorded_source_pages": recorded_source_count,
+        "recorded_source_count_matches": (
+            None if recorded_source_count is None else recorded_source_count == source_count
+        ),
         "imported_pages": len(indexes),
         "missing_imported_count": len(expected - indexes),
         "missing_imported_pages_1based": [i + 1 for i in sorted(expected - indexes)][:100],

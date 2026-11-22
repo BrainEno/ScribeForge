@@ -50,12 +50,17 @@ def import_source(
     assets_dir: Path,
     *,
     reencode: dict[str, object] | None = None,
+    verified_source_sha256: str | None = None,
 ) -> ImportResult:
     """Materialize every page of a source into project-owned assets, resumably.
 
     Pages already persisted for the project are skipped so an interrupted import
     can be resumed without rewriting existing source evidence. The project-scoped
     import job records failure details and can be retried.
+
+    When ``verified_source_sha256`` is supplied, the caller must have verified
+    the source bytes against that digest; the source extent is retained immutably.
+    CLI import supplies it only after creating a verified source snapshot.
 
     When ``reencode`` is given (for example ``{"format": "jpeg", "quality": 85}``)
     every rendered page is re-encoded before it is written to disk. The re-encode
@@ -69,6 +74,13 @@ def import_source(
     if page_count < 1:
         raise ValueError("page source must contain at least one page")
 
+    known_count = store.source_page_count(project_id)
+    if known_count is not None:
+        if verified_source_sha256 is None:
+            raise ValueError("recorded source extent requires a verified source snapshot")
+        if known_count != page_count:
+            raise ValueError("recorded source extent differs; restore a verified backup")
+
     job_id = store.ensure_job(project_id, JobStage.IMPORT)
     if store.load_job(job_id).state is JobState.SUCCEEDED:
         if store.imported_page_indexes(project_id) != frozenset(range(page_count)):
@@ -76,11 +88,15 @@ def import_source(
                 "completed import does not match the source page count; "
                 "restore a verified backup or re-import the original source into a new project"
             )
+        if verified_source_sha256 is not None:
+            store.record_source_page_count(job_id, verified_source_sha256, page_count)
         return ImportResult(project_id, job_id, (), page_count)
 
     store.start_job(job_id)
     imported: list[int] = []
     try:
+        if verified_source_sha256 is not None:
+            store.record_source_page_count(job_id, verified_source_sha256, page_count)
         assets_dir.mkdir(parents=True, exist_ok=True)
         already_imported = store.imported_page_indexes(project_id)
         if any(index >= page_count for index in already_imported):

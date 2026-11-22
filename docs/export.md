@@ -523,3 +523,31 @@ otherwise contiguous tail missing from an older completed import. Use the above
 diagnosis to compare actual source count. Preserve existing evidence and backups;
 if the store is inconsistent, restore a verified backup or create a new project,
 not a replacement raster under an existing page record.
+
+### Recorded source page count (schema v18)
+
+For new CLI imports, the backend records the source's physical page count and
+source SHA-256 after verifying a private snapshot and before rendering pages.
+Known incomplete imports, missing import-job records, changed source identities,
+and missing or extra imported pages block trusted and candidate exports. The
+count is immutable: retries must agree and may not replace it. This catches a
+missing contiguous tail even when an import job says it succeeded. It does not
+validate the OCR text or prove image completeness.
+
+Migration does **not** infer a total from existing imported pages. For an older
+completed project the count remains unknown until processing is started with the
+original verified source. Then the importer compares every existing page index
+with the actual source count and records it only if they match; it does not
+rerender completed pages. For an incomplete legacy import, verified resume
+records the count before continuing. Back up the project before upgrading:
+older ScribeForge releases cannot open schema v18 projects. An inconsistent
+completed project is not silently repaired; restore a verified backup or create
+a new project, keeping the old one and its decisions. Legacy projects with no
+import job remain supported with an unknown extent; export is not proof that
+all pages were imported.
+
+Desktop users can choose **导出成品 → 检查 EPUB 与原书页数**, then select the
+EPUB. The screen invokes the same read-only diagnosis and distinguishes source
+physical pages, imported pages, completed OCR, EPUB spine documents and
+recognized source-page markers. It does not bind the chosen EPUB to the project
+or certify its text. Unrecognized marker formats are explicitly called out.

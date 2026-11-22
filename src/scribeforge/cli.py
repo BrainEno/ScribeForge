@@ -1553,6 +1553,7 @@ def _process(
                     source,
                     layout.assets_dir,
                     reencode=reencode,
+                    verified_source_sha256=project.source_sha256,
                 )
         except ProcessingCancelled as exc:
             if not import_started:
@@ -1931,6 +1932,7 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                     "source_uri": project.source_uri,
                     "source_sha256": project.source_sha256,
                     "pages_total": len(pages),
+                    "source_pages_total": store.source_page_count(project.id),
                     "import_state": next(
                         (job.state.value for job in jobs if job.stage is JobStage.IMPORT), None
                     ),

@@ -133,3 +133,9 @@ workers and may consume much more RAM/VRAM, run slower, or fail on constrained
 machines; it is not a CPU-only mode and does not promise a speedup. Measure on the
 actual hardware and fall back to one page if necessary. Successful page stages
 remain resumable if a parallel run fails.
+
+`status --json` now includes `source_pages_total` when a source extent was
+recorded from a verified snapshot, or `null` when unknown. `pages_total` remains
+**imported** pages for backward compatibility. The desktop progress bar uses the
+known source count as its denominator and separately displays imported pages.
+Import completion is not OCR completion, and neither is an accuracy measurement.

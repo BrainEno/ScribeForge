@@ -234,7 +234,7 @@ class CropInputEvidence:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 17
+    SCHEMA_VERSION = 18
 
     def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self._path = path
@@ -439,6 +439,28 @@ class SQLiteStore:
 
             if version < 17:
                 self._migrate_v17(connection)
+            if version < 18:
+                self._migrate_v18(connection)
+
+    @staticmethod
+    def _migrate_v18(connection: sqlite3.Connection) -> None:
+        """Add source extent without guessing counts for existing projects."""
+        connection.execute("SAVEPOINT source_extent_v18")
+        try:
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS source_extent (
+                    project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE RESTRICT,
+                    source_sha256 TEXT NOT NULL,
+                    page_count INTEGER NOT NULL CHECK(page_count > 0),
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            connection.execute("PRAGMA user_version = 18")
+        except Exception:
+            connection.execute("ROLLBACK TO source_extent_v18")
+            connection.execute("RELEASE source_extent_v18")
+            raise
+        connection.execute("RELEASE source_extent_v18")
 
     @staticmethod
     def _migrate_v17(connection: sqlite3.Connection) -> None:
@@ -1270,6 +1292,104 @@ class SQLiteStore:
                 (project_id,),
             ).fetchall()
             return frozenset(int(row["page_index"]) for row in rows)
+
+    def source_page_count(self, project_id: int) -> int | None:
+        """Return verified source extent, or None for a legacy/unknown project.
+
+        Read-only callers may inspect pre-v18 stores without migrating them.
+        An extent bound to a different project digest is an integrity error.
+        """
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if version > self.SCHEMA_VERSION:
+                raise RuntimeError(f"unsupported database schema version: {version}")
+            if version < 18:
+                return None
+            row = connection.execute(
+                """SELECT e.page_count, e.source_sha256, p.source_sha256 AS current_sha256
+                   FROM source_extent e JOIN projects p ON p.id = e.project_id
+                   WHERE e.project_id = ?""",
+                (project_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["source_sha256"] != row["current_sha256"]:
+                raise ValueError("source extent digest does not match project source")
+            count = int(row["page_count"])
+            if count < 1:
+                raise ValueError("invalid stored source page count")
+            return count
+
+    def record_source_page_count(self, job_id: int, source_sha256: str, page_count: int) -> None:
+        """Record immutable extent from a caller-verified source snapshot.
+
+        Running imports must be owned by this store; completed historical
+        imports can be backfilled only after validating their full page set.
+        The supplied digest must be the project's recorded source identity.
+        """
+        if isinstance(page_count, bool) or not isinstance(page_count, int) or page_count < 1:
+            raise ValueError("source page count must be a positive integer")
+        if not source_sha256:
+            raise ValueError("source digest is required")
+        with self._ownership_guard:
+            job = self.load_job(job_id)
+            if job.stage is not JobStage.IMPORT:
+                raise ValueError("source extent requires an import job")
+            temporary_lock: BinaryIO | None = None
+            if job.state is JobState.RUNNING:
+                self._require_job_owner(job_id, job.project_id, None)
+            elif job.state is JobState.SUCCEEDED:
+                if self._lock_key_conflicts(job.project_id, None):
+                    raise JobAlreadyRunningError("project is being processed")
+                temporary_lock = self._acquire_project_writer_lock(job.project_id)
+            else:
+                raise ValueError("source extent requires a running or completed import")
+            try:
+                with self._connection() as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    current = self._job_record(self._job_row(connection, job_id))
+                    if current.state != job.state:
+                        raise ValueError("import job changed while recording source extent")
+                    project = connection.execute(
+                        "SELECT source_sha256 FROM projects WHERE id = ?", (job.project_id,)
+                    ).fetchone()
+                    if project is None or project["source_sha256"] != source_sha256:
+                        raise ValueError("source digest does not match project")
+                    existing = connection.execute(
+                        "SELECT source_sha256, page_count FROM source_extent WHERE project_id = ?",
+                        (job.project_id,),
+                    ).fetchone()
+                    if existing is not None:
+                        if (
+                            existing["source_sha256"] != source_sha256
+                            or existing["page_count"] != page_count
+                        ):
+                            raise ValueError(
+                                "recorded source extent differs; restore a verified backup"
+                            )
+                        return
+                    indexes = [
+                        int(row[0])
+                        for row in connection.execute(
+                            "SELECT page_index FROM pages WHERE project_id = ? ORDER BY page_index",
+                            (job.project_id,),
+                        )
+                    ]
+                    if any(index >= page_count for index in indexes):
+                        raise ValueError("imported pages exceed source extent")
+                    if current.state is JobState.SUCCEEDED and (
+                        len(indexes) != page_count
+                        or any(index != position for position, index in enumerate(indexes))
+                    ):
+                        raise ValueError("completed import does not match the source page count")
+                    connection.execute(
+                        "INSERT INTO source_extent(project_id, source_sha256, page_count) VALUES (?, ?, ?)",
+                        (job.project_id, source_sha256, page_count),
+                    )
+            finally:
+                if temporary_lock is not None:
+                    temporary_lock.close()
 
     def list_pages(self, project_id: int) -> tuple[PageRecord, ...]:
         """Return persisted page evidence ordered by page index."""

@@ -214,6 +214,9 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
         _projectSourceMatches &&
         _projectCanExport &&
         status.pagesTotal > 0 &&
+        (status.importState == null || status.importState == 'succeeded') &&
+        (status.sourcePagesTotal == null ||
+            status.sourcePagesTotal == status.pagesTotal) &&
         status.runningJobs == 0 &&
         status.pendingJobs == 0 &&
         status.pagesWithBothOcrSuccess == status.pagesTotal;
@@ -225,9 +228,7 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
       cliExecutor: _cliExecutor,
       filePicker: _filePicker,
       comparisonStore: const FileCandidateComparisonStore(),
-      sourcePageCount: status?.importState == 'succeeded'
-          ? status?.pagesTotal
-          : null,
+      sourcePageCount: status?.sourcePagesTotal,
       expectedSourceSha256: status?.sourceSha256,
       onOpenTrustedReview: () {
         _updateWorkspace(() => _selectedIndex = 2);
@@ -258,6 +259,26 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
                   : _inspectExportReadiness,
               icon: const Icon(Icons.fact_check_outlined),
               label: const Text('导出前检查'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey('open-book-diagnosis'),
+              onPressed: _busy || _projectStorePath == null || _pdfPath == null
+                  ? null
+                  : () => Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => BookDiagnosisScreen(
+                          service: BookDiagnosisService(
+                            executor: _cliExecutor,
+                            executable: _cliExecutable,
+                          ),
+                          filePicker: _filePicker,
+                          storePath: _projectStorePath!,
+                          sourcePath: _pdfPath!,
+                        ),
+                      ),
+                    ),
+              icon: const Icon(Icons.compare_arrows),
+              label: const Text('检查 EPUB 与原书页数'),
             ),
             OutlinedButton.icon(
               key: const ValueKey('open-export-verification'),
