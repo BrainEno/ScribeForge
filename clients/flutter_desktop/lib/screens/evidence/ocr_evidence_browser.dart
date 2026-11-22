@@ -174,6 +174,17 @@ class _PageOverviewState extends State<_PageOverview> {
     );
   }
 
+  void _blocks(OcrEvidenceRun run) {
+    unawaited(
+      Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              _RawBlocks(service: widget.service, page: widget.page, run: run),
+        ),
+      ),
+    );
+  }
+
   void _pairs(OcrVerificationRun run) {
     unawaited(
       Navigator.of(context).push<void>(
@@ -224,7 +235,11 @@ class _PageOverviewState extends State<_PageOverview> {
             '${run.lineCount} 行 · ${run.frameLabel}\n${run.createdAt}',
           ),
           isThreeLine: true,
-          trailing: const Icon(Icons.chevron_right),
+          trailing: IconButton(
+            tooltip: '查看区域',
+            icon: const Icon(Icons.crop_free),
+            onPressed: () => _blocks(run),
+          ),
           onTap: () => _lines(run),
         ),
       );
@@ -295,6 +310,46 @@ class _RawLines extends StatelessWidget {
         Text(
           '词元 ${line.tokenCount} · 最低已报告置信度：${_percent(line.minConfidence)}',
         ),
+      ],
+    ),
+  );
+}
+
+class _RawBlocks extends StatelessWidget {
+  const _RawBlocks({
+    required this.service,
+    required this.page,
+    required this.run,
+  });
+
+  final OcrEvidenceService service;
+  final int page;
+  final OcrEvidenceRun run;
+
+  @override
+  Widget build(BuildContext context) => OcrEvidenceList<OcrEvidenceBlock>(
+    title: '第 ${page + 1} 页 · 区域 #${run.id}',
+    description: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(run.title, style: Theme.of(context).textTheme.titleMedium),
+        Text('坐标系：${run.frameLabel}'),
+        if (run.frameWidth != null && run.frameHeight != null)
+          Text('输入尺寸：${run.frameWidth} × ${run.frameHeight} 像素'),
+        if (run.frameHash case final hash?)
+          SelectableText('保存的输入 SHA-256：$hash'),
+        const Text('区域类型与坐标是模型观测，并非人工确认；未检测到不代表没有图表。'),
+        const Text('坐标为此批次输入的归一化 x、y、宽、高，不应直接当作原页裁切坐标。'),
+      ],
+    ),
+    emptyMessage: '该批次没有保存区域；不能据此排除图表。',
+    load: (after) => service.blocks(page, run.id, after: after),
+    itemBuilder: (context, block) => _EvidenceCard(
+      title: '区域索引 ${block.index} · ${block.type}',
+      children: <Widget>[
+        SelectableText('坐标：${block.coordinates}'),
+        Text('关联行范围：[${block.lineStart}, ${block.lineEnd})'),
+        if (block.lineStart == block.lineEnd) const Text('此区域没有关联文字行。'),
       ],
     ),
   );

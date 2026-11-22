@@ -160,3 +160,20 @@ artifact publication. Run
 passed with Python 3.12.16, PaddlePaddle 3.2.0, PaddleOCR/PaddleX 3.3.0, three
 schema-2 lines, and eleven native word boxes. It did not measure recognition
 accuracy.
+
+### Textless structural blocks
+
+A figure, table, or structure-only region can have `line_start == line_end`.
+This is a half-open empty range, not a synthetic text line. As of project schema
+v17 such blocks round-trip through storage. MinerU retains reported figure/table
+blocks without text when a valid bbox exists; a reported such region without a
+bbox fails rather than inventing geometry. Existing projects cannot recover
+previously discarded detections without new processing. OCR region labels and
+boxes remain unverified model observations, not human-confirmed assets.
+
+For saved evidence, `ocr-evidence --section blocks --project-id ID --page N
+--run ID --store PATH` returns blocks in index order with cursor pagination and
+requires the run to belong to that page. The desktop OCR evidence browser exposes
+this same list per batch. It displays the saved OCR frame, not a transformation to
+the original page. Older databases must be initialized/migrated before querying
+tables they do not have. An empty list is not evidence that a page has no figures.

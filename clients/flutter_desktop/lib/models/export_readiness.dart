@@ -9,6 +9,7 @@ enum ExportIssueKind {
   unconfirmedPage('unconfirmed_page', '无文字页待确认'),
   spotCheck('spot_check', '已接受内容待抽查'),
   pageImage('page_image', '必需页图异常'),
+  layoutRegion('layout_region', '图表区域可能遗漏'),
   evidenceError('evidence_error', '证据链无法解析'),
   noPages('no_pages', '项目没有可导出的页');
 
@@ -28,6 +29,7 @@ enum ExportIssueKind {
     unconfirmedPage => '请检查原页。只有真的无文字时才确认；有文字漏读时应重新处理。',
     spotCheck => '检查所引用的 OCR 和决策历史。关闭严格模式不会让风险消失。',
     pageImage => '不要从导出中省略此页图。可从已验证备份恢复，或重新导入。',
+    layoutRegion => '请对照原页检查。当前导出不保留混排正文中的图表，模型检测也可能漏报。',
     evidenceError => '不要靠旧草稿或历史文字绕过此问题。请先从项目安全页检查证据。',
     noPages => '先导入来源并完成处理。',
   };
@@ -68,7 +70,9 @@ class ExportReadinessIssue {
         kind == ExportIssueKind.spotCheck;
     if (needsPair != (pair != null) ||
         (pair != null && page == null) ||
-        (!blocking && kind != ExportIssueKind.spotCheck) ||
+        (!blocking &&
+            kind != ExportIssueKind.spotCheck &&
+            kind != ExportIssueKind.layoutRegion) ||
         (score != null && (score! < 0 || score! > 1)) ||
         (ink != null && (ink! < 0 || ink! > 1))) {
       throw const FormatException('导出检查包含无效的问题记录。');
@@ -173,9 +177,9 @@ class ExportReadinessReport {
         throw const FormatException('导出检查结果超出当前检查范围。');
       }
     }
-    final advisoryCount = options.strict
-        ? 0
-        : (counts[ExportIssueKind.spotCheck] ?? 0);
+    final advisoryCount =
+        (options.strict ? 0 : (counts[ExportIssueKind.spotCheck] ?? 0)) +
+        (counts[ExportIssueKind.layoutRegion] ?? 0);
     if (ready != (blockingCount == 0) ||
         blockingCount != totalIssues - advisoryCount ||
         matchingCount < issues.length ||
@@ -219,6 +223,7 @@ class ExportReadinessReport {
     for (final entry in counts.entries) '${entry.key.label}：${entry.value}',
     if (truncated) '只列出 $matchingCount 项匹配问题中的前 ${issues.length} 项。',
     for (final issue in issues) '- ${issue.synopsis}',
+    '图表检测可能漏报；没有提醒不代表图文完整。混排图表目前不会嵌入。',
     '这不是正式导出或文件校验。',
   ].join('\n');
 }

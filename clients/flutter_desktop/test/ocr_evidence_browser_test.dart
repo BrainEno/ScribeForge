@@ -41,8 +41,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('鸦'), findsOneWidget);
     expect(find.textContaining('最低已报告置信度：90.0%'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('查看区域'));
+    await tester.pumpAndSettle();
+    expect(find.text('区域索引 0 · figure'), findsOneWidget);
+    expect(find.text('此区域没有关联文字行。'), findsOneWidget);
+    expect(find.textContaining('未检测到不代表没有图表'), findsOneWidget);
     expect(tester.takeException(), isNull);
-    expect(executor.sections, ['pages', 'page', 'pairs', 'lines']);
+    expect(executor.sections, ['pages', 'page', 'pairs', 'lines', 'blocks']);
   });
 }
 
@@ -124,6 +131,20 @@ class _EvidenceExecutor implements ScribeForgeCliExecutor {
                 ],
                 'additional_members': false,
               },
+          },
+        ],
+      },
+      'blocks' => <String, Object?>{
+        'rows': [
+          {
+            'block_index': 0,
+            'block_type': 'figure',
+            'x': 0.1,
+            'y': 0.2,
+            'width': 0.5,
+            'height': 0.3,
+            'line_start': 0,
+            'line_end': 0,
           },
         ],
       },

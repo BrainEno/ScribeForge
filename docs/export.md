@@ -410,3 +410,40 @@ same book and metadata produce byte-identical output.
 Exit codes: `0` written, `2` unverified content, missing store/project, no pages,
 unsupported extension, invalid metadata (empty title, unsafe language tag,
 unparseable timestamp), or source text XML cannot represent.
+
+## Mixed-page layout evidence and limitations
+
+Schema v17 permits OCR blocks with an empty line range. This is needed for
+figures, tables and structure-only backends: a region can exist without claiming
+that any OCR text belongs to it. Migration preserves existing block IDs, order
+and the AUTOINCREMENT high-water mark, and rolls back the rebuild on failure.
+Back up a project before upgrading; older ScribeForge versions cannot open a v17
+store. Previously discarded regions cannot be reconstructed by migration: to
+recover them, process the original source into a **new project** with the updated
+worker, preserving the old project and its decisions.
+
+`export-readiness` lists a non-blocking `layout_region` reminder per page where
+one of the latest verification's two OCR runs reports a figure or table but no
+whole-page image is assembled. It also works while text decisions are incomplete.
+The desktop check shows the same reminders and can open the page's OCR evidence.
+The counts refer to **observations**, not distinct real figures: engines can
+report the same region or disagree. Older runs and region re-reads do not replace
+the latest verification. The default 120-item preview and page filter apply to
+these reminders too. A ready result means the existing text gate is clear, not
+that a human has checked visual completeness.
+
+`export --json` additionally reports `layout_observations` with each run ID,
+block index, normalized OCR-frame box, and the recorded frame kind, dimensions
+and digest when known. Unknown frames are null. These fields are recorded
+observations, not verified crops; they are not mapped to original-page pixels or
+matched across engines. Do not use them to cut images without independently
+verifying frame provenance and placement. Normal export prints warnings for
+potentially omitted regions and always states the detector's limitations.
+
+**Important:** the current EPUB exporter still does not embed figures or tables
+within reflowed text pages. A model may miss regions altogether, and even a
+whole-page image does not establish correct caption or reading-order semantics.
+DOCX currently omits page images too; JSON export reports those page indexes in
+`docx_omitted_page_images`. Manually compare representative and suspect pages to
+the source. This feature does not resolve issue #246, certify image completeness,
+or replace a reader/EPUBCheck acceptance test.

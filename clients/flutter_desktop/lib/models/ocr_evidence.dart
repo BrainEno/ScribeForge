@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-enum OcrEvidenceSection { pages, page, lines, pairs }
+enum OcrEvidenceSection { pages, page, lines, blocks, pairs }
 
 class OcrEvidenceRequest {
   const OcrEvidenceRequest(this.section, {this.page, this.run, this.after});
@@ -168,6 +168,40 @@ class OcrEvidenceLine {
   final double height;
   final int tokenCount;
   final double? minConfidence;
+
+  String get coordinates =>
+      <double>[x, y, width, height].map((v) => v.toStringAsFixed(4)).join(', ');
+}
+
+class OcrEvidenceBlock {
+  OcrEvidenceBlock(EvidenceFields fields)
+    : index = fields.index('block_index'),
+      type = fields.text('block_type'),
+      x = fields.number('x'),
+      y = fields.number('y'),
+      width = fields.number('width'),
+      height = fields.number('height'),
+      lineStart = fields.index('line_start'),
+      lineEnd = fields.index('line_end') {
+    if (lineEnd < lineStart ||
+        x < 0 ||
+        y < 0 ||
+        width < 0 ||
+        height < 0 ||
+        x + width > 1 ||
+        y + height > 1) {
+      throw const FormatException('OCR 区域的坐标或行范围无效。');
+    }
+  }
+
+  final int index;
+  final String type;
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+  final int lineStart;
+  final int lineEnd;
 
   String get coordinates =>
       <double>[x, y, width, height].map((v) => v.toStringAsFixed(4)).join(', ');

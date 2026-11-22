@@ -234,7 +234,7 @@ class CropInputEvidence:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 16
+    SCHEMA_VERSION = 17
 
     def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self._path = path
@@ -436,6 +436,66 @@ class SQLiteStore:
                     )
                     """)
                 connection.execute("PRAGMA user_version = 16")
+
+            if version < 17:
+                self._migrate_v17(connection)
+
+    @staticmethod
+    def _migrate_v17(connection: sqlite3.Connection) -> None:
+        """Allow structural regions with no associated OCR text lines.
+
+        Existing block IDs and their ordering survive unchanged. Use a savepoint
+        (not executescript, which commits implicitly) so a failed copy or rename
+        never leaves a half-migrated table or advances the schema version.
+        """
+        connection.execute("SAVEPOINT migrate_ocr_blocks_v17")
+        try:
+            previous_sequence = connection.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'ocr_blocks'"
+            ).fetchone()
+            connection.execute("""
+                CREATE TABLE ocr_blocks_v17 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER NOT NULL REFERENCES engine_runs(id) ON DELETE RESTRICT,
+                    block_index INTEGER NOT NULL CHECK(block_index >= 0),
+                    block_type TEXT NOT NULL,
+                    x REAL NOT NULL, y REAL NOT NULL,
+                    width REAL NOT NULL, height REAL NOT NULL,
+                    line_start INTEGER NOT NULL CHECK(line_start >= 0),
+                    line_end INTEGER NOT NULL CHECK(line_end >= line_start),
+                    UNIQUE(run_id, block_index)
+                )
+            """)
+            connection.execute("""
+                INSERT INTO ocr_blocks_v17
+                    (id, run_id, block_index, block_type, x, y, width, height,
+                     line_start, line_end)
+                SELECT id, run_id, block_index, block_type, x, y, width, height,
+                       line_start, line_end FROM ocr_blocks
+            """)
+            connection.execute("DROP TABLE ocr_blocks")
+            connection.execute("ALTER TABLE ocr_blocks_v17 RENAME TO ocr_blocks")
+            if previous_sequence is not None:
+                current = connection.execute(
+                    "SELECT seq FROM sqlite_sequence WHERE name = 'ocr_blocks'"
+                ).fetchone()
+                if current is None:
+                    connection.execute(
+                        "INSERT INTO sqlite_sequence(name, seq) VALUES ('ocr_blocks', ?)",
+                        (previous_sequence[0],),
+                    )
+                elif current[0] < previous_sequence[0]:
+                    connection.execute(
+                        "UPDATE sqlite_sequence SET seq = ? WHERE name = 'ocr_blocks'",
+                        (previous_sequence[0],),
+                    )
+            connection.execute("CREATE INDEX idx_ocr_blocks_run ON ocr_blocks(run_id, block_index)")
+            connection.execute("PRAGMA user_version = 17")
+        except Exception:
+            connection.execute("ROLLBACK TO migrate_ocr_blocks_v17")
+            connection.execute("RELEASE migrate_ocr_blocks_v17")
+            raise
+        connection.execute("RELEASE migrate_ocr_blocks_v17")
 
     @staticmethod
     def _create_v15(connection: sqlite3.Connection) -> None:

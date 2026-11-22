@@ -261,6 +261,7 @@ class _ReadinessVerdict extends StatelessWidget {
                         : '全书有 ${report.blockingCount} 项内容阻塞',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
+                  const Text('图表检测可能漏报；没有提醒不代表图文完整。混排图表目前不会嵌入。'),
                   if (report.options.page != null)
                     const Text('指定页筛选只改变问题明细，不改变全书结果。'),
                   if (report.summary == null)
@@ -341,6 +342,8 @@ class _IssueCard extends StatelessWidget {
           Icons.history,
           ExportReadinessDestination.history,
         );
+      case ExportIssueKind.layoutRegion:
+        break; // The shared OCR-evidence link below opens this physical page.
       case ExportIssueKind.pageImage:
       case ExportIssueKind.evidenceError:
         yield _button(

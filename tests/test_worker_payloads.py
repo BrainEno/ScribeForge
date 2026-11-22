@@ -312,9 +312,10 @@ def test_mineru_extract_page_reports_block_labels_and_ranges() -> None:
         ("title", 1, 2),
         ("text", 2, 4),
         ("footnote", 4, 5),
+        ("figure", 5, 5),
     ]
-    # The image block produced no text lines, so it is not reported as covering any.
-    assert all(b["line_end"] > b["line_start"] for b in blocks)
+    # The image region survives without claiming to cover any text line.
+    assert blocks[-1]["line_start"] == blocks[-1]["line_end"]
 
 
 def test_mineru_extract_page_uses_item_bbox_and_score() -> None:
@@ -419,3 +420,39 @@ def test_paddle_worker_maps_ppstructure_layout_labels() -> None:
     assert [block["type"] for block in blocks] == ["title", "figure"]
     assert [(block["line_start"], block["line_end"]) for block in blocks] == [(0, 1), (1, 2)]
     assert blocks[0]["box"] == pytest.approx([0.1, 0.1, 0.4, 0.1])
+
+
+def test_mineru_preserves_textless_figures_and_tables_without_fabricating_text() -> None:
+    raw = {
+        "pages": [
+            {
+                "blocks": [
+                    {"type": "image", "bbox": [0.1, 0.2, 0.5, 0.6]},
+                    {"type": "table", "bbox": [0.2, 0.3, 0.6, 0.7], "content": []},
+                    {
+                        "type": "paragraph",
+                        "bbox": [0, 0, 1, 1],
+                        "content": [{"type": "text", "content": "caption"}],
+                    },
+                    {
+                        "type": "image",
+                        "bbox": [0.3, 0.3, 0.4, 0.4],
+                        "content": [{"type": "image", "content": "not text"}],
+                    },
+                ]
+            }
+        ]
+    }
+    lines, blocks = mineru_worker.extract_page(raw)
+    assert [line["text"] for line in lines] == ["caption"]
+    assert [(block["type"], block["line_start"], block["line_end"]) for block in blocks] == [
+        ("figure", 0, 0),
+        ("table", 0, 0),
+        ("text", 0, 1),
+        ("figure", 1, 1),
+    ]
+
+
+def test_mineru_textless_figure_without_box_fails_loudly() -> None:
+    with pytest.raises(ValueError, match="bbox"):
+        mineru_worker.extract_page({"pages": [{"blocks": [{"type": "image"}]}]})
