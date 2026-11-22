@@ -27,6 +27,10 @@ class DroppedFurniture:
     page_index: int
     text: str
     reason: str
+    pair_index: int | None = None
+    verification_id: int | None = None
+    primary_line_indexes: tuple[int, ...] = ()
+    secondary_line_indexes: tuple[int, ...] = ()
 
 
 class PageImageRole(str, Enum):

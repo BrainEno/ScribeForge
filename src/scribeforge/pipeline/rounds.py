@@ -46,8 +46,14 @@ from scribeforge.domain.ocr import OCREngine
 from scribeforge.domain.page_asset import verify_page_asset
 from scribeforge.domain.text_assembly import assemble_group_text
 from scribeforge.domain.vlm import VLMReviewer
-from scribeforge.pipeline.adjudication import project_furniture, review_detail
+from scribeforge.pipeline.adjudication import review_detail
 from scribeforge.pipeline.crop_evidence import crop_evidence, isolated_crop
+from scribeforge.pipeline.furniture import (
+    PageFurniture,
+    decision_preserves_furniture,
+    pair_furniture_reason,
+    project_furniture,
+)
 from scribeforge.pipeline.ocr_frame import verification_frame
 from scribeforge.pipeline.vlm_review import ReviewEvidence
 from scribeforge.storage.sqlite import (
@@ -263,7 +269,7 @@ def _open_pairs(
     project_id: int,
     *,
     include_page_furniture: bool,
-    furniture: Mapping[int, Mapping[int, str]],
+    furniture: Mapping[int, PageFurniture],
 ) -> tuple[PairRef, ...]:
     refs: list[PairRef] = []
     for page in store.list_pages(project_id):
@@ -272,18 +278,9 @@ def _open_pairs(
         except KeyError:
             continue
         record = store.load_verification(verification_id)
-        page_furniture = furniture.get(page.page_index, {})
+        page_furniture = furniture.get(page.page_index)
         for pair_index, pair in enumerate(record.alignment.pairs):
-            # project_furniture returns primary-run line indexes; never compare a
-            # secondary index here or a line-count mismatch can hide body content.
-            furniture_reason = next(
-                (
-                    page_furniture[index]
-                    for index in pair.primary_line_indexes
-                    if index in page_furniture
-                ),
-                None,
-            )
+            furniture_reason = pair_furniture_reason(page_furniture, pair)
             if furniture_reason is not None and not include_page_furniture:
                 continue
             if (
@@ -647,7 +644,7 @@ def repair_book(
 def _furniture_pair_keys(
     store: SQLiteStore,
     project_id: int,
-    furniture: Mapping[int, Mapping[int, str]],
+    furniture: Mapping[int, PageFurniture],
 ) -> set[tuple[int, int]]:
     keys: set[tuple[int, int]] = set()
     for page in store.list_pages(project_id):
@@ -656,10 +653,21 @@ def _furniture_pair_keys(
         except KeyError:
             continue
         record = store.load_verification(verification_id)
-        page_furniture = furniture.get(page.page_index, {})
+        page_furniture = furniture.get(page.page_index)
         for pair_index, pair in enumerate(record.alignment.pairs):
-            if any(index in page_furniture for index in pair.primary_line_indexes):
-                keys.add((page.page_index, pair_index))
+            if pair_furniture_reason(page_furniture, pair) is None:
+                continue
+            decision = store.latest_decision_for_verification(
+                project_id, page.page_index, pair_index, verification_id=verification_id
+            )
+            if decision is not None:
+                primary = store.load_ocr_run(record.primary_run_id)
+                secondary = store.load_ocr_run(record.secondary_run_id)
+                if not decision_preserves_furniture(
+                    decision.selected_text, pair, primary, secondary
+                ):
+                    continue
+            keys.add((page.page_index, pair_index))
     return keys
 
 

@@ -119,7 +119,7 @@ def margin_line_keys(result: PageOCRResult) -> Mapping[str, tuple[int, ...]]:
     for index in range(len(result.lines)):
         if not _in_margin(result, index):
             continue
-        key = fold_for_comparison(result.lines[index].text)
+        key = fold_for_comparison(result.lines[index].text.strip())
         if not key:
             continue
         keys.setdefault(key, []).append(index)
@@ -139,6 +139,8 @@ def _continuous_page_number_indexes(
 
     groups: dict[tuple[NumberingScheme, int], dict[int, set[int]]] = {}
     for page_index, result in pages.items():
+        if _only_line_on_page(result):
+            continue
         for line_index, line in enumerate(result.lines):
             if not _in_margin(result, line_index):
                 continue
@@ -181,6 +183,8 @@ def detect_page_furniture(
     # key -> {"all": set of pages, 0: even pages, 1: odd pages}
     counts: dict[str, dict[str | int, set[int]]] = {}
     for page_index, result in pages.items():
+        if _only_line_on_page(result):
+            continue
         parity = page_index % 2
         for key in margin_line_keys(result):
             entry = counts.setdefault(key, {})
@@ -232,7 +236,7 @@ def detect_page_furniture(
                     found[index] = REASON_PAGE_NUMBER
                     continue
 
-            key = fold_for_comparison(line.text)
+            key = fold_for_comparison(line.text.strip())
             entry = counts.get(key, {})
             pages_for_key = entry.get("all", set()) or entry.get(parity, set())
             if key and len(pages_for_key) >= repetition_min_pages:
