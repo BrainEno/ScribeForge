@@ -588,6 +588,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit a stable JSON summary for desktop clients."
     )
 
+    layout_preview = subparsers.add_parser(
+        "layout-preview", help="Create an unverified preview of an original-frame OCR region."
+    )
+    layout_preview.add_argument("--store", type=Path, required=True)
+    layout_preview.add_argument("--project", type=int, required=True, help="Project ID.")
+    layout_preview.add_argument(
+        "--page", type=int, required=True, help="Zero-based physical page index."
+    )
+    layout_preview.add_argument(
+        "--run", type=int, required=True, help="Latest verification OCR run ID."
+    )
+    layout_preview.add_argument(
+        "--block", type=int, required=True, help="Zero-based OCR block index."
+    )
+    layout_preview.add_argument(
+        "--out", type=Path, required=True, help="New PNG preview path; never overwritten."
+    )
+
     processing_report = subparsers.add_parser(
         "report",
         help="Render processing timing, risk and review evidence from a project store.",
@@ -1280,6 +1298,8 @@ def _dispatch(
         return _vlm_check(args, out)
     if args.command == "status":
         return _status(args, out)
+    if args.command == "layout-preview":
+        return _layout_preview(args, out)
     if args.command == "report":
         return _processing_report(args, out)
     if args.command == "events":
@@ -1818,6 +1838,25 @@ def _project_timing_summary(
     report = build_processing_report(store, project_id)
     engine_seconds = {item.engine: item.observed_seconds for item in report.engine_timings}
     return report.observed_seconds, report.bottleneck_stage, engine_seconds
+
+
+def _layout_preview(args: argparse.Namespace, out: TextIO) -> int:
+    from scribeforge.pipeline.layout_preview import create_layout_preview
+
+    try:
+        preview = create_layout_preview(
+            StoreLayout(args.store).db_path,
+            project_id=args.project,
+            page_index=args.page,
+            run_id=args.run,
+            block_index=args.block,
+            output=args.out,
+        )
+    except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+        print(f"error: could not create layout preview: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(json.dumps(preview, ensure_ascii=False, indent=2), file=out)
+    return EXIT_OK
 
 
 def _status(args: argparse.Namespace, out: TextIO) -> int:
@@ -2776,7 +2815,13 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
 
     try:
         layout_observations = collect_layout_observations(
-            store, project.id, embedded_pages=frozenset(image.page_index for image in book.images)
+            store,
+            project.id,
+            embedded_pages=(
+                frozenset(image.page_index for image in book.images)
+                if args.out.suffix.lower() == ".epub"
+                else frozenset()
+            ),
         )
     except (ValueError, KeyError, sqlite3.Error) as exc:
         print(f"error: could not inspect OCR layout evidence: {exc}", file=sys.stderr)
@@ -2879,10 +2924,10 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             "receipt": str(receipt),
             "pages": len(book.pages),
             "chapters": len(book.chapters),
-            "images": len(book.images),
+            "images": len(book.images) if suffix == ".epub" else 0,
             "cover_image": (
                 None
-                if book.cover_image is None
+                if suffix != ".epub" or book.cover_image is None
                 else {
                     "page": book.cover_image.page_index,
                     "file": book.cover_image.file_name,
@@ -2978,13 +3023,14 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
                 file=out,
             )
     if book.images:
-        covers = sum(1 for image in book.images if image.is_cover)
-        print(
-            f"page images: {len(book.images)} embedded "
-            f"(cover {covers}, plate {len(book.images) - covers})",
-            file=out,
-        )
-        if suffix != ".epub":
+        if suffix == ".epub":
+            covers = sum(1 for image in book.images if image.is_cover)
+            print(
+                f"page images: {len(book.images)} embedded "
+                f"(cover {covers}, plate {len(book.images) - covers})",
+                file=out,
+            )
+        else:
             print(
                 "warning: DOCX export writes text only, so "
                 f"{len(book.images)} page image(s) are not in this file",
