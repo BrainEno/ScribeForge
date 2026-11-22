@@ -231,6 +231,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   bool _cliProbing = false;
   String? _cliProbeMessage;
   SettingsCorruption? _settingsCorruption;
+  bool _settingsLoading = true;
+  FileSystemException? _settingsReadError;
 
   ProjectStatusSnapshot? _projectStatus;
   bool _statusLoading = false;
@@ -318,14 +320,31 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   }
 
   Future<void> _loadSettings() async {
-    final executable = await _settingsStore.loadCliExecutable();
-    final vlmSettings = await _settingsStore.loadVlmSettings();
-    final locations = await _settingsStore.loadRuntimeLocations();
-    final backendPython = await _settingsStore.loadBackendPython();
-    final backendSourcePath = await _settingsStore.loadBackendSourcePath();
-    final lastProjectStore = await _settingsStore.loadLastProjectStore();
-    final venvCliPath = BackendVenvPaths(this._backendVenvDirectory)
-        .cliExecutable;
+    late final String executable;
+    late final DesktopVlmSettings vlmSettings;
+    late final RuntimeLocationPreferences locations;
+    late final String backendPython;
+    late final String backendSourcePath;
+    late final String? lastProjectStore;
+    try {
+      executable = await _settingsStore.loadCliExecutable();
+      vlmSettings = await _settingsStore.loadVlmSettings();
+      locations = await _settingsStore.loadRuntimeLocations();
+      backendPython = await _settingsStore.loadBackendPython();
+      backendSourcePath = await _settingsStore.loadBackendSourcePath();
+      lastProjectStore = await _settingsStore.loadLastProjectStore();
+    } on FileSystemException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _settingsLoading = false;
+        _settingsReadError = error;
+        _runtimeLoading = false;
+      });
+      return;
+    }
+    final venvCliPath = BackendVenvPaths(
+      this._backendVenvDirectory,
+    ).cliExecutable;
     final resolution = await _backendResolver.resolve(
       executable,
       venvCliPath: venvCliPath,
@@ -333,6 +352,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     if (!mounted) return;
     final corruption = _settingsStore.pendingCorruption;
     setState(() {
+      _settingsLoading = false;
+      _settingsReadError = null;
       _cliExecutable = resolution.executable;
       _backendResolution = resolution;
       _vlmSettings = vlmSettings;
@@ -369,44 +390,100 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   // ----------------------------------------------------------------- status
 
   @override
-  Widget build(BuildContext context) => WorkspaceShell(
-    destinations: _destinations,
-    selectedIndex: _selectedIndex,
-    onSelect: (index) => setState(() => _selectedIndex = index),
-    actions: <Widget>[
-      IconButton(
-        key: const ValueKey('help-button'),
-        icon: const Icon(Icons.help_outline),
-        tooltip: '使用帮助',
-        onPressed: () => showWorkspaceHelpDialog(context),
-      ),
-      if (_busy)
-        const Padding(
-          padding: EdgeInsets.all(8),
-          child: SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
+  Widget build(BuildContext context) =>
+      _settingsLoading || _settingsReadError != null
+      ? _buildSettingsRecovery()
+      : WorkspaceShell(
+          destinations: _destinations,
+          selectedIndex: _selectedIndex,
+          onSelect: (index) => setState(() => _selectedIndex = index),
+          actions: <Widget>[
+            IconButton(
+              key: const ValueKey('help-button'),
+              icon: const Icon(Icons.help_outline),
+              tooltip: '使用帮助',
+              onPressed: () => showWorkspaceHelpDialog(context),
+            ),
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.all(8),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            if (_error != null)
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                tooltip: '关闭错误提示',
+                onPressed: () => setState(() => _error = null),
+              ),
+          ],
+          notices: <Widget>[_buildNoticeBar(), _buildNextStepBar()],
+          pages: <Widget>[
+            _buildLibraryPage(),
+            _buildProcessPage(),
+            _buildReviewPage(),
+            _buildCandidateComparisonPage(),
+            _buildExportPage(),
+            _buildProjectSafetyPage(),
+            this._buildSettingsPage(),
+          ],
+        );
+
+  Widget _buildSettingsRecovery() {
+    final error = _settingsLoading ? null : _settingsReadError;
+    final path =
+        '${_settingsStore.settingsDirectory.path}'
+        '${Platform.pathSeparator}${DesktopSettingsStore.settingsFileName}';
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  if (error == null) ...<Widget>[
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    const Text('正在读取桌面设置…'),
+                  ] else ...<Widget>[
+                    Text(
+                      '无法读取桌面设置',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('为保护已有设置，工作台暂未初始化，也不会自动重置或覆盖文件。'),
+                    const SizedBox(height: 12),
+                    SelectableText('配置文件：$path'),
+                    const SizedBox(height: 8),
+                    SelectableText('系统错误：$error'),
+                    const SizedBox(height: 12),
+                    const Text('请检查目录和文件权限、磁盘连接或其他程序占用，然后重试。'),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      key: const ValueKey('retry-settings-read'),
+                      onPressed: () {
+                        setState(() => _settingsLoading = true);
+                        unawaited(_loadSettings());
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('重试读取设置'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
-      if (_error != null)
-        IconButton(
-          icon: const Icon(Icons.close, size: 20),
-          tooltip: '关闭错误提示',
-          onPressed: () => setState(() => _error = null),
-        ),
-    ],
-    notices: <Widget>[_buildNoticeBar(), _buildNextStepBar()],
-    pages: <Widget>[
-      _buildLibraryPage(),
-      _buildProcessPage(),
-      _buildReviewPage(),
-      _buildCandidateComparisonPage(),
-      _buildExportPage(),
-      _buildProjectSafetyPage(),
-      this._buildSettingsPage(),
-    ],
-  );
+      ),
+    );
+  }
 
   void _showInitialization() {
     setState(() => _selectedIndex = 6);
