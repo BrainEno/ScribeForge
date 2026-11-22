@@ -327,3 +327,24 @@ def test_concurrent_imports_publish_distinct_page_files(tmp_path: Path) -> None:
     assert a_path != b_path
     assert a_path.read_bytes() == b"first"
     assert b_path.read_bytes() == b"second"
+
+
+def test_completed_import_refuses_source_count_mismatch_without_mutation(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    assets = tmp_path / "assets"
+    result = import_source(store, project_id, FakePageSource(_pages(2)), assets)
+    before = store.list_pages(project_id)
+    with pytest.raises(ValueError, match="does not match the source page count"):
+        import_source(store, project_id, FakePageSource(_pages(3)), assets)
+    assert store.list_pages(project_id) == before
+    assert store.load_job(result.job_id).state is JobState.SUCCEEDED
+
+
+def test_incomplete_import_rejects_out_of_range_existing_page(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path)
+    store.add_page(project_id, 3, "existing.png", 10, 20)
+    with pytest.raises(ValueError, match="exceeds source page count"):
+        import_source(store, project_id, FakePageSource(_pages(2)), tmp_path / "assets")
+    job = store.load_job(store.ensure_job(project_id, JobStage.IMPORT))
+    assert job.state is JobState.FAILED
+    assert store.imported_page_indexes(project_id) == frozenset({3})

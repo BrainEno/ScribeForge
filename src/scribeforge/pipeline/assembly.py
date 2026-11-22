@@ -34,6 +34,7 @@ from scribeforge.pipeline.furniture import (
     pair_furniture_reason,
     project_furniture,
 )
+from scribeforge.pipeline.import_integrity import require_completed_import
 from scribeforge.storage.sqlite import PageConfirmation, PageRecord, SQLiteStore, VerificationRecord
 
 
@@ -104,6 +105,7 @@ def assemble_verified_content(
     if project is None:
         raise KeyError(f"unknown project: {project_id}")
 
+    require_completed_import(store, project_id)
     structure = store.load_book_structure(project_id)
     labels = structure.printed_labels_by_page()
     furniture = {} if include_page_furniture else project_furniture(store, project_id)

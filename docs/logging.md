@@ -115,3 +115,21 @@ New worker failures include a bounded, best-effort-redacted stderr tail in the
 job error; empty stderr and output-limit failures may still give no traceback.
 This does not recover stderr already lost by an older version or establish the
 cause of a failure without the actual project diagnostics.
+
+### Large books and resumability
+
+Import and page stages persist progress. If the process is stopped or the machine
+restarts, keep the same project directory and original source, then start process
+again. Import resumes missing pages, successful OCR stages are reused, and
+failed/in-flight stages can retry. Always capture status and back up the project
+first: restarting a failed job clears its previous `last_error`. No retry can
+reconstruct stderr already lost by an earlier version. Source identity, raster
+and preprocessing-frame checks remain in force; do not replace original files or
+change preprocessing settings on an existing project.
+
+The desktop's optional page concurrency runs up to four pages in parallel. The
+default is one to protect RAM and GPU memory. Raising it starts independent OCR
+workers and may consume much more RAM/VRAM, run slower, or fail on constrained
+machines; it is not a CPU-only mode and does not promise a speedup. Measure on the
+actual hardware and fall back to one page if necessary. Successful page stages
+remain resumable if a parallel run fails.

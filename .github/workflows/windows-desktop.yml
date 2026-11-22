@@ -98,6 +98,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
           flutter create --platforms=windows --project-name scribeforge_desktop .
+          Copy-Item -Force "assets/branding/app_icon.ico" "windows/runner/resources/app_icon.ico"
           flutter pub get
           flutter test test/backend_resolver_test.dart test/backend_diagnostics_test.dart
           flutter build windows --release

@@ -204,16 +204,20 @@ class ScribeForgeCli {
     required String storePath,
     DesktopVlmSettings? vlmSettings,
     bool cancelable = false,
+    int pageWorkers = 1,
   }) {
-    // A desktop machine may have many CPU cores but only one GPU. Until the
-    // user can configure and measure a memory budget, keep OCR page-serial.
+    // Parallel pages load independent OCR workers and can consume substantial
+    // RAM and GPU memory. Default to one; increased concurrency is opt-in.
+    if (pageWorkers < 1 || pageWorkers > 4) {
+      throw RangeError.range(pageWorkers, 1, 4, 'pageWorkers');
+    }
     final arguments = <String>[
       'process',
       pdfPath,
       '--store',
       storePath,
       '--workers',
-      '1',
+      '$pageWorkers',
     ];
     if (cancelable) arguments.add('--cancelable');
     if (vlmSettings != null && vlmSettings.enabled) {

@@ -432,9 +432,18 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
             LinearProgressIndicator(value: status.ocrProgress),
             const SizedBox(height: 6),
             Text(
-              '${status.pagesWithBothOcrSuccess} / ${status.pagesTotal} 页已完成双引擎 OCR',
+              '${status.pagesWithBothOcrSuccess} / ${status.pagesTotal} 已导入页完成双引擎 OCR',
               style: const TextStyle(fontSize: 12),
             ),
+            if (status.importState != 'succeeded') ...[
+              const SizedBox(height: 6),
+              Text(
+                status.importState == null
+                    ? '原书总页数未知；已导入页数不能证明全书已导入。'
+                    : '源文件导入尚未完成（${status.importState}）；请继续处理，暂不能导出全书。',
+                style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
+              ),
+            ],
             const SizedBox(height: 8),
             Wrap(
               spacing: ScribeSpacing.x2,

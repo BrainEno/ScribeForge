@@ -225,7 +225,9 @@ extension _WorkspaceOutput on _UnifiedWorkspaceState {
       cliExecutor: _cliExecutor,
       filePicker: _filePicker,
       comparisonStore: const FileCandidateComparisonStore(),
-      sourcePageCount: status?.pagesTotal,
+      sourcePageCount: status?.importState == 'succeeded'
+          ? status?.pagesTotal
+          : null,
       expectedSourceSha256: status?.sourceSha256,
       onOpenTrustedReview: () {
         _updateWorkspace(() => _selectedIndex = 2);

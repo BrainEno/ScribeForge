@@ -13,4 +13,5 @@ export PUB_HOSTED_URL FLUTTER_STORAGE_BASE_URL
 
 flutter --version
 flutter create --platforms=windows,macos,linux --project-name scribeforge_desktop .
+cp assets/branding/app_icon.ico windows/runner/resources/app_icon.ico
 flutter pub get

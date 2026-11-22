@@ -15,4 +15,5 @@ if (-not $env:FLUTTER_STORAGE_BASE_URL) {
 
 flutter --version
 flutter create --platforms=windows,macos,linux --project-name scribeforge_desktop .
+Copy-Item -Force "assets/branding/app_icon.ico" "windows/runner/resources/app_icon.ico"
 flutter pub get

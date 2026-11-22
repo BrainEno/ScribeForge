@@ -225,6 +225,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   DesktopVlmSettings _vlmSettings = const DesktopVlmSettings();
   bool _busy = false;
   bool _processing = false;
+  int _pageWorkers = 1;
   bool _cancelRequested = false;
   String? _notice;
   String? _error;

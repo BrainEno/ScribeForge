@@ -54,6 +54,22 @@ void main() {
     );
   });
 
+  test('parses optional import status', () {
+    final legacy = ProjectStatusSnapshot.fromJsonText(
+      payload,
+      sourcePath: '/books/Novel.pdf',
+    );
+    expect(legacy?.importState, isNull);
+    final current = ProjectStatusSnapshot.fromJsonText(
+      payload.replaceFirst(
+        '"pages_total": 20,',
+        '"pages_total": 20, "import_state": "failed",',
+      ),
+      sourcePath: '/books/Novel.pdf',
+    );
+    expect(current?.importState, 'failed');
+  });
+
   test('parses active page and stage details for live processing progress', () {
     final withActiveJob = payload.replaceFirst(
       '"failed_jobs": [',

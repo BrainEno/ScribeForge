@@ -488,3 +488,38 @@ assembled page image indexes under `docx_omitted_page_images`. Layout observatio
 also reflect that DOCX does not embed a whole-page image. Previous versions
 incorrectly described assembled page images as embedded in DOCX; re-export or
 re-inspect those files rather than relying on the old summary.
+
+## When an EPUB appears much shorter than its PDF
+
+An EPUB reader's screen-page count depends on font, window and reflow and is not
+comparable to physical PDF pages. A chapter EPUB may also contain far fewer spine
+XHTML files than PDF pages. On an updated backend, compare the recorded markers,
+source and project (the command reads the project, verifies the source SHA-256,
+and copies the source to a temporary snapshot; it does not run OCR or change the
+project):
+
+```powershell
+scribeforge diagnose-book --store "Book.scribeforge" --source "Book.pdf" --epub "Book.epub"
+```
+
+The JSON gives physical PDF page count, imported count, import job state,
+dual-OCR and verification counts, failed/running jobs, EPUB spine document count
+and recognized ScribeForge page markers. Missing lists use **one-based physical
+pages**, with counts for the full set and the first 100 indexes shown. Other
+EPUB producers can use different page markers, and a marker does not prove text
+quality, completeness, or that the EPUB belongs to this project. The source must
+match the project's recorded SHA-256; the command does not independently bind
+the supplied EPUB to that project. See an export receipt when available. Review
+the JSON for private information before sharing it.
+
+Known unfinished import jobs now block both trusted and candidate exports;
+resume processing from the original source first. A completed import with an
+internal gap is also blocked. The normal import resume checks the recorded page
+indexes against the source's full count before skipping a completed import.
+Older/manual projects without an import job retain compatibility but their source
+extent is **unknown**: a successful export does not prove that every source page
+was imported. Likewise, without opening the source this gate cannot detect an
+otherwise contiguous tail missing from an older completed import. Use the above
+diagnosis to compare actual source count. Preserve existing evidence and backups;
+if the store is inconsistent, restore a verified backup or create a new project,
+not a replacement raster under an existing page record.
