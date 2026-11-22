@@ -1184,6 +1184,8 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
         'source_uri': sourcePath,
         'source_sha256': sourceHash,
         'pages_total': 1,
+        'source_pages_total': 1,
+        'import_state': 'succeeded',
         'pages_with_both_ocr_success': _partialFailure ? 0 : 1,
         'review_queued': _pendingReviewItems.length,
         'job_counts': <String, int>{
