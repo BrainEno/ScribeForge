@@ -115,8 +115,8 @@ class DesktopVlmSettings {
 /// Single source of truth for the desktop app's persisted settings.
 ///
 /// Persistence contract (issue #216/#218):
-/// - Reads, quarantines, and read-modify-write cycles are serialized within
-///   the UI isolate and use a cooperative lock across application processes.
+/// - Reads, quarantines, and updates use cooperative locks across processes
+///   and isolates, plus a queue within each isolate.
 /// - Every write is atomic: the new JSON is written to `settings.json.tmp`,
 ///   fsynced, then renamed over `settings.json`. A crash mid-write leaves
 ///   either the old file or the tmp file — never a torn main file.

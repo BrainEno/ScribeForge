@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'settings_posix_gate.dart';
+
 /// A cooperative OS lock for a settings directory. The lock file is permanent:
 /// deleting or replacing it while another process holds it breaks exclusion.
 /// Kernel locks are released automatically when a process terminates.
@@ -14,12 +16,29 @@ class SettingsFileLock {
   final Duration retryInterval;
 
   Future<T> protect<T>(Directory directory, Future<T> Function() task) async {
+    final timer = Stopwatch()..start();
+    if (Platform.isLinux || Platform.isMacOS) {
+      return SettingsPosixGate().protect(
+        directory,
+        timer,
+        timeout,
+        retryInterval,
+        () => _protectFile(directory, timer, task),
+      );
+    }
+    return _protectFile(directory, timer, task);
+  }
+
+  Future<T> _protectFile<T>(
+    Directory directory,
+    Stopwatch timer,
+    Future<T> Function() task,
+  ) async {
     final lockFile = File(
       '${directory.path}${Platform.pathSeparator}settings.lock',
     );
     final handle = await lockFile.open(mode: FileMode.append);
     var acquired = false;
-    final timer = Stopwatch()..start();
     try {
       while (true) {
         try {
