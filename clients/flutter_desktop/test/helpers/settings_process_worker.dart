@@ -28,6 +28,19 @@ Future<void> main(List<String> args) async {
     }
     return;
   }
+  if (mode == 'legacy') {
+    await directory.create(recursive: true);
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}settings.lock',
+    );
+    final handle = await file.open(mode: FileMode.append);
+    await handle.lock(FileLock.exclusive);
+    stdout.writeln('locked');
+    await stdout.flush();
+    await Future<void>.delayed(const Duration(minutes: 5));
+    await handle.close();
+    return;
+  }
   if (mode == 'hold') {
     final store = DesktopSettingsStore(
       directory: directory,

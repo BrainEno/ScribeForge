@@ -101,4 +101,29 @@ void main() {
     expect(await store.loadBackendSourcePath(), '/after');
     expect(await store.loadBackendPython(), isEmpty);
   });
+
+  test('previous-version process still excludes new writers', () async {
+    final process = await startWorker('legacy', temporary);
+    final locked = process.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .first;
+    try {
+      expect(await locked.timeout(const Duration(seconds: 20)), 'locked');
+      final store = DesktopSettingsStore(
+        directory: temporary,
+        lockTimeout: const Duration(milliseconds: 250),
+      );
+      expect((await store.saveCliExecutable('/blocked')).ok, isFalse);
+      final file = File(
+        '${temporary.path}${Platform.pathSeparator}settings.json',
+      );
+      expect(await file.exists(), isFalse);
+    } finally {
+      process.kill();
+      await process.exitCode.timeout(const Duration(seconds: 10));
+    }
+    final store = DesktopSettingsStore(directory: temporary);
+    expect((await store.saveCliExecutable('/after')).ok, isTrue);
+  });
 }
