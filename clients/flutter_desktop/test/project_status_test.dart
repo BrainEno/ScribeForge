@@ -54,7 +54,7 @@ void main() {
     );
   });
 
-  test('import status is optional for old backends and parsed when present', () {
+  test('parses optional import status', () {
     final legacy = ProjectStatusSnapshot.fromJsonText(
       payload,
       sourcePath: '/books/Novel.pdf',
