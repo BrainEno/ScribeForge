@@ -363,9 +363,8 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
       });
       return;
     }
-    final venvCliPath = BackendVenvPaths(
-      this._backendVenvDirectory,
-    ).cliExecutable;
+    final venvCliPath = BackendVenvPaths(this._backendVenvDirectory)
+        .cliExecutable;
     final resolution = await _backendResolver.resolve(
       executable,
       venvCliPath: venvCliPath,
