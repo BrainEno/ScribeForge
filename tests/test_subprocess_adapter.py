@@ -318,3 +318,30 @@ def test_worker_output_is_bounded(tmp_path, stream: str, expected_limit: str) ->
 
     with pytest.raises(OCREngineOutputLimitError, match=expected_limit):
         engine.analyze_page(str(image), 0)
+
+
+def test_worker_failure_includes_redacted_bounded_stderr(tmp_path) -> None:
+    from scribeforge.adapters.subprocess_ocr import OCREngineProcessError
+
+    script = tmp_path / "fail.py"
+    script.write_text(
+        "import sys\nsys.stderr.write('A' * 40000 + '\\npassword=private-value\\nMinerU exploded')\nsys.exit(7)\n",
+        encoding="utf-8",
+    )
+    engine = SubprocessOCREngine("mineru", [sys.executable, str(script)])
+    with pytest.raises(OCREngineProcessError) as caught:
+        engine.analyze_page(str(tmp_path / "page.png"), 17)
+    message = str(caught.value)
+    assert "page 18" in message and "exit 7" in message
+    assert "MinerU exploded" in message
+    assert "private-value" not in message
+    assert len(message) < 33000
+
+
+def test_worker_failure_without_stderr_is_informative(tmp_path) -> None:
+    from scribeforge.adapters.subprocess_ocr import OCREngineProcessError
+
+    script = tmp_path / "fail.py"
+    script.write_text("import sys\nsys.exit(2)\n", encoding="utf-8")
+    with pytest.raises(OCREngineProcessError, match="page 374.*exit 2"):
+        SubprocessOCREngine("mineru", [sys.executable, str(script)]).analyze_page("x", 373)

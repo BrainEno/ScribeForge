@@ -4061,3 +4061,64 @@ def test_review_text_labels_the_original_frame_when_preprocessing_is_disabled(
     store = SQLiteStore(store_dir / "project.sqlite3")
     page = store.list_pages(store.list_projects()[0].id)[0]
     assert page.source_image in captured.out.split("frame_image=", 1)[1].splitlines()[0]
+
+
+def test_scoped_retry_only_runs_selected_failed_page(tmp_path: Path) -> None:
+    book = tmp_path / "book.pdf"
+    images = [Image.new("RGB", (80, 120), (i, i, i)) for i in (255, 254, 253)]
+    images[0].save(book, save_all=True, append_images=images[1:])
+    store_dir = tmp_path / "store"
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir)],
+            engine_factory=_factory(secondary=False),
+        )
+        == 1
+    )
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = store.list_projects()[0].id
+    before = store.list_jobs(project_id)
+    assert (
+        run(
+            ["process", str(book), "--store", str(store_dir), "--page-index", "1"],
+            engine_factory=_factory(),
+        )
+        == 0
+    )
+    after = store.list_jobs(project_id)
+    before_by_id = {job.id: job for job in before}
+    for job in after:
+        if job.id in before_by_id and job.page_index != 1:
+            assert job == before_by_id[job.id]
+    primary_before = next(
+        j for j in before if j.page_index == 1 and j.stage is JobStage.PRIMARY_OCR
+    )
+    assert store.load_job(primary_before.id) == primary_before
+    secondary = next(j for j in after if j.page_index == 1 and j.stage is JobStage.SECONDARY_OCR)
+    assert secondary.attempts == 2
+    assert secondary.state.value == "succeeded"
+
+
+def test_scoped_retry_rejects_invalid_pages_and_existing_log(tmp_path: Path) -> None:
+    book = _book(tmp_path)
+    store_dir = tmp_path / "store"
+    assert run(["process", str(book), "--store", str(store_dir)], engine_factory=_factory()) == 0
+    store = SQLiteStore(store_dir / "project.sqlite3")
+    project_id = store.list_projects()[0].id
+    before = store.list_jobs(project_id)
+    log = tmp_path / "old.jsonl"
+    log.write_text("keep original", encoding="utf-8")
+    for extra in (
+        ["--page-index", "5"],
+        ["--page-index", "-1"],
+        ["--page-index", "0", "--page-index", "0"],
+        ["--page-index", "0", "--events-file", str(log)],
+    ):
+        assert (
+            run(
+                ["process", str(book), "--store", str(store_dir), *extra], engine_factory=_factory()
+            )
+            == 2
+        )
+        assert store.list_jobs(project_id) == before
+    assert log.read_text(encoding="utf-8") == "keep original"
