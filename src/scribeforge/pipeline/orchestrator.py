@@ -447,6 +447,7 @@ def process_book(
     max_workers: int = 0,
     gpu_memory_mib: int | None = None,
     event_log: EventLog | None = None,
+    page_indexes: Sequence[int] | None = None,
 ) -> BookOutcome:
     """Process every imported page; a failed page never stops the rest of the book.
 
@@ -475,6 +476,18 @@ def process_book(
             per_page_vram_mib=per_page_vram_mib((primary_engine, secondary_engine)),
         )
     pages = store.list_pages(project_id)
+    if page_indexes is not None:
+        if not page_indexes or any(isinstance(index, bool) or index < 0 for index in page_indexes):
+            raise ValueError("page selection must contain non-negative physical page indexes")
+        selected = set(page_indexes)
+        if len(selected) != len(page_indexes):
+            raise ValueError("page selection contains duplicate indexes")
+        missing = selected - {page.page_index for page in pages}
+        if missing:
+            raise ValueError(f"selected physical page indexes not imported: {sorted(missing)}")
+        if repair is not None:
+            raise ValueError("book-wide repair cannot run during a scoped page retry")
+        pages = tuple(page for page in pages if page.page_index in selected)
 
     book_started = time.monotonic()
     if event_log is not None:

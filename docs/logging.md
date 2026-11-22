@@ -87,3 +87,31 @@ Add `--estimate-remaining PAGES` to project the remaining wall time for the
 unprocessed pages (observed mean page time divided by the run's worker count),
 and `--plan` to also print a simulated wave schedule for the book's declared
 page count (`scribeforge.domain.scheduling.plan_book_schedule`).
+
+### Diagnosing and retrying individual pages
+
+Before retrying, preserve a copy of the entire project store and any existing
+logs. `scribeforge status --store PROJECT.scribeforge --json` reports recent
+failed jobs, their attempts, and `last_error`; it lists at most 20 failures.
+Starting a job clears its previous error, so capture this output first. Logs and
+errors can contain private paths, book content, or credentials despite
+best-effort redaction; inspect them before sharing. Older versions may have
+retained only the worker exit status, not the original stderr.
+
+For an existing, fully imported single-project store, a targeted resume can be
+run with `scribeforge process ORIGINAL.pdf --store PROJECT.scribeforge
+--page-index 17 --page-index 373 --workers 1`. Indices are **zero-based physical
+pages**, not printed page numbers: 17 and 373 correspond to pages 18 and 374
+only if those numbers refer to the PDF's physical pages. Verify this mapping
+first. Use the original source and the same preprocessing settings as the
+initial run; mismatched frames are rejected. Completed stages are reused subject
+to normal evidence checks, while unfinished stages on the selected pages resume.
+The command does not rebuild book-wide structure or run repair rounds. It can
+still create OCR/review evidence for those pages; it is not a read-only diagnosis.
+If `--events-file` is used for a scoped run, choose a new filename; existing
+files are rejected. Keep the pre-retry backup until the result is reviewed.
+
+New worker failures include a bounded, best-effort-redacted stderr tail in the
+job error; empty stderr and output-limit failures may still give no traceback.
+This does not recover stderr already lost by an older version or establish the
+cause of a failure without the actual project diagnostics.

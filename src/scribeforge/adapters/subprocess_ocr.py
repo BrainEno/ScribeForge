@@ -24,6 +24,7 @@ from scribeforge.domain.ocr import (
     PageDirection,
     PageOCRResult,
 )
+from scribeforge.observability import redact_text
 from scribeforge.workers.protocol import SUPPORTED_SCHEMA_VERSIONS, canonical_block_label
 
 DEFAULT_WORKER_TIMEOUT_SECONDS = 600.0
@@ -39,6 +40,25 @@ class OCREngineTimeoutError(TimeoutError):
 
 class OCREngineOutputLimitError(RuntimeError):
     """A worker exceeded the bounded stdout or stderr allowance."""
+
+
+class OCREngineProcessError(subprocess.CalledProcessError):
+    """Worker exit with bounded, best-effort redacted diagnostics.
+
+    Python's default CalledProcessError string omits stderr, so page jobs used to
+    retain only the exit status and lost the actual engine traceback. The text
+    can still contain book content or unfamiliar secrets; treat it as private.
+    """
+
+    def __init__(self, returncode: int, engine: str, page_index: int, stderr: str) -> None:
+        self.engine = engine
+        self.page_index = page_index
+        self.diagnostic = redact_text(stderr).strip()
+        super().__init__(returncode, ("OCR worker", engine), stderr=self.diagnostic)
+
+    def __str__(self) -> str:
+        summary = f"OCR worker {self.engine} failed on page {self.page_index + 1} (exit {self.returncode})"
+        return f"{summary}; worker stderr: {self.diagnostic}" if self.diagnostic else summary
 
 
 def block_type_from_label(label: object) -> BlockType:
@@ -135,12 +155,7 @@ class SubprocessOCREngine:
             cancellation_token=current_cancellation_token(),
         )
         if return_code != 0:
-            raise subprocess.CalledProcessError(
-                return_code,
-                command,
-                output=stdout,
-                stderr=stderr,
-            )
+            raise OCREngineProcessError(return_code, self._name, page_index, stderr)
         return self.parse_document(json.loads(stdout), page_index)
 
     def parse_document(self, raw: Any, page_index: int) -> PageOCRResult:
@@ -307,7 +322,9 @@ def _run_worker_process(
             _terminate_process_tree(process)
             detail = _read_tail(stderr_file, _MAX_ERROR_DETAIL_BYTES)
             if detail:
-                raise OCREngineTimeoutError(f"{exc}; worker stderr: {detail}") from None
+                raise OCREngineTimeoutError(
+                    f"{exc}; worker stderr: {redact_text(detail)}"
+                ) from None
             raise
         except KeyboardInterrupt:
             _terminate_process_tree(process)

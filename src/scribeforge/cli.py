@@ -430,6 +430,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     process.add_argument(
+        "--page-index",
+        type=int,
+        action="append",
+        default=None,
+        help=(
+            "Process only this zero-based physical page index; repeat for multiple pages. "
+            "Requires an existing fully imported project; succeeded stages remain unchanged."
+        ),
+    )
+    process.add_argument(
         "--events-file",
         type=Path,
         default=None,
@@ -1460,9 +1470,40 @@ def _process(
     runtime_root: Path = (
         args.runtime_root if args.runtime_root is not None else runtime_root_for_store(layout.root)
     )
+    selected_pages = getattr(args, "page_index", None)
+    if selected_pages is not None:
+        if not layout.db_path.is_file():
+            print("error: scoped processing requires an existing project store", file=sys.stderr)
+            return EXIT_FATAL
+        events_path = getattr(args, "events_file", None)
+        if events_path is not None and events_path.exists():
+            print("error: scoped processing requires a new events file", file=sys.stderr)
+            return EXIT_FATAL
+        if getattr(args, "repair_rounds", 0):
+            print("error: scoped processing cannot run book-wide repair rounds", file=sys.stderr)
+            return EXIT_FATAL
+        if any(index < 0 for index in selected_pages) or len(set(selected_pages)) != len(
+            selected_pages
+        ):
+            print("error: page indexes must be distinct non-negative integers", file=sys.stderr)
+            return EXIT_FATAL
     try:
         store = SQLiteStore(layout.db_path)
         store.initialize()
+        if selected_pages is not None:
+            existing = store.list_projects()
+            if len(existing) != 1:
+                raise ValueError("scoped processing requires a single existing project")
+            existing_id = existing[0].id
+            jobs = store.list_jobs(existing_id)
+            if not any(
+                job.stage is JobStage.IMPORT and job.state is JobState.SUCCEEDED for job in jobs
+            ):
+                raise ValueError("scoped processing requires a completed import")
+            available = {page.page_index for page in store.list_pages(existing_id)}
+            missing = set(selected_pages) - available
+            if missing:
+                raise ValueError(f"selected physical page indexes not imported: {sorted(missing)}")
         project_id = _ensure_project(store, book)
         reencode = None
         fmt = getattr(args, "reencode_format", None)
@@ -1529,6 +1570,7 @@ def _process(
                 max_workers=getattr(args, "workers", 0),
                 gpu_memory_mib=gpu_memory_mib,
                 event_log=event_log,
+                page_indexes=selected_pages,
             )
         finally:
             if event_log is not None:
@@ -1553,20 +1595,23 @@ def _process(
         f"processed {len(outcome.pages)} page(s), {len(outcome.failed_pages)} failed",
         file=out,
     )
-    # Structure is derived after OCR, from the runs that were just stored. It is
-    # advisory: a failure here must not turn a successful book into a failed run,
-    # because the export falls back to physical page numbering.
-    try:
-        raise_if_cancelled()
-        derived = build_book_structure(store, project_id, engine=engines.primary.name)
-        raise_if_cancelled()
-        report = persist_book_structure(store, project_id, derived)
-        print(f"structure: {_structure_summary(report)}", file=out)
-    except ProcessingCancelled as exc:
-        print(f"processing cancelled: {exc}", file=out)
-        return EXIT_CANCELLED
-    except Exception as exc:  # noqa: BLE001 - structure is advisory, never fatal
-        print(f"structure: skipped ({exc})", file=out)
+    if selected_pages is not None:
+        print("structure: unchanged for scoped processing; rebuild separately if needed", file=out)
+    else:
+        # Structure is derived after OCR, from the runs that were just stored. It is
+        # advisory: a failure here must not turn a successful book into a failed run,
+        # because the export falls back to physical page numbering.
+        try:
+            raise_if_cancelled()
+            derived = build_book_structure(store, project_id, engine=engines.primary.name)
+            raise_if_cancelled()
+            report = persist_book_structure(store, project_id, derived)
+            print(f"structure: {_structure_summary(report)}", file=out)
+        except ProcessingCancelled as exc:
+            print(f"processing cancelled: {exc}", file=out)
+            return EXIT_CANCELLED
+        except Exception as exc:  # noqa: BLE001 - structure is advisory, never fatal
+            print(f"structure: skipped ({exc})", file=out)
     decisions = sum(page.decision_count for page in outcome.pages)
     summary = progress(store, project_id)
     # Counted after repair rounds, not before: what matters to the operator is how
