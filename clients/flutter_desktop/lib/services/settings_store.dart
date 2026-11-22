@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/runtime_location.dart';
+import 'settings_file_lock.dart';
 
 /// Outcome of a single settings save attempt.
 ///
@@ -114,8 +115,8 @@ class DesktopVlmSettings {
 /// Single source of truth for the desktop app's persisted settings.
 ///
 /// Persistence contract (issue #216/#218):
-/// - All writes go through a serialized queue, so concurrent read-modify-
-///   write cycles can never interleave and drop fields.
+/// - Reads, quarantines, and read-modify-write cycles are serialized within
+///   the UI isolate and use a cooperative lock across application processes.
 /// - Every write is atomic: the new JSON is written to `settings.json.tmp`,
 ///   fsynced, then renamed over `settings.json`. A crash mid-write leaves
 ///   either the old file or the tmp file — never a torn main file.
@@ -130,6 +131,7 @@ class DesktopSettingsStore {
     this.beforeRename,
     this.quarantineHook,
     this.readBytes,
+    this.lockTimeout = const Duration(seconds: 5),
   });
 
   static const String defaultCliExecutable = 'scribeforge';
@@ -141,9 +143,10 @@ class DesktopSettingsStore {
   final SettingsWriteHook? beforeRename;
   final SettingsQuarantineHook? quarantineHook;
   final SettingsReadBytes? readBytes;
+  final Duration lockTimeout;
 
-  // Serialize all reads and writes for a path within this isolate, including
-  // separate store instances. This is not a cross-process lock.
+  // The in-isolate queue also prevents concurrent fcntl locks in this process:
+  // POSIX record locks alone do not exclude another descriptor in the same PID.
   static final Map<String, Future<void>> _queues = <String, Future<void>>{};
   SettingsCorruption? _pendingCorruption;
 
@@ -267,9 +270,9 @@ class DesktopSettingsStore {
   /// instead of throwing, so callers can keep the user's input and retry.
   Future<SettingsSaveResult> update(
     void Function(Map<String, dynamic> settings) mutation,
-  ) {
-    return _enqueue(() async {
-      try {
+  ) async {
+    try {
+      return await _enqueue(() async {
         final current = await _readSettings();
         if (_pendingCorruption != null && !_pendingCorruption!.backedUp) {
           throw StateError(_pendingCorruption!.message);
@@ -277,16 +280,22 @@ class DesktopSettingsStore {
         mutation(current);
         await _writeSettingsAtomic(current);
         return SettingsSaveResult.ok();
-      } on Object catch (error) {
-        return SettingsSaveResult.failure('$error');
-      }
-    });
+      });
+    } on Object catch (error) {
+      return SettingsSaveResult.failure('$error');
+    }
   }
 
-  Future<T> _enqueue<T>(Future<T> Function() task) {
-    final key = _settingsFile.absolute.path;
+  Future<T> _enqueue<T>(Future<T> Function() task) async {
+    // Resolve aliases before selecting the in-isolate queue, so two paths to
+    // the same directory cannot bypass POSIX per-process lock semantics.
+    await settingsDirectory.create(recursive: true);
+    final canonical = Directory(await settingsDirectory.resolveSymbolicLinks());
+    final key = canonical.path;
     final previous = _queues[key] ?? Future<void>.value();
-    final result = previous.then((_) => task());
+    final result = previous.then(
+      (_) => SettingsFileLock(timeout: lockTimeout).protect(canonical, task),
+    );
     final tail = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace __) {},
