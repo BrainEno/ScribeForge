@@ -375,7 +375,17 @@ void main() {
       expect(failed.ok, isFalse);
       expect(await file.readAsBytes(), original);
       expect(store.pendingCorruption, isNull);
-      expect(await temporary.list().length, 1);
+      final lock = File(
+        '${temporary.path}${Platform.pathSeparator}settings.lock',
+      );
+      expect(await lock.exists(), isTrue);
+      expect(
+        await temporary
+            .list()
+            .where((item) => item.path.contains('settings.corrupt-'))
+            .isEmpty,
+        isTrue,
+      );
       denied = false;
       expect(await store.loadCliExecutable(), '/existing');
       expect((await store.saveBackendPython('/new')).ok, isTrue);
@@ -398,6 +408,9 @@ void main() {
       throwsA(isA<FileSystemException>()),
     );
     expect((await store.saveBackendPython('/new')).ok, isFalse);
-    expect(await temporary.list().isEmpty, isTrue);
+    final settingsFile = File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    );
+    expect(await settingsFile.exists(), isFalse);
   });
 }
