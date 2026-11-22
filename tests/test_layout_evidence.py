@@ -332,3 +332,33 @@ def test_page_pipeline_persists_textless_regions_with_actual_input_frame(project
         region.frame is not None and region.frame.kind == "original"
         for region in observation.regions
     )
+
+
+def test_docx_reports_whole_page_image_as_omitted(project, tmp_path, capsys) -> None:
+    store, pid = project
+    for page in range(3):
+        if page:
+            _verification(store, pid, page, ())
+            continue
+        block = _block(BlockType.FIGURE)
+        first = store.record_ocr(pid, PageOCRResult(page, "primary", "1", (), (block,)))
+        second = store.record_ocr(pid, PageOCRResult(page, "secondary", "1", (), ()))
+        store.record_verification(
+            first, second, PageAlignment(page, "primary", "secondary", ()), (), ()
+        )
+        store.record_page_confirmation(
+            project_id=pid, page_index=page, kind="non_text", actor="human", reason="illustration"
+        )
+    epub = tmp_path / "page.epub"
+    docx = tmp_path / "page.docx"
+    assert run(["export", "--store", str(tmp_path), "--out", str(epub), "--json"]) == 0
+    epub_report = json.loads(capsys.readouterr().out)
+    assert epub_report["images"] == 1
+    assert epub_report["layout_observations"][0]["embedded_page_image"] is True
+    assert run(["export", "--store", str(tmp_path), "--out", str(docx), "--json"]) == 0
+    docx_report = json.loads(capsys.readouterr().out)
+    assert docx_report["images"] == 0
+    assert docx_report["cover_image"] is None
+    assert docx_report["docx_omitted_page_images"] == [0]
+    assert docx_report["layout_observations"][0]["embedded_page_image"] is False
+    assert docx_report["layout_observations"][0]["may_be_omitted"] is True

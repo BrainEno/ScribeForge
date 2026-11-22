@@ -447,3 +447,44 @@ DOCX currently omits page images too; JSON export reports those page indexes in
 `docx_omitted_page_images`. Manually compare representative and suspect pages to
 the source. This feature does not resolve issue #246, certify image completeness,
 or replace a reader/EPUBCheck acceptance test.
+
+### Inspecting an original-frame observation
+
+For an observation returned by `export --json` or the OCR evidence browser,
+`layout-preview` can create a **disposable, unverified** PNG for human inspection:
+
+```bash
+scribeforge layout-preview --store Book.scribeforge --project 1 --page 17 \
+  --run 42 --block 0 --out figure-preview.png
+```
+
+Use the actual project ID, zero-based physical page index, run ID and block index
+from the project's evidence; the numbers above are examples only. The output
+must be a new `.png` path; an existing file is never replaced. The command
+returns JSON with the verification/run/block identity, original/frame digest,
+normalized box, half-open pixel box, and preview digest. Save that JSON separately
+if it is useful, taking care not to overwrite existing files. These previews may
+contain copyrighted or sensitive text/images and are not automatically deleted.
+
+The command reads the store without migrating it and does not add a decision or
+modify an export. It only accepts figure/table blocks from either OCR run bound
+to the page's **latest** verification. It refuses a missing import digest, a
+missing or preprocessed OCR frame, a frame or raster digest/dimension mismatch,
+a changed project during inspection, or an invalid/empty box. It reads the
+original raster bytes once and crops those exact bytes; the output digest covers
+the PNG, not the source PDF. Pixel edges round outward to avoid silently
+excluding part of the reported box. Check the page again if later processing
+changes its verification or raster: a saved PNG is only a snapshot.
+
+A model's box may include text, miss part of a figure or combine multiple figures.
+The preview is **not** an approved crop, caption, reading-order decision, or an
+EPUB embedding mechanism. No visual completeness is inferred from its creation;
+issue #246 remains open. Preprocessed frames cannot safely be mapped to original
+pixels without a recorded and verified geometric transform, so they are refused
+rather than guessed.
+
+For DOCX, `export --json` now reports `images: 0`, `cover_image: null`, and the
+assembled page image indexes under `docx_omitted_page_images`. Layout observations
+also reflect that DOCX does not embed a whole-page image. Previous versions
+incorrectly described assembled page images as embedded in DOCX; re-export or
+re-inspect those files rather than relying on the old summary.
