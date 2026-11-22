@@ -44,17 +44,13 @@ void main() {
     final file = File(
       '${temporary.path}${Platform.pathSeparator}settings.json',
     );
-    final saved =
-        jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-    final backups = await temporary
-        .list()
-        .where((entry) => entry.path.contains('settings.corrupt-'))
-        .toList();
+    final raw = await file.readAsString();
+    final saved = jsonDecode(raw) as Map<String, dynamic>;
+    final entries = await temporary.list().toList();
+    final backups = entries.where((e) => e.path.contains('settings.corrupt-'));
     expect(backups.length, 1);
-    expect(
-      await File(backups.single.path).readAsString(),
-      '{broken-original',
-    );
+    final backup = File(backups.single.path);
+    expect(await backup.readAsString(), '{broken-original');
     expect(saved.length, 120);
     for (final prefix in <String>['first', 'second']) {
       for (var i = 0; i < 60; i++) {
@@ -90,12 +86,9 @@ void main() {
         'settings-independent-',
       );
       try {
-        expect(
-          (await DesktopSettingsStore(
-            directory: other,
-          ).saveCliExecutable('/other')).ok,
-          isTrue,
-        );
+        final otherStore = DesktopSettingsStore(directory: other);
+        final otherResult = await otherStore.saveCliExecutable('/other');
+        expect(otherResult.ok, isTrue);
       } finally {
         await other.delete(recursive: true);
       }
