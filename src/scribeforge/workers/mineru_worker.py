@@ -92,13 +92,19 @@ def extract_page(raw: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if not isinstance(block, dict):
             raise TypeError("MinerU block must be an object")
         content = block.get("content")
+        block_label = canonical_block_label(block.get("type"))
         if content is None:
+            # Figure/table blocks often contain an image rather than text.
+            # Preserve the region rather than silently dropping it; a missing
+            # box is an error, not permission to fabricate coordinates.
+            if block_label in {"figure", "table"}:
+                box = _box(block.get("bbox"))
+                reported_blocks.append(block_document(block_label, box, len(lines), len(lines)))
             continue
         if not isinstance(content, list):
             raise TypeError("MinerU block content must be a list")
 
         block_box = _box(block.get("bbox"))
-        block_label = canonical_block_label(block.get("type"))
         start = len(lines)
         for item in content:
             if not isinstance(item, dict) or item.get("type") != "text":
@@ -117,7 +123,7 @@ def extract_page(raw: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             if isinstance(score, (int, float)) and not isinstance(score, bool):
                 entry["confidence"] = min(max(float(score), 0.0), 1.0)
             lines.append(entry)
-        if len(lines) > start:
+        if len(lines) > start or block_label in {"figure", "table"}:
             reported_blocks.append(block_document(block_label, block_box, start, len(lines)))
     return lines, reported_blocks
 

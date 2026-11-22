@@ -42,6 +42,21 @@ class OcrEvidenceService {
     return payload.batch('line_index', request, OcrEvidenceLine.new);
   }
 
+  Future<OcrEvidenceBatch<OcrEvidenceBlock>> blocks(
+    int page,
+    int run, {
+    int? after,
+  }) async {
+    final request = OcrEvidenceRequest(
+      OcrEvidenceSection.blocks,
+      page: page,
+      run: run,
+      after: after,
+    );
+    final payload = await _read(request);
+    return payload.batch('block_index', request, OcrEvidenceBlock.new);
+  }
+
   Future<OcrEvidenceBatch<OcrEvidencePair>> pairs(
     int page,
     int run, {

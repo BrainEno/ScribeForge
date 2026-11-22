@@ -15,6 +15,7 @@ from scribeforge.pipeline.assembly import (
     UnresolvedContentError,
     assemble_verified_content,
 )
+from scribeforge.pipeline.layout_evidence import collect_layout_observations
 from scribeforge.storage.sqlite import SQLiteStore
 
 _MAX_INDEX = (1 << 63) - 1
@@ -27,6 +28,7 @@ IssueKind = Literal[
     "page_image",
     "evidence_error",
     "no_pages",
+    "layout_region",
 ]
 
 
@@ -188,6 +190,22 @@ def read_export_readiness(database: Path, options: ReadinessOptions) -> dict[str
         else:
             findings.acceptance(book)
             summary = _summarize_book(book)
+        embedded = frozenset(image.page_index for image in book.images) if summary else frozenset()
+        try:
+            layout = collect_layout_observations(store, project.id, embedded_pages=embedded)
+        except (ValueError, KeyError) as exc:
+            findings.add(ReadinessIssue("evidence_error", detail=str(exc)))
+            layout = ()
+        for observation in layout:
+            if observation.may_be_omitted:
+                findings.add(
+                    ReadinessIssue(
+                        "layout_region",
+                        blocking=False,
+                        page=observation.page_index,
+                        detail=observation.warning(),
+                    )
+                )
         after = observer.execute("PRAGMA data_version").fetchone()[0]
         if before != after:
             raise ValueError("project changed during export readiness check; run it again")

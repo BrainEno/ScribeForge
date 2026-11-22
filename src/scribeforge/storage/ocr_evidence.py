@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-Section = Literal["pages", "page", "lines", "pairs"]
-SECTIONS = ("pages", "page", "lines", "pairs")
+Section = Literal["pages", "page", "lines", "blocks", "pairs"]
+SECTIONS = ("pages", "page", "lines", "blocks", "pairs")
 _MAX_INTEGER = (1 << 63) - 1
 _TEXT_LIMIT = 640
 
@@ -38,7 +38,7 @@ class EvidenceQuery:
             raise ValueError("evidence limit must be between 1 and 50")
         if (self.page is None) != (self.section == "pages"):
             raise ValueError("a physical page is required except for the page list")
-        if (self.run is None) != (self.section not in {"lines", "pairs"}):
+        if (self.run is None) != (self.section not in {"lines", "blocks", "pairs"}):
             raise ValueError("an OCR or verification run is required for lines or pairs")
         if self.section == "page" and self.after != -1:
             raise ValueError("page overview does not support a cursor")
@@ -132,6 +132,28 @@ def _lines(connection: sqlite3.Connection, page_id: int, query: EvidenceQuery) -
         (query.run, query.after, query.limit + 1),
     ).fetchall()
     return _batch([{**dict(row), **_preview(row, "text")} for row in rows], query, "line_index")
+
+
+def _blocks(
+    connection: sqlite3.Connection, page_id: int, query: EvidenceQuery
+) -> dict[str, object]:
+    """Page-scoped, cursor-bounded model observations, including empty ranges."""
+    if (
+        connection.execute(
+            "SELECT 1 FROM engine_runs WHERE id=? AND page_id=?", (query.run, page_id)
+        ).fetchone()
+        is None
+    ):
+        raise ValueError("OCR run does not belong to this page")
+    rows = connection.execute(
+        """
+        SELECT block_index, block_type, x, y, width, height, line_start, line_end
+        FROM ocr_blocks WHERE run_id=? AND block_index > ?
+        ORDER BY block_index LIMIT ?
+        """,
+        (query.run, query.after, query.limit + 1),
+    ).fetchall()
+    return _batch([dict(row) for row in rows], query, "block_index")
 
 
 def _members(
@@ -258,6 +280,8 @@ def read_ocr_evidence(database: Path, query: EvidenceQuery) -> dict[str, object]
                 result = _page_overview(connection, page)
             elif query.section == "lines":
                 result = _lines(connection, int(page["id"]), query)
+            elif query.section == "blocks":
+                result = _blocks(connection, int(page["id"]), query)
             else:
                 result = _pairs(connection, int(page["id"]), query)
         return {

@@ -2727,6 +2727,16 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FATAL
 
+    from scribeforge.pipeline.layout_evidence import collect_layout_observations
+
+    try:
+        layout_observations = collect_layout_observations(
+            store, project.id, embedded_pages=frozenset(image.page_index for image in book.images)
+        )
+    except (ValueError, KeyError, sqlite3.Error) as exc:
+        print(f"error: could not inspect OCR layout evidence: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+
     if not book.pages:
         print("error: no pages to export", file=sys.stderr)
         return EXIT_FATAL
@@ -2837,6 +2847,14 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             ),
             "confirmed_blank_pages": list(book.confirmed_blank_pages),
             "empty_pairs": len(book.empty_pairs),
+            "layout_observations": [entry.as_json() for entry in layout_observations],
+            "layout_notice": (
+                "OCR layout observations are not human confirmation; unreported regions "
+                "may still exist. Mixed-page figures and tables are not embedded."
+            ),
+            "docx_omitted_page_images": (
+                [image.page_index for image in book.images] if suffix == ".docx" else []
+            ),
             "accepted_pairs": summary.pairs,
             "machine_accepted": summary.machine_accepted,
             "human_accepted": summary.human_accepted,
@@ -2873,6 +2891,14 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
         return EXIT_OK
 
     print(f"exported {len(book.pages)} page(s) to {args.out}", file=out)
+    for observation in layout_observations:
+        if observation.may_be_omitted:
+            print(f"warning: page {observation.page_index}: {observation.warning()}", file=out)
+    print(
+        "notice: OCR layout reports may miss figures or tables; inspect source pages. "
+        "Mixed-page figures and tables are not embedded.",
+        file=out,
+    )
     print(f"export receipt: {receipt}", file=out)
     print(
         f"normalization: {derived.report.policy.value} "

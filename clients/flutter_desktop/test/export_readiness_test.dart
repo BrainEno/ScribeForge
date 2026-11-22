@@ -71,6 +71,94 @@ void main() {
     expect(destination?.pair, 4);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('shows layout warning without claiming visual completeness', (
+    tester,
+  ) async {
+    final service = ExportReadinessService(
+      executor: _LayoutCli(),
+      executable: 'scribeforge',
+      storePath: '/book',
+      projectId: 1,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ExportReadinessScreen(
+          service: service,
+          options: const ExportReadinessOptions(
+            strict: true,
+            includePageFurniture: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('本次内容检查未发现阻塞'), findsOneWidget);
+    expect(find.textContaining('图表检测可能漏报'), findsOneWidget);
+    expect(find.textContaining('图表区域可能遗漏'), findsWidgets);
+    expect(find.textContaining('当前导出不保留混排正文中的图表'), findsOneWidget);
+    expect(find.text('查看这页的 OCR 证据'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('layout reminders count as advisory even in strict mode', () {
+    final report = ExportReadinessReport.fromText(
+      jsonEncode(_layoutPayload()),
+      projectId: 1,
+      expected: const ExportReadinessOptions(
+        strict: true,
+        includePageFurniture: false,
+      ),
+    );
+    expect(report.ready, isTrue);
+    expect(report.blockingCount, 0);
+    expect(report.counts[ExportIssueKind.layoutRegion], 1);
+    expect(report.issues.single.page, 2);
+    expect(report.describe(), contains('没有提醒不代表图文完整'));
+  });
+}
+
+Map<String, Object?> _layoutPayload() => <String, Object?>{
+  'schema_version': 1,
+  'project_id': 1,
+  'project_title': 'Book',
+  'ready': true,
+  'blocking_count': 0,
+  'matching_count': 1,
+  'issue_counts': {'layout_region': 1},
+  'options': {
+    'strict_acceptance': true,
+    'include_page_furniture': false,
+    'page_index': null,
+  },
+  'issues': [
+    {
+      'kind': 'layout_region',
+      'blocking': false,
+      'page_index': 2,
+      'pair_index': null,
+      'detail': 'OCR reported a possible figure.',
+      'reasons': [],
+      'characters': [],
+    },
+  ],
+  'summary': null,
+};
+
+class _LayoutCli implements ScribeForgeCliExecutor {
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  Future<int> run({
+    required String executable,
+    required List<String> arguments,
+    required void Function(String) onOutput,
+    required void Function(String) onError,
+  }) async {
+    onOutput(jsonEncode(_layoutPayload()));
+    return 0;
+  }
 }
 
 class _ReadinessCli implements ScribeForgeCliExecutor {
