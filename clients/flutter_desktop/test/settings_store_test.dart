@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/services/settings_store.dart';
@@ -70,8 +71,9 @@ void main() {
   });
 
   test('falls back to the default if settings JSON is malformed', () async {
-    await File('${temporary.path}${Platform.pathSeparator}settings.json')
-        .writeAsString('{not json');
+    await File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    ).writeAsString('{not json');
 
     expect(
       await DesktopSettingsStore(directory: temporary).loadCliExecutable(),
@@ -79,40 +81,43 @@ void main() {
     );
   });
 
-  test('persists VLM settings, preserves the CLI path, and stores no API key value', () async {
-    final store = DesktopSettingsStore(directory: temporary);
-    await store.saveCliExecutable(r'C:\Tools\ScribeForge\scribeforge.exe');
-    await store.saveVlmSettings(
-      const DesktopVlmSettings(
-        enabled: true,
-        endpoint: 'http://127.0.0.1:1234/v1',
-        model: 'local-vision-model',
-        apiKeyEnvironmentVariable: 'SCRIBE_VLM_TOKEN',
-        timeoutSeconds: 45,
-        allowRemote: false,
-      ),
-    );
+  test(
+    'persists VLM settings, preserves the CLI path, and stores no API key value',
+    () async {
+      final store = DesktopSettingsStore(directory: temporary);
+      await store.saveCliExecutable(r'C:\Tools\ScribeForge\scribeforge.exe');
+      await store.saveVlmSettings(
+        const DesktopVlmSettings(
+          enabled: true,
+          endpoint: 'http://127.0.0.1:1234/v1',
+          model: 'local-vision-model',
+          apiKeyEnvironmentVariable: 'SCRIBE_VLM_TOKEN',
+          timeoutSeconds: 45,
+          allowRemote: false,
+        ),
+      );
 
-    final loadedStore = DesktopSettingsStore(directory: temporary);
-    final vlm = await loadedStore.loadVlmSettings();
-    expect(vlm.enabled, isTrue);
-    expect(vlm.endpoint, 'http://127.0.0.1:1234/v1');
-    expect(vlm.model, 'local-vision-model');
-    expect(vlm.apiKeyEnvironmentVariable, 'SCRIBE_VLM_TOKEN');
-    expect(vlm.timeoutSeconds, 45);
-    expect(vlm.allowRemote, isFalse);
-    expect(
-      await loadedStore.loadCliExecutable(),
-      r'C:\Tools\ScribeForge\scribeforge.exe',
-    );
+      final loadedStore = DesktopSettingsStore(directory: temporary);
+      final vlm = await loadedStore.loadVlmSettings();
+      expect(vlm.enabled, isTrue);
+      expect(vlm.endpoint, 'http://127.0.0.1:1234/v1');
+      expect(vlm.model, 'local-vision-model');
+      expect(vlm.apiKeyEnvironmentVariable, 'SCRIBE_VLM_TOKEN');
+      expect(vlm.timeoutSeconds, 45);
+      expect(vlm.allowRemote, isFalse);
+      expect(
+        await loadedStore.loadCliExecutable(),
+        r'C:\Tools\ScribeForge\scribeforge.exe',
+      );
 
-    final saved = await File(
-      '${temporary.path}${Platform.pathSeparator}settings.json',
-    ).readAsString();
-    expect(saved, contains('SCRIBE_VLM_TOKEN'));
-    expect(saved, isNot(contains('"api_key"')));
-    expect(saved, isNot(contains('actual-secret-value')));
-  });
+      final saved = await File(
+        '${temporary.path}${Platform.pathSeparator}settings.json',
+      ).readAsString();
+      expect(saved, contains('SCRIBE_VLM_TOKEN'));
+      expect(saved, isNot(contains('"api_key"')));
+      expect(saved, isNot(contains('actual-secret-value')));
+    },
+  );
 
   test('refuses to enable VLM review without an endpoint and model', () async {
     final store = DesktopSettingsStore(directory: temporary);
@@ -255,4 +260,90 @@ void main() {
     expect(raw, contains('custom_key'));
     expect(raw, contains('/cli'));
   });
+
+  test('separate store instances serialize updates to the same file', () async {
+    final stores = List.generate(
+      4,
+      (_) => DesktopSettingsStore(directory: temporary),
+    );
+    final results = await Future.wait(
+      List.generate(120, (index) {
+        return stores[index % stores.length].update((settings) {
+          settings['field-$index'] = index;
+        });
+      }),
+    );
+    expect(results.every((result) => result.ok), isTrue);
+    final content = await File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    ).readAsString();
+    final decoded = jsonDecode(content) as Map<String, dynamic>;
+    expect(decoded.length, 120);
+    for (var index = 0; index < 120; index++) {
+      expect(decoded['field-$index'], index);
+    }
+  });
+
+  test('invalid UTF-8 is quarantined byte for byte', () async {
+    final file = File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    );
+    final bytes = <int>[123, 255, 125];
+    await file.writeAsBytes(bytes);
+    final store = DesktopSettingsStore(directory: temporary);
+    expect(await store.loadCliExecutable(), 'scribeforge');
+    final corruption = store.pendingCorruption!;
+    expect(corruption.backedUp, isTrue);
+    expect(await File(corruption.backupPath).readAsBytes(), bytes);
+  });
+
+  test(
+    'failed quarantine blocks saves until the original is repaired',
+    () async {
+      final file = File(
+        '${temporary.path}${Platform.pathSeparator}settings.json',
+      );
+      await file.writeAsString('{broken');
+      final store = DesktopSettingsStore(
+        directory: temporary,
+        quarantineHook: (source, backup) async {
+          throw FileSystemException('access denied', source.path);
+        },
+      );
+      expect(await store.loadCliExecutable(), 'scribeforge');
+      expect(store.pendingCorruption!.backedUp, isFalse);
+      store.clearPendingCorruption();
+      expect(store.pendingCorruption, isNotNull);
+      final save = await store.saveBackendPython('/new/python');
+      expect(save.ok, isFalse);
+      expect(save.error, contains('保存已暂停'));
+      expect(await file.readAsString(), '{broken');
+      await file.writeAsString('{"cli_executable":"/repaired"}');
+      expect((await store.saveBackendPython('/new/python')).ok, isTrue);
+      expect(await store.loadCliExecutable(), '/repaired');
+      expect(await store.loadBackendPython(), '/new/python');
+    },
+  );
+
+  test(
+    'repeated corruptions at the same timestamp preserve both backups',
+    () async {
+      final file = File(
+        '${temporary.path}${Platform.pathSeparator}settings.json',
+      );
+      final store = DesktopSettingsStore(
+        directory: temporary,
+        clock: () => DateTime.utc(2026),
+      );
+      await file.writeAsString('{first');
+      await store.loadCliExecutable();
+      final first = store.pendingCorruption!.backupPath;
+      await file.writeAsString('{second');
+      await store.loadCliExecutable();
+      final second = store.pendingCorruption!.backupPath;
+      expect(first, isNot(second));
+      expect(await File(first).readAsString(), '{first');
+      expect(await File(second).readAsString(), '{second');
+    },
+  );
 }

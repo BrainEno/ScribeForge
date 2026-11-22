@@ -28,25 +28,29 @@ class SettingsCorruption {
   const SettingsCorruption({
     required this.backupPath,
     required this.detectedAt,
+    this.backedUp = true,
   });
 
   final String backupPath;
   final DateTime detectedAt;
+  final bool backedUp;
 
-  String get message =>
-      '配置文件 settings.json 已损坏，原始内容已备份为 '
-      '$backupPath；本次启动使用默认设置。';
+  String get message => backedUp
+      ? '配置文件 settings.json 已损坏，原始内容已备份为 '
+            '$backupPath；本次启动使用默认设置。'
+      : '配置文件 settings.json 已损坏，无法备份。原文件仍在 '
+            '$backupPath；为防止数据丢失，保存已暂停，请检查权限并手动备份。';
 }
 
 typedef SettingsClock = DateTime Function();
 
-/// Test hook invoked after the temporary file is fully written and fsynced
-/// but before it is renamed over `settings.json`; throwing simulates a crash
-/// in the middle of a write.
-typedef SettingsWriteHook = Future<void> Function(
-  File tmpFile,
-  List<int> bytes,
-);
+/// Test hook for a failed quarantine operation.
+typedef SettingsQuarantineHook =
+    Future<void> Function(File source, File backup);
+
+/// Called after the temporary file is flushed, before replacing the main file.
+typedef SettingsWriteHook =
+    Future<void> Function(File tmpFile, List<int> bytes);
 
 class DesktopVlmSettings {
   const DesktopVlmSettings({
@@ -117,6 +121,7 @@ class DesktopSettingsStore {
     this.clock,
     this.onCorruption,
     this.beforeRename,
+    this.quarantineHook,
   });
 
   static const String defaultCliExecutable = 'scribeforge';
@@ -126,18 +131,23 @@ class DesktopSettingsStore {
   final SettingsClock? clock;
   final void Function(SettingsCorruption corruption)? onCorruption;
   final SettingsWriteHook? beforeRename;
+  final SettingsQuarantineHook? quarantineHook;
 
-  Future<void> _queue = Future<void>.value();
+  // Serialize all reads and writes for a path within this isolate, including
+  // separate store instances. This is not a cross-process lock.
+  static final Map<String, Future<void>> _queues = <String, Future<void>>{};
   SettingsCorruption? _pendingCorruption;
 
   /// The most recent corruption detected while reading, if any. The UI
   /// reads this once at startup to show a recovery banner.
   SettingsCorruption? get pendingCorruption => _pendingCorruption;
 
-  void clearPendingCorruption() => _pendingCorruption = null;
+  void clearPendingCorruption() {
+    if (_pendingCorruption?.backedUp != false) _pendingCorruption = null;
+  }
 
   Future<String> loadCliExecutable() async {
-    final settings = await _readSettings();
+    final settings = await _enqueue(_readSettings);
     final value = settings['cli_executable'];
     if (value is String && value.trim().isNotEmpty) return value.trim();
     return defaultCliExecutable;
@@ -156,7 +166,7 @@ class DesktopSettingsStore {
   Directory get settingsDirectory => directory ?? _defaultDirectory();
 
   Future<String> loadBackendPython() async {
-    final settings = await _readSettings();
+    final settings = await _enqueue(_readSettings);
     final value = settings['backend_python'];
     return value is String ? value.trim() : '';
   }
@@ -168,7 +178,7 @@ class DesktopSettingsStore {
   }
 
   Future<String> loadBackendSourcePath() async {
-    final settings = await _readSettings();
+    final settings = await _enqueue(_readSettings);
     final value = settings['backend_source_path'];
     return value is String ? value.trim() : '';
   }
@@ -181,7 +191,7 @@ class DesktopSettingsStore {
 
   /// Last successfully opened project store directory, if any remembered.
   Future<String?> loadLastProjectStore() async {
-    final settings = await _readSettings();
+    final settings = await _enqueue(_readSettings);
     final value = settings['last_project_store'];
     return value is String && value.trim().isNotEmpty ? value.trim() : null;
   }
@@ -200,7 +210,7 @@ class DesktopSettingsStore {
   }
 
   Future<RuntimeLocationPreferences> loadRuntimeLocations() async {
-    final settings = await _readSettings();
+    final settings = await _enqueue(_readSettings);
     return RuntimeLocationPreferences.fromJson(settings['runtime_locations']);
   }
 
@@ -218,7 +228,7 @@ class DesktopSettingsStore {
   });
 
   Future<DesktopVlmSettings> loadVlmSettings() async {
-    final settings = await _readSettings();
+    final settings = await _enqueue(_readSettings);
     return DesktopVlmSettings.fromJson(settings['vlm_settings']);
   }
 
@@ -252,6 +262,9 @@ class DesktopSettingsStore {
     return _enqueue(() async {
       try {
         final current = await _readSettings();
+        if (_pendingCorruption != null && !_pendingCorruption!.backedUp) {
+          throw StateError(_pendingCorruption!.message);
+        }
         mutation(current);
         await _writeSettingsAtomic(current);
         return SettingsSaveResult.ok();
@@ -262,23 +275,39 @@ class DesktopSettingsStore {
   }
 
   Future<T> _enqueue<T>(Future<T> Function() task) {
-    final result = _queue.then((_) => task());
-    // The queue itself must survive a failed task.
-    _queue = result.then((_) => null, onError: (_) => null);
+    final key = _settingsFile.absolute.path;
+    final previous = _queues[key] ?? Future<void>.value();
+    final result = previous.then((_) => task());
+    final tail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    _queues[key] = tail;
+    unawaited(
+      tail.then((_) {
+        if (identical(_queues[key], tail)) _queues.remove(key);
+      }),
+    );
     return result;
   }
 
   Future<Map<String, dynamic>> _readSettings() async {
     final file = _settingsFile;
-    if (!await file.exists()) return <String, dynamic>{};
-    final raw = await file.readAsString();
+    if (!await file.exists()) {
+      // A successful later quarantine or manual recovery clears a blocked save.
+      if (_pendingCorruption?.backedUp == false) _pendingCorruption = null;
+      return <String, dynamic>{};
+    }
+    final bytes = await file.readAsBytes();
     try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      final decoded = jsonDecode(utf8.decode(bytes));
+      if (decoded is Map) {
+        final settings = Map<String, dynamic>.from(decoded);
+        if (_pendingCorruption?.backedUp == false) _pendingCorruption = null;
+        return settings;
+      }
       throw const FormatException('settings.json must contain a JSON object');
-    } on Object {
-      // A corrupted settings file must not prevent the app from opening,
-      // but it must not be silently discarded either: quarantine it.
+    } on FormatException {
       await _quarantineCorruptFile(file);
       return <String, dynamic>{};
     }
@@ -286,25 +315,32 @@ class DesktopSettingsStore {
 
   Future<void> _quarantineCorruptFile(File file) async {
     final now = (clock ?? DateTime.now)();
-    final stamp = '${now.microsecondsSinceEpoch}';
-    final backup = File(
-      '${file.parent.path}${Platform.pathSeparator}'
-      'settings.corrupt-$stamp.json',
-    );
+    final prefix =
+        '${file.parent.path}${Platform.pathSeparator}'
+        'settings.corrupt-${now.microsecondsSinceEpoch}';
+    var backup = File('$prefix.json');
+    var suffix = 0;
+    while (await backup.exists()) {
+      backup = File('$prefix-${++suffix}.json');
+    }
+    var backedUp = false;
     try {
-      await file.rename(backup.path);
-    } on Object {
-      try {
-        await file.copy(backup.path);
-        await file.delete();
-      } on Object {
-        // Even if quarantining fails the app stays usable with defaults.
-        return;
+      if (quarantineHook != null) {
+        await quarantineHook!(file, backup);
+      } else {
+        // Rename preserves the original bytes; do not delete the original
+        // as a fallback if the backup cannot be created.
+        await file.rename(backup.path);
       }
+      backedUp = true;
+    } on FileSystemException {
+      // Keep the original in place and prevent a subsequent atomic write
+      // from replacing the only remaining copy.
     }
     final corruption = SettingsCorruption(
-      backupPath: backup.path,
+      backupPath: backedUp ? backup.path : file.path,
       detectedAt: now,
+      backedUp: backedUp,
     );
     _pendingCorruption = corruption;
     try {
