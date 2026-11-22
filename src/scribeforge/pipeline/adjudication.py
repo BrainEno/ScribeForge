@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,7 +9,6 @@ from scribeforge.domain.alignment import (
     AlignmentAmbiguity,
     AlignmentConflict,
     AlignmentStatus,
-    LineAlignment,
 )
 from scribeforge.domain.crops import review_crop_file_name
 from scribeforge.domain.decisions import DecisionActor, adjudicate_pair
@@ -17,6 +16,7 @@ from scribeforge.domain.ocr import BoundingBox, PageOCRResult
 from scribeforge.domain.page_asset import file_sha256
 from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.domain.text_assembly import assemble_group_text
+from scribeforge.pipeline.furniture import pair_furniture_reason, project_furniture
 from scribeforge.storage.sqlite import (
     DecisionAlreadyExists,
     PageRecord,
@@ -329,9 +329,9 @@ def review_queue(
         record = store.load_verification(verification_id)
         primary = store.load_ocr_run(record.primary_run_id)
         secondary = store.load_ocr_run(record.secondary_run_id)
-        page_furniture = furniture.get(page.page_index, {})
+        page_furniture = furniture.get(page.page_index)
         for pair_index, pair in enumerate(record.alignment.pairs):
-            furniture_reason = _pair_furniture_reason(page_furniture, pair)
+            furniture_reason = pair_furniture_reason(page_furniture, pair)
             if furniture_reason is not None and not include_page_furniture:
                 continue
             if (
@@ -360,38 +360,6 @@ def review_queue(
     return tuple(items)
 
 
-def _pair_furniture_reason(page_furniture: Mapping[int, str], pair: LineAlignment) -> str | None:
-    # Furniture indexes are derived from the primary reading. Secondary line
-    # indexes are a separate coordinate space and may collide with body indexes.
-    for index in pair.primary_line_indexes:
-        if index in page_furniture:
-            return page_furniture[index]
-    return None
-
-
-def project_furniture(store: SQLiteStore, project_id: int) -> Mapping[int, Mapping[int, str]]:
-    """Book-wide furniture detection from stored OCR runs.
-
-    Public because every stage that walks pairs must agree on which ones are page
-    furniture: a repair round that re-read a running head would spend a reader on
-    text the export is going to drop.
-    """
-
-    from scribeforge.domain.furniture import detect_page_furniture
-
-    pages: dict[int, PageOCRResult] = {}
-    for page in store.list_pages(project_id):
-        for engine in ("primary", "secondary"):
-            try:
-                run_id = store.latest_engine_run(project_id, page.page_index, engine)
-            except KeyError:
-                continue
-            pages[page.page_index] = store.load_ocr_run(run_id)
-            break
-    detected = detect_page_furniture(pages)
-    return {page_index: dict(found) for page_index, found in detected.items()}
-
-
 def review_detail(
     store: SQLiteStore,
     project_id: int,
@@ -412,8 +380,8 @@ def review_detail(
     context = _pair_context(store, project_id, page_index, pair_index)
     pair = context.record.alignment.pairs[pair_index]
     if isinstance(furniture_reason, _Unset):
-        furniture_reason = _pair_furniture_reason(
-            project_furniture(store, project_id).get(page_index, {}), pair
+        furniture_reason = pair_furniture_reason(
+            project_furniture(store, project_id).get(page_index), pair
         )
     candidate = context.candidate
     decision = store.latest_decision_for_verification(

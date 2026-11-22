@@ -2873,6 +2873,18 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
                 for item in summary.spot_check
             ],
             "dropped_furniture": len(book.dropped_furniture),
+            "dropped_furniture_details": [
+                {
+                    "page_index": item.page_index,
+                    "pair_index": item.pair_index,
+                    "verification_id": item.verification_id,
+                    "primary_line_indexes": list(item.primary_line_indexes),
+                    "secondary_line_indexes": list(item.secondary_line_indexes),
+                    "text": item.text,
+                    "reason": item.reason,
+                }
+                for item in book.dropped_furniture
+            ],
             "normalization": {
                 "policy": derived.report.policy.value,
                 "converter": derived.report.converter,

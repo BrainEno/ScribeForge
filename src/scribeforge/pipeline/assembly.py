@@ -24,12 +24,16 @@ from scribeforge.domain.content import (
     VerifiedImage,
     VerifiedPage,
 )
-from scribeforge.domain.furniture import detect_page_furniture
 from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
 from scribeforge.domain.page_asset import PageAssetError, verify_page_asset
 from scribeforge.domain.paragraphs import LineRole
 from scribeforge.domain.structure import BookStructure, PageRole
 from scribeforge.domain.text_assembly import assemble_group_text
+from scribeforge.pipeline.furniture import (
+    decision_preserves_furniture,
+    pair_furniture_reason,
+    project_furniture,
+)
 from scribeforge.storage.sqlite import PageConfirmation, PageRecord, SQLiteStore, VerificationRecord
 
 
@@ -102,7 +106,7 @@ def assemble_verified_content(
 
     structure = store.load_book_structure(project_id)
     labels = structure.printed_labels_by_page()
-    furniture = {} if include_page_furniture else _detect_furniture(store, project_id)
+    furniture = {} if include_page_furniture else project_furniture(store, project_id)
     confirmations = store.latest_page_confirmations(project_id)
     measured_ink = {
         entry.page_index: entry.ink_ratio
@@ -166,7 +170,7 @@ def assemble_verified_content(
         current_confirmation = confirmations.get(page.page_index)
         if current_confirmation is not None and current_confirmation.verification_id is not None:
             confirmations.pop(page.page_index)
-        page_furniture = furniture.get(page.page_index, {})
+        page_furniture = furniture.get(page.page_index)
         primary_result = store.load_ocr_run(record.primary_run_id)
         secondary_result = store.load_ocr_run(record.secondary_run_id)
         lines: list[str] = []
@@ -174,17 +178,35 @@ def assemble_verified_content(
         roles: list[LineRole] = []
         for pair_index in range(len(record.alignment.pairs)):
             pair = record.alignment.pairs[pair_index]
-            furniture_reason = _pair_furniture(page_furniture, pair)
+            furniture_reason = pair_furniture_reason(page_furniture, pair)
             decision = store.latest_decision_for_verification(
                 project_id, page.page_index, pair_index, verification_id=verification_id
             )
+            if (
+                furniture_reason is not None
+                and decision is not None
+                and not decision_preserves_furniture(
+                    decision.selected_text, pair, primary_result, secondary_result
+                )
+            ):
+                furniture_reason = None
             if furniture_reason is not None:
                 # A running head is not content: it must not be exported, and its
                 # missing decision must not block the book from assembling.
                 text = decision.selected_text if decision is not None else ""
                 if not text:
                     text = _pair_source_text(store, record, pair)
-                dropped.append(DroppedFurniture(page.page_index, text, furniture_reason))
+                dropped.append(
+                    DroppedFurniture(
+                        page.page_index,
+                        text,
+                        furniture_reason,
+                        pair_index,
+                        verification_id,
+                        pair.primary_line_indexes,
+                        pair.secondary_line_indexes,
+                    )
+                )
                 continue
             if decision is None:
                 if _pair_is_empty(primary_result, secondary_result, pair):
@@ -481,55 +503,6 @@ def _pair_role(primary: PageOCRResult, secondary: PageOCRResult, pair: LineAlign
             if block.block_type is BlockType.FOOTNOTE:
                 return LineRole.FOOTNOTE
     return LineRole.BODY
-
-
-def _detect_furniture(store: SQLiteStore, project_id: int) -> dict[int, dict[int, str]]:
-    """Margin/furniture detection over every stored run of the project.
-
-    Uses whichever engine produced a run for the page; furniture is a property of
-    the page, not of one engine, and a page missing from one engine must not lose
-    its detection. Falls back to an empty result rather than failing assembly: an
-    export with a stray running head is recoverable, an export that cannot run is
-    not.
-    """
-
-    pages: dict[int, PageOCRResult] = {}
-    for page in store.list_pages(project_id):
-        try:
-            verification_id = store.latest_verification_id(project_id, page.page_index)
-        except KeyError:
-            verification_id = None
-        if verification_id is not None:
-            result = store.load_ocr_run(store.load_verification(verification_id).primary_run_id)
-        else:
-            stored = _first_stored_run(store, project_id, page.page_index)
-            if stored is None:
-                continue
-            result = stored
-        pages[page.page_index] = result
-    return {page_index: dict(found) for page_index, found in detect_page_furniture(pages).items()}
-
-
-def _first_stored_run(store: SQLiteStore, project_id: int, page_index: int) -> PageOCRResult | None:
-    for engine in ("primary", "secondary"):
-        try:
-            run_id = store.latest_engine_run(project_id, page_index, engine)
-        except KeyError:
-            continue
-        return store.load_ocr_run(run_id)
-    return None
-
-
-def _pair_furniture(page_furniture: dict[int, str], pair: LineAlignment) -> str | None:
-    """Reason for furniture mapped from the primary OCR line index."""
-
-    # Detection indexes come from the primary OCR run. A secondary line index may
-    # collide with a different primary line when the engines emit different line
-    # counts; comparing it here can silently drop real body text.
-    for index in pair.primary_line_indexes:
-        if index in page_furniture:
-            return page_furniture[index]
-    return None
 
 
 def _pair_source_text(store: SQLiteStore, record: VerificationRecord, pair: LineAlignment) -> str:

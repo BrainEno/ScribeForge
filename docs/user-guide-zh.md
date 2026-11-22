@@ -178,7 +178,7 @@ scribeforge export-candidates --store "D:\Books\My Book.scribeforge" --out-dir "
 
 Manifest 会记录源文件哈希、引擎版本、每页的 OCR 运行 ID 和候选文件哈希。若某个引擎缺少页面结果，导出会报错，而不是静默生成一本缺页的候选书。
 
-这些 EPUB 是**未校对的原始候选**，只用于比较。最终已校对的 EPUB/DOCX 应通过 scribeforge export 导出；该命令会阻止尚有未解决校对项的项目被误当作完整成品。
+这些 EPUB 是**未校对的原始候选**，只用于比较；它们保留 OCR 原始行，包括识别出的页眉页脚，不做正式导出的页边过滤。最终已校对的 EPUB/DOCX 应通过 scribeforge export 导出；该命令会阻止尚有未解决校对项的项目被误当作完整成品。
 
 ## 6.1 处理被拦下的行与空白页
 

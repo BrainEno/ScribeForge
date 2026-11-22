@@ -196,7 +196,7 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
       );
       if (!mounted || version != _sessionVersion) return;
       setState(() {
-        _notice = '已加载未验证的 OCR 候选；页面评价只写入独立旁路文件。';
+        _notice = '已加载未验证的 OCR 候选；原始页眉页脚会保留。页面评价只写入独立旁路文件。';
       });
     } catch (error) {
       if (!mounted || version != _sessionVersion) return;
@@ -582,7 +582,7 @@ class _CandidateComparisonScreenState extends State<CandidateComparisonScreen> {
                 const SizedBox(height: 12),
                 Text(
                   widget.canGenerateCandidates
-                      ? '可直接从当前项目导出 MinerU 与 PaddleOCR 的原始候选。'
+                      ? '可直接导出原始候选；页眉页脚不会过滤，不能作为已校对成品。'
                       : '一键生成要求所有页面都已有双引擎 OCR 结果；也可以手动加载现有 EPUB。',
                   style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
                 ),
