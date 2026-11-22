@@ -34,11 +34,19 @@ def engine_vram_mib(engine: object) -> int | None:
 def per_page_vram_mib(
     engines: tuple[object, ...], *, fallback_mib: int = DEFAULT_PAGE_VRAM_MIB
 ) -> int:
-    """Total VRAM one in-flight page needs: declared engine footprints, or the fallback."""
+    """Estimate per-page VRAM without discarding known engine costs.
+
+    The fallback is a whole-page estimate, not a per-unknown-engine allowance.
+    It is not a hard upper bound on real model usage; operators must measure
+    peak VRAM and leave headroom for other processes.
+    """
+    if fallback_mib < 1:
+        raise ValueError(f"fallback_mib must be >= 1, got {fallback_mib}")
     declared = [engine_vram_mib(engine) for engine in engines]
+    known = sum(cost for cost in declared if cost is not None)
     if any(cost is None for cost in declared):
-        return fallback_mib
-    return sum(cost for cost in declared if cost is not None)
+        return max(fallback_mib, known)
+    return known
 
 
 def resolve_page_worker_count(

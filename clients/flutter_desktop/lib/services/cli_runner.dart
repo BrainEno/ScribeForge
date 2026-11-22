@@ -205,7 +205,16 @@ class ScribeForgeCli {
     DesktopVlmSettings? vlmSettings,
     bool cancelable = false,
   }) {
-    final arguments = <String>['process', pdfPath, '--store', storePath];
+    // A desktop machine may have many CPU cores but only one GPU. Until the
+    // user can configure and measure a memory budget, keep OCR page-serial.
+    final arguments = <String>[
+      'process',
+      pdfPath,
+      '--store',
+      storePath,
+      '--workers',
+      '1',
+    ];
     if (cancelable) arguments.add('--cancelable');
     if (vlmSettings != null && vlmSettings.enabled) {
       arguments.addAll(_vlmArguments(vlmSettings));

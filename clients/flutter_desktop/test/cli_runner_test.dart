@@ -226,6 +226,8 @@ void main() {
         '/tmp/My Book.pdf',
         '--store',
         '/tmp/My Book.scribeforge',
+        '--workers',
+        '1',
       ];
       expect(
         ScribeForgeCli.processArguments(
@@ -275,6 +277,8 @@ void main() {
           '/tmp/My Book.pdf',
           '--store',
           '/tmp/My Book.scribeforge',
+          '--workers',
+          '1',
           '--vlm-endpoint',
           'http://127.0.0.1:1234/v1',
           '--vlm-model',
@@ -346,6 +350,8 @@ void main() {
           '/tmp/My Book.pdf',
           '--store',
           '/tmp/My Book.scribeforge',
+          '--workers',
+          '1',
         ],
       );
       expect(
