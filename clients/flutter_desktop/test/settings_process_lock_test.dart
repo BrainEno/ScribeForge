@@ -12,7 +12,7 @@ Future<Process> startWorker(String mode, Directory dir, [String? prefix]) {
     mode,
     dir.path,
     if (prefix != null) prefix,
-  ]);
+  ], runInShell: Platform.isWindows);
 }
 
 void main() {
