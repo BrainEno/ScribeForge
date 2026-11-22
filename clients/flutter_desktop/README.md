@@ -26,10 +26,11 @@ From this directory:
 
 ```bash
 flutter create --platforms=windows,macos,linux --project-name scribeforge_desktop .
+# Copy assets/branding/app_icon.ico to windows/runner/resources/app_icon.ico
 flutter pub get
 ```
 
-Windows PowerShell users can run `./tool/bootstrap_desktop.ps1`; macOS/Linux users can run `sh tool/bootstrap_desktop.sh`. The generated `windows/`, `macos/`, and `linux/` folders are local platform runners. CI scaffolds them from Flutter templates before analyzing and testing.
+Windows PowerShell users can run `./tool/bootstrap_desktop.ps1`; macOS/Linux users can run `sh tool/bootstrap_desktop.sh`. The scripts install the ScribeForge Windows executable icon after scaffolding. The icon currently applies to the Windows runner; macOS and Linux launcher integration is not supplied. The generated `windows/`, `macos/`, and `linux/` folders are local platform runners. CI scaffolds them from Flutter templates before analyzing and testing.
 
 Both bootstrap scripts pin dependency resolution to the official `https://pub.dev` / `https://storage.googleapis.com` (unless you export `PUB_HOSTED_URL`/`FLUTTER_STORAGE_BASE_URL` yourself). Third-party pub mirrors such as `pub.flutter-io.cn` re-pack some archives (`pdfrx`, `pdfrx_engine`), which makes `flutter pub get` / `flutter run` abort with `Downloaded archive ... had wrong content-hash`. If you run `flutter run` directly and hit that error, either use the bootstrap script once or point your environment at the official endpoints:
 

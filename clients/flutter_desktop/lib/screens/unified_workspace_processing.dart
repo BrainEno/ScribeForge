@@ -123,6 +123,7 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
         storePath: storePath,
         vlmSettings: _vlmSettings,
         cancelable: true,
+        pageWorkers: _pageWorkers,
       );
       final buffer = StringBuffer();
       final exitCode = await _cliExecutor.run(
@@ -359,6 +360,33 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
                   label: const Text('选择文件'),
                   onPressed: _busy ? null : _pickPdf,
                 ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '中断后重新点击开始处理，将继续未完成的导入和页级任务；已完成阶段与人工决定不会主动重跑。',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                key: const ValueKey('page-worker-count'),
+                initialValue: _pageWorkers,
+                decoration: const InputDecoration(labelText: '同时处理的页数'),
+                items: const <DropdownMenuItem<int>>[
+                  DropdownMenuItem(value: 1, child: Text('1 页（默认，最省资源）')),
+                  DropdownMenuItem(value: 2, child: Text('2 页')),
+                  DropdownMenuItem(value: 3, child: Text('3 页')),
+                  DropdownMenuItem(value: 4, child: Text('4 页')),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (value) => _updateWorkspace(() {
+                        if (value != null) _pageWorkers = value;
+                      }),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '并行可利用更多 CPU，但会同时启动多个 OCR 模型，占用更多内存和显存；不一定更快。资源不足时改回 1 页后继续。',
+                style: TextStyle(fontSize: 12),
               ),
               const SizedBox(height: 16),
               SizedBox(

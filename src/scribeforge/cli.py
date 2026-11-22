@@ -588,6 +588,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit a stable JSON summary for desktop clients."
     )
 
+    diagnosis = subparsers.add_parser(
+        "diagnose-book", help="Compare source pages, project progress, and EPUB page markers."
+    )
+    diagnosis.add_argument("--store", type=Path, required=True)
+    diagnosis.add_argument("--source", type=Path, required=True)
+    diagnosis.add_argument("--epub", type=Path, required=True)
+
     layout_preview = subparsers.add_parser(
         "layout-preview", help="Create an unverified preview of an original-frame OCR region."
     )
@@ -1298,6 +1305,8 @@ def _dispatch(
         return _vlm_check(args, out)
     if args.command == "status":
         return _status(args, out)
+    if args.command == "diagnose-book":
+        return _diagnose_book(args, out)
     if args.command == "layout-preview":
         return _layout_preview(args, out)
     if args.command == "report":
@@ -1840,6 +1849,28 @@ def _project_timing_summary(
     return report.observed_seconds, report.bottleneck_stage, engine_seconds
 
 
+def _diagnose_book(args: argparse.Namespace, out: TextIO) -> int:
+    import zipfile
+    from xml.etree import ElementTree
+
+    from scribeforge.book_diagnosis import diagnose_book
+
+    try:
+        result = diagnose_book(StoreLayout(args.store).db_path, args.source, args.epub)
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        sqlite3.Error,
+        zipfile.BadZipFile,
+        ElementTree.ParseError,
+    ) as exc:
+        print(f"error: could not diagnose book: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(json.dumps(result, ensure_ascii=False, indent=2), file=out)
+    return EXIT_OK
+
+
 def _layout_preview(args: argparse.Namespace, out: TextIO) -> int:
     from scribeforge.pipeline.layout_preview import create_layout_preview
 
@@ -1900,6 +1931,10 @@ def _status(args: argparse.Namespace, out: TextIO) -> int:
                     "source_uri": project.source_uri,
                     "source_sha256": project.source_sha256,
                     "pages_total": len(pages),
+                    "import_state": next(
+                        (job.state.value for job in jobs if job.stage is JobStage.IMPORT), None
+                    ),
+                    "pages_total_meaning": "imported_pages_not_source_page_count",
                     "pages_with_both_ocr_success": len(dual_ocr_pages),
                     "review_queued": len(review_queue(store, project.id)),
                     "job_counts": state_counts,
@@ -3100,6 +3135,13 @@ def _export_candidates(args: argparse.Namespace, out: TextIO) -> int:
             return EXIT_FATAL
 
     project = selected_project
+    from scribeforge.pipeline.import_integrity import require_completed_import
+
+    try:
+        require_completed_import(store, project.id)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FATAL
     pages = store.list_pages(project.id)
     if not pages:
         print("error: project has no imported pages", file=sys.stderr)

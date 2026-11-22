@@ -71,6 +71,11 @@ def import_source(
 
     job_id = store.ensure_job(project_id, JobStage.IMPORT)
     if store.load_job(job_id).state is JobState.SUCCEEDED:
+        if store.imported_page_indexes(project_id) != frozenset(range(page_count)):
+            raise ValueError(
+                "completed import does not match the source page count; "
+                "restore a verified backup or re-import the original source into a new project"
+            )
         return ImportResult(project_id, job_id, (), page_count)
 
     store.start_job(job_id)
@@ -78,6 +83,10 @@ def import_source(
     try:
         assets_dir.mkdir(parents=True, exist_ok=True)
         already_imported = store.imported_page_indexes(project_id)
+        if any(index >= page_count for index in already_imported):
+            raise ValueError(
+                "existing page index exceeds source page count; restore a verified backup"
+            )
         for page_index in range(page_count):
             raise_if_cancelled()
             if page_index in already_imported:

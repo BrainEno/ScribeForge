@@ -88,6 +88,7 @@ class ProjectStatusSnapshot {
     required this.failedJobs,
     required this.failedJobDetails,
     required this.activeJobs,
+    this.importState,
   });
 
   final int projectId;
@@ -95,6 +96,7 @@ class ProjectStatusSnapshot {
   final String sourceUri;
   final String? sourceSha256;
   final int pagesTotal;
+  final String? importState;
   final int pagesWithBothOcrSuccess;
   final int reviewQueued;
   final int pendingJobs;
@@ -165,6 +167,7 @@ class ProjectStatusSnapshot {
     final rawJobCounts = selected['job_counts'];
     final rawFailedJobs = selected['failed_jobs'];
     final rawActiveJobs = selected['active_jobs'];
+    final importState = selected['import_state'];
     if (id is! int ||
         title is! String ||
         sourceUri is! String ||
@@ -174,7 +177,8 @@ class ProjectStatusSnapshot {
         reviewQueued is! int ||
         rawJobCounts is! Map ||
         rawFailedJobs is! List ||
-        (rawActiveJobs != null && rawActiveJobs is! List)) {
+        (rawActiveJobs != null && rawActiveJobs is! List) ||
+        (importState != null && importState is! String)) {
       throw const FormatException('Status JSON has invalid project fields.');
     }
     final counts = Map<String, dynamic>.from(rawJobCounts);
@@ -206,6 +210,7 @@ class ProjectStatusSnapshot {
       sourceUri: sourceUri,
       sourceSha256: sourceSha256 as String?,
       pagesTotal: pagesTotal,
+      importState: importState as String?,
       pagesWithBothOcrSuccess: pagesWithBothOcrSuccess,
       reviewQueued: reviewQueued,
       pendingJobs: count('pending'),

@@ -291,6 +291,34 @@ void main() {
       );
     });
 
+    test('page concurrency is explicit and bounded', () {
+      expect(
+        ScribeForgeCli.processArguments(
+          pdfPath: 'book.pdf',
+          storePath: 'book.scribeforge',
+          pageWorkers: 2,
+        ),
+        <String>[
+          'process',
+          'book.pdf',
+          '--store',
+          'book.scribeforge',
+          '--workers',
+          '2',
+        ],
+      );
+      for (final value in <int>[0, -1, 5]) {
+        expect(
+          () => ScribeForgeCli.processArguments(
+            pdfPath: 'book.pdf',
+            storePath: 'book.scribeforge',
+            pageWorkers: value,
+          ),
+          throwsRangeError,
+        );
+      }
+    });
+
     test('builds VLM preflight arguments without embedding secret values', () {
       expect(
         ScribeForgeCli.vlmCheckArguments(
