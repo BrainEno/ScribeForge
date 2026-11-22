@@ -676,19 +676,20 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '备份文件：${corruption.backupPath}',
+                    '${corruption.backedUp ? '备份文件' : '原文件'}：${corruption.backupPath}',
                     style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
                   ),
                 ],
               ),
             ),
-            TextButton(
-              onPressed: () {
-                _settingsStore.clearPendingCorruption();
-                _updateWorkspace(() => _settingsCorruption = null);
-              },
-              child: const Text('知道了'),
-            ),
+            if (corruption.backedUp)
+              TextButton(
+                onPressed: () {
+                  _settingsStore.clearPendingCorruption();
+                  _updateWorkspace(() => _settingsCorruption = null);
+                },
+                child: const Text('知道了'),
+              ),
           ],
         ),
       ),

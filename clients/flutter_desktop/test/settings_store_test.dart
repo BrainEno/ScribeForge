@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -255,4 +256,90 @@ void main() {
     expect(raw, contains('custom_key'));
     expect(raw, contains('/cli'));
   });
+
+  test('separate store instances serialize updates to the same file', () async {
+    final stores = List.generate(
+      4,
+      (_) => DesktopSettingsStore(directory: temporary),
+    );
+    final results = await Future.wait(
+      List.generate(120, (index) {
+        return stores[index % stores.length].update((settings) {
+          settings['field-$index'] = index;
+        });
+      }),
+    );
+    expect(results.every((result) => result.ok), isTrue);
+    final content = await File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    ).readAsString();
+    final decoded = jsonDecode(content) as Map<String, dynamic>;
+    expect(decoded.length, 120);
+    for (var index = 0; index < 120; index++) {
+      expect(decoded['field-$index'], index);
+    }
+  });
+
+  test('invalid UTF-8 is quarantined byte for byte', () async {
+    final file = File(
+      '${temporary.path}${Platform.pathSeparator}settings.json',
+    );
+    final bytes = <int>[123, 255, 125];
+    await file.writeAsBytes(bytes);
+    final store = DesktopSettingsStore(directory: temporary);
+    expect(await store.loadCliExecutable(), 'scribeforge');
+    final corruption = store.pendingCorruption!;
+    expect(corruption.backedUp, isTrue);
+    expect(await File(corruption.backupPath).readAsBytes(), bytes);
+  });
+
+  test(
+    'failed quarantine blocks saves until the original is repaired',
+    () async {
+      final file = File(
+        '${temporary.path}${Platform.pathSeparator}settings.json',
+      );
+      await file.writeAsString('{broken');
+      final store = DesktopSettingsStore(
+        directory: temporary,
+        quarantineHook: (source, backup) async {
+          throw FileSystemException('access denied', source.path);
+        },
+      );
+      expect(await store.loadCliExecutable(), 'scribeforge');
+      expect(store.pendingCorruption!.backedUp, isFalse);
+      store.clearPendingCorruption();
+      expect(store.pendingCorruption, isNotNull);
+      final save = await store.saveBackendPython('/new/python');
+      expect(save.ok, isFalse);
+      expect(save.error, contains('保存已暂停'));
+      expect(await file.readAsString(), '{broken');
+      await file.writeAsString('{"cli_executable":"/repaired"}');
+      expect((await store.saveBackendPython('/new/python')).ok, isTrue);
+      expect(await store.loadCliExecutable(), '/repaired');
+      expect(await store.loadBackendPython(), '/new/python');
+    },
+  );
+
+  test(
+    'repeated corruptions at the same timestamp preserve both backups',
+    () async {
+      final file = File(
+        '${temporary.path}${Platform.pathSeparator}settings.json',
+      );
+      final store = DesktopSettingsStore(
+        directory: temporary,
+        clock: () => DateTime.utc(2026),
+      );
+      await file.writeAsString('{first');
+      await store.loadCliExecutable();
+      final first = store.pendingCorruption!.backupPath;
+      await file.writeAsString('{second');
+      await store.loadCliExecutable();
+      final second = store.pendingCorruption!.backupPath;
+      expect(first, isNot(second));
+      expect(await File(first).readAsString(), '{first');
+      expect(await File(second).readAsString(), '{second');
+    },
+  );
 }
