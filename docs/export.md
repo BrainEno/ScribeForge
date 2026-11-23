@@ -551,3 +551,21 @@ EPUB. The screen invokes the same read-only diagnosis and distinguishes source
 physical pages, imported pages, completed OCR, EPUB spine documents and
 recognized source-page markers. It does not bind the chosen EPUB to the project
 or certify its text. Unrecognized marker formats are explicitly called out.
+
+### Desktop: inspect an OCR-reported region
+
+Open **OCR 证据浏览器**, choose a physical page, then **查看区域** for an
+OCR run. Figure and table observations offer **检查临时区域预览**. The
+preview starts only after explicit confirmation and calls the same `layout-preview`
+command described above. The backend still refuses historical runs not in the
+latest verification, unknown/preprocessed frames and mismatched source evidence.
+A refusal is not bypassed by the desktop. Inspect the original page instead.
+
+The desktop temporarily writes a PNG to the operating system's temporary
+folder, checks its returned identity and digest, loads it into memory and tries
+to delete the temporary directory even on errors. Cleanup failures report its
+path; a crash or power loss can leave it behind. These files can contain private
+or copyrighted book content. The displayed image remains an unverified model
+observation, not a human decision or an exportable asset: it does not preserve
+an illustration in the EPUB. An empty region list also does not prove that a
+page has no illustrations. Issue #246 remains open.
