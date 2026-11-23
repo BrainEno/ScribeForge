@@ -165,3 +165,30 @@ next page. `--page-index` is zero-based; omit it for all jobs. Optional
 unavailable rather than silently upgrading. Errors are truncated in this view to
 4096 characters but retained in the database. Diagnostics can contain private
 paths or content even after best-effort redaction: review before sharing.
+
+### Explicit runtime sample check
+
+The desktop home screen and Settings offer **测试 OCR 环境**. After explicit
+confirmation, `runtime-check` runs the two installed core workers against a
+synthetic English image in a temporary directory. It does not read or modify a
+book project, install models, or update the recorded setup status. It may use
+CPU/GPU resources and write runtime caches; the command requests offline model
+loading, but third-party libraries are not isolated by an OS network sandbox.
+Each engine has a ten-minute timeout and cancellation stops the current worker.
+Failures include a bounded, best-effort-redacted diagnostic; inspect it for
+private information before sharing. A passing sample only demonstrates that
+these two workers recognized this sample at that moment, not that a particular
+PDF, language, page, accelerator, or future processing run will work correctly.
+
+The CLI streams versioned JSON progress and a final result:
+
+```
+scribeforge runtime-check --runtime-root /path/to/runtime
+```
+
+Exit 0 means both samples passed, 1 means an engine was missing or failed, 2
+indicates a diagnostic/launch error, and 130 means cancellation. A missing,
+malformed, incomplete, or inconsistent result is not evidence of readiness.
+An existing runtime location binding is respected; status is not silently
+upgraded or repaired. The desktop discards the last sample result on a new
+runtime-status refresh rather than treating it as a permanent certification.

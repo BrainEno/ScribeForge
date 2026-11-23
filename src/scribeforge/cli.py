@@ -538,6 +538,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", action="store_true", help="Emit a stable JSON status report."
     )
 
+    runtime_check = subparsers.add_parser(
+        "runtime-check", help="Run an explicit synthetic OCR check without installing models."
+    )
+    runtime_check.add_argument("--runtime-root", type=Path, default=None)
+    runtime_check.add_argument("--cancelable", action="store_true")
+
     runtime_clean = subparsers.add_parser(
         "runtime-clean",
         help=(
@@ -1222,6 +1228,7 @@ def run(
     location_commands = {
         "setup",
         "runtime-status",
+        "runtime-check",
         "runtime-clean",
         "process",
         "repair",
@@ -1311,6 +1318,12 @@ def _dispatch(
             _start_cancel_control(setup_token)
         with cancellation_scope(setup_token):
             return _setup(args, out)
+    if args.command == "runtime-check":
+        token = CancellationToken()
+        if args.cancelable:
+            _start_cancel_control(token)
+        with cancellation_scope(token):
+            return _runtime_check(args, out)
     if args.command == "runtime-status":
         return _runtime_status(args, out)
     if args.command == "runtime-clean":
@@ -3789,6 +3802,46 @@ def _vlm_check(args: argparse.Namespace, out: TextIO) -> int:
             )
 
     return EXIT_OK if status == "transcribed" else EXIT_PARTIAL
+
+
+def _runtime_check(args: argparse.Namespace, out: TextIO) -> int:
+    """Stream an explicit synthetic OCR check and a final bounded report."""
+    from scribeforge.observability import redact_text
+    from scribeforge.runtime.health import check_runtime
+
+    root = args.runtime_root if args.runtime_root is not None else default_runtime_root()
+
+    def emit(record: dict[str, object]) -> None:
+        print(json.dumps({"schema_version": 1, **record}, ensure_ascii=True), file=out, flush=True)
+
+    try:
+        results = check_runtime(
+            root, on_start=lambda name: emit({"type": "progress", "backend": name})
+        )
+    except ProcessingCancelled:
+        emit({"type": "result", "cancelled": True, "success": False, "results": []})
+        return EXIT_CANCELLED
+    except Exception as exc:  # noqa: BLE001 - expose diagnostic without claiming success
+        emit(
+            {
+                "type": "result",
+                "cancelled": False,
+                "success": False,
+                "results": [],
+                "error": redact_text(str(exc))[-4000:],
+            }
+        )
+        return EXIT_FATAL
+    success = all(result.state == "passed" for result in results)
+    emit(
+        {
+            "type": "result",
+            "cancelled": False,
+            "success": success,
+            "results": [result.as_dict() for result in results],
+        }
+    )
+    return EXIT_OK if success else EXIT_PARTIAL
 
 
 def _runtime_status(args: argparse.Namespace, out: TextIO) -> int:
