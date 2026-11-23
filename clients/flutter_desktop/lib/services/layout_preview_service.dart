@@ -10,6 +10,9 @@ import 'cli_executor.dart';
 class LayoutPreview {
   const LayoutPreview({
     required this.bytes,
+    required this.contextBytes,
+    required this.contextSize,
+    required this.contextSha256,
     required this.verificationId,
     required this.engine,
     required this.sourceSha256,
@@ -17,7 +20,9 @@ class LayoutPreview {
     required this.pixelBox,
     required this.frameSize,
   });
-  final Uint8List bytes;
+  final Uint8List bytes, contextBytes;
+  final List<int> contextSize;
+  final String contextSha256;
   final int verificationId;
   final String engine, sourceSha256, previewSha256;
   final List<int> pixelBox, frameSize;
@@ -59,6 +64,7 @@ class LayoutPreviewService {
       'scribeforge-preview-',
     );
     final path = '${dir.path}${Platform.pathSeparator}preview.png';
+    final contextPath = '${dir.path}${Platform.pathSeparator}context.png';
     final output = StringBuffer(), errors = StringBuffer();
     var oversized = false;
     try {
@@ -78,6 +84,8 @@ class LayoutPreviewService {
           '$block',
           '--out',
           path,
+          '--context-out',
+          contextPath,
         ],
         onOutput: (chunk) {
           if (output.length + chunk.length > maxResponseChars) {
@@ -131,43 +139,40 @@ class LayoutPreviewService {
           (box[2] - box[0]) * (box[3] - box[1]) > maxPixels) {
         throw const FormatException('预览像素坐标无效。');
       }
-      final file = File(path);
-      final length = await file.length();
-      if (length <= 0 || length > maxImageBytes)
-        throw const FormatException('预览图片大小无效或超过 32 MiB。');
-      // A file can grow after length() returns. Bound the stream as well.
-      final buffer = BytesBuilder(copy: false);
-      await for (final chunk in file.openRead()) {
-        if (buffer.length + chunk.length > maxImageBytes) {
-          throw const FormatException('预览图片超过 32 MiB。');
-        }
-        buffer.add(chunk);
+      final context = json['context'];
+      if (context is! Map<String, dynamic> ||
+          context['output'] != contextPath ||
+          !_hash(context['sha256'])) {
+        throw const FormatException('原页概览响应无效。');
       }
-      final bytes = buffer.takeBytes();
-      if (bytes.length != length ||
-          sha256.convert(bytes).toString() != json['preview_sha256']) {
-        throw const FormatException('预览文件与返回摘要不符。');
+      final contextSize = _ints(context['size'], 2);
+      if (contextSize[0] <= 0 ||
+          contextSize[1] <= 0 ||
+          contextSize[0] > 1600 ||
+          contextSize[1] > 1600 ||
+          contextSize[0] > size[0] ||
+          contextSize[1] > size[1] ||
+          (contextSize[0] * size[1] - contextSize[1] * size[0]).abs() >
+              (size[0] > size[1] ? size[0] : size[1])) {
+        throw const FormatException('原页概览尺寸无效。');
       }
-      // Verify PNG signature and IHDR dimensions before handing bytes to the
-      // platform image decoder. Compressed input must not imply a huge bitmap.
-      const signature = [137, 80, 78, 71, 13, 10, 26, 10];
-      if (bytes.length < 24 ||
-          !List.generate(8, (i) => bytes[i]).asMap().entries.every(
-            (entry) => entry.value == signature[entry.key],
-          ) ||
-          bytes[12] != 73 ||
-          bytes[13] != 72 ||
-          bytes[14] != 68 ||
-          bytes[15] != 82) {
-        throw const FormatException('预览不是有效的 PNG 图片。');
-      }
-      final header = ByteData.sublistView(bytes);
-      if (header.getUint32(16) != box[2] - box[0] ||
-          header.getUint32(20) != box[3] - box[1]) {
-        throw const FormatException('预览图片尺寸与像素范围不符。');
-      }
+      final bytes = await _readPng(
+        path,
+        json['preview_sha256'] as String,
+        box[2] - box[0],
+        box[3] - box[1],
+      );
+      final contextBytes = await _readPng(
+        contextPath,
+        context['sha256'] as String,
+        contextSize[0],
+        contextSize[1],
+      );
       return LayoutPreview(
         bytes: bytes,
+        contextBytes: contextBytes,
+        contextSize: contextSize,
+        contextSha256: context['sha256'] as String,
         verificationId: json['verification_id'] as int,
         engine: json['engine'] as String,
         sourceSha256: json['source_sha256'] as String,
@@ -185,6 +190,47 @@ class LayoutPreviewService {
         );
       }
     }
+  }
+
+  static Future<Uint8List> _readPng(
+    String path,
+    String digest,
+    int width,
+    int height,
+  ) async {
+    final file = File(path);
+    final length = await file.length();
+    if (length <= 0 || length > maxImageBytes) {
+      throw const FormatException('预览图片大小无效或超过 32 MiB。');
+    }
+    // A file can grow after length() returns. Bound the stream as well.
+    final buffer = BytesBuilder(copy: false);
+    await for (final chunk in file.openRead()) {
+      if (buffer.length + chunk.length > maxImageBytes) {
+        throw const FormatException('预览图片超过 32 MiB。');
+      }
+      buffer.add(chunk);
+    }
+    final bytes = buffer.takeBytes();
+    if (bytes.length != length || sha256.convert(bytes).toString() != digest) {
+      throw const FormatException('预览文件与返回摘要不符。');
+    }
+    const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (bytes.length < 24 ||
+        !List.generate(8, (i) => bytes[i]).asMap().entries.every(
+          (entry) => entry.value == signature[entry.key],
+        ) ||
+        bytes[12] != 73 ||
+        bytes[13] != 72 ||
+        bytes[14] != 68 ||
+        bytes[15] != 82) {
+      throw const FormatException('预览不是有效的 PNG 图片。');
+    }
+    final header = ByteData.sublistView(bytes);
+    if (header.getUint32(16) != width || header.getUint32(20) != height) {
+      throw const FormatException('预览图片尺寸与像素范围不符。');
+    }
+    return bytes;
   }
 
   static bool _hash(Object? value) =>

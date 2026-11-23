@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,6 +11,10 @@ import 'package:scribeforge_desktop/services/layout_preview_service.dart';
 
 final _png = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGPgMkr5DwACigGgBE3sHAAAAABJRU5ErkJggg==',
+);
+
+final _contextPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAGQAAADICAIAAACRXtOWAAABsElEQVR4nO3QwQ3AIBDAsNL9dz5WIC+EZE8QZc3Mx5n/dsBLzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKzArMCswKNobvBI2MPtgQAAAAAElFTkSuQmCC',
 );
 
 class _Core implements ScribeForgeCliExecutor {
@@ -34,7 +39,11 @@ class _Core implements ScribeForgeCliExecutor {
       return exit;
     }
     final path = arguments[arguments.indexOf('--out') + 1];
-    if (write) await File(path).writeAsBytes(_png);
+    final contextPath = arguments[arguments.indexOf('--context-out') + 1];
+    if (write) {
+      await File(path).writeAsBytes(_png);
+      await File(contextPath).writeAsBytes(_contextPng);
+    }
     final result = <String, dynamic>{
       'schema_version': 1,
       'status': 'unverified_preview',
@@ -51,6 +60,11 @@ class _Core implements ScribeForgeCliExecutor {
       'preview_sha256': sha256.convert(_png).toString(),
       'frame_size': [100, 200],
       'pixel_box': [10, 20, 11, 21],
+      'context': {
+        'output': contextPath,
+        'sha256': sha256.convert(_contextPng).toString(),
+        'size': [100, 200],
+      },
     };
     change?.call(result);
     onOutput(raw ?? jsonEncode(result));
@@ -59,7 +73,7 @@ class _Core implements ScribeForgeCliExecutor {
 }
 
 class _WidgetPreviewService extends LayoutPreviewService {
-  _WidgetPreviewService({this.fail = false})
+  _WidgetPreviewService({this.fail = false, this.pending})
     : super(
         executor: _Core(),
         executable: 'core',
@@ -67,6 +81,7 @@ class _WidgetPreviewService extends LayoutPreviewService {
         projectId: 7,
       );
   final bool fail;
+  final Completer<LayoutPreview>? pending;
   int calls = 0;
   @override
   Future<LayoutPreview> create({
@@ -77,8 +92,12 @@ class _WidgetPreviewService extends LayoutPreviewService {
   }) async {
     calls++;
     if (fail) throw const LayoutPreviewFailure('unsafe frame');
+    if (pending != null) return pending!.future;
     return LayoutPreview(
       bytes: _png,
+      contextBytes: _contextPng,
+      contextSha256: sha256.convert(_contextPng).toString(),
+      contextSize: const [100, 200],
       verificationId: 8,
       engine: 'PaddleOCR',
       sourceSha256: 'a' * 64,
@@ -114,6 +133,8 @@ void main() {
       final core = _Core();
       final preview = await create(service(core));
       expect(preview.bytes, _png);
+      expect(preview.contextBytes, _contextPng);
+      expect(preview.contextSize, [100, 200]);
       expect(preview.verificationId, 8);
       expect(preview.pixelBox, [10, 20, 11, 21]);
       expect(
@@ -141,6 +162,11 @@ void main() {
     'rejects wrong identity, frame, digest and unsafe coordinates with cleanup',
     () async {
       final mutations = <void Function(Map<String, dynamic>)>[
+        (v) => v['context'] = null,
+        (v) => (v['context'] as Map<String, dynamic>)['output'] = '/wrong',
+        (v) => (v['context'] as Map<String, dynamic>)['sha256'] = 'f' * 64,
+        (v) => (v['context'] as Map<String, dynamic>)['size'] = [100, 100],
+        (v) => (v['context'] as Map<String, dynamic>)['size'] = [1601, 1],
         (v) => v['project_id'] = 8,
         (v) => v['page_index'] = 18,
         (v) => v['run_id'] = 6,
@@ -204,6 +230,18 @@ void main() {
     await empty();
   });
 
+  test('overlay uses original pixels even when overview is resized', () {
+    const painter = LayoutRegionPainter([100, 200], [10, 20, 70, 100]);
+    expect(
+      painter.rectFor(const Size(300, 400)),
+      const Rect.fromLTRB(30, 40, 210, 200),
+    );
+    expect(
+      painter.rectFor(const Size(50, 100)),
+      const Rect.fromLTRB(5, 10, 35, 50),
+    );
+  });
+
   testWidgets('preview is explicit and explains limitations before executing', (
     tester,
   ) async {
@@ -232,7 +270,84 @@ void main() {
     await tester.pumpAndSettle();
     expect(mock.calls, 1);
     expect(find.textContaining('最新核验 #8'), findsOneWidget);
+    expect(find.text('原页概览 · 模型框'), findsOneWidget);
+    expect(find.text('区域裁切 · 原始像素'), findsOneWidget);
     expect(find.textContaining('原页 SHA-256'), findsOneWidget);
+  });
+
+  testWidgets(
+    'preview stays open during work so cleanup failures remain visible',
+    (tester) async {
+      final pending = Completer<LayoutPreview>();
+      final mock = _WidgetPreviewService(pending: pending);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => LayoutPreviewDialog(
+                    service: mock,
+                    page: 17,
+                    run: 5,
+                    block: 2,
+                    blockType: 'figure',
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('create-layout-preview')));
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, '关闭'))
+            .onPressed,
+        isNull,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(find.text('查看未经确认的图表区域'), findsOneWidget);
+      pending.completeError(const LayoutPreviewFailure('无法删除临时预览目录'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('无法删除临时预览目录'), findsOneWidget);
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+      expect(find.text('查看未经确认的图表区域'), findsNothing);
+    },
+  );
+
+  testWidgets('narrow window keeps both images reachable', (tester) async {
+    tester.view.physicalSize = const Size(430, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LayoutPreviewDialog(
+            service: _WidgetPreviewService(),
+            page: 17,
+            run: 5,
+            block: 2,
+            blockType: 'figure',
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('create-layout-preview')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('区域裁切 · 原始像素'));
+    expect(find.text('原页概览 · 模型框'), findsOneWidget);
+    expect(find.text('区域裁切 · 原始像素'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('backend refusal is visible and can be retried', (tester) async {

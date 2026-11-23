@@ -357,6 +357,7 @@ class _RawBlocks extends StatelessWidget {
             key: ValueKey('layout-preview-${block.index}'),
             onPressed: () => showDialog<void>(
               context: context,
+              barrierDismissible: false,
               builder: (_) => LayoutPreviewDialog(
                 service: LayoutPreviewService(
                   executor: service.executor,

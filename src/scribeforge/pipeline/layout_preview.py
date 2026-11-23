@@ -44,6 +44,7 @@ def create_layout_preview(
     run_id: int,
     block_index: int,
     output: Path,
+    context_output: Path | None = None,
 ) -> dict[str, object]:
     """Crop a latest-verification figure/table when its frame is the original.
 
@@ -56,6 +57,11 @@ def create_layout_preview(
         raise ValueError("invalid project, page, run or block index")
     if output.suffix.lower() != ".png":
         raise ValueError("preview output must be a .png file")
+    if context_output is not None:
+        if context_output.suffix.lower() != ".png":
+            raise ValueError("context output must be a .png file")
+        if context_output.resolve() == output.resolve():
+            raise ValueError("preview and context outputs must be different files")
     if not database.is_file():
         raise ValueError("project database not found")
     store = SQLiteStore(database, read_only=True)
@@ -96,21 +102,38 @@ def create_layout_preview(
             crop = image.crop(rectangle)
             encoded = io.BytesIO()
             crop.save(encoded, format="PNG")
+            context_data = None
+            context_size = None
+            if context_output is not None:
+                # Both images come from the exact same checked bytes. The overview
+                # is reduced for display; no annotations are baked into evidence.
+                overview = image.copy()
+                overview.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+                context_size = list(overview.size)
+                context_encoded = io.BytesIO()
+                overview.save(context_encoded, format="PNG")
+                context_data = context_encoded.getvalue()
         if before != observer.execute("PRAGMA data_version").fetchone()[0]:
             raise ValueError("project changed during preview; try again")
     preview = encoded.getvalue()
     # Exclusive creation prevents an output path from replacing evidence or an
     # earlier preview. No directories are created implicitly inside the project.
-    stream = output.open("xb")
+    created: list[Path] = []
     try:
-        with stream:
-            written = stream.write(preview)
-            if written != len(preview):
-                raise OSError("incomplete preview write")
+        for target, payload in ((output, preview), (context_output, context_data)):
+            if target is None or payload is None:
+                continue
+            stream = target.open("xb")
+            created.append(target)
+            with stream:
+                written = stream.write(payload)
+                if written != len(payload):
+                    raise OSError("incomplete preview write")
     except BaseException:
-        output.unlink(missing_ok=True)
+        for target in reversed(created):
+            target.unlink(missing_ok=True)
         raise
-    return {
+    result_json: dict[str, object] = {
         "schema_version": 1,
         "status": "unverified_preview",
         "project_id": project_id,
@@ -129,3 +152,10 @@ def create_layout_preview(
         "output": str(output),
         "notice": "Unverified OCR observation; not human confirmation or an exportable figure.",
     }
+    if context_output is not None and context_data is not None:
+        result_json["context"] = {
+            "output": str(context_output),
+            "sha256": hashlib.sha256(context_data).hexdigest(),
+            "size": context_size,
+        }
+    return result_json

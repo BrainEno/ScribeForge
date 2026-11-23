@@ -206,3 +206,139 @@ def test_empty_and_nonfinite_boxes_rejected():
     with pytest.raises(ValueError, match="finite"):
         _pixel_box(BoundingBox(float("nan"), 0, 0.5, 0.5), 100, 100)
     assert _pixel_box(BoundingBox(0.001, 0.001, 0.005, 0.005), 100, 100) == (0, 0, 1, 1)
+
+
+def test_context_is_same_snapshot_and_does_not_change_store(tmp_path, sample):
+    database = tmp_path / "project.sqlite3"
+    before = database.read_bytes()
+    context = tmp_path / "context.png"
+    result = _preview(tmp_path, sample, context_output=context)
+    overview = result["context"]
+    assert overview["output"] == str(context)
+    assert overview["size"] == [100, 80]
+    assert overview["sha256"] == hashlib.sha256(context.read_bytes()).hexdigest()
+    with Image.open(context) as image:
+        assert image.size == (100, 80)
+        assert image.getpixel((0, 0)) == (255, 255, 255)
+        assert image.getpixel((20, 16)) == (10, 20, 30)
+    assert database.read_bytes() == before
+
+
+def test_context_is_scaled_but_crop_coordinates_remain_original(tmp_path, sample):
+    import sqlite3
+
+    path = sample[5]
+    Image.new("RGB", (2000, 1000), "white").save(path)
+    data = path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    with sqlite3.connect(tmp_path / "project.sqlite3") as conn:
+        conn.execute(
+            "UPDATE pages SET width=2000, height=1000, page_asset_sha256=?, "
+            "page_asset_byte_size=? WHERE project_id=?",
+            (digest, len(data), sample[1]),
+        )
+        conn.execute(
+            "UPDATE ocr_input_frames SET width=2000, height=1000, sha256=? WHERE run_id=?",
+            (digest, sample[2]),
+        )
+    result = _preview(tmp_path, sample, context_output=tmp_path / "context.png")
+    assert result["frame_size"] == [2000, 1000]
+    assert result["pixel_box"] == [400, 200, 1200, 500]
+    assert result["context"]["size"] == [1600, 800]
+
+
+def test_context_existing_file_and_duplicate_paths_never_overwrite(tmp_path, sample):
+    context = tmp_path / "existing.png"
+    context.write_bytes(b"important")
+    with pytest.raises(FileExistsError):
+        _preview(tmp_path, sample, context_output=context)
+    assert context.read_bytes() == b"important"
+    assert not (tmp_path / "preview.png").exists()
+    with pytest.raises(ValueError, match="different files"):
+        _preview(tmp_path, sample, context_output=tmp_path / "preview.png")
+    with pytest.raises(ValueError, match="context output"):
+        _preview(tmp_path, sample, context_output=tmp_path / "x.jpg")
+    assert context.read_bytes() == b"important"
+
+
+def test_context_write_failure_cleans_both_outputs(tmp_path, sample, monkeypatch):
+    output, context = tmp_path / "preview.png", tmp_path / "context.png"
+    original_open = Path.open
+
+    class BrokenFile:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.stream.close()
+
+        def write(self, data):
+            self.stream.write(data[:8])
+            raise OSError("context disk full")
+
+    def failing_open(path, mode="r", *args, **kwargs):
+        stream = original_open(path, mode, *args, **kwargs)
+        return BrokenFile(stream) if path == context and mode == "xb" else stream
+
+    monkeypatch.setattr(Path, "open", failing_open)
+    with pytest.raises(OSError, match="context disk full"):
+        _preview(tmp_path, sample, context_output=context)
+    assert not output.exists()
+    assert not context.exists()
+
+
+def test_cli_context_and_legacy_output_contract(tmp_path, sample, capsys):
+    _, pid, primary, _, _, _ = sample
+    args = [
+        "layout-preview",
+        "--store",
+        str(tmp_path),
+        "--project",
+        str(pid),
+        "--page",
+        "0",
+        "--run",
+        str(primary),
+        "--block",
+        "0",
+        "--out",
+        str(tmp_path / "crop.png"),
+        "--context-out",
+        str(tmp_path / "page.png"),
+    ]
+    assert run(args) == 0
+    response = json.loads(capsys.readouterr().out)
+    assert response["context"]["size"] == [100, 80]
+    assert (tmp_path / "crop.png").is_file()
+    assert (tmp_path / "page.png").is_file()
+
+
+def test_context_rejected_with_stale_verification_without_writing_any_file(tmp_path, sample):
+    store, pid, _, secondary, _, _ = sample
+    page = store.load_ocr_run(secondary)
+    newer = store.record_ocr(pid, page)
+    store.record_verification(
+        newer,
+        secondary,
+        PageAlignment(0, "two", "two", (LineAlignment(0, 0, 1, 0, ()),)),
+        (PairRisk(0, 0, ()),),
+        (),
+    )
+    with pytest.raises(ValueError, match="latest verification"):
+        _preview(tmp_path, sample, context_output=tmp_path / "context.png")
+    assert not (tmp_path / "preview.png").exists()
+    assert not (tmp_path / "context.png").exists()
+
+
+def test_context_decode_failure_does_not_leave_files(tmp_path, sample, monkeypatch):
+    def fail_open(*args, **kwargs):
+        raise OSError("decoder I/O error")
+
+    monkeypatch.setattr(Image, "open", fail_open)
+    with pytest.raises(OSError, match="decoder I/O error"):
+        _preview(tmp_path, sample, context_output=tmp_path / "context.png")
+    assert not (tmp_path / "preview.png").exists()
+    assert not (tmp_path / "context.png").exists()
