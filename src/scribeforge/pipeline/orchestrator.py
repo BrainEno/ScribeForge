@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -42,6 +42,10 @@ from scribeforge.storage.sqlite import JobAlreadyRunningError, PageRecord, SQLit
 from scribeforge.storage.vlm_state import SQLiteVLMReviewState
 
 T = TypeVar("T")
+
+# Cooperative workers normally stop and persist their own terminal job state
+# within this grace period. Never wait indefinitely for a third-party engine.
+_CANCELLATION_DRAIN_SECONDS = 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +175,9 @@ def process_page(
             if copied != frame or source != frame:
                 raise PageAssetError("OCR frame changed while preparing the worker input")
             result = engine.analyze_page(str(scratch), page_index)
+            # Some adapters ignore the token. Do not persist a result that came
+            # back after cancellation; the running stage records the failure.
+            raise_if_cancelled()
             if result.page_index != page_index:
                 raise ValueError(
                     f"OCR page mismatch: expected {page_index}, got {result.page_index}"
@@ -416,15 +423,51 @@ def _run_pages_parallel(
 
             future = pool.submit(task)
             submitted[future] = index
-        for future, index in submitted.items():
-            # ProcessingCancelled / JobAlreadyRunningError propagate unchanged,
-            # matching the serial path. The finally block below does NOT wait for
-            # still-running pages: on cancellation the caller (CLI) tears down the
-            # engine subprocesses itself, so lingering page threads must not delay
-            # the cancellation from reaching the user.
+        # Observe whichever page finishes first. Waiting in submission order can
+        # hide cancellation behind an unrelated slow page.
+        for future in as_completed(submitted):
+            index = submitted[future]
             outcome, failure = future.result()
             outcomes[index] = outcome
             failures[index] = failure
+    except ProcessingCancelled as exc:
+        # Never forge a terminal state or release another thread's lock. Cancel
+        # queued work and give cooperative workers a bounded chance to record
+        # their own failures before the caller inspects status or closes logs.
+        for future in submitted:
+            future.cancel()
+        active = [future for future in submitted if not future.cancelled()]
+        done, unfinished = wait(active, timeout=_CANCELLATION_DRAIN_SECONDS)
+        problem_pages: list[int] = []
+        for future in done:
+            try:
+                _, page_failure = future.result()
+            except ProcessingCancelled:
+                continue
+            except Exception:  # noqa: BLE001 - make finalization problems visible
+                problem_pages.append(pages[submitted[future]].page_index + 1)
+            else:
+                if page_failure is not None:
+                    problem_pages.append(pages[submitted[future]].page_index + 1)
+        notices: list[str] = []
+        if unfinished:
+            pages_still_stopping = sorted(
+                pages[submitted[future]].page_index + 1 for future in unfinished
+            )
+            notices.append(
+                f"page workers still stopping for physical pages {pages_still_stopping}; "
+                "job state may still change and locks remain held until workers exit"
+            )
+        if problem_pages:
+            notices.append(
+                f"page workers reported errors while stopping on physical pages "
+                f"{sorted(problem_pages)}; inspect page status and failure history"
+            )
+        if notices:
+            raise ProcessingCancelled(
+                f"{exc}; {'; '.join(notices)}. Wait for the process to exit before retrying."
+            ) from exc
+        raise
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
