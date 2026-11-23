@@ -448,6 +448,8 @@ void main() {
     final harness = await createHarness(tester);
     await openTab(tester, '设置');
     expect(find.textContaining('默认关闭'), findsOneWidget);
+    await tester.ensureVisible(find.text('配置 VLM 复核'));
+    await tester.pump();
     await tester.tap(find.text('配置 VLM 复核'));
     await pumpUntil(
       tester,
