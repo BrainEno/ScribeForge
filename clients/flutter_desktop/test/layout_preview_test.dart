@@ -58,6 +58,37 @@ class _Core implements ScribeForgeCliExecutor {
   }
 }
 
+class _WidgetPreviewService extends LayoutPreviewService {
+  _WidgetPreviewService({this.fail = false})
+    : super(
+        executor: _Core(),
+        executable: 'core',
+        storePath: '/project',
+        projectId: 7,
+      );
+  final bool fail;
+  int calls = 0;
+  @override
+  Future<LayoutPreview> create({
+    required int page,
+    required int run,
+    required int block,
+    required String blockType,
+  }) async {
+    calls++;
+    if (fail) throw const LayoutPreviewFailure('unsafe frame');
+    return LayoutPreview(
+      bytes: _png,
+      verificationId: 8,
+      engine: 'PaddleOCR',
+      sourceSha256: 'a' * 64,
+      previewSha256: sha256.convert(_png).toString(),
+      pixelBox: const [10, 20, 11, 21],
+      frameSize: const [100, 200],
+    );
+  }
+}
+
 void main() {
   late Directory root;
   setUp(() async {
@@ -180,12 +211,12 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final core = _Core();
+    final mock = _WidgetPreviewService();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LayoutPreviewDialog(
-            service: service(core),
+            service: mock,
             page: 17,
             run: 5,
             block: 2,
@@ -194,27 +225,23 @@ void main() {
         ),
       ),
     );
-    expect(core.calls, isEmpty);
+    expect(mock.calls, 0);
     expect(find.textContaining('不会将插图加入 EPUB'), findsOneWidget);
     expect(find.textContaining('异常退出可能留下文件'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('create-layout-preview')));
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    });
     await tester.pumpAndSettle();
-    expect(core.calls, hasLength(1));
+    expect(mock.calls, 1);
     expect(find.textContaining('最新核验 #8'), findsOneWidget);
     expect(find.textContaining('原页 SHA-256'), findsOneWidget);
-    await empty();
   });
 
   testWidgets('backend refusal is visible and can be retried', (tester) async {
-    final core = _Core(exit: 1);
+    final mock = _WidgetPreviewService(fail: true);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LayoutPreviewDialog(
-            service: service(core),
+            service: mock,
             page: 17,
             run: 5,
             block: 2,
@@ -224,12 +251,8 @@ void main() {
       ),
     );
     await tester.tap(find.byKey(const ValueKey('create-layout-preview')));
-    await tester.runAsync(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    });
     await tester.pumpAndSettle();
     expect(find.textContaining('unsafe frame'), findsOneWidget);
-    expect(core.calls, hasLength(1));
-    await empty();
+    expect(mock.calls, 1);
   });
 }
