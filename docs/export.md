@@ -569,3 +569,21 @@ or copyrighted book content. The displayed image remains an unverified model
 observation, not a human decision or an exportable asset: it does not preserve
 an illustration in the EPUB. An empty region list also does not prove that a
 page has no illustrations. Issue #246 remains open.
+
+The desktop preview also requests a reduced **whole-page overview** from the
+same verified original bytes, and draws the OCR box over it for comparison with
+the full-resolution crop. The outline is a display overlay, not an edit of the
+source, crop, or overview. Zoom and inspect both; the reduced overview is not a
+replacement for inspecting the original. Both temporary PNGs may contain private
+content, and cleanup is attempted on success and failure. The dialog stays open
+while generation and cleanup run so cleanup errors can be shown. Terminating the
+application or machine can still leave files behind. A newer desktop requires a
+backend that supports `layout-preview --context-out`; an older backend will
+report an error rather than silently display a mismatched or unverified page.
+
+The optional CLI `--context-out NEW.png` creates the overview alongside `--out`.
+Both paths must be different, new PNG files. If creating either fails, files
+created by this invocation are removed where possible; existing files are never
+intentionally replaced. The JSON context digest and dimensions refer to the
+reduced PNG, while `source_sha256` still identifies the original raster and
+`pixel_box` uses original pixels. This is not a recorded review or an EPUB image.

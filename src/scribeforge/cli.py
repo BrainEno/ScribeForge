@@ -619,6 +619,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", type=Path, required=True, help="New PNG preview path; never overwritten."
     )
 
+    layout_preview.add_argument(
+        "--context-out",
+        type=Path,
+        help="Optional new PNG path for a reduced original-page overview.",
+    )
+
     job_history = subparsers.add_parser(
         "job-history", help="Inspect recorded failed and interrupted attempts (read-only)."
     )
@@ -1912,6 +1918,7 @@ def _layout_preview(args: argparse.Namespace, out: TextIO) -> int:
             run_id=args.run,
             block_index=args.block,
             output=args.out,
+            context_output=args.context_out,
         )
     except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
         print(f"error: could not create layout preview: {exc}", file=sys.stderr)
