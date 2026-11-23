@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../../models/ocr_evidence.dart';
 import '../../services/evidence_search_service.dart';
+import '../../services/layout_preview_service.dart';
 import '../../services/ocr_evidence_service.dart';
 import 'evidence_search_screen.dart';
+import 'layout_preview_dialog.dart';
 import 'ocr_evidence_list.dart';
 
 Future<void> showOcrEvidencePage(
@@ -350,6 +352,27 @@ class _RawBlocks extends StatelessWidget {
         SelectableText('坐标：${block.coordinates}'),
         Text('关联行范围：[${block.lineStart}, ${block.lineEnd})'),
         if (block.lineStart == block.lineEnd) const Text('此区域没有关联文字行。'),
+        if (block.type == 'figure' || block.type == 'table')
+          OutlinedButton.icon(
+            key: ValueKey('layout-preview-${block.index}'),
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => LayoutPreviewDialog(
+                service: LayoutPreviewService(
+                  executor: service.executor,
+                  executable: service.executable,
+                  storePath: service.storePath,
+                  projectId: service.projectId,
+                ),
+                page: page,
+                run: run.id,
+                block: block.index,
+                blockType: block.type,
+              ),
+            ),
+            icon: const Icon(Icons.crop),
+            label: const Text('检查临时区域预览'),
+          ),
       ],
     ),
   );

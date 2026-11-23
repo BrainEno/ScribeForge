@@ -48,6 +48,13 @@ void main() {
     expect(find.text('区域索引 0 · figure'), findsOneWidget);
     expect(find.text('此区域没有关联文字行。'), findsOneWidget);
     expect(find.textContaining('未检测到不代表没有图表'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const ValueKey('layout-preview-0')));
+    await tester.tap(find.byKey(const ValueKey('layout-preview-0')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('不会将插图加入 EPUB'), findsOneWidget);
+    expect(executor.sections, ['pages', 'page', 'pairs', 'lines', 'blocks']);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(executor.sections, ['pages', 'page', 'pairs', 'lines', 'blocks']);
   });
