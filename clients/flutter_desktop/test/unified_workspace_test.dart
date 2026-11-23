@@ -101,6 +101,12 @@ void main() {
       );
     }
     expect(find.text('已导入的书籍'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('home-environment-overview')),
+      findsOneWidget,
+    );
+    expect(find.text('基本就绪：可开始处理'), findsOneWidget);
+    expect(find.byKey(const ValueKey('getting-started-guide')), findsOneWidget);
     expect(find.text('导入书籍'), findsOneWidget);
     expect(find.text('打开项目文件夹'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -115,6 +121,7 @@ void main() {
     expect(find.text('导入并处理书籍'), findsOneWidget);
     expect(find.text('选择文件'), findsOneWidget);
     expect(find.text('开始处理'), findsOneWidget);
+    expect(find.text('请先选择 PDF、JPG 或 PNG 文件。'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -181,6 +188,15 @@ void main() {
     await openTab(tester, '设置');
 
     expect(find.text('命令行工具'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('environment-detail-mineru')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('environment-detail-paddleocr')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('当前无法判断可升级版本或增量大小'), findsOneWidget);
     expect(find.text('视觉模型复核'), findsOneWidget);
     expect(find.textContaining('默认关闭；未明确启用时不会发送复核裁切图。'), findsOneWidget);
     expect(find.text('配置 VLM 复核'), findsOneWidget);
@@ -209,6 +225,8 @@ void main() {
   testWidgets('opens the Flutter-native runtime setup guide', (tester) async {
     await showDesktopWorkspace(tester);
     await openTab(tester, '设置');
+    await tester.ensureVisible(find.text('运行时配置 (setup)'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('运行时配置 (setup)'));
     await tester.pumpAndSettle();
 

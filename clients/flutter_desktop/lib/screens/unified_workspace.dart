@@ -265,6 +265,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   String? _sourceHashCacheValue;
 
   RuntimeStatusSnapshot? _runtimeStatus;
+  String? _runtimeStatusError;
   bool _runtimeLoading = true;
   bool _runtimeCleaning = false;
 
@@ -389,11 +390,6 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     await _refreshRuntimeStatus();
     await _refreshStatus();
     await _refreshReviewQueue();
-    if (!mounted || !_backendConnected || _ocrRuntimeReady) return;
-    setState(() {
-      _selectedIndex = 6;
-      _notice = '首次使用请先初始化 OCR 环境；安装完成后即可导入并处理 PDF。';
-    });
   }
 
   bool get _ocrRuntimeReady {
@@ -508,7 +504,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   void _showInitialization() {
     setState(() => _selectedIndex = 6);
     if (_backendConnected) {
-      unawaited(_openRuntimeSetup(autoStart: !_ocrRuntimeReady));
+      unawaited(_openRuntimeSetup());
     }
   }
 

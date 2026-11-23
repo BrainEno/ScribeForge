@@ -79,7 +79,9 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
     if (status == null) return '当前引擎组合：尚未检测运行时状态。';
     final ready = <String>[
       for (final name in status.backendNames)
-        if (status.backends[name]?.state == 'ready') name,
+        if (status.backends[name]?.state == 'ready' &&
+            status.backends[name]?.environmentExists == true)
+          name,
     ];
     if (ready.isEmpty) return '当前引擎组合：尚无就绪引擎，请先初始化环境。';
     final labels = ready
@@ -115,6 +117,136 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
     return ' · 预估 ${formatBytes(estimate.totalBytes)}';
   }
 
+  String get _environmentHeadline {
+    if (_runtimeLoading || !_runtimeChecked) return '正在检测环境';
+    if (!_backendConnected) return '处理核心不可用';
+    if (_runtimeStatus == null) return '环境检测失败，状态未知';
+    if (_ocrRuntimeReady) return '基本就绪：可开始处理';
+    return '尚未就绪：需要配置 OCR 环境';
+  }
+
+  String get _environmentExplanation {
+    if (_runtimeLoading || !_runtimeChecked) return '正在检查处理核心、OCR 引擎与磁盘，请稍候。';
+    if (!_backendConnected) return '无法启动处理核心。请检查完整安装包或在设置中修复核心。';
+    if (_runtimeStatus == null) return '无法读取运行状态；请重新检测并查看错误详情。';
+    if (_ocrRuntimeReady) {
+      return 'MinerU 和 PaddleOCR 上次配置状态均为就绪且环境目录存在；这不是本次真实识别测试。';
+    }
+    return '处理需要 MinerU 和 PaddleOCR 两个核心引擎；可在设置中查看缺失项并配置。';
+  }
+
+  Widget _buildEnvironmentOverview() {
+    return Card(
+      key: const ValueKey('home-environment-overview'),
+      margin: EdgeInsets.zero,
+      color: _ocrRuntimeReady ? Colors.green.shade50 : Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              _environmentHeadline,
+              key: const ValueKey('environment-headline'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 6),
+            Text(_environmentExplanation),
+            if (_runtimeStatusError != null) ...[
+              const SizedBox(height: 6),
+              SelectableText(_runtimeStatusError!),
+            ],
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  key: const ValueKey('home-environment-settings'),
+                  onPressed: () => _updateWorkspace(() => _selectedIndex = 6),
+                  icon: const Icon(Icons.settings_outlined),
+                  label: const Text('查看环境与配置'),
+                ),
+                TextButton.icon(
+                  onPressed: _runtimeLoading || _busy
+                      ? null
+                      : () => unawaited(_refreshRuntimeStatus()),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新检测环境'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _backendStateLabel(RuntimeBackendSnapshot? backend) {
+    if (backend == null) return '未报告';
+    if (backend.state == 'ready' && !backend.environmentExists) {
+      return '状态为就绪，但环境目录缺失';
+    }
+    return switch (backend.state) {
+      'ready' => '已就绪',
+      'missing' => '未安装',
+      'failed' => '配置失败',
+      'installing' => '配置中或上次配置未完成',
+      _ => '状态未知（${backend.state}）',
+    };
+  }
+
+  Widget _buildEnvironmentDetails() {
+    final status = _runtimeStatus;
+    if (status == null) return const Text('尚无检测结果；请先重新检测。');
+    final hardware = status.hardware;
+    final gpu = hardware['gpu_name'];
+    final ram = hardware['ram_mb'];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          '系统：${hardware['os'] ?? '未知'} · 架构：${hardware['architecture'] ?? '未知'}',
+        ),
+        Text(
+          'NVIDIA GPU：${gpu is String && gpu.isNotEmpty ? gpu : '未检测到（不代表检测了所有 GPU）'}',
+        ),
+        Text(
+          '内存：${ram is num ? '${(ram / 1024).toStringAsFixed(1)} GB' : '未知'}',
+        ),
+        SelectableText(
+          '运行目录：${status.runtimeRoot.isEmpty ? '未知' : status.runtimeRoot}',
+        ),
+        const SizedBox(height: 8),
+        for (final name in <String>[
+          'mineru',
+          'paddleocr',
+          ...status.optionalBackendNames,
+        ]) ...[
+          Text(
+            '${_backendDisplayLabel(name)}：${_backendStateLabel(status.backends[name])}'
+            '${status.backends[name]?.optional == true ? '（可选，不影响基本处理）' : '（基本处理必需）'}',
+            key: ValueKey('environment-detail-$name'),
+          ),
+          if (status.backends[name]?.failedStep != null)
+            Text('上次失败步骤：${status.backends[name]!.failedStep}'),
+          if (status.backends[name]?.estimates case final estimate?)
+            Text(
+              '完整安装预估：网络下载 ${formatBytes(estimate.downloadBytes)}；'
+              '环境占用 ${formatBytes(estimate.installBytes)}；模型占用 ${formatBytes(estimate.modelBytes)}。'
+              '${estimate.note.isEmpty ? '' : ' ${estimate.note}'}',
+            ),
+        ],
+        const SizedBox(height: 8),
+        const Text(
+          '下载量是完整安装的粗略估计（包含模型），不是还需下载的精确大小；'
+          '缓存、版本、CPU/GPU 与网络会改变实际用量。当前无法判断可升级版本或增量大小。'
+          '可选引擎仅在明确选择时安装。',
+        ),
+        if (status.disk == null) const Text('磁盘预估不可用，请确认有足够空闲空间。'),
+      ],
+    );
+  }
+
   Widget _buildInitializationCard() {
     final origin = _backendResolution?.origin;
     final coreLabel = switch (origin) {
@@ -143,7 +275,7 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    _ocrRuntimeReady ? '处理环境已就绪' : '首次使用：初始化环境',
+                    _environmentHeadline,
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w600,
@@ -153,6 +285,9 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
               ],
             ),
             const SizedBox(height: 8),
+            Text(_environmentExplanation),
+            if (_runtimeStatusError != null)
+              SelectableText(_runtimeStatusError!),
             Text('核心来源：$coreLabel'),
             const SizedBox(height: 6),
             Text(
@@ -285,6 +420,12 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
         ],
         _buildInitializationCard(),
         const SizedBox(height: 12),
+        ScribeSectionCard(
+          icon: Icons.fact_check_outlined,
+          title: '检测结果与下载说明',
+          child: _buildEnvironmentDetails(),
+        ),
+        const SizedBox(height: 12),
         _buildBackendEnvironmentCard(),
         const SizedBox(height: 12),
         ListTile(
@@ -353,7 +494,7 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
             (entry) => Padding(
               padding: const EdgeInsets.only(left: 16, top: 4),
               child: Text(
-                '${_backendDisplayLabel(entry.key)}: ${entry.value.state} '
+                '${_backendDisplayLabel(entry.key)}: ${_backendStateLabel(entry.value)} '
                 '${entry.value.environmentExists ? '' : '(环境未安装)'}'
                 '${entry.value.optional ? ' · 可选引擎' : ''}'
                 '${_backendEstimateSuffix(entry.value)}',
@@ -536,7 +677,7 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
     if (_ocrRuntimeReady) {
       _continueAfterRuntimeSetup();
     } else {
-      await _openRuntimeSetup(autoStart: true);
+      await _openRuntimeSetup();
     }
   }
 

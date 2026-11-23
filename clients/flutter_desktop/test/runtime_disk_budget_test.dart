@@ -283,6 +283,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('尚未就绪：需要配置 OCR 环境'), findsOneWidget);
+    expect(find.textContaining('处理需要 MinerU 和 PaddleOCR'), findsOneWidget);
 
     // Open the settings tab.
     final rail = find.byType(NavigationRail);
@@ -290,6 +292,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('disk-budget-line')), findsOneWidget);
+    expect(find.text('MinerU：未安装（基本处理必需）'), findsOneWidget);
+    expect(find.text('PaddleOCR-VL：未安装（可选，不影响基本处理）'), findsOneWidget);
+    expect(find.textContaining('完整安装预估：网络下载 5.6 GB'), findsOneWidget);
+    expect(find.textContaining('当前无法判断可升级版本或增量大小'), findsOneWidget);
     expect(find.textContaining('还差约'), findsWidgets);
     expect(
       find.byKey(const ValueKey('disk-insufficient-advice')),

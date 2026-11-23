@@ -17,6 +17,7 @@ OutputBaseFilename=ScribeForge-Setup-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\..\clients\flutter_desktop\assets\branding\app_icon.ico
 UninstallDisplayIcon={app}\scribeforge_desktop.exe
 CloseApplications=yes
 RestartApplications=no
@@ -25,7 +26,7 @@ RestartApplications=no
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Files]
 Source: "..\..\clients\flutter_desktop\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
