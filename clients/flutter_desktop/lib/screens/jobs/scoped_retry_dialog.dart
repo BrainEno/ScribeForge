@@ -35,9 +35,11 @@ class _ScopedRetryDialogState extends State<ScopedRetryDialog> {
 
   void _confirm() {
     try {
-      Navigator.of(
-        context,
-      ).pop(parsePhysicalPages(pages.text, sourcePages: widget.sourcePages));
+      final selection = parsePhysicalPages(
+        pages.text,
+        sourcePages: widget.sourcePages,
+      );
+      Navigator.of(context).pop(selection);
     } on FormatException catch (exc) {
       setState(() => error = exc.message);
     }
