@@ -98,7 +98,7 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
     return null;
   }
 
-  Future<void> _runProcess() async {
+  Future<void> _runProcess({List<int>? pageIndexes}) async {
     final sourcePath = _pdfPath;
     if (sourcePath == null ||
         _statusLoading ||
@@ -134,7 +134,9 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
       _cancelRequested = false;
       _projectStorePath = storePath;
       _error = null;
-      _notice = '处理中；正在读取页级任务状态…';
+      _notice = pageIndexes == null
+          ? '处理中；正在读取页级任务状态…'
+          : '正在续跑所选物理页；正在读取页级任务状态…';
     });
     _processStatusTimer?.cancel();
     _processStatusTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -148,6 +150,7 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
         vlmSettings: _vlmSettings,
         cancelable: true,
         pageWorkers: _pageWorkers,
+        pageIndexes: pageIndexes,
       );
       final buffer = StringBuffer();
       final exitCode = await _cliExecutor.run(
@@ -169,7 +172,11 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
         await _refreshStatus(waitForInFlight: true);
         await _refreshReviewQueue();
         _updateWorkspace(() {
-          _notice = exitCode == 0 ? '处理完成' : '处理完成（部分页面失败；请查看页级状态后重试）';
+          _notice = pageIndexes == null
+              ? (exitCode == 0 ? '处理完成' : '处理完成（部分页面失败；请查看页级状态后重试）')
+              : (exitCode == 0
+                    ? '所选物理页续跑完成；不代表全书已完成。'
+                    : '所选物理页续跑结束，仍有页面失败；请查看失败历史。');
         });
       } else {
         final diagnosis = diagnoseProcessingFailure(buffer.toString());
@@ -196,6 +203,72 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
         });
       }
     }
+  }
+
+  Future<void> _showScopedRetry({List<int> initialPages = const []}) async {
+    final originalStore = _projectStorePath;
+    final originalSource = _pdfPath;
+    final project = _projectStatus;
+    if (_busy ||
+        _statusLoading ||
+        _runtimeLoading ||
+        originalStore == null ||
+        originalSource == null ||
+        project == null ||
+        !_projectSourceMatches ||
+        project.importState != 'succeeded') {
+      return;
+    }
+    final selection = await showDialog<List<int>>(
+      context: context,
+      builder: (_) => ScopedRetryDialog(
+        initialPages: initialPages,
+        sourcePages: project.sourcePagesTotal,
+        remoteVlmEnabled: _vlmSettings.enabled,
+      ),
+    );
+    if (!mounted || selection == null) return;
+    // Status and source identity can change while a dialog is open. Recheck
+    // before invoking a mutating command; the CLI verifies the source again.
+    await _refreshStatus(waitForInFlight: true);
+    if (!mounted) return;
+    if (_busy ||
+        _projectStorePath != originalStore ||
+        _pdfPath != originalSource ||
+        !_projectSourceMatches ||
+        _projectStatus?.projectId != project.projectId ||
+        _projectStatus?.importState != 'succeeded') {
+      _updateWorkspace(() => _error = '项目或原文件状态已变化，未开始续跑。请重新检查项目。');
+      return;
+    }
+    await _runProcess(pageIndexes: selection);
+  }
+
+  Future<void> _openJobHistory() async {
+    final store = _projectStorePath;
+    final project = _projectStatus;
+    if (_busy || store == null || project == null) return;
+    final selected = await Navigator.of(context).push<int>(
+      MaterialPageRoute(
+        builder: (_) => JobHistoryScreen(
+          service: JobHistoryService(
+            executor: _cliExecutor,
+            executable: _cliExecutable,
+            storePath: store,
+            projectId: project.projectId,
+          ),
+          canSelectPage:
+              _projectSourceMatches && project.importState == 'succeeded',
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    if (_projectStorePath != store ||
+        _projectStatus?.projectId != project.projectId) {
+      _updateWorkspace(() => _error = '项目已变化，未开始续跑。');
+      return;
+    }
+    await _showScopedRetry(initialPages: [selected]);
   }
 
   Future<void> _openVlmSettings() async {
@@ -477,6 +550,36 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
                     ),
                   ],
                 ),
+              ],
+              if (_projectStatus != null) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    OutlinedButton.icon(
+                      key: const ValueKey('open-job-history'),
+                      onPressed: _busy ? null : _openJobHistory,
+                      icon: const Icon(Icons.history),
+                      label: const Text('查看失败与中断历史'),
+                    ),
+                    OutlinedButton.icon(
+                      key: const ValueKey('scoped-retry-button'),
+                      onPressed:
+                          _busy ||
+                              _statusLoading ||
+                              _runtimeLoading ||
+                              !_projectSourceMatches ||
+                              _projectStatus?.importState != 'succeeded'
+                          ? null
+                          : () => _showScopedRetry(),
+                      icon: const Icon(Icons.filter_1_outlined),
+                      label: const Text('按物理页续跑'),
+                    ),
+                  ],
+                ),
+                if (_projectStatus!.importState != 'succeeded')
+                  const Text('按页续跑要求原书已完整导入；请先继续整书导入。'),
               ],
               if (_busy) ...[
                 const SizedBox(height: 12),

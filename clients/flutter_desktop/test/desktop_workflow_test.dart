@@ -619,6 +619,73 @@ void main() {
     expect(find.text('尚未进行本次示例识别检查。'), findsOneWidget);
   });
 
+  testWidgets(
+    'page-scoped retry needs confirmation and passes physical index',
+    (tester) async {
+      final harness = await createHarness(tester, processResults: [1, 0]);
+      await importBook(tester);
+      await tester.tap(find.text('开始处理'));
+      await waitForWorkflowIdle(tester);
+      final initial = harness.cli.calls
+          .where((args) => args.first == 'process')
+          .length;
+      expect(initial, 1);
+      final retry = find.byKey(const ValueKey('scoped-retry-button'));
+      await tester.ensureVisible(retry);
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('scoped-retry-pages')),
+        '1',
+      );
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(
+        harness.cli.calls.where((args) => args.first == 'process'),
+        hasLength(1),
+      );
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('scoped-retry-pages')),
+        '1',
+      );
+      await tester.tap(find.byKey(const ValueKey('confirm-scoped-retry')));
+      await waitForWorkflowIdle(tester);
+      final scoped = harness.cli.calls
+          .where((args) => args.first == 'process')
+          .last;
+      expect(scoped, containsAllInOrder(['--page-index', '0']));
+      expect(find.textContaining('所选物理页续跑完成；不代表全书已完成'), findsWidgets);
+    },
+  );
+
+  testWidgets(
+    'project status failure after confirmation prevents scoped retry',
+    (tester) async {
+      final harness = await createHarness(tester, processResults: [1, 0]);
+      await importBook(tester);
+      await tester.tap(find.text('开始处理'));
+      await waitForWorkflowIdle(tester);
+      final retry = find.byKey(const ValueKey('scoped-retry-button'));
+      await tester.ensureVisible(retry);
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('scoped-retry-pages')),
+        '1',
+      );
+      harness.cli.failStatus = true;
+      await tester.tap(find.byKey(const ValueKey('confirm-scoped-retry')));
+      await tester.pumpAndSettle();
+      expect(
+        harness.cli.calls.where((args) => args.first == 'process'),
+        hasLength(1),
+      );
+      expect(find.textContaining('项目或原文件状态已变化，未开始续跑'), findsWidgets);
+    },
+  );
+
   testWidgets('a missing core guides to settings without invoking process', (
     tester,
   ) async {
