@@ -3,12 +3,11 @@ import 'package:flutter/material.dart';
 import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
 
-typedef RuntimeSetupRunner =
-    Future<int> Function({
-      required String? backend,
-      required void Function(RuntimeSetupMessage message) onMessage,
-      required void Function(String diagnostic) onDiagnostic,
-    });
+typedef RuntimeSetupRunner = Future<int> Function({
+  required String? backend,
+  required void Function(RuntimeSetupMessage message) onMessage,
+  required void Function(String diagnostic) onDiagnostic,
+});
 
 typedef RuntimeSetupCancel = Future<void> Function();
 
