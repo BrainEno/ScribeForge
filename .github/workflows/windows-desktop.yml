@@ -70,6 +70,22 @@ jobs:
           if ($exitCode -ne 0) { throw "Frozen runtime-status failed: $report" }
           $status = $report | ConvertFrom-Json
           if ($status.schema_version -ne 1) { throw "Invalid runtime status" }
+          # The explicit sample check must also exist in the frozen backend.
+          # An empty runtime should report both engines unavailable, not pass.
+          $PSNativeCommandUseErrorActionPreference = $false
+          $emptyRuntime = Join-Path $env:RUNNER_TEMP "scribeforge-empty-health-runtime"
+          $healthLines = @(& $backend runtime-check --runtime-root $emptyRuntime)
+          $healthExit = $LASTEXITCODE
+          $PSNativeCommandUseErrorActionPreference = $true
+          if ($healthExit -ne 1) { throw "Frozen runtime-check returned $healthExit instead of partial failure" }
+          $health = $healthLines[-1] | ConvertFrom-Json
+          if ($health.type -ne "result" -or $health.success -ne $false -or $health.results.Count -ne 2) {
+            throw "Frozen runtime-check did not report both missing engines"
+          }
+          if (@($health.results | Where-Object { $_.state -ne "not_ready" }).Count -ne 0) {
+            throw "Frozen runtime-check incorrectly marked an empty runtime usable"
+          }
+          if (Test-Path $emptyRuntime) { throw "Runtime check unexpectedly created the empty runtime" }
           $workerRoot = "dist/backend/_internal/worker-src/scribeforge/workers"
           if (-not (Test-Path "$workerRoot/paddle_worker.py")) { throw "Paddle Worker source is missing" }
           if (-not (Test-Path "$workerRoot/mineru_worker.py")) { throw "MinerU Worker source is missing" }
