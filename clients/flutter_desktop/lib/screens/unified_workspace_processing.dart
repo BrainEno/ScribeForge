@@ -21,6 +21,7 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
           _backendConnected = true;
           _backendLaunchError = null;
           _runtimeStatus = status;
+          _runtimeStatusError = null;
           _runtimeSetupActionRequired = !_ocrRuntimeReady;
           _error = null;
         });
@@ -29,6 +30,9 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
           _backendConnected = true;
           _backendLaunchError = null;
           _runtimeStatus = null;
+          _runtimeStatusError = buffer.toString().trim().isEmpty
+              ? '检测命令退出码 $exitCode，未返回详细信息。'
+              : buffer.toString().trim();
           _runtimeSetupActionRequired = true;
           _error = buffer.toString().trim();
         });
@@ -40,6 +44,9 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
         _backendConnected = commandExited;
         _backendLaunchError = commandExited ? null : exc;
         _runtimeStatus = null;
+        _runtimeStatusError = commandExited
+            ? '读取运行时状态失败：$exc'
+            : diagnosis.message;
         _runtimeSetupActionRequired = diagnosis.requiresRuntimeSetup;
         _error = commandExited ? '读取运行时状态失败：$exc' : diagnosis.message;
       });
@@ -74,6 +81,20 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
     }
   }
 
+  String? _processBlockedReason() {
+    if (_processing) return _cancelRequested ? '正在取消，请稍候。' : '正在处理，可以取消并稍后继续。';
+    if (_busy) return '其他操作正在进行，请等待完成后再处理。';
+    if (_runtimeLoading) return '正在检测处理环境，请稍候。';
+    if (_statusLoading) return '正在检查项目和原文件，请稍候；大文件校验可能需要一些时间。';
+    if (_pdfPath == null) return '请先选择 PDF、JPG 或 PNG 文件。';
+    if (!_projectSourceMatches) {
+      return _projectSourceMismatchMessage ?? '项目与所选源文件不匹配，暂不能处理。';
+    }
+    if (!_backendConnected) return '处理核心不可用；点击开始可查看修复指引。';
+    if (_runtimeStatus == null) return '环境检测失败，状态未知；点击开始可查看配置。';
+    return null;
+  }
+
   Future<void> _runProcess() async {
     final sourcePath = _pdfPath;
     if (sourcePath == null ||
@@ -99,7 +120,7 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
         _runtimeSetupActionRequired = true;
         _notice = 'PDF 已保留在当前工作台。请先初始化 OCR 环境，再开始处理。';
       });
-      await _openRuntimeSetup(autoStart: true);
+      await _openRuntimeSetup();
       return;
     }
     final storePath =
@@ -323,6 +344,7 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
 
   Widget _buildProcessPage() {
     final hasFailedJobs = (_projectStatus?.failedJobs ?? 0) > 0;
+    final blockedReason = _processBlockedReason();
     return ScribePageBody(
       children: <Widget>[
         const ScribePageHeader(
@@ -422,6 +444,37 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              Text(
+                blockedReason ??
+                    (_ocrRuntimeReady
+                        ? '可以开始处理；首次运行会导入页面并保存项目。'
+                        : '处理前需要准备运行环境；点击开始可查看配置和下载信息。'),
+                key: const ValueKey('process-readiness-message'),
+                style: TextStyle(
+                  color: blockedReason == null
+                      ? Colors.grey.shade700
+                      : Colors.orange.shade900,
+                ),
+              ),
+              if (!_projectSourceMatches && !_statusLoading && !_busy) ...[
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => unawaited(_refreshStatus()),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('重试项目检查'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _relinkSource,
+                      icon: const Icon(Icons.link),
+                      label: const Text('重新关联原文件'),
+                    ),
+                  ],
+                ),
+              ],
               if (_busy) ...[
                 const SizedBox(height: 12),
                 const LinearProgressIndicator(),

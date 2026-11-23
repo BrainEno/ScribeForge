@@ -102,6 +102,7 @@ jobs:
           flutter pub get
           flutter test test/backend_resolver_test.dart test/backend_diagnostics_test.dart
           flutter build windows --release
+          ../../packaging/windows/Test-AppIcon.ps1 -Executable "build/windows/x64/runner/Release/scribeforge_desktop.exe" -ExpectedIcon "assets/branding/app_icon.ico"
 
       - name: Assemble the self-contained desktop folder
         shell: pwsh
@@ -137,6 +138,7 @@ jobs:
             -Installer "dist/installer/ScribeForge-Setup-x64.exe" `
             -InstallDirectory "$env:SMOKE_INSTALL_DIR" `
             -InstallerLog "$env:RUNNER_TEMP/scribeforge-installer.log"
+          ./packaging/windows/Test-AppIcon.ps1 -Executable "$env:SMOKE_INSTALL_DIR/scribeforge_desktop.exe" -ExpectedIcon "clients/flutter_desktop/assets/branding/app_icon.ico"
 
       - name: Export and verify EPUB with the installed backend
         shell: pwsh

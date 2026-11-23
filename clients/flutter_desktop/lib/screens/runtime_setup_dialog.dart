@@ -3,11 +3,12 @@ import 'package:flutter/material.dart';
 import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
 
-typedef RuntimeSetupRunner = Future<int> Function({
-  required String? backend,
-  required void Function(RuntimeSetupMessage message) onMessage,
-  required void Function(String diagnostic) onDiagnostic,
-});
+typedef RuntimeSetupRunner =
+    Future<int> Function({
+      required String? backend,
+      required void Function(RuntimeSetupMessage message) onMessage,
+      required void Function(String diagnostic) onDiagnostic,
+    });
 
 typedef RuntimeSetupCancel = Future<void> Function();
 
@@ -387,7 +388,7 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
                 '${_backendLabel(entry.key)}：下载 ${formatBytes(entry.value.downloadBytes)}'
                 ' / 安装后占用 ${formatBytes(entry.value.installBytes)}'
                 ' / 模型 ${formatBytes(entry.value.modelBytes)}'
-                '（合计 ${formatBytes(entry.value.totalBytes)}）',
+                '（估计预留 ${formatBytes(entry.value.totalBytes)}，含临时下载）',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -434,6 +435,11 @@ class _RuntimeSetupDialogState extends State<RuntimeSetupDialog> {
               children: <Widget>[
                 const Text(
                   'ScribeForge 会在本机配置隔离的 OCR 环境并下载模型。首次安装可能需要较长时间、网络连接和额外磁盘空间；所有后端与步骤都会显示在这里。',
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '以下为完整安装的粗略预估，下载量包含模型；已有缓存可能减少下载。'
+                  '修复或升级实际还需下载多少、是否有新版本，目前无法确定。点击安装前不会开始下载。',
                 ),
                 const SizedBox(height: 12),
                 Text('硬件：${_hardwareSummary()}'),

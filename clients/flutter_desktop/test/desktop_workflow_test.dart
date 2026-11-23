@@ -152,6 +152,13 @@ void main() {
       await tester.tap(next);
       await pumpUntil(
         tester,
+        () => find.text('开始安装全部后端').evaluate().isNotEmpty,
+        description: 'setup download confirmation',
+      );
+      expect(harness.cli.calls.where((args) => args.first == 'setup'), isEmpty);
+      await tester.tap(find.text('开始安装全部后端'));
+      await pumpUntil(
+        tester,
         () => find.text('返回工作台').evaluate().isNotEmpty,
         description: 'the setup wizard finishes',
       );
@@ -491,8 +498,15 @@ void main() {
     await tester.tap(find.text('开始处理'));
     await pumpUntil(
       tester,
+      () => find.text('开始安装全部后端').evaluate().isNotEmpty,
+      description: 'setup download confirmation',
+    );
+    expect(harness.cli.calls.where((args) => args.first == 'setup'), isEmpty);
+    await tester.tap(find.text('开始安装全部后端'));
+    await pumpUntil(
+      tester,
       () => find.text('配置完成').evaluate().isNotEmpty,
-      description: 'automatic initialization instead of a module error',
+      description: 'explicit initialization instead of a module error',
     );
 
     expect(
@@ -504,6 +518,79 @@ void main() {
       hasLength(1),
     );
     expect(find.text('配置完成'), findsOneWidget);
+  });
+
+  testWidgets(
+    'source mismatch explains disabled processing and offers recovery',
+    (tester) async {
+      final harness = await createHarness(tester);
+      harness.cli.fileSystem.addProjectStore(
+        ScribeForgeCli.defaultStorePath(harness.source.path),
+      );
+      harness.cli.overrideSourceHash = 'different';
+      await importBook(tester);
+      await pumpUntil(
+        tester,
+        () => find.textContaining('SHA-256 不一致').evaluate().isNotEmpty,
+        description: 'source mismatch explanation',
+      );
+      final button = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, '开始处理'),
+      );
+      expect(button.onPressed, isNull);
+      expect(find.text('重试项目检查'), findsOneWidget);
+      expect(find.text('重新关联原文件'), findsOneWidget);
+      expect(
+        harness.cli.calls.where((args) => args.first == 'process'),
+        isEmpty,
+      );
+      harness.cli.overrideSourceHash = null;
+      await tester.tap(find.text('重试项目检查'));
+      await pumpUntil(
+        tester,
+        () =>
+            tester
+                .widget<FilledButton>(find.widgetWithText(FilledButton, '开始处理'))
+                .onPressed !=
+            null,
+        description: 'successful source recheck',
+      );
+    },
+  );
+
+  testWidgets('status read failure blocks processing and can be retried', (
+    tester,
+  ) async {
+    final harness = await createHarness(tester);
+    harness.cli.fileSystem.addProjectStore(
+      ScribeForgeCli.defaultStorePath(harness.source.path),
+    );
+    harness.cli.failStatus = true;
+    await importBook(tester);
+    await pumpUntil(
+      tester,
+      () => find.text('重试项目检查').evaluate().isNotEmpty,
+      description: 'failed status guidance',
+    );
+    expect(find.textContaining('无法核对项目和源文件'), findsWidgets);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '开始处理'))
+          .onPressed,
+      isNull,
+    );
+    expect(harness.cli.calls.where((args) => args.first == 'process'), isEmpty);
+    harness.cli.failStatus = false;
+    await tester.tap(find.text('重试项目检查'));
+    await pumpUntil(
+      tester,
+      () =>
+          tester
+              .widget<FilledButton>(find.widgetWithText(FilledButton, '开始处理'))
+              .onPressed !=
+          null,
+      description: 'recovered status check',
+    );
   });
 
   testWidgets('a missing core guides to settings without invoking process', (
@@ -699,6 +786,13 @@ void main() {
     final button = find.byKey(const ValueKey('provision-backend-button'));
     await tester.ensureVisible(button);
     await tester.tap(button);
+    await pumpUntil(
+      tester,
+      () => find.text('开始安装全部后端').evaluate().isNotEmpty,
+      description: 'native OCR setup after Python provisioning',
+    );
+    expect(harness.cli.calls.where((args) => args.first == 'setup'), isEmpty);
+    await tester.tap(find.text('开始安装全部后端'));
     await pumpUntil(
       tester,
       () => find.text('返回工作台').evaluate().isNotEmpty,
@@ -1032,6 +1126,8 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
   final List<List<String>> calls = <List<String>>[];
   final Set<String> _resolved = <String>{};
   bool projectCreated = false;
+  bool failStatus = false;
+  String? overrideSourceHash;
   bool _partialFailure = false;
   String? lastHumanDecisionText;
   String? lastExportPath;
@@ -1111,6 +1207,10 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
         onOutput(result == 130 ? 'processing cancelled' : 'processed');
         return result;
       case 'status':
+        if (failStatus) {
+          onError('fixture status error');
+          return 2;
+        }
         onOutput(jsonEncode(_statusPayload()));
         return 0;
       case 'review':
@@ -1182,7 +1282,7 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
         'id': 1,
         'title': 'Sample',
         'source_uri': sourcePath,
-        'source_sha256': sourceHash,
+        'source_sha256': overrideSourceHash ?? sourceHash,
         'pages_total': 1,
         'source_pages_total': 1,
         'import_state': 'succeeded',

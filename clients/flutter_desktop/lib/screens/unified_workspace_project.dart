@@ -41,7 +41,14 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
       );
       if (!mounted || version != _statusRequestVersion) return;
       if (exitCode != 0) {
-        _updateWorkspace(() => _error = buffer.toString().trim());
+        _updateWorkspace(() {
+          _projectSourceMatches = false;
+          _projectCanExport = false;
+          _projectSourceMismatchMessage = '无法核对项目和源文件，请重试检查。';
+          final detail = buffer.toString().trim();
+          _error =
+              '读取项目状态失败（退出码 $exitCode）${detail.isEmpty ? '，未返回详细信息' : '：$detail'}';
+        });
         return;
       }
 
@@ -99,7 +106,12 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
       });
     } catch (exc) {
       if (!mounted || version != _statusRequestVersion) return;
-      _updateWorkspace(() => _error = '读取项目状态失败：$exc');
+      _updateWorkspace(() {
+        _projectSourceMatches = false;
+        _projectCanExport = false;
+        _projectSourceMismatchMessage = '无法核对项目和源文件，请重试检查。';
+        _error = '读取项目状态失败：$exc';
+      });
     } finally {
       if (mounted && version == _statusRequestVersion) {
         _updateWorkspace(() => _statusLoading = false);
@@ -335,6 +347,13 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
           icon: Icons.auto_stories_outlined,
           title: '已导入的书籍',
           subtitle: '导入新书，或打开已有项目继续处理、复核和导出。',
+        ),
+        const SizedBox(height: ScribeSpacing.x5),
+        _buildEnvironmentOverview(),
+        const SizedBox(height: ScribeSpacing.x4),
+        const Text(
+          '使用步骤：① 检查环境  ② 选择原书并处理  ③ 复核疑点  ④ 导出成品。',
+          key: ValueKey('getting-started-guide'),
         ),
         const SizedBox(height: ScribeSpacing.x6),
         Wrap(
