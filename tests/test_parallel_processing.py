@@ -363,3 +363,223 @@ def test_cancellation_does_not_wait_for_in_flight_pages(tmp_path: Path) -> None:
         elapsed = time.monotonic() - started
 
     assert elapsed < 5, f"cancellation waited {elapsed:.1f}s for in-flight pages"
+
+
+def test_cancel_drains_started_page_before_returning_and_keeps_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reproduce #265: page zero reports cancellation before page one's fail commit."""
+    from scribeforge.pipeline import orchestrator
+
+    monkeypatch.setattr(orchestrator, "_CANCELLATION_DRAIN_SECONDS", 10.0)
+    store, project_id = _store(tmp_path, 2)
+    source_bytes = (tmp_path / "page-0.png").read_bytes()
+    token = CancellationToken()
+    page0_started = threading.Event()
+    cancellation_sent = threading.Event()
+    fail_started = threading.Event()
+    release_failure = threading.Event()
+    completed = threading.Event()
+    errors: list[BaseException] = []
+    original_fail_job = store.fail_job
+
+    def gated_fail(job_id: int, error: str):
+        if store.load_job(job_id).page_index == 1:
+            fail_started.set()
+            if not release_failure.wait(15):
+                raise RuntimeError("test failed to release page failure")
+        return original_fail_job(job_id, error)
+
+    monkeypatch.setattr(store, "fail_job", gated_fail)
+
+    class Engine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            if page_index == 0:
+                page0_started.set()
+                if not cancellation_sent.wait(15):
+                    raise RuntimeError("test cancellation not requested")
+                token.raise_if_cancelled()
+            else:
+                if not page0_started.wait(15):
+                    raise RuntimeError("first page did not start")
+                token.cancel()
+                cancellation_sent.set()
+                token.raise_if_cancelled()
+            raise AssertionError("unreachable")
+
+    def run() -> None:
+        try:
+            with cancellation_scope(token):
+                _run(
+                    store,
+                    project_id,
+                    tmp_path,
+                    Engine("primary"),
+                    FakeEngine("secondary"),
+                    max_workers=2,
+                )
+        except Exception as exc:  # noqa: BLE001 - retain test thread failures
+            errors.append(exc)
+        finally:
+            completed.set()
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        assert fail_started.wait(15)
+        assert not completed.wait(0.2), "caller returned before the active page finalized"
+        assert (tmp_path / "page-0.png").read_bytes() == source_bytes
+    finally:
+        release_failure.set()
+        worker.join(20)
+    assert not worker.is_alive()
+    assert len(errors) == 1 and isinstance(errors[0], ProcessingCancelled)
+    for page in (0, 1):
+        job = store.load_job(store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=page))
+        assert job.state is JobState.FAILED
+        assert "cancel" in (job.last_error or "")
+    assert (tmp_path / "page-0.png").read_bytes() == source_bytes
+    resumed = _run(
+        store, project_id, tmp_path, FakeEngine("primary"), FakeEngine("secondary"), max_workers=2
+    )
+    assert not resumed.failed_pages
+    assert len(resumed.pages) == 2
+
+
+def test_noncooperative_page_reports_pending_and_retains_its_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scribeforge.pipeline import orchestrator
+
+    monkeypatch.setattr(orchestrator, "_CANCELLATION_DRAIN_SECONDS", 0.1)
+    store, project_id = _store(tmp_path, 2)
+    token = CancellationToken()
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    original_fail = store.fail_job
+
+    def notified_fail(job_id: int, error: str):
+        result = original_fail(job_id, error)
+        if result.page_index == 0:
+            finished.set()
+        return result
+
+    monkeypatch.setattr(store, "fail_job", notified_fail)
+
+    class UncooperativeEngine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            if page_index == 0:
+                started.set()
+                if not release.wait(15):
+                    raise RuntimeError("test failed to release slow engine")
+                return super().analyze_page(image_path, page_index)
+            if not started.wait(15):
+                raise RuntimeError("slow engine never started")
+            token.cancel()
+            token.raise_if_cancelled()
+            raise AssertionError("unreachable")
+
+    try:
+        with (
+            cancellation_scope(token),
+            pytest.raises(ProcessingCancelled, match="still stopping") as error,
+        ):
+            _run(
+                store,
+                project_id,
+                tmp_path,
+                UncooperativeEngine("primary"),
+                FakeEngine("secondary"),
+                max_workers=2,
+            )
+        assert "physical pages [1]" in str(error.value)
+        job_id = store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=0)
+        assert store.load_job(job_id).state is JobState.RUNNING
+        other = SQLiteStore(tmp_path / "project.sqlite3")
+        with pytest.raises(JobAlreadyRunningError):
+            other.start_job(job_id)
+    finally:
+        release.set()
+        assert finished.wait(15)
+    assert store.load_job(job_id).state is JobState.FAILED
+    with pytest.raises(KeyError):
+        store.latest_engine_run(project_id, 0, "primary")
+    assert (
+        _run(
+            store,
+            project_id,
+            tmp_path,
+            FakeEngine("primary"),
+            FakeEngine("secondary"),
+            max_workers=1,
+        ).failed_pages
+        == ()
+    )
+
+
+def test_failure_record_write_error_is_reported_without_releasing_ownership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, project_id = _store(tmp_path, 2)
+    token = CancellationToken()
+    both_ready = threading.Barrier(2)
+    original_fail = store.fail_job
+
+    def failing_write(job_id: int, error: str):
+        if store.load_job(job_id).page_index == 1:
+            raise OSError("injected failure persisting job")
+        return original_fail(job_id, error)
+
+    monkeypatch.setattr(store, "fail_job", failing_write)
+
+    class BothCancel(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            both_ready.wait(timeout=15)
+            token.cancel()
+            token.raise_if_cancelled()
+            raise AssertionError("unreachable")
+
+    with (
+        cancellation_scope(token),
+        pytest.raises(ProcessingCancelled, match="reported errors") as exc,
+    ):
+        _run(
+            store,
+            project_id,
+            tmp_path,
+            BothCancel("primary"),
+            FakeEngine("secondary"),
+            max_workers=2,
+        )
+    assert "physical pages [2]" in str(exc.value)
+    job = store.load_job(store.ensure_job(project_id, JobStage.PRIMARY_OCR, page_index=1))
+    assert job.state is JobState.RUNNING
+    with pytest.raises(JobAlreadyRunningError):
+        SQLiteStore(tmp_path / "project.sqlite3").start_job(job.id)
+    original_fail(job.id, "cleanup after injected failure")
+    assert store.load_job(job.id).state is JobState.FAILED
+
+
+def test_queued_pages_are_not_started_after_cancellation(tmp_path: Path) -> None:
+    store, project_id = _store(tmp_path, 12)
+    token = CancellationToken()
+    both_ready = threading.Barrier(2)
+    called: list[int] = []
+    lock = threading.Lock()
+
+    class Engine(FakeEngine):
+        def analyze_page(self, image_path: str, page_index: int) -> PageOCRResult:
+            with lock:
+                called.append(page_index)
+            both_ready.wait(timeout=15)
+            token.cancel()
+            token.raise_if_cancelled()
+            raise AssertionError("unreachable")
+
+    with cancellation_scope(token), pytest.raises(ProcessingCancelled):
+        _run(store, project_id, tmp_path, Engine("primary"), FakeEngine("secondary"), max_workers=2)
+    assert sorted(called) == [0, 1]
+    jobs = store.list_jobs(project_id)
+    assert all(job.page_index in (0, 1) for job in jobs)
+    assert all(job.state is not JobState.RUNNING for job in jobs)

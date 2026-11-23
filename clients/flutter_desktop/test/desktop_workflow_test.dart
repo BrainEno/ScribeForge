@@ -312,6 +312,7 @@ void main() {
 
     expect(harness.cli.cancelRequests, 1);
     expect(find.textContaining('处理已取消'), findsOneWidget);
+    expect(find.textContaining('确认任务不再运行后再重试'), findsOneWidget);
     expect(find.text('重试失败页面'), findsOneWidget);
 
     await tester.tap(find.text('重试失败页面'));

@@ -166,7 +166,7 @@ extension _WorkspaceProcessing on _UnifiedWorkspaceState {
         if (!mounted) return;
         _updateWorkspace(() {
           _error = null;
-          _notice = '处理已取消；已保存的页面证据和人工决策保留，可重试失败任务。';
+          _notice = '处理已取消，进程已退出；已保存的页面证据和人工决策保留。请刷新页级状态并查看失败历史，确认任务不再运行后再重试。';
         });
       } else if (exitCode == 0 || exitCode == 1) {
         await _refreshStatus(waitForInFlight: true);

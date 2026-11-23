@@ -213,3 +213,27 @@ selected pages, not a forced re-recognition of successful stages; it does not
 rebuild book-wide structure or run book-wide repair. New OCR and review
 evidence may be written, and enabled VLM settings may send image crops. A
 successful scoped run does not mean the rest of the book has completed.
+
+### Cancellation and parallel page cleanup
+
+Cancellation is cooperative. In a parallel run, the coordinator observes the
+first completed worker rather than waiting in page order. After cancellation it
+cancels queued work and gives active workers up to two seconds to finish their
+own job-state updates. It never marks another worker's job failed or releases
+its lock on its behalf. If a worker does not stop in time, the cancellation
+message identifies the physical pages still stopping and warns that status can
+still change. A worker that reports an error during shutdown is also identified;
+consult page status and failure history for details. A running worker can still
+hold its lock, and a Python process may remain alive while a non-cooperative
+thread finishes. Wait for the process to exit before retrying; do not remove
+lock files or replace source assets to force progress.
+
+When an OCR engine returns after cancellation, that newly returned result is not
+recorded and its started stage is failed by its owner. Work committed before
+cancellation and human decisions are not rolled back. A cancelled task may never
+have started and therefore have no failed attempt; cancellation does not mean
+that every unfinished page is failed. I/O failures while saving a failure may
+leave a job marked running until its lock is released and a later owner reclaims
+it. An interrupted record indicates reclaiming, not proof of the cause. The
+bounded wait cannot stop arbitrary stuck in-process or third-party code; inspect
+logs and take a backup before recovery if the process does not exit.
