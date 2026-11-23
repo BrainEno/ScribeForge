@@ -93,7 +93,8 @@ page count (`scribeforge.domain.scheduling.plan_book_schedule`).
 Before retrying, preserve a copy of the entire project store and any existing
 logs. `scribeforge status --store PROJECT.scribeforge --json` reports recent
 failed jobs, their attempts, and `last_error`; it lists at most 20 failures.
-Starting a job clears its previous error, so capture this output first. Logs and
+Starting a job clears its current `last_error`; schema v19 records failed attempts
+before retry, but older failures may already have been lost. Capture status first. Logs and
 errors can contain private paths, book content, or credentials despite
 best-effort redaction; inspect them before sharing. Older versions may have
 retained only the worker exit status, not the original stderr.
@@ -122,7 +123,8 @@ Import and page stages persist progress. If the process is stopped or the machin
 restarts, keep the same project directory and original source, then start process
 again. Import resumes missing pages, successful OCR stages are reused, and
 failed/in-flight stages can retry. Always capture status and back up the project
-first: restarting a failed job clears its previous `last_error`. No retry can
+first. The current `last_error` is cleared on restart; v19 retains recorded failure
+history. No retry can
 reconstruct stderr already lost by an earlier version. Source identity, raster
 and preprocessing-frame checks remain in force; do not replace original files or
 change preprocessing settings on an existing project.
@@ -139,3 +141,27 @@ recorded from a verified snapshot, or `null` when unknown. `pages_total` remains
 **imported** pages for backward compatibility. The desktop progress bar uses the
 known source count as its denominator and separately displays imported pages.
 Import completion is not OCR completion, and neither is an accuracy measurement.
+
+### Recorded attempt history (schema v19)
+
+Back up the whole project before upgrading: older releases cannot open schema
+v19. Migration snapshots only failed jobs whose error still exists; older errors
+already cleared by retries cannot be recovered. Failures recorded after upgrade
+are saved with their attempt number and error, even after a successful retry.
+When a new owner claims a previously running job after acquiring the OS lock,
+the previous attempt is marked interrupted. This does not identify the cause,
+prove a crash, or reconstruct missing stderr. Pending resets and successful
+attempts are not a complete audit trail.
+
+Inspect history without migrating or modifying the store:
+
+```
+scribeforge job-history --store PROJECT.scribeforge --page-index 17 --limit 25
+```
+
+Output is JSON, with newest IDs first; use `--before NEXT_BEFORE` to fetch the
+next page. `--page-index` is zero-based; omit it for all jobs. Optional
+`--stage` and `--project-id` narrow the query. Pre-v19 stores report history
+unavailable rather than silently upgrading. Errors are truncated in this view to
+4096 characters but retained in the database. Diagnostics can contain private
+paths or content even after best-effort redaction: review before sharing.

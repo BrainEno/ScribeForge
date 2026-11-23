@@ -234,7 +234,7 @@ class CropInputEvidence:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 18
+    SCHEMA_VERSION = 19
 
     def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self._path = path
@@ -441,6 +441,47 @@ class SQLiteStore:
                 self._migrate_v17(connection)
             if version < 18:
                 self._migrate_v18(connection)
+            if version < 19:
+                self._migrate_v19(connection)
+
+    @staticmethod
+    def _migrate_v19(connection: sqlite3.Connection) -> None:
+        """Keep current legacy failures without inventing prior attempts."""
+        connection.execute("SAVEPOINT job_history_v19")
+        try:
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS job_attempt_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE RESTRICT,
+                    attempt INTEGER NOT NULL CHECK(attempt > 0),
+                    outcome TEXT NOT NULL CHECK(outcome IN ('failed', 'interrupted')),
+                    started_at TEXT,
+                    finished_at TEXT,
+                    error TEXT,
+                    origin TEXT NOT NULL CHECK(origin IN ('observed', 'legacy_snapshot')),
+                    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(job_id, attempt),
+                    CHECK((outcome = 'failed' AND error IS NOT NULL AND length(error) > 0)
+                       OR (outcome = 'interrupted' AND error IS NULL))
+                )
+            """)
+            connection.execute("""
+                CREATE INDEX IF NOT EXISTS idx_job_history_job_id
+                    ON job_attempt_history(job_id, id DESC)
+            """)
+            connection.execute("""
+                INSERT OR IGNORE INTO job_attempt_history
+                    (job_id, attempt, outcome, started_at, finished_at, error, origin)
+                SELECT id, attempts, 'failed', started_at, finished_at, last_error, 'legacy_snapshot'
+                FROM jobs WHERE state = 'failed' AND attempts > 0
+                    AND last_error IS NOT NULL AND length(last_error) > 0
+            """)
+            connection.execute("PRAGMA user_version = 19")
+        except Exception:
+            connection.execute("ROLLBACK TO job_history_v19")
+            connection.execute("RELEASE job_history_v19")
+            raise
+        connection.execute("RELEASE job_history_v19")
 
     @staticmethod
     def _migrate_v18(connection: sqlite3.Connection) -> None:
@@ -1672,6 +1713,34 @@ class SQLiteStore:
                     current = self._job_record(self._job_row(connection, job_id))
                     if current.state is JobState.SUCCEEDED:
                         raise ValueError("succeeded job cannot be started again")
+                    if (
+                        current.state is JobState.FAILED
+                        and current.attempts > 0
+                        and current.last_error
+                    ):
+                        # Migration captures existing failed jobs; this fallback
+                        # also protects a legacy state restored outside migration.
+                        connection.execute(
+                            """INSERT OR IGNORE INTO job_attempt_history
+                            (job_id, attempt, outcome, started_at, finished_at, error, origin)
+                            VALUES (?, ?, 'failed', ?, ?, ?, 'legacy_snapshot')""",
+                            (
+                                job_id,
+                                current.attempts,
+                                current.started_at,
+                                current.finished_at,
+                                current.last_error,
+                            ),
+                        )
+                    elif current.state is JobState.RUNNING and current.attempts > 0:
+                        # Claiming the OS lock proves the previous owner no longer
+                        # owns it; it does not establish why that attempt stopped.
+                        connection.execute(
+                            """INSERT INTO job_attempt_history
+                            (job_id, attempt, outcome, started_at, error, origin)
+                            VALUES (?, ?, 'interrupted', ?, NULL, 'observed')""",
+                            (job_id, current.attempts, current.started_at),
+                        )
                     connection.execute(
                         """
                         UPDATE jobs
@@ -1766,6 +1835,12 @@ class SQLiteStore:
                     (error, job_id),
                 )
                 failed = self._job_record(self._job_row(connection, job_id))
+                connection.execute(
+                    """INSERT INTO job_attempt_history
+                    (job_id, attempt, outcome, started_at, finished_at, error, origin)
+                    VALUES (?, ?, 'failed', ?, ?, ?, 'observed')""",
+                    (job_id, failed.attempts, failed.started_at, failed.finished_at, error),
+                )
             self._release_project_writer_lock(current.project_id, current.page_index)
             return failed
 

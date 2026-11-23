@@ -63,7 +63,7 @@ def test_latest_schema_contains_resumable_jobs_table(tmp_path: Path) -> None:
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
 
-    assert version == 18
+    assert version == 19
     assert "jobs" in tables
 
 
@@ -163,6 +163,12 @@ def test_abnormal_process_exit_allows_safe_running_job_takeover(tmp_path: Path) 
         assert recovered.state is JobState.RUNNING
         assert recovered.attempts == 2
         assert store.complete_job(job_id).attempts == 2
+        from scribeforge.storage.job_history import JobHistoryQuery, read_job_history
+
+        history = read_job_history(tmp_path / "project.sqlite3", JobHistoryQuery())
+        assert [
+            (row["attempt"], row["outcome"], row["error_preview"]) for row in history["rows"]
+        ] == [(1, "interrupted", None)]
     finally:
         if owner.is_alive():
             owner.terminate()
@@ -289,7 +295,7 @@ def test_v3_database_migrates_to_latest_without_losing_project(tmp_path: Path) -
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
         assert (
             connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
         )
@@ -340,7 +346,7 @@ def test_v4_database_migrates_to_latest_keeping_jobs_and_adding_preprocess(
 
     with sqlite3.connect(path) as connection:
         connection.row_factory = sqlite3.Row
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
         row = connection.execute(
             "SELECT id, project_id, page_id, stage, state, attempts, last_error FROM jobs"
         ).fetchone()
@@ -387,7 +393,7 @@ def test_v5_database_migrates_to_v6_adding_structure_tables(tmp_path: Path) -> N
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
         names = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -431,3 +437,81 @@ def test_reopen_job_returns_a_succeeded_stage_to_pending(tmp_path: Path) -> None
     assert reopened.last_error == "asset deleted"
     with pytest.raises(ValueError, match="only a succeeded job"):
         store.reopen_job(job_id, "again")
+
+
+def test_attempt_history_survives_retries_and_paginates(tmp_path: Path) -> None:
+    from scribeforge.storage.job_history import JobHistoryQuery, read_job_history
+
+    store, project = _store(tmp_path)
+    job = store.ensure_job(project, JobStage.PRIMARY_OCR, page_index=0)
+    for message in ("first error", "second error", "third error"):
+        store.start_job(job)
+        store.fail_job(job, message)
+    store.start_job(job)
+    store.complete_job(job)
+    path = tmp_path / "project.sqlite3"
+    first = read_job_history(path, JobHistoryQuery(page_index=0, limit=2))
+    assert [row["error_preview"] for row in first["rows"]] == ["third error", "second error"]
+    assert all(row["current_state"] == "succeeded" for row in first["rows"])
+    second = read_job_history(path, JobHistoryQuery(page_index=0, before=first["next_before"]))
+    assert [row["error_preview"] for row in second["rows"]] == ["first error"]
+    assert second["next_before"] is None
+    assert read_job_history(path, JobHistoryQuery(page_index=1))["rows"] == []
+
+
+def test_migration_captures_only_current_legacy_failure(tmp_path: Path) -> None:
+    from scribeforge.storage.job_history import JobHistoryQuery, read_job_history
+
+    store, project = _store(tmp_path)
+    job = store.ensure_job(project, JobStage.PRIMARY_OCR, page_index=0)
+    store.start_job(job)
+    store.fail_job(job, "legacy failure")
+    path = tmp_path / "project.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute("DROP TABLE job_attempt_history")
+        db.execute("PRAGMA user_version = 18")
+    before = read_job_history(path, JobHistoryQuery())
+    assert not before["history_available"]
+    store.initialize()
+    store.initialize()
+    store.start_job(job)
+    store.complete_job(job)
+    rows = read_job_history(path, JobHistoryQuery())["rows"]
+    assert len(rows) == 1
+    assert rows[0]["origin"] == "legacy_snapshot"
+    assert rows[0]["error_preview"] == "legacy failure"
+
+
+def test_history_insert_failure_rolls_back_failure_transition(tmp_path: Path) -> None:
+    store, project = _store(tmp_path)
+    job = store.ensure_job(project, JobStage.PRIMARY_OCR, page_index=0)
+    store.start_job(job)
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute(
+            "CREATE TRIGGER reject_history BEFORE INSERT ON job_attempt_history "
+            "BEGIN SELECT RAISE(ABORT, 'history unavailable'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="history unavailable"):
+        store.fail_job(job, "failure")
+    assert store.load_job(job).state is JobState.RUNNING
+    with sqlite3.connect(tmp_path / "project.sqlite3") as db:
+        db.execute("DROP TRIGGER reject_history")
+    store.fail_job(job, "failure")
+
+
+def test_cli_reads_history_without_modifying_database(tmp_path: Path) -> None:
+    import io
+    import json
+
+    from scribeforge.cli import run
+
+    store, project = _store(tmp_path)
+    job = store.ensure_job(project, JobStage.PRIMARY_OCR, page_index=0)
+    store.start_job(job)
+    store.fail_job(job, "worker failed")
+    path = tmp_path / "project.sqlite3"
+    original = path.read_bytes()
+    output = io.StringIO()
+    assert run(["job-history", "--store", str(tmp_path), "--page-index", "0"], stdout=output) == 0
+    assert json.loads(output.getvalue())["rows"][0]["error_preview"] == "worker failed"
+    assert path.read_bytes() == original

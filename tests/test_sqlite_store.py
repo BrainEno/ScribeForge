@@ -39,7 +39,7 @@ def test_initialize_creates_versioned_core_schema(tmp_path: Path) -> None:
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-    assert version == 18
+    assert version == 19
     assert {
         "projects",
         "pages",
