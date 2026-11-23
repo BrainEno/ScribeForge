@@ -53,6 +53,11 @@ class ScribeForgeCli {
     '--json',
   ];
 
+  static List<String> runtimeCheckArguments() => <String>[
+    'runtime-check',
+    '--cancelable',
+  ];
+
   static List<String> setupArguments({String? runtimeRoot, String? backend}) =>
       <String>[
         'setup',

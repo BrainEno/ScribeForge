@@ -2,7 +2,10 @@ part of 'unified_workspace.dart';
 
 extension _WorkspaceProcessing on _UnifiedWorkspaceState {
   Future<void> _refreshRuntimeStatus() async {
-    _updateWorkspace(() => _runtimeLoading = true);
+    _updateWorkspace(() {
+      _runtimeLoading = true;
+      _runtimeHealthReport = null;
+    });
     var commandExited = false;
     try {
       final arguments = ScribeForgeCli.runtimeStatusArguments();

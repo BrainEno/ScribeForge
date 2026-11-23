@@ -13,6 +13,7 @@ import '../models/review_queue.dart';
 import '../models/review_queue_navigation.dart';
 import '../models/review_triage.dart';
 import '../models/superseded_review_drafts.dart';
+import '../models/runtime_health.dart';
 import '../models/runtime_location.dart';
 import '../models/runtime_setup.dart';
 import '../models/runtime_status.dart';
@@ -52,6 +53,7 @@ import 'review/review_history_screen.dart';
 import 'review/review_workspace_page.dart';
 import 'review/superseded_drafts_dialog.dart';
 import 'review/textless_confirmation_screen.dart';
+import 'runtime_health_dialog.dart';
 import 'runtime_location_dialog.dart';
 import 'runtime_setup_dialog.dart';
 import 'vlm_settings_dialog.dart';
@@ -265,6 +267,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   String? _sourceHashCacheValue;
 
   RuntimeStatusSnapshot? _runtimeStatus;
+  RuntimeHealthReport? _runtimeHealthReport;
   String? _runtimeStatusError;
   bool _runtimeLoading = true;
   bool _runtimeCleaning = false;

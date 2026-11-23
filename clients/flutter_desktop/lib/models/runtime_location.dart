@@ -46,6 +46,7 @@ class RuntimeLocation {
 
   static const Set<String> locationCommands = <String>{
     'runtime-status',
+    'runtime-check',
     'runtime-clean',
     'setup',
     'process',

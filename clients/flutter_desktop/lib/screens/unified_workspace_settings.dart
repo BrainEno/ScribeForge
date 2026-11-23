@@ -121,6 +121,11 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
     if (_runtimeLoading || !_runtimeChecked) return '正在检测环境';
     if (!_backendConnected) return '处理核心不可用';
     if (_runtimeStatus == null) return '环境检测失败，状态未知';
+    if (_runtimeHealthReport != null &&
+        !_runtimeHealthReport!.success &&
+        !_runtimeHealthReport!.cancelled) {
+      return '示例检查未通过：请检查或修复环境';
+    }
     if (_ocrRuntimeReady) return '基本就绪：可开始处理';
     return '尚未就绪：需要配置 OCR 环境';
   }
@@ -133,6 +138,32 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
       return 'MinerU 和 PaddleOCR 上次配置状态均为就绪且环境目录存在；这不是本次真实识别测试。';
     }
     return '处理需要 MinerU 和 PaddleOCR 两个核心引擎；可在设置中查看缺失项并配置。';
+  }
+
+  Future<void> _openRuntimeHealthCheck() async {
+    if (_busy ||
+        _runtimeLoading ||
+        !_backendConnected ||
+        _runtimeStatus == null)
+      return;
+    final result = await showDialog<RuntimeHealthReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => RuntimeHealthDialog(
+        executor: _cliExecutor,
+        executable: _cliExecutable,
+      ),
+    );
+    if (!mounted || result == null) return;
+    _updateWorkspace(() => _runtimeHealthReport = result);
+  }
+
+  String get _healthSummary {
+    final report = _runtimeHealthReport;
+    if (report == null) return '尚未进行本次示例识别检查。';
+    if (report.cancelled) return '本次示例检查已取消，不代表环境可用。';
+    if (report.success) return '本次两个引擎的示例识别通过；不保证书籍内容识别准确。';
+    return '本次示例检查未全部通过，请到设置查看或重新检查。';
   }
 
   Widget _buildEnvironmentOverview() {
@@ -152,6 +183,8 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
             ),
             const SizedBox(height: 6),
             Text(_environmentExplanation),
+            const SizedBox(height: 4),
+            Text(_healthSummary, key: const ValueKey('home-health-summary')),
             if (_runtimeStatusError != null) ...[
               const SizedBox(height: 6),
               SelectableText(_runtimeStatusError!),
@@ -165,6 +198,18 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
                   onPressed: () => _updateWorkspace(() => _selectedIndex = 6),
                   icon: const Icon(Icons.settings_outlined),
                   label: const Text('查看环境与配置'),
+                ),
+                TextButton.icon(
+                  key: const ValueKey('home-runtime-health'),
+                  onPressed:
+                      _backendConnected &&
+                          !_runtimeLoading &&
+                          !_busy &&
+                          _runtimeStatus != null
+                      ? _openRuntimeHealthCheck
+                      : null,
+                  icon: const Icon(Icons.fact_check_outlined),
+                  label: const Text('测试 OCR 环境'),
                 ),
                 TextButton.icon(
                   onPressed: _runtimeLoading || _busy
@@ -204,6 +249,15 @@ extension _UnifiedWorkspaceSettings on _UnifiedWorkspaceState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
+        Text(_healthSummary, key: const ValueKey('settings-health-summary')),
+        TextButton.icon(
+          key: const ValueKey('settings-runtime-health'),
+          onPressed: _backendConnected && !_runtimeLoading && !_busy
+              ? _openRuntimeHealthCheck
+              : null,
+          icon: const Icon(Icons.fact_check_outlined),
+          label: const Text('运行内置示例检查'),
+        ),
         Text(
           '系统：${hardware['os'] ?? '未知'} · 架构：${hardware['architecture'] ?? '未知'}',
         ),

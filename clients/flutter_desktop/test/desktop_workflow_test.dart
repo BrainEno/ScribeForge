@@ -593,6 +593,30 @@ void main() {
     );
   });
 
+  testWidgets('home sample check reports failure and clears it after refresh', (
+    tester,
+  ) async {
+    final harness = await createHarness(tester);
+    expect(find.text('尚未进行本次示例识别检查。'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('home-runtime-health')));
+    await tester.pumpAndSettle();
+    expect(
+      harness.cli.calls.where((args) => args.first == 'runtime-check'),
+      isEmpty,
+    );
+    await tester.tap(find.text('开始示例检查'));
+    await tester.pumpAndSettle();
+    expect(find.text('MinerU：示例识别失败'), findsOneWidget);
+    expect(harness.cli.calls.where((args) => args.first == 'process'), isEmpty);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text('示例检查未通过：请检查或修复环境'), findsOneWidget);
+    expect(find.text('本次示例检查未全部通过，请到设置查看或重新检查。'), findsOneWidget);
+    await tester.tap(find.text('重新检测环境'));
+    await tester.pumpAndSettle();
+    expect(find.text('尚未进行本次示例识别检查。'), findsOneWidget);
+  });
+
   testWidgets('a missing core guides to settings without invoking process', (
     tester,
   ) async {
@@ -1172,6 +1196,14 @@ class _FakeCliExecutor implements ScribeForgeCliExecutor {
           }),
         );
         return 0;
+      case 'runtime-check':
+        onOutput('{"schema_version":1,"type":"progress","backend":"mineru"}\n');
+        onOutput(
+          '{"schema_version":1,"type":"result","success":false,"cancelled":false,"results":['
+          '{"backend":"mineru","state":"failed","detail":"fixture failure"},'
+          '{"backend":"paddleocr","state":"passed","detail":null}]}\n',
+        );
+        return 1;
       case 'setup':
         runtimeReady = true;
         onOutput(
