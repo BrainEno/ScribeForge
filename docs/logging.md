@@ -192,3 +192,24 @@ malformed, incomplete, or inconsistent result is not evidence of readiness.
 An existing runtime location binding is respected; status is not silently
 upgraded or repaired. The desktop discards the last sample result on a new
 runtime-status refresh rather than treating it as a permanent certification.
+
+### Desktop failure history and selected-page resume
+
+On an opened project, **处理 → 查看失败与中断历史** reads recorded attempts
+without migrating or modifying the project. Filter by physical PDF page or
+stage and load older entries in bounded batches. The timeline is not an audit of
+all attempts; a retry that happened on an older release may already have erased
+its error. An interrupted entry means a new owner reclaimed an unlocked running
+job, not that its cause is known. History previews can contain private paths or
+content; review them before sharing.
+
+**处理 → 按物理页续跑** (or choosing a page in history) opens a confirmation
+dialog. Enter one-based *physical* PDF pages, not printed page labels: for
+example `18, 374` selects zero-based indices 17 and 373. Confirm the mapping
+and back up the entire project and logs first. The desktop rechecks project
+identity and requires completed import; the CLI validates the selected pages,
+source hash and preprocessing frame again. It resumes unfinished stages on the
+selected pages, not a forced re-recognition of successful stages; it does not
+rebuild book-wide structure or run book-wide repair. New OCR and review
+evidence may be written, and enabled VLM settings may send image crops. A
+successful scoped run does not mean the rest of the book has completed.

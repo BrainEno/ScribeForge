@@ -210,11 +210,21 @@ class ScribeForgeCli {
     DesktopVlmSettings? vlmSettings,
     bool cancelable = false,
     int pageWorkers = 1,
+    List<int>? pageIndexes,
   }) {
     // Parallel pages load independent OCR workers and can consume substantial
     // RAM and GPU memory. Default to one; increased concurrency is opt-in.
     if (pageWorkers < 1 || pageWorkers > 4) {
       throw RangeError.range(pageWorkers, 1, 4, 'pageWorkers');
+    }
+    if (pageIndexes != null &&
+        (pageIndexes.isEmpty ||
+            pageIndexes.length > 100 ||
+            pageIndexes.any((index) => index < 0) ||
+            pageIndexes.toSet().length != pageIndexes.length)) {
+      throw ArgumentError(
+        'Page indexes must be distinct, non-negative, and limited to 100.',
+      );
     }
     final arguments = <String>[
       'process',
@@ -224,6 +234,11 @@ class ScribeForgeCli {
       '--workers',
       '$pageWorkers',
     ];
+    if (pageIndexes != null) {
+      for (final index in pageIndexes) {
+        arguments.addAll(['--page-index', '$index']);
+      }
+    }
     if (cancelable) arguments.add('--cancelable');
     if (vlmSettings != null && vlmSettings.enabled) {
       arguments.addAll(_vlmArguments(vlmSettings));

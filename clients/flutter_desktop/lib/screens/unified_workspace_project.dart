@@ -529,6 +529,14 @@ extension _WorkspaceProject on _UnifiedWorkspaceState {
                 label: const Text('重新关联源文件（需 SHA-256 相同）'),
               ),
             ],
+            TextButton.icon(
+              key: const ValueKey('library-job-history'),
+              onPressed: _busy ? null : _openJobHistory,
+              icon: const Icon(Icons.history, size: 16),
+              label: const Text('查看失败与中断历史'),
+            ),
+            if (status.failedJobs > status.failedJobDetails.length)
+              Text('当前状态仅显示前 ${status.failedJobDetails.length} 条失败；历史可分页查看。'),
             if (status.failedJobDetails.isNotEmpty) ...[
               const SizedBox(height: 8),
               const Text(
