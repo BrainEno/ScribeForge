@@ -540,7 +540,7 @@ original verified source. Then the importer compares every existing page index
 with the actual source count and records it only if they match; it does not
 rerender completed pages. For an incomplete legacy import, verified resume
 records the count before continuing. Back up the project before upgrading:
-older ScribeForge releases cannot open schema v18 projects. An inconsistent
+older ScribeForge releases cannot open projects upgraded to schema v19. An inconsistent
 completed project is not silently repaired; restore a verified backup or create
 a new project, keeping the old one and its decisions. Legacy projects with no
 import job remain supported with an unknown extent; export is not proof that

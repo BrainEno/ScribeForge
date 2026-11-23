@@ -613,6 +613,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", type=Path, required=True, help="New PNG preview path; never overwritten."
     )
 
+    job_history = subparsers.add_parser(
+        "job-history", help="Inspect recorded failed and interrupted attempts (read-only)."
+    )
+    job_history.add_argument("--store", type=Path, required=True)
+    job_history.add_argument("--project-id", type=int, default=None)
+    job_history.add_argument(
+        "--page-index", type=int, default=None, help="Zero-based physical page index."
+    )
+    job_history.add_argument("--stage", choices=[stage.value for stage in JobStage], default=None)
+    job_history.add_argument(
+        "--before", type=int, default=None, help="Exclusive history ID cursor."
+    )
+    job_history.add_argument("--limit", type=int, default=25)
+
     processing_report = subparsers.add_parser(
         "report",
         help="Render processing timing, risk and review evidence from a project store.",
@@ -1309,6 +1323,8 @@ def _dispatch(
         return _diagnose_book(args, out)
     if args.command == "layout-preview":
         return _layout_preview(args, out)
+    if args.command == "job-history":
+        return _job_history(args, out)
     if args.command == "report":
         return _processing_report(args, out)
     if args.command == "events":
@@ -1888,6 +1904,27 @@ def _layout_preview(args: argparse.Namespace, out: TextIO) -> int:
         print(f"error: could not create layout preview: {exc}", file=sys.stderr)
         return EXIT_FATAL
     print(json.dumps(preview, ensure_ascii=False, indent=2), file=out)
+    return EXIT_OK
+
+
+def _job_history(args: argparse.Namespace, out: TextIO) -> int:
+    from scribeforge.storage.job_history import JobHistoryQuery, read_job_history
+
+    try:
+        payload = read_job_history(
+            StoreLayout(args.store).db_path,
+            JobHistoryQuery(
+                project_id=args.project_id,
+                page_index=args.page_index,
+                stage=args.stage,
+                before=args.before,
+                limit=args.limit,
+            ),
+        )
+    except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+        print(f"error: could not read job history: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    print(json.dumps(payload, ensure_ascii=False, indent=2), file=out)
     return EXIT_OK
 
 
