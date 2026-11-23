@@ -225,6 +225,8 @@ void main() {
   testWidgets('opens the Flutter-native runtime setup guide', (tester) async {
     await showDesktopWorkspace(tester);
     await openTab(tester, '设置');
+    await tester.ensureVisible(find.text('运行时配置 (setup)'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('运行时配置 (setup)'));
     await tester.pumpAndSettle();
 
