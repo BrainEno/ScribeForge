@@ -12,7 +12,12 @@ The project is not trying to build yet another OCR engine. It orchestrates multi
 
 ### 使用 Windows 桌面包
 
-1. 打开 GitHub Actions 的 [Windows Desktop Package](https://github.com/BrainEno/ScribeForge/actions/workflows/windows-desktop.yml?query=branch%3Amain)，选择 `main` 上成功且产物未过期的运行，下载 `ScribeForge-windows-x64-unsigned`（需登录 GitHub）。解包后运行 `ScribeForge-Setup-x64.exe`，或完整解压便携 ZIP 后打开 `scribeforge_desktop.exe`。这些是**未签名的 CI 测试包**，不是正式 Release 附件。
+包分两类，用途和可信度不同，请按需选择：
+
+- **正式 Release 包（推荐）**：打开 [Releases](https://github.com/BrainEno/ScribeForge/releases) 中最新的 `vX.Y.Z` 版本，下载 `ScribeForge-Setup-x64.exe`（安装器）或 `ScribeForge-windows-x64.zip`（便携版），并用同一页面的 `SHA256SUMS.txt` 校验下载文件（`sha256sum -c` 或 `Get-FileHash`）。Release 由 `vX.Y.Z` 标签自动发布：标签必须指向 `main` 上 `core`/`flutter-desktop`/`flutter-desktop-windows` 检查已通过的提交，打包流程与 CI 完全一致。**当前所有 Windows 资产均未签名**（尚无代码签名证书），SmartScreen/杀毒软件出现警告属预期，发布说明中亦有中英文披露。
+- **未签名的 CI 测试包（临时 artifact）**：打开 GitHub Actions 的 [Windows Desktop Package](https://github.com/BrainEno/ScribeForge/actions/workflows/windows-desktop.yml?query=branch%3Amain)，选择 `main` 上成功且产物未过期的运行，下载 `ScribeForge-windows-x64-unsigned`（需登录 GitHub）。这类 `ScribeForge-Setup-x64.exe` 与便携 ZIP 是 **CI 临时产物**，随运行过期，不属于任何版本，仅供抢先验证，出问题请以 Release 资产为准。
+
+两类包的安装方式相同：运行 `ScribeForge-Setup-x64.exe`，或完整解压便携 ZIP 后打开 `scribeforge_desktop.exe`。
 2. 打开工作台，点击 **下载并配置**。桌面包自带处理核心；首次配置从应用内下载和安装私有 Python 3.12、OCR 依赖和模型，无需提前安装系统 Python、Flutter 或手动运行 pip。首次下载需要网络和足够磁盘空间，向导会显示进度和失败步骤。
 3. 配置完成后点击 **返回工作台 → 去导入**，选择扫描 PDF、JPG 或 PNG，进入 **处理 → 开始处理**。部分页面失败时可重试，不用重建整本书。
 4. 打开 **复核**，对照原页和 OCR 候选；选择候选只填入编辑框，点击 **记录人工决策** 才会接受文本。未确认的无文字页可从 **导出前检查** 打开原页核对。
@@ -308,4 +313,4 @@ ScribeForge is released under the **Apache License 2.0** — see [LICENSE](LICEN
 Runtime-downloaded engines have their own licenses (notably Surya weights under
 OpenRAIL-M); see the full inventory in [docs/licenses.md](docs/licenses.md).
 Released versions are anchored by git tags and documented in [CHANGELOG.md](CHANGELOG.md)
-(current: v0.1.0).
+(current: v0.1.1).

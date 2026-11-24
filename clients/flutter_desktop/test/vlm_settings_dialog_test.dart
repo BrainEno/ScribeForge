@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/screens/vlm_settings_dialog.dart';
 import 'package:scribeforge_desktop/services/cli_executor.dart';
@@ -52,6 +53,7 @@ Future<DesktopVlmSettings?> showDialogUnderTest(
   required _FakeExecutor executor,
   _FakeFilePicker? filePicker,
   Map<String, String>? environment,
+  String endpoint = 'https://vlm.example.com/v1/chat/completions',
 }) async {
   DesktopVlmSettings? result;
   await tester.pumpWidget(
@@ -64,9 +66,9 @@ Future<DesktopVlmSettings?> showDialogUnderTest(
                 context: context,
                 builder: (_) => VlmSettingsDialog(
                   executable: 'scribeforge',
-                  initial: const DesktopVlmSettings(
+                  initial: DesktopVlmSettings(
                     enabled: true,
-                    endpoint: 'https://vlm.example.com/v1/chat/completions',
+                    endpoint: endpoint,
                     model: 'qwen-vl',
                     apiKeyEnvironmentVariable: 'MY_VLM_KEY',
                   ),
@@ -214,6 +216,67 @@ void main() {
       find.byKey(const ValueKey('confirm-remote-vlm-send-checkbox')),
       findsNothing,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('copies the pre-check output including the exit code', (
+    tester,
+  ) async {
+    final clipboard = <String?>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        clipboard.add((call.arguments as Map)['text'] as String?);
+      }
+      return null;
+    });
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    final executor = _FakeExecutor();
+    executor.exitCode = 1;
+    executor.stdout = '识别结果：空';
+    await showDialogUnderTest(
+      tester,
+      executor: executor,
+      endpoint: 'http://127.0.0.1:8080/v1/chat/completions',
+    );
+
+    // No stale output is offered for copying before the probe has run.
+    expect(
+      find.byKey(const ValueKey('copy-vlm-test-output-button')),
+      findsNothing,
+    );
+
+    final imageField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == '测试图片路径',
+    );
+    await tester.enterText(imageField, '/tmp/vlm-test.png');
+    final testButton = find.text('用图片测试…');
+    await tester.ensureVisible(testButton);
+    await tester.pumpAndSettle();
+    await tester.tap(testButton);
+    await tester.pumpAndSettle();
+
+    expect(executor.lastArguments, isNotNull);
+    expect(executor.lastArguments, contains('vlm-check'));
+    final output = tester.widget<SelectableText>(find.byType(SelectableText));
+    expect(output.data, contains('识别结果：空'));
+    expect(output.data, contains('退出码：1'));
+
+    final copyButton = find.byKey(
+      const ValueKey('copy-vlm-test-output-button'),
+    );
+    await tester.ensureVisible(copyButton);
+    await tester.pumpAndSettle();
+    await tester.tap(copyButton);
+    await tester.pumpAndSettle();
+
+    expect(clipboard, hasLength(1));
+    expect(clipboard.single, contains('识别结果：空'));
+    expect(clipboard.single, contains('退出码：1'));
     expect(tester.takeException(), isNull);
   });
 }

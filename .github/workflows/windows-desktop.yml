@@ -28,6 +28,15 @@ on:
         description: "Download real OCR models and run installed first-book acceptance"
         type: boolean
         default: false
+  # The release workflow reuses this exact packaging path so a GitHub Release
+  # is built from the same smoke-tested steps as CI (issue #220/#245).
+  workflow_call:
+    inputs:
+      real_first_book:
+        description: "Download real OCR models and run installed first-book acceptance"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -142,7 +151,10 @@ jobs:
             choco install innosetup --version=6.4.3 --no-progress -y
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
           }
-          & $iscc "/DMyAppVersion=0.1.0" "packaging/windows/ScribeForge.iss"
+          $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          if ($LASTEXITCODE -ne 0 -or -not $version) { throw "Failed to read project.version from pyproject.toml" }
+          Write-Host "Packaging ScribeForge $version"
+          & $iscc "/DMyAppVersion=$version" "packaging/windows/ScribeForge.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
       - name: Install and open the desktop application
@@ -166,12 +178,26 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           python scripts/smoke_packaged_epub.py "$env:SMOKE_INSTALL_DIR/backend/scribeforge.exe"
 
+      - name: Verify upgrade, failed install, uninstall and reinstall keep user data
+        shell: pwsh
+        env:
+          SMOKE_INSTALL_DIR: ${{ runner.temp }}/ScribeForge Installed Smoke
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          ./packaging/windows/Test-UpgradeUninstall.ps1 `
+            -Installer "dist/installer/ScribeForge-Setup-x64.exe" `
+            -InstallDirectory "$env:SMOKE_INSTALL_DIR" `
+            -LogPrefix "$env:RUNNER_TEMP/scribeforge-upgrade"
+
       - name: Upload installer diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer-smoke-log
-          path: ${{ runner.temp }}/scribeforge-installer.log
+          path: |
+            ${{ runner.temp }}/scribeforge-installer.log
+            ${{ runner.temp }}/scribeforge-upgrade-*.log
           if-no-files-found: ignore
 
       - name: Record artifact checksums

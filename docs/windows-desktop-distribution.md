@@ -1,6 +1,6 @@
 # Windows desktop distribution plan
 
-**Status:** the bundled-backend resolver, frozen-backend build, per-user installer recipe, and Windows packaging workflow are implemented in source. No end-user release is published by this change. A green packaging workflow validates an unsigned CI artifact, not a fresh-VM installation, signing, upgrade, or real OCR model run.
+**Status:** the bundled-backend resolver, frozen-backend build, per-user installer recipe, Windows packaging workflow, and the tag-driven GitHub Release pipeline (`.github/workflows/release.yml`) are implemented in source. Releases published by a `vX.Y.Z` tag re-run the exact packaging job and attach the installer, portable ZIP and `SHA256SUMS.txt` with a bilingual unsigned-artifact disclosure; they are still not a fresh-VM installation, signing, or real OCR model run. A green packaging workflow alone validates an unsigned CI artifact, not a fresh-VM installation, signing, upgrade, or real OCR model run.
 
 ## Goal
 
@@ -24,7 +24,7 @@ The resulting installer can remove the Flutter/Python *development-toolchain* re
 2. Run CLI smoke checks against the frozen executable: `--help`, `runtime-status --json`, and a mocked/test-only setup protocol check. Do not download production OCR models in CI.
 3. Build the Flutter Windows release and assemble a staging folder with the Flutter runner, required Flutter DLLs/data, and the frozen CLI. Verify the application discovers the adjacent CLI without a Python environment or PATH entry.
 4. Build the per-user installer. Verify install, launch, settings/CLI discovery, upgrade-in-place, uninstall, and preservation of user runtime/project data in a fresh Windows 11 x64 VM that has no Python or Flutter installed.
-5. Publish the installer and checksums as release assets only after the Core and Flutter Desktop CI jobs and the Windows packaging job pass. Sign both the installer and executables when the release signing certificate is available; until then, clearly mark artifacts as unsigned and do not imply SmartScreen reputation.
+5. Publish the installer and checksums as release assets only after the Core and Flutter Desktop CI jobs and the Windows packaging job pass. The `Release` workflow automates this: pushing a `vX.Y.Z` tag (or dispatching it for an existing tag) refuses the release unless the tagged commit is on `main` and its `core` / `flutter-desktop` / `flutter-desktop-windows` check runs are green, then reuses `windows-desktop.yml` verbatim, re-verifies `SHA256SUMS.txt`, and creates the GitHub Release with the installer, portable ZIP and a bare-filename `SHA256SUMS.txt`. Sign both the installer and executables when the release signing certificate is available; until then, clearly mark artifacts as unsigned and do not imply SmartScreen reputation.
 
 ## Acceptance gates
 
