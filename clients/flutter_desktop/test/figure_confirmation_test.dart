@@ -288,17 +288,16 @@ void main() {
       expect(await root.list().toList(), isEmpty);
 
       await expectLater(
-        service(
-          _Core(mutate: (v) => v['status'] = 'unverified_preview'),
-        ).confirm(
-          page: 17,
-          run: 5,
-          block: 2,
-          cropBytes: _png,
-          confirmationToken: _token,
-          anchorPair: 1,
-          reason: 'checked',
-        ),
+        service(_Core(mutate: (v) => v['status'] = 'unverified_preview'))
+            .confirm(
+              page: 17,
+              run: 5,
+              block: 2,
+              cropBytes: _png,
+              confirmationToken: _token,
+              anchorPair: 1,
+              reason: 'checked',
+            ),
         throwsFormatException,
       );
       expect(await root.list().toList(), isEmpty);
