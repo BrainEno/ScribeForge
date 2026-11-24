@@ -58,6 +58,9 @@ class _Core implements ScribeForgeCliExecutor {
       'engine': 'PaddleOCR',
       'source_sha256': 'a' * 64,
       'preview_sha256': sha256.convert(_png).toString(),
+      'confirmation_token':
+          'fig:v8:r5:b2:${'a' * 64}:${'b' * 64}:0.1:0.2:0.3:0.4',
+      'aligned_pair_count': 3,
       'frame_size': [100, 200],
       'pixel_box': [10, 20, 11, 21],
       'context': {
@@ -104,6 +107,8 @@ class _WidgetPreviewService extends LayoutPreviewService {
       previewSha256: sha256.convert(_png).toString(),
       pixelBox: const [10, 20, 11, 21],
       frameSize: const [100, 200],
+      confirmationToken: 'fig:v8:r5:b2:${'a' * 64}:${'b' * 64}:0.1:0.2:0.3:0.4',
+      alignedPairCount: 3,
     );
   }
 }
@@ -181,6 +186,9 @@ void main() {
         (v) => v['pixel_box'] = [0, 0, 0, 1],
         (v) => v['frame_size'] = [100, -1],
         (v) => v['pixel_box'] = [1.0, 2, 3, 4],
+        (v) => v['confirmation_token'] = 'nope',
+        (v) => v['confirmation_token'] = null,
+        (v) => v['aligned_pair_count'] = 0,
       ];
       for (final mutate in mutations) {
         await expectLater(
@@ -264,7 +272,7 @@ void main() {
       ),
     );
     expect(mock.calls, 0);
-    expect(find.textContaining('不会将插图加入 EPUB'), findsOneWidget);
+    expect(find.textContaining('确认为插图'), findsWidgets);
     expect(find.textContaining('异常退出可能留下文件'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('create-layout-preview')));
     await tester.pumpAndSettle();
@@ -314,13 +322,13 @@ void main() {
       );
       await tester.binding.handlePopRoute();
       await tester.pump();
-      expect(find.text('查看未经确认的图表区域'), findsOneWidget);
+      expect(find.text('检查区域并确认为插图'), findsOneWidget);
       pending.completeError(const LayoutPreviewFailure('无法删除临时预览目录'));
       await tester.pumpAndSettle();
       expect(find.textContaining('无法删除临时预览目录'), findsOneWidget);
       await tester.tap(find.text('关闭'));
       await tester.pumpAndSettle();
-      expect(find.text('查看未经确认的图表区域'), findsNothing);
+      expect(find.text('检查区域并确认为插图'), findsNothing);
     },
   );
 

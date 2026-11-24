@@ -63,7 +63,7 @@ def test_latest_schema_contains_resumable_jobs_table(tmp_path: Path) -> None:
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
 
-    assert version == 19
+    assert version == 20
     assert "jobs" in tables
 
 
@@ -295,7 +295,7 @@ def test_v3_database_migrates_to_latest_without_losing_project(tmp_path: Path) -
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         assert (
             connection.execute("SELECT title FROM projects WHERE id = 1").fetchone()[0] == "Legacy"
         )
@@ -346,7 +346,7 @@ def test_v4_database_migrates_to_latest_keeping_jobs_and_adding_preprocess(
 
     with sqlite3.connect(path) as connection:
         connection.row_factory = sqlite3.Row
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         row = connection.execute(
             "SELECT id, project_id, page_id, stage, state, attempts, last_error FROM jobs"
         ).fetchone()
@@ -393,7 +393,7 @@ def test_v5_database_migrates_to_v6_adding_structure_tables(tmp_path: Path) -> N
     store.initialize()
 
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         names = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")

@@ -224,7 +224,7 @@ def test_v16_migration_preserves_existing_blocks_and_monotonic_ids(project, tmp_
     store.initialize()  # Reopening is idempotent.
     assert store.load_ocr_run(old_run).blocks == (existing,)
     with sqlite3.connect(database) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 20
         assert db.execute("SELECT * FROM ocr_blocks").fetchall() == old
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     new_run = store.record_ocr(pid, PageOCRResult(1, "surya", "1", (), (_block(BlockType.FIGURE),)))

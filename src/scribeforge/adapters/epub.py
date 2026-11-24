@@ -27,7 +27,11 @@ from scribeforge.adapters.export_common import (
     validate_normalization_policy,
     write_atomic,
 )
-from scribeforge.domain.content import VerifiedBook, VerifiedImage
+from scribeforge.domain.content import (
+    VerifiedBook,
+    VerifiedImage,
+    VerifiedInlineFigure,
+)
 from scribeforge.domain.flow import (
     AUTO_LAYOUT,
     FlowDocument,
@@ -44,7 +48,11 @@ def _image_item_id(image: VerifiedImage) -> str:
     return f"image-page-{image.page_index}"
 
 
-def _image_href(image: VerifiedImage) -> str:
+def _inline_item_id(figure: VerifiedInlineFigure) -> str:
+    return f"inline-figure-{figure.confirmation_id}"
+
+
+def _image_href(image: VerifiedImage | VerifiedInlineFigure) -> str:
     """Where the image sits inside the package, as a manifest href."""
 
     return f"{IMAGES_DIR}/{image.file_name}"
@@ -67,6 +75,17 @@ def _figure_xhtml(image: VerifiedImage) -> str:
             f"</figure>"
         )
     return f'<figure class="page-image">{img}</figure>'
+
+
+def _inline_figure_xhtml(figure: VerifiedInlineFigure) -> str:
+    """Render one confirmed inline crop without inventing a caption."""
+    img = f'<img src="{_image_href(figure)}" alt={quoteattr(figure.alt)}/>'
+    if figure.caption:
+        return (
+            f'<figure class="inline-figure">{img}'
+            f"<figcaption>{escape(figure.caption)}</figcaption></figure>"
+        )
+    return f'<figure class="inline-figure">{img}</figure>'
 
 
 def _block_xhtml(block: FlowParagraph) -> str:
@@ -104,20 +123,61 @@ def _pagebreak_xhtml(page_index: int, printed_label: str) -> str:
 
 def _document_xhtml(document: FlowDocument, language: str) -> str:
     lang = quoteattr(language)
-    by_page: dict[int, list[FlowParagraph]] = {}
-    for paragraph in document.paragraphs:
-        by_page.setdefault(paragraph.start_page, []).append(paragraph)
     images_by_page: dict[int, list[VerifiedImage]] = {}
     for image in document.images:
         images_by_page.setdefault(image.page_index, []).append(image)
+
+    page_indexes = [page_index for page_index, _ in document.page_labels]
+    paragraph_page = [paragraph.start_page for paragraph in document.paragraphs]
+    # Assign each confirmed inline figure to a slot inside its own page's
+    # content: before the anchored paragraph when that paragraph starts on the
+    # figure's page, otherwise after every paragraph of the figure's page.
+    inline_slots: dict[int, list[tuple[int, VerifiedInlineFigure]]] = {
+        page_index: [] for page_index in page_indexes
+    }
+    for anchor, figure in document.inline_figures:
+        if figure.page_index not in inline_slots:
+            raise ValueError(f"inline figure for page {figure.page_index} is outside this document")
+        paragraph_count = sum(1 for page in paragraph_page if page == figure.page_index)
+        before = sum(
+            1
+            for index, page in enumerate(paragraph_page)
+            if index < anchor and page == figure.page_index
+        )
+        slot = min(before, paragraph_count)
+        inline_slots[figure.page_index].append((slot, figure))
+    for slots in inline_slots.values():
+        slots.sort(
+            key=lambda item: (
+                item[0],
+                item[1].reading_position,
+                item[1].confirmation_id,
+            )
+        )
+
     parts: list[str] = []
+    paragraph_cursor = 0
     for page_index, printed_label in document.page_labels:
         parts.append(_pagebreak_xhtml(page_index, printed_label))
         parts.extend(_figure_xhtml(image) for image in images_by_page.get(page_index, ()))
-        parts.extend(_block_xhtml(paragraph) for paragraph in by_page.get(page_index, ()))
-    # A paragraph never starts outside a page of this document, so nothing can be
-    # left over; assert it rather than silently dropping text.
-    if sum(len(items) for items in by_page.values()) != len(document.paragraphs):
+        page_paragraphs = [
+            paragraph for paragraph in document.paragraphs if paragraph.start_page == page_index
+        ]
+        slots = inline_slots[page_index]
+        slot_index = 0
+        while slot_index < len(slots) and slots[slot_index][0] == 0:
+            parts.append(_inline_figure_xhtml(slots[slot_index][1]))
+            slot_index += 1
+        for offset, paragraph in enumerate(page_paragraphs, start=1):
+            parts.append(_block_xhtml(paragraph))
+            while slot_index < len(slots) and slots[slot_index][0] == offset:
+                parts.append(_inline_figure_xhtml(slots[slot_index][1]))
+                slot_index += 1
+        while slot_index < len(slots):
+            parts.append(_inline_figure_xhtml(slots[slot_index][1]))
+            slot_index += 1
+        paragraph_cursor += len(page_paragraphs)
+    if paragraph_cursor != len(document.paragraphs):
         raise ValueError("flow document has paragraphs that start outside its pages")
     return (
         XML_DECL
@@ -174,6 +234,16 @@ def build_epub(
         )
         for image in book.images
     ]
+    images.extend(
+        EpubImage(
+            item_id=_inline_item_id(figure),
+            href=_image_href(figure),
+            media_type=figure.media_type,
+            data=figure.data,
+            cover=False,
+        )
+        for figure in book.inline_figures
+    )
     data = epub_builder.build_epub_package(
         title=book.title,
         identifier=identifier,

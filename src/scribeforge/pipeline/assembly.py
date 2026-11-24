@@ -22,6 +22,7 @@ from scribeforge.domain.content import (
     VerifiedBook,
     VerifiedChapter,
     VerifiedImage,
+    VerifiedInlineFigure,
     VerifiedPage,
 )
 from scribeforge.domain.ocr import BlockType, BoundingBox, PageOCRResult
@@ -123,6 +124,7 @@ def assemble_verified_content(
     unconfirmed_pages: list[int] = []
     confirmed_blank: list[int] = []
     empty_pairs: list[tuple[int, int]] = []
+    pair_positions: dict[int, tuple[dict[int, int], int]] = {}
     machine_accepted = 0
     human_accepted = 0
     max_machine_content_risk = 0.0
@@ -178,7 +180,11 @@ def assemble_verified_content(
         lines: list[str] = []
         boxes: list[BoundingBox | None] = []
         roles: list[LineRole] = []
+        # Reading anchors are aligned-pair indexes; convert them to positions in
+        # the exported line stream, skipping furniture and empty pairs.
+        pair_line_positions: dict[int, int] = {}
         for pair_index in range(len(record.alignment.pairs)):
+            pair_line_positions[pair_index] = len(lines)
             pair = record.alignment.pairs[pair_index]
             furniture_reason = pair_furniture_reason(page_furniture, pair)
             decision = store.latest_decision_for_verification(
@@ -270,6 +276,7 @@ def assemble_verified_content(
                 line_roles=tuple(roles),
             )
         )
+        pair_positions[page.page_index] = (pair_line_positions, len(lines))
 
     if unverified_pages or unresolved_pairs or unconfirmed_pages:
         raise UnresolvedContentError(
@@ -280,6 +287,7 @@ def assemble_verified_content(
         )
     exportable = {page.page_index for page in pages}
     images = _page_images(store, project_id, pages, structure, confirmations)
+    inline_figures = _inline_figures(store, project_id, pages, pair_positions)
     chapters = tuple(
         VerifiedChapter(
             title=chapter.title,
@@ -300,6 +308,7 @@ def assemble_verified_content(
         confirmed_blank_pages=tuple(confirmed_blank),
         empty_pairs=tuple(empty_pairs),
         images=images,
+        inline_figures=inline_figures,
         acceptance=AcceptanceSummary(
             pages=len(pages),
             pairs=machine_accepted + human_accepted,
@@ -395,6 +404,104 @@ def _page_images(
         except PageImageError as exc:
             raise PageImageError(str(exc), page_index=page.page_index) from exc
     return tuple(images)
+
+
+def _inline_figures(
+    store: SQLiteStore,
+    project_id: int,
+    pages: list[VerifiedPage],
+    pair_positions: Mapping[int, tuple[dict[int, int], int]],
+) -> tuple[VerifiedInlineFigure, ...]:
+    """Load human-confirmed crops for mixed text pages (issue #246).
+
+    Only confirmations bound to each page's latest verification are eligible.
+    The stored crop bytes are re-hashed; the source page digest must still match
+    the confirmation. Model observations without a confirmation are never
+    embedded here — export reports them separately as layout warnings.
+    """
+    from scribeforge.pipeline.figure_review import latest_inline_confirmations
+
+    confirmations = latest_inline_confirmations(store, project_id)
+    by_page = {page.page_index: page for page in pages}
+    figures: list[VerifiedInlineFigure] = []
+    for page_index in sorted(confirmations):
+        page = by_page.get(page_index)
+        if page is None:
+            continue
+        positions, line_count = pair_positions.get(page_index, ({}, len(page.lines)))
+        source = next(
+            (item for item in store.list_pages(project_id) if item.page_index == page_index),
+            None,
+        )
+        if source is None:
+            raise PageImageError(
+                f"inline figure page {page_index} is missing from the project",
+                page_index=page_index,
+            )
+        evidence = source.asset_evidence()
+        if evidence is None:
+            raise PageImageError(
+                f"page {page_index} has no recorded raster digest for its confirmed figure",
+                page_index=page_index,
+            )
+        try:
+            current_digest = hashlib.sha256(Path(source.source_image).read_bytes()).hexdigest()
+        except OSError as exc:
+            raise PageImageError(
+                f"page {page_index} raster is unreadable for its confirmed figure: "
+                f"{exc.strerror or exc}",
+                page_index=page_index,
+            ) from exc
+        if (
+            current_digest != evidence.sha256
+            or evidence.sha256 != confirmations[page_index][0].source_sha256
+        ):
+            raise PageImageError(
+                f"page {page_index} raster changed after the figure was confirmed; "
+                "restore the verified source or create a new preview",
+                page_index=page_index,
+            )
+        if not page.lines:
+            raise PageImageError(
+                f"page {page_index} has a confirmed inline figure but no accepted text; "
+                "confirm it as a whole-page plate instead",
+                page_index=page_index,
+            )
+        label = page.printed_label or str(page_index + 1)
+        for confirmation in confirmations[page_index]:
+            if hashlib.sha256(confirmation.crop_png).hexdigest() != confirmation.crop_sha256:
+                raise PageImageError(
+                    f"confirmed figure crop on page {page_index} does not match its digest",
+                    page_index=page_index,
+                )
+            anchor = confirmation.anchor_pair_index
+            if anchor in positions:
+                reading_position = positions[anchor]
+            elif anchor >= line_count:
+                reading_position = line_count
+            else:
+                raise PageImageError(
+                    f"confirmed figure anchor on page {page_index} is out of range",
+                    page_index=page_index,
+                )
+            figures.append(
+                VerifiedInlineFigure(
+                    page_index=page_index,
+                    file_name=(f"inline-{page_index + 1:06d}-{confirmation.id:06d}.png"),
+                    media_type="image/png",
+                    sha256=confirmation.crop_sha256,
+                    data=confirmation.crop_png,
+                    alt=f"第 {label} 页的插图",
+                    caption=confirmation.caption,
+                    reading_position=reading_position,
+                    confirmation_id=confirmation.id,
+                    anchor_pair_index=anchor,
+                    run_id=confirmation.run_id,
+                    block_index=confirmation.block_index,
+                )
+            )
+    figures.sort(key=lambda item: (item.page_index, item.reading_position, item.confirmation_id))
+    return tuple(figures)
 
 
 def _load_image(

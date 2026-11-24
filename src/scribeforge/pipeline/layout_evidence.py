@@ -23,6 +23,9 @@ class RegionObservation:
     block_type: BlockType
     box: BoundingBox
     frame: OCRInputFrame | None
+    #: True when a human-confirmed crop of this exact observation is embedded
+    #: by the exporter (issue #246). Model boxes alone never set this flag.
+    confirmed: bool = False
 
     def as_json(self) -> dict[str, object]:
         frame = self.frame
@@ -49,6 +52,7 @@ class RegionObservation:
                     "height": frame.height,
                 }
             ),
+            "confirmed_embedded": self.confirmed,
         }
 
 
@@ -60,14 +64,15 @@ class PageLayoutObservation:
 
     @property
     def may_be_omitted(self) -> bool:
-        """Whole-page EPUB images preserve pixels, not necessarily semantics."""
-        return not self.embedded_page_image
+        """True when a reported region ships neither as page image nor confirmed crop."""
+        return not self.embedded_page_image and any(not region.confirmed for region in self.regions)
 
     def as_json(self) -> dict[str, object]:
         return {
             "page_index": self.page_index,
             "embedded_page_image": self.embedded_page_image,
             "may_be_omitted": self.may_be_omitted,
+            "confirmed_inline": sum(1 for region in self.regions if region.confirmed),
             "regions": [region.as_json() for region in self.regions],
         }
 
@@ -76,12 +81,27 @@ class PageLayoutObservation:
         for region in self.regions:
             label = f"{region.engine}/{region.block_type.value}"
             counts[label] = counts.get(label, 0) + 1
+        unconfirmed = [region for region in self.regions if not region.confirmed]
+        if not unconfirmed:
+            return (
+                f"All {len(self.regions)} reported figure/table region(s) on this page "
+                "are human-confirmed and embedded; absence of other reports is not "
+                "proof that no further illustration exists."
+            )
+        counts = {}
+        for region in unconfirmed:
+            label = f"{region.engine}/{region.block_type.value}"
+            counts[label] = counts.get(label, 0) + 1
         description = ", ".join(f"{label}: {count}" for label, count in sorted(counts.items()))
-        unknown = sum(region.frame is None for region in self.regions)
+        unknown = sum(region.frame is None for region in unconfirmed)
         frame_note = f"; {unknown} observation(s) have unknown OCR frame" if unknown else ""
+        confirmed_count = len(self.regions) - len(unconfirmed)
+        confirmed_note = (
+            f"; {confirmed_count} confirmed crop(s) embedded" if confirmed_count else ""
+        )
         return (
-            f"OCR reported possible figure/table regions ({description}){frame_note}; "
-            "mixed-page regions are not embedded by the current exporter. "
+            f"OCR reported possible figure/table regions ({description}){frame_note}"
+            f"{confirmed_note}; unconfirmed mixed-page regions are not embedded. "
             "Inspect the source page; model boxes are not human confirmation."
         )
 
@@ -91,6 +111,7 @@ def collect_layout_observations(
     project_id: int,
     *,
     embedded_pages: frozenset[int] = frozenset(),
+    confirmed_regions: frozenset[tuple[int, int]] = frozenset(),
 ) -> tuple[PageLayoutObservation, ...]:
     """Inventory only the two runs bound to each page's latest verification.
 
@@ -122,6 +143,7 @@ def collect_layout_observations(
                         block.block_type,
                         block.box,
                         frame,
+                        confirmed=(run_id, block_index) in confirmed_regions,
                     )
                 )
         if regions:

@@ -20,6 +20,53 @@ from scribeforge.domain.ocr import BlockType, BoundingBox
 from scribeforge.storage.sqlite import SQLiteStore
 
 
+def figure_confirmation_token(
+    *,
+    verification_id: int,
+    run_id: int,
+    block_index: int,
+    source_sha256: str,
+    crop_sha256: str,
+    box: tuple[float, float, float, float],
+) -> str:
+    """Opaque binding a reviewed crop to one original-frame observation."""
+    x, y, width, height = box
+    return (
+        f"fig:v{verification_id}:r{run_id}:b{block_index}:"
+        f"{source_sha256}:{crop_sha256}:{x!r}:{y!r}:{width!r}:{height!r}"
+    )
+
+
+def parse_figure_confirmation_token(token: str) -> dict[str, object]:
+    prefix, verification, run, block, source_sha256, tail = token.split(":", 5)
+    if prefix != "fig":
+        raise ValueError("invalid figure confirmation token")
+    try:
+        verification_id = int(verification.removeprefix("v"))
+        run_id = int(run.removeprefix("r"))
+        block_index = int(block.removeprefix("b"))
+        crop_sha256, x_text, y_text, width_text, height_text = tail.split(":")
+        box = (float(x_text), float(y_text), float(width_text), float(height_text))
+    except ValueError as exc:
+        raise ValueError("invalid figure confirmation token") from exc
+    if len(source_sha256) != 64 or len(crop_sha256) != 64:
+        raise ValueError("invalid figure confirmation token digests")
+    if min(verification_id, run_id) < 1 or block_index < 0:
+        raise ValueError("invalid figure confirmation token scope")
+    if any(not math.isfinite(value) or value < 0 for value in box) or box[2] <= 0 or box[3] <= 0:
+        raise ValueError("invalid figure confirmation token box")
+    if box[0] + box[2] > 1 or box[1] + box[3] > 1:
+        raise ValueError("invalid figure confirmation token box")
+    return {
+        "verification_id": verification_id,
+        "run_id": run_id,
+        "block_index": block_index,
+        "source_sha256": source_sha256,
+        "crop_sha256": crop_sha256,
+        "box": box,
+    }
+
+
 def _pixel_box(box: BoundingBox, width: int, height: int) -> tuple[int, int, int, int]:
     values = (box.x, box.y, box.width, box.height)
     if not all(math.isfinite(value) for value in values) or box.width <= 0 or box.height <= 0:
@@ -139,6 +186,7 @@ def create_layout_preview(
         "project_id": project_id,
         "page_index": page_index,
         "verification_id": verification_id,
+        "aligned_pair_count": len(verification.alignment.pairs),
         "run_id": run_id,
         "engine": result.engine,
         "block_index": block_index,
@@ -150,6 +198,14 @@ def create_layout_preview(
         "pixel_box": list(rectangle),
         "preview_sha256": hashlib.sha256(preview).hexdigest(),
         "output": str(output),
+        "confirmation_token": figure_confirmation_token(
+            verification_id=verification_id,
+            run_id=run_id,
+            block_index=block_index,
+            source_sha256=digest,
+            crop_sha256=hashlib.sha256(preview).hexdigest(),
+            box=(block.box.x, block.box.y, block.box.width, block.box.height),
+        ),
         "notice": "Unverified OCR observation; not human confirmation or an exportable figure.",
     }
     if context_output is not None and context_data is not None:

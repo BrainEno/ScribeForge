@@ -9,7 +9,7 @@ import tempfile
 import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO, cast
 
@@ -127,6 +127,52 @@ class PageConfirmation:
 
 
 @dataclass(frozen=True, slots=True)
+class FigureConfirmation:
+    """A person's decision to embed one OCR-reported region on a mixed page.
+
+    The crop is bound to the source raster digest and the latest verification
+    batch it was reviewed against. Assembly refuses stale confirmations rather
+    than silently dropping or re-cropping an approved illustration.
+    """
+
+    id: int
+    page_index: int
+    verification_id: int
+    run_id: int
+    block_index: int
+    box_x: float
+    box_y: float
+    box_width: float
+    box_height: float
+    source_sha256: str
+    crop_sha256: str
+    crop_png: bytes = field(repr=False)
+    anchor_pair_index: int
+    caption: str
+    reason: str
+    created_at: str
+
+    def __post_init__(self) -> None:
+        if (
+            min(self.run_id, self.verification_id) < 1
+            or min(self.page_index, self.block_index, self.anchor_pair_index) < 0
+        ):
+            raise ValueError("invalid figure confirmation scope")
+        if len(self.source_sha256) != 64 or len(self.crop_sha256) != 64:
+            raise ValueError("figure confirmation digests must be SHA-256 hex")
+        if hashlib.sha256(self.crop_png).hexdigest() != self.crop_sha256:
+            raise ValueError("figure confirmation crop bytes do not match their digest")
+        if not self.reason.strip():
+            raise ValueError("a figure confirmation must record why it was made")
+        if not 0 < self.box_width <= 1 or not 0 < self.box_height <= 1:
+            raise ValueError("figure confirmation box must have positive size")
+        if self.box_x < 0 or self.box_y < 0:
+            raise ValueError("figure confirmation box cannot start outside the page")
+        if self.box_x + self.box_width > 1 or self.box_y + self.box_height > 1:
+            raise ValueError("figure confirmation box must fit inside the page")
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectRecord:
     id: int
     title: str
@@ -234,7 +280,7 @@ class CropInputEvidence:
 
 
 class SQLiteStore:
-    SCHEMA_VERSION = 19
+    SCHEMA_VERSION = 20
 
     def __init__(self, path: Path, *, read_only: bool = False) -> None:
         self._path = path
@@ -443,6 +489,59 @@ class SQLiteStore:
                 self._migrate_v18(connection)
             if version < 19:
                 self._migrate_v19(connection)
+            if version < 20:
+                self._migrate_v20(connection)
+
+    @staticmethod
+    def _migrate_v20(connection: sqlite3.Connection) -> None:
+        """Record human-confirmed inline illustrations without copying rasters.
+
+        The crop bytes are stored with the confirmation so export embeds exactly
+        what the reviewer approved. The source digest, OCR observation and
+        aligned-pair anchor are re-checked against the latest verification at
+        assembly time; older releases cannot open schema v20 stores.
+        """
+        connection.execute("SAVEPOINT figure_confirmations_v20")
+        try:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS figure_confirmations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE RESTRICT,
+                    verification_id INTEGER NOT NULL REFERENCES verification_runs(id),
+                    run_id INTEGER NOT NULL REFERENCES engine_runs(id),
+                    block_index INTEGER NOT NULL CHECK(block_index >= 0),
+                    box_x REAL NOT NULL,
+                    box_y REAL NOT NULL,
+                    box_width REAL NOT NULL,
+                    box_height REAL NOT NULL,
+                    source_sha256 TEXT NOT NULL CHECK(length(source_sha256) = 64),
+                    crop_sha256 TEXT NOT NULL CHECK(length(crop_sha256) = 64),
+                    crop_png BLOB NOT NULL,
+                    anchor_pair_index INTEGER NOT NULL CHECK(anchor_pair_index >= 0),
+                    caption TEXT NOT NULL DEFAULT '',
+                    reason TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CHECK(box_x >= 0 AND box_y >= 0 AND box_width > 0 AND box_height > 0),
+                    CHECK(box_x + box_width <= 1 AND box_y + box_height <= 1),
+                    CHECK(length(reason) BETWEEN 1 AND 1000),
+                    CHECK(length(caption) <= 1000),
+                    CHECK(length(crop_png) > 0 AND length(crop_png) <= 33554432)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_figure_confirmations_page
+                    ON figure_confirmations(page_id, id)
+                """
+            )
+            connection.execute("PRAGMA user_version = 20")
+        except Exception:
+            connection.execute("ROLLBACK TO figure_confirmations_v20")
+            connection.execute("RELEASE figure_confirmations_v20")
+            raise
+        connection.execute("RELEASE figure_confirmations_v20")
 
     @staticmethod
     def _migrate_v19(connection: sqlite3.Connection) -> None:
@@ -3197,6 +3296,144 @@ class SQLiteStore:
                     created_at=str(row["created_at"]),
                     verification_id=row["verification_id"],
                     raster_sha256=row["raster_sha256"],
+                )
+                for row in rows
+            )
+
+    def record_figure_confirmation(
+        self,
+        *,
+        project_id: int,
+        page_index: int,
+        verification_id: int,
+        run_id: int,
+        block_index: int,
+        box: tuple[float, float, float, float],
+        source_sha256: str,
+        crop_png: bytes,
+        anchor_pair_index: int,
+        caption: str,
+        reason: str,
+        expected_page: PageRecord | None = None,
+    ) -> int:
+        """Persist one human-approved inline illustration under a write lock.
+
+        The caller has already inspected the crop against the original page. This
+        method re-checks that the verification is still current, that the OCR run
+        and block still belong to it, and that the anchor is a real aligned pair
+        before committing. A stale preview can never become exportable evidence.
+        """
+        if not crop_png or len(crop_png) > 33_554_432:
+            raise ValueError("figure confirmation crop must be 1–32 MiB")
+        crop_digest = hashlib.sha256(crop_png).hexdigest()
+        if source_sha256 != (expected_page.page_asset_sha256 if expected_page else None):
+            raise ValueError("figure confirmation source digest does not match the page")
+        caption, reason = caption.strip(), reason.strip()
+        if not reason or len(reason) > 1000 or len(caption) > 1000:
+            raise ValueError("figure confirmation caption/reason length is invalid")
+        with self._connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            page_id = self._page_id(connection, project_id, page_index)
+            if expected_page is not None:
+                self._require_current_page(connection, project_id, expected_page)
+                if expected_page.id != page_id:
+                    raise ValueError("page changed; reload before confirming the figure")
+            current = connection.execute(
+                "SELECT MAX(id) FROM verification_runs WHERE page_id=?", (page_id,)
+            ).fetchone()[0]
+            if current != verification_id:
+                raise ValueError("verification changed; reload the original page")
+            run = connection.execute(
+                """
+                SELECT v.primary_run_id, v.secondary_run_id
+                FROM verification_runs v WHERE v.id=?
+                """,
+                (verification_id,),
+            ).fetchone()
+            if run is None or run_id not in (run["primary_run_id"], run["secondary_run_id"]):
+                raise ValueError("run is not part of the page's latest verification")
+            block = connection.execute(
+                "SELECT block_type FROM ocr_blocks WHERE run_id=? AND block_index=?",
+                (run_id, block_index),
+            ).fetchone()
+            if block is None or block["block_type"] not in ("figure", "table"):
+                raise ValueError("only figure/table observations can be confirmed")
+            frame = connection.execute(
+                "SELECT kind, sha256, width, height FROM ocr_input_frames WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+            if frame is None or frame["kind"] != "original" or frame["sha256"] != source_sha256:
+                raise ValueError("OCR frame is not the confirmed original page")
+            pairs = connection.execute(
+                "SELECT COUNT(*) FROM alignments WHERE verification_run_id=?",
+                (verification_id,),
+            ).fetchone()[0]
+            if anchor_pair_index > int(pairs):
+                raise ValueError("reading anchor is past the page's aligned pairs")
+            cursor = connection.execute(
+                """
+                INSERT INTO figure_confirmations(
+                    page_id, verification_id, run_id, block_index,
+                    box_x, box_y, box_width, box_height,
+                    source_sha256, crop_sha256, crop_png,
+                    anchor_pair_index, caption, reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    page_id,
+                    verification_id,
+                    run_id,
+                    block_index,
+                    *box,
+                    source_sha256,
+                    crop_digest,
+                    crop_png,
+                    anchor_pair_index,
+                    caption,
+                    reason,
+                ),
+            )
+            return self._last_id(cursor)
+
+    def list_figure_confirmations(
+        self, project_id: int, page_index: int | None = None
+    ) -> tuple[FigureConfirmation, ...]:
+        """List recorded inline-figure confirmations, oldest first."""
+        with self._connection() as connection:
+            self._require_project(connection, project_id)
+            where = "pages.project_id = ?"
+            params: tuple[object, ...] = (project_id,)
+            if page_index is not None:
+                where += " AND pages.page_index = ?"
+                params = (*params, page_index)
+            rows = connection.execute(
+                f"""
+                SELECT fc.*, pages.page_index
+                FROM figure_confirmations fc
+                JOIN pages ON pages.id = fc.page_id
+                WHERE {where}
+                ORDER BY fc.id
+                """,
+                params,
+            ).fetchall()
+            return tuple(
+                FigureConfirmation(
+                    id=int(row["id"]),
+                    page_index=int(row["page_index"]),
+                    verification_id=int(row["verification_id"]),
+                    run_id=int(row["run_id"]),
+                    block_index=int(row["block_index"]),
+                    box_x=float(row["box_x"]),
+                    box_y=float(row["box_y"]),
+                    box_width=float(row["box_width"]),
+                    box_height=float(row["box_height"]),
+                    source_sha256=str(row["source_sha256"]),
+                    crop_sha256=str(row["crop_sha256"]),
+                    crop_png=bytes(row["crop_png"]),
+                    anchor_pair_index=int(row["anchor_pair_index"]),
+                    caption=str(row["caption"]),
+                    reason=str(row["reason"]),
+                    created_at=str(row["created_at"]),
                 )
                 for row in rows
             )

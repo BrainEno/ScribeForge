@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from scribeforge.adapters.export_common import epub_image_name
-from scribeforge.domain.content import VerifiedBook
+from scribeforge.domain.content import VerifiedBook, VerifiedImage, VerifiedInlineFigure
 from scribeforge.domain.flow import AUTO_LAYOUT, BookFlow, build_flow
 
 _CONTAINER_NS = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
@@ -166,10 +166,35 @@ def check_epub(data: bytes, book: VerifiedBook, *, layout: str = AUTO_LAYOUT) ->
                 rendered.pages == [page_index for page_index, _ in expected.page_labels],
                 f"document {expected.file_name} does not carry a marker per scanned page",
             )
+            expected_image_names = [epub_image_name(image) for image in expected.images] + [
+                epub_image_name(figure) for _, figure in expected.inline_figures
+            ]
             _require(
                 sorted(_resolve(document_name, source) for source in rendered.images)
-                == sorted(epub_image_name(image) for image in expected.images),
+                == sorted(expected_image_names),
                 f"document {expected.file_name} does not show exactly its own images",
+            )
+            inline_names = {epub_image_name(figure) for _, figure in expected.inline_figures}
+            rendered_inline = [
+                _resolve(document_name, source)
+                for source in rendered.images
+                if _resolve(document_name, source) in inline_names
+            ]
+            expected_inline_order = [
+                epub_image_name(figure)
+                for _, figure in sorted(
+                    expected.inline_figures,
+                    key=lambda item: (
+                        item[0],
+                        item[1].page_index,
+                        item[1].reading_position,
+                        item[1].confirmation_id,
+                    ),
+                )
+            ]
+            _require(
+                rendered_inline == expected_inline_order,
+                f"document {expected.file_name} inline figures are not in reading order",
             )
             for source in rendered.images:
                 references[_resolve(document_name, source)] += 1
@@ -203,7 +228,10 @@ def _check_images(
     """
 
     names = set(archive.namelist())
-    expected = {epub_image_name(image): image for image in book.images}
+    expected: dict[str, VerifiedImage | VerifiedInlineFigure] = {
+        epub_image_name(image): image for image in book.images
+    }
+    expected.update({epub_image_name(figure): figure for figure in book.inline_figures})
     for name, image in expected.items():
         _require(name in names, f"page {image.page_index} image is missing from the archive")
         actual = hashlib.sha256(archive.read(name)).hexdigest()
@@ -375,6 +403,12 @@ def _require_images_referenced_once(book: VerifiedBook, seen: Counter[str]) -> N
         _require(
             seen[name] == 1,
             f"page {image.page_index} image is shown {seen[name]} time(s) instead of once",
+        )
+    for figure in book.inline_figures:
+        name = epub_image_name(figure)
+        _require(
+            seen[name] == 1,
+            f"page {figure.page_index} inline figure is shown {seen[name]} time(s) instead of once",
         )
 
 

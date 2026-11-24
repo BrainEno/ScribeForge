@@ -880,6 +880,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Why this page has no text; recorded in the audit trail.",
     )
 
+    confirm_figure = subparsers.add_parser(
+        "confirm-figure",
+        help="Confirm one reviewed original-frame crop as an inline EPUB figure.",
+    )
+    confirm_figure.add_argument("--store", type=Path, required=True)
+    confirm_figure.add_argument("--project-id", type=int, required=True)
+    confirm_figure.add_argument("--page", type=int, required=True, help="Zero-based page index.")
+    confirm_figure.add_argument(
+        "--run", type=int, required=True, help="Latest verification OCR run."
+    )
+    confirm_figure.add_argument("--block", type=int, required=True, help="OCR block index.")
+    confirm_figure.add_argument(
+        "--crop",
+        type=Path,
+        required=True,
+        help="PNG previously produced by layout-preview for this observation.",
+    )
+    confirm_figure.add_argument(
+        "--confirmation-token",
+        required=True,
+        help="confirmation_token from the layout-preview JSON.",
+    )
+    confirm_figure.add_argument(
+        "--anchor-pair",
+        type=int,
+        required=True,
+        help="Aligned pair index before which the figure reads; pair count = end of page.",
+    )
+    confirm_figure.add_argument("--caption", default="", help="Optional explicit figure caption.")
+    confirm_figure.add_argument(
+        "--reason", required=True, help="Why this crop is the illustration."
+    )
+    confirm_figure.add_argument("--json", action="store_true", help="Structured receipt.")
+
     ui = subparsers.add_parser("ui", help="Open the read-only desktop shell for a project store.")
     ui.add_argument("--store", type=Path, required=True, help="Project store directory.")
 
@@ -1342,6 +1376,8 @@ def _dispatch(
         return _diagnose_book(args, out)
     if args.command == "layout-preview":
         return _layout_preview(args, out)
+    if args.command == "confirm-figure":
+        return _confirm_figure(args, out)
     if args.command == "job-history":
         return _job_history(args, out)
     if args.command == "report":
@@ -1924,6 +1960,55 @@ def _layout_preview(args: argparse.Namespace, out: TextIO) -> int:
         print(f"error: could not create layout preview: {exc}", file=sys.stderr)
         return EXIT_FATAL
     print(json.dumps(preview, ensure_ascii=False, indent=2), file=out)
+    return EXIT_OK
+
+
+def _confirm_figure(args: argparse.Namespace, out: TextIO) -> int:
+    from scribeforge.pipeline.figure_review import submit_figure_confirmation
+
+    try:
+        confirmation = submit_figure_confirmation(
+            StoreLayout(args.store).db_path,
+            project_id=args.project_id,
+            page_index=args.page,
+            run_id=args.run,
+            block_index=args.block,
+            crop_path=args.crop,
+            token=args.confirmation_token,
+            anchor_pair_index=args.anchor_pair,
+            caption=args.caption,
+            reason=args.reason,
+        )
+    except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+        print(f"error: could not confirm inline figure: {exc}", file=sys.stderr)
+        return EXIT_FATAL
+    receipt = {
+        "schema_version": 1,
+        "status": "figure_confirmed",
+        "id": confirmation.id,
+        "project_id": args.project_id,
+        "page_index": confirmation.page_index,
+        "verification_id": confirmation.verification_id,
+        "run_id": confirmation.run_id,
+        "block_index": confirmation.block_index,
+        "anchor_pair_index": confirmation.anchor_pair_index,
+        "crop_sha256": confirmation.crop_sha256,
+        "source_sha256": confirmation.source_sha256,
+        "caption": confirmation.caption,
+        "reason": confirmation.reason,
+        "notice": (
+            "Human-confirmed inline figure; export embeds these exact crop bytes "
+            "at the recorded reading anchor."
+        ),
+    }
+    if args.json:
+        print(json.dumps(receipt, ensure_ascii=False, indent=2), file=out)
+    else:
+        print(
+            f"confirmed inline figure #{confirmation.id} on page "
+            f"{confirmation.page_index} before pair {confirmation.anchor_pair_index}",
+            file=out,
+        )
     return EXIT_OK
 
 
@@ -2908,12 +2993,16 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
     from scribeforge.pipeline.layout_evidence import collect_layout_observations
 
     try:
+        is_epub = args.out.suffix.lower() == ".epub"
         layout_observations = collect_layout_observations(
             store,
             project.id,
             embedded_pages=(
-                frozenset(image.page_index for image in book.images)
-                if args.out.suffix.lower() == ".epub"
+                frozenset(image.page_index for image in book.images) if is_epub else frozenset()
+            ),
+            confirmed_regions=(
+                frozenset((figure.run_id, figure.block_index) for figure in book.inline_figures)
+                if is_epub
                 else frozenset()
             ),
         )
@@ -3019,6 +3108,21 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             "pages": len(book.pages),
             "chapters": len(book.chapters),
             "images": len(book.images) if suffix == ".epub" else 0,
+            "inline_figures": (
+                [
+                    {
+                        "page": figure.page_index,
+                        "confirmation_id": figure.confirmation_id,
+                        "file": figure.file_name,
+                        "sha256": figure.sha256,
+                        "reading_position": figure.reading_position,
+                        "caption": figure.caption,
+                    }
+                    for figure in book.inline_figures
+                ]
+                if suffix == ".epub"
+                else []
+            ),
             "cover_image": (
                 None
                 if suffix != ".epub" or book.cover_image is None
@@ -3034,10 +3138,18 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             "layout_observations": [entry.as_json() for entry in layout_observations],
             "layout_notice": (
                 "OCR layout observations are not human confirmation; unreported regions "
-                "may still exist. Mixed-page figures and tables are not embedded."
+                "may still exist. Only human-confirmed inline figures are embedded."
             ),
             "docx_omitted_page_images": (
                 [image.page_index for image in book.images] if suffix == ".docx" else []
+            ),
+            "docx_omitted_inline_figures": (
+                [
+                    {"page": figure.page_index, "confirmation_id": figure.confirmation_id}
+                    for figure in book.inline_figures
+                ]
+                if suffix == ".docx"
+                else []
             ),
             "accepted_pairs": summary.pairs,
             "machine_accepted": summary.machine_accepted,
@@ -3128,6 +3240,19 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             print(
                 "warning: DOCX export writes text only, so "
                 f"{len(book.images)} page image(s) are not in this file",
+                file=sys.stderr,
+            )
+    if book.inline_figures:
+        if suffix == ".epub":
+            print(
+                f"confirmed inline figures: {len(book.inline_figures)} embedded "
+                "at their recorded reading anchors",
+                file=out,
+            )
+        else:
+            print(
+                "warning: DOCX export writes text only, so "
+                f"{len(book.inline_figures)} confirmed inline figure(s) are not in this file",
                 file=sys.stderr,
             )
     if book.chapters:
