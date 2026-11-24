@@ -1,6 +1,8 @@
 name: format-fix
 
 on:
+  push:
+    branches: [arena/344fbaaa-scribeforge]
   workflow_dispatch:
 
 permissions:
