@@ -253,7 +253,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('copy-report-json-button')));
     await tester.pumpAndSettle();
     expect(clipboard, hasLength(1));
-    expect(clipboard.single, _reportJson);
+    // The loader trims stdout before parsing, so rawJson is the trimmed text.
+    expect(clipboard.single, _reportJson.trim());
     expect(find.text('已复制 JSON 报告到剪贴板。'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('copy-report-markdown-button')));
