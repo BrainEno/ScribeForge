@@ -1,7 +1,7 @@
 name: scribeforge_desktop
 description: Flutter desktop workspace for evidence-aware PDF and EPUB candidate comparison.
 publish_to: none
-version: 0.1.0+1
+version: 0.1.1+1
 
 environment:
   sdk: '>=3.13.0 <4.0.0'

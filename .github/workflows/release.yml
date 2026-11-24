@@ -1,0 +1,194 @@
+# Tag-driven GitHub Release for the Windows desktop package (issues #220/#245).
+#
+# Flow: a vX.Y.Z tag (or a manual dispatch for an existing tag) must point at a
+# commit that is on main and whose required CI checks are already green; the
+# packaging job is then reused verbatim from windows-desktop.yml, its checksums
+# are re-verified, and the GitHub Release is created with the installer, the
+# portable ZIP, a bare-filename SHA256SUMS.txt and bilingual notes that clearly
+# disclose that the artifacts are unsigned.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v0.1.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate tag and provenance
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      # Check out the tag itself so the version gate reads the tagged files
+      # (a dispatch for an older tag must not validate against branch HEAD).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Resolve the tag under release
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          case "$TAG" in
+            v[0-9]*) ;;
+            *)
+              echo "::error title=Release::Tag '$TAG' is not a vX.Y.Z release tag."
+              exit 1
+              ;;
+          esac
+          if ! git fetch --no-tags origin main; then
+            echo "::error title=Release::Could not fetch origin/main."
+            exit 1
+          fi
+          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            # The dispatch path may run before the local clone has the tag.
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+          fi
+          SHA="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error title=Release::Tag $TAG points at $SHA which is not on main. Release only consumes commits that main already verified."
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG (version $VERSION) from commit $SHA on main."
+
+      - name: Verify version metadata consistency
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: python3 scripts/release_gate.py --root . check --version "$VERSION"
+
+      - name: Verify required CI checks already passed on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.tag.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100" > check-runs-raw.json
+          # Drop this release run's own check runs (validate/build/publish are
+          # in flight right now and must not be judged by the provenance gate).
+          python3 - <<'PY'
+          import json
+          import os
+
+          run_marker = f"/runs/{os.environ['GITHUB_RUN_ID']}/"
+          with open("check-runs-raw.json", encoding="utf-8") as handle:
+              payload = json.load(handle)
+          kept = [
+              run
+              for run in payload.get("check_runs", [])
+              if run_marker not in (run.get("details_url") or "")
+          ]
+          payload["check_runs"] = kept
+          with open("check-runs.json", "w", encoding="utf-8") as handle:
+              json.dump(payload, handle)
+          print(f"Kept {len(kept)} check runs after excluding this release run.")
+          PY
+          python3 scripts/release_gate.py checks --file check-runs.json
+
+  build:
+    name: Package Windows desktop
+    needs: validate
+    uses: ./.github/workflows/windows-desktop.yml
+    with:
+      real_first_book: false
+
+  publish:
+    name: Publish GitHub Release
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Download the packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ScribeForge-windows-x64-unsigned
+          path: dist
+
+      - name: Re-verify checksums and build the release sums file
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          python3 scripts/release_gate.py sums --dist dist --out release-assets/SHA256SUMS.txt
+          echo "Packaged sums:"
+          cat dist/SHA256SUMS.txt
+          echo "Release sums:"
+          cat release-assets/SHA256SUMS.txt
+
+      - name: Render release notes
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          SHA: ${{ needs.validate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release_gate.py notes \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --sha "$SHA" \
+            --sums release-assets/SHA256SUMS.txt \
+            --run-url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --out release-assets/RELEASE_NOTES.md
+
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ASSETS=(
+            "dist/installer/ScribeForge-Setup-x64.exe"
+            "dist/portable/ScribeForge-windows-x64.zip"
+            "release-assets/SHA256SUMS.txt"
+          )
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refreshing assets and notes."
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${ASSETS[@]}"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "ScribeForge $TAG" \
+              --notes-file release-assets/RELEASE_NOTES.md
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "ScribeForge $TAG" \
+              --notes-file release-assets/RELEASE_NOTES.md \
+              --verify-tag \
+              "${ASSETS[@]}"
+          fi
+          echo "Published $TAG:"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets,url \
+            --jq '{url: .url, assets: [.assets[].name]}'

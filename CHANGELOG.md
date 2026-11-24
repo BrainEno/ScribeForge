@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-20
+
 ### Fixed
 
 - Desktop settings persistence is now atomic and lossless (issues #216/#218):
@@ -37,6 +39,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Windows desktop release pipeline (issues #220/#245): the new
+  `.github/workflows/release.yml` is triggered by a `vX.Y.Z` tag (or a manual
+  dispatch for an existing tag), verifies that the tag points at a commit on
+  `main` whose `core` / `flutter-desktop` / `flutter-desktop-windows` checks
+  are already green, re-runs the exact `windows-desktop.yml` packaging job via
+  `workflow_call`, re-verifies `SHA256SUMS.txt`, and publishes a GitHub
+  Release containing the installer, the portable ZIP and a bare-filename
+  `SHA256SUMS.txt`. Release notes disclose in Chinese and English that the
+  artifacts are **unsigned** (no code-signing certificate yet) and that
+  SmartScreen warnings are expected. The Inno Setup version is now read from
+  `pyproject.toml` instead of a hardcoded `0.1.0`, so tag, package metadata
+  and installer can no longer drift apart; `scripts/release_gate.py` enforces
+  version consistency across `pyproject.toml`, `__init__.py`, `ScribeForge.iss`,
+  `pubspec.yaml`, `README.md` and the `CHANGELOG.md` section.
+- Upgrade/uninstall data-preservation smoke test (issue #245):
+  `packaging/windows/Test-UpgradeUninstall.ps1` runs after the installed-EPUB
+  smoke in the package job. It seeds user data outside `{app}`
+  (`%APPDATA%\ScribeForge\settings.json`, a user project folder and a runtime
+  model marker), then verifies that an upgrade over the existing install, a
+  deliberately failing install (uncreatable `/DIR`), an uninstall and a
+  reinstall all leave those files byte-for-byte intact while the uninstaller
+  still removes `scribeforge_desktop.exe` and the bundled backend. The Inno
+  script has no `[UninstallDelete]` entries for user data locations.
+- Processing report export and copy coverage (issue #219): widget tests now
+  drive the sheet's Markdown/JSON export handler (path, cancel-on-null and
+  button visibility) and assert that the copy buttons place the raw JSON and
+  the rendered Markdown summary on the clipboard with the matching notice.
+- VLM pre-check output copy test (issue #217): the settings dialog test now
+  asserts that the copy button puts the probe output — including the trailing
+  `退出码：N` line — on the clipboard for both success and failure exits.
 - The runtime setup dialog is now driven by the `runtime-status` schema
   instead of a hardcoded backend list (issue #215): all reported backends are
   parsed (including the `optional` flag), core engines render as top-level
@@ -198,4 +230,6 @@ evidence-backed human review queue, and verified EPUB 3 / DOCX export.
 - Apache-2.0 license (see [LICENSE](LICENSE)); dependency license inventory in
   [docs/licenses.md](docs/licenses.md) (Surya weights are OpenRAIL-M, not Apache-2.0).
 
+[Unreleased]: https://github.com/BrainEno/ScribeForge/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/BrainEno/ScribeForge/releases/tag/v0.1.1
 [0.1.0]: https://github.com/BrainEno/ScribeForge/releases/tag/v0.1.0

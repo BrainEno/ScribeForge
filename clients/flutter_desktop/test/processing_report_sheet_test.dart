@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:scribeforge_desktop/models/processing_report.dart';
 import 'package:scribeforge_desktop/screens/processing_report_sheet.dart';
@@ -49,10 +50,16 @@ class _FakeExecutor implements ScribeForgeCliExecutor {
   }
 }
 
+typedef _ExportHandler = Future<String?> Function(
+  ProcessingReportSnapshot report, {
+  required bool markdown,
+});
+
 Future<void> showSheet(
   WidgetTester tester, {
   required ProcessingReportLoader loader,
   bool processing = false,
+  _ExportHandler? exportHandler,
 }) async {
   tester.view.physicalSize = const Size(1280, 1000);
   tester.view.devicePixelRatio = 1;
@@ -71,6 +78,7 @@ Future<void> showSheet(
                 storePath: '/store',
                 loader: loader,
                 processing: processing,
+                exportHandler: exportHandler,
               ),
             ),
             child: const Text('打开报告'),
@@ -137,6 +145,123 @@ void main() {
     expect(loads, 0);
     expect(find.textContaining('处理正在进行中'), findsOneWidget);
     expect(find.textContaining('还没有可查看的报告'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('exports Markdown and JSON through the export handler', (
+    tester,
+  ) async {
+    final loader = ProcessingReportLoader(
+      executor: _FakeExecutor(0, stdout: _reportJson),
+    );
+    final requests = <bool>[]; // markdown flags, in call order
+    await showSheet(
+      tester,
+      loader: loader,
+      exportHandler: (report, {required bool markdown}) async {
+        requests.add(markdown);
+        return markdown ? '/tmp/report.md' : '/tmp/report.json';
+      },
+    );
+
+    expect(
+      find.byKey(const ValueKey('export-report-markdown-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('export-report-json-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('export-report-markdown-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(requests, [true]);
+    expect(find.text('已导出到：/tmp/report.md'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('export-report-json-button')));
+    await tester.pumpAndSettle();
+    expect(requests, [true, false]);
+    expect(find.text('已导出到：/tmp/report.json'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a cancelled export reports cancellation, not a path', (
+    tester,
+  ) async {
+    final loader = ProcessingReportLoader(
+      executor: _FakeExecutor(0, stdout: _reportJson),
+    );
+    await showSheet(
+      tester,
+      loader: loader,
+      exportHandler: (report, {required bool markdown}) async => null,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('export-report-json-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('导出已取消。'), findsOneWidget);
+    expect(find.textContaining('已导出到：'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('export buttons are hidden without an export handler', (
+    tester,
+  ) async {
+    final loader = ProcessingReportLoader(
+      executor: _FakeExecutor(0, stdout: _reportJson),
+    );
+    await showSheet(tester, loader: loader);
+
+    expect(
+      find.byKey(const ValueKey('export-report-markdown-button')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('export-report-json-button')),
+      findsNothing,
+    );
+    // Copy stays available: it does not depend on the handler.
+    expect(
+      find.byKey(const ValueKey('copy-report-json-button')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('copy puts the raw JSON and Markdown summary on the clipboard', (
+    tester,
+  ) async {
+    final clipboard = <String?>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        clipboard.add((call.arguments as Map)['text'] as String?);
+      }
+      return null;
+    });
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    final loader = ProcessingReportLoader(
+      executor: _FakeExecutor(0, stdout: _reportJson),
+    );
+    await showSheet(tester, loader: loader);
+
+    await tester.tap(find.byKey(const ValueKey('copy-report-json-button')));
+    await tester.pumpAndSettle();
+    expect(clipboard, hasLength(1));
+    expect(clipboard.single, _reportJson);
+    expect(find.text('已复制 JSON 报告到剪贴板。'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('copy-report-markdown-button')));
+    await tester.pumpAndSettle();
+    expect(clipboard, hasLength(2));
+    expect(clipboard.last, contains('# 处理报告：Demo'));
+    expect(clipboard.last, contains('- 复核率：66.7%'));
+    expect(find.text('已复制 Markdown 摘要到剪贴板。'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
