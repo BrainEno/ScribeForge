@@ -15,8 +15,12 @@ class LayoutPreviewDialog extends StatefulWidget {
     required this.run,
     required this.block,
     required this.blockType,
+    this.confirmationService,
   });
   final LayoutPreviewService service;
+
+  /// Injectable so widget tests never touch the real temp directory.
+  final FigureConfirmationService? confirmationService;
   final int page, run, block;
   final String blockType;
 
@@ -61,12 +65,14 @@ class _LayoutPreviewDialogState extends State<LayoutPreviewDialog> {
       _receipt = null;
     });
     try {
-      final service = FigureConfirmationService(
-        executor: widget.service.executor,
-        executable: widget.service.executable,
-        storePath: widget.service.storePath,
-        projectId: widget.service.projectId,
-      );
+      final service =
+          widget.confirmationService ??
+          FigureConfirmationService(
+            executor: widget.service.executor,
+            executable: widget.service.executable,
+            storePath: widget.service.storePath,
+            projectId: widget.service.projectId,
+          );
       final receipt = await service.confirm(
         page: widget.page,
         run: widget.run,

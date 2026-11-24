@@ -128,6 +128,51 @@ class _WidgetPreviewService extends LayoutPreviewService {
   );
 }
 
+class _FakeConfirmService extends FigureConfirmationService {
+  _FakeConfirmService()
+    : super(
+        executor: _Core(),
+        executable: 'core',
+        storePath: '/project',
+        projectId: 7,
+      );
+  final calls = <Map<String, Object>>[];
+
+  @override
+  Future<FigureConfirmation> confirm({
+    required int page,
+    required int run,
+    required int block,
+    required List<int> cropBytes,
+    required String confirmationToken,
+    required int anchorPair,
+    required String reason,
+    String caption = '',
+  }) async {
+    calls.add({
+      'page': page,
+      'run': run,
+      'block': block,
+      'anchor': anchorPair,
+      'reason': reason,
+      'caption': caption,
+      'token': confirmationToken,
+      'crop': cropBytes.length,
+    });
+    if (reason.contains('拒绝')) {
+      throw const FigureConfirmationFailure('确认失败（退出码 2）：anchor past pairs');
+    }
+    return FigureConfirmation(
+      id: 11,
+      page: page,
+      anchorPair: anchorPair,
+      cropSha256: sha256.convert(cropBytes).toString(),
+      caption: caption,
+      reason: reason,
+    );
+  }
+}
+
 void main() {
   late Directory root;
   setUp(() async {
@@ -200,7 +245,7 @@ void main() {
     () async {
       final core = _Core();
       for (final args in [
-        (0, 5, 2, _token, 0, 'reason'),
+        (-1, 5, 2, _token, 0, 'reason'),
         (17, 0, 2, _token, 0, 'reason'),
         (17, 5, -1, _token, 0, 'reason'),
         (17, 5, 2, 'nope', 0, 'reason'),
@@ -243,16 +288,17 @@ void main() {
       expect(await root.list().toList(), isEmpty);
 
       await expectLater(
-        service(_Core(mutate: (v) => v['status'] = 'unverified_preview'))
-            .confirm(
-              page: 17,
-              run: 5,
-              block: 2,
-              cropBytes: _png,
-              confirmationToken: _token,
-              anchorPair: 1,
-              reason: 'checked',
-            ),
+        service(
+          _Core(mutate: (v) => v['status'] = 'unverified_preview'),
+        ).confirm(
+          page: 17,
+          run: 5,
+          block: 2,
+          cropBytes: _png,
+          confirmationToken: _token,
+          anchorPair: 1,
+          reason: 'checked',
+        ),
         throwsFormatException,
       );
       expect(await root.list().toList(), isEmpty);
@@ -267,11 +313,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final core = _Core();
+    final confirmService = _FakeConfirmService();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LayoutPreviewDialog(
             service: _WidgetPreviewService(executor: core),
+            confirmationService: confirmService,
             page: 17,
             run: 5,
             block: 2,
@@ -299,7 +347,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('confirm-inline-figure')));
     await tester.pumpAndSettle();
     expect(find.textContaining('已确认插图 #11'), findsOneWidget);
-    expect(core.calls.last.first, 'confirm-figure');
+    expect(confirmService.calls.single['anchor'], 2);
+    expect(confirmService.calls.single['caption'], '图一');
+    expect(confirmService.calls.single['token'], _token);
+    expect(confirmService.calls.single['crop'], _png.length);
     expect(await root.list().toList(), isEmpty);
   });
 
@@ -311,11 +362,13 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final core = _Core();
+    final confirmService = _FakeConfirmService();
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: LayoutPreviewDialog(
             service: _WidgetPreviewService(executor: core),
+            confirmationService: confirmService,
             page: 17,
             run: 5,
             block: 2,
@@ -334,6 +387,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('confirm-inline-figure')));
     await tester.pumpAndSettle();
     expect(find.textContaining('必须在 0 到 3 之间'), findsOneWidget);
+    expect(confirmService.calls, isEmpty);
     expect(core.calls.every((call) => call.first == 'layout-preview'), isTrue);
   });
 }

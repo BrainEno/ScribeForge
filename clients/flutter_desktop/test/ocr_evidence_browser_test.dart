@@ -51,7 +51,7 @@ void main() {
     await tester.ensureVisible(find.byKey(const ValueKey('layout-preview-0')));
     await tester.tap(find.byKey(const ValueKey('layout-preview-0')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('不会将插图加入 EPUB'), findsOneWidget);
+    expect(find.textContaining('生成预览本身不是人工确认'), findsOneWidget);
     expect(executor.sections, ['pages', 'page', 'pairs', 'lines', 'blocks']);
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
