@@ -440,13 +440,42 @@ matched across engines. Do not use them to cut images without independently
 verifying frame provenance and placement. Normal export prints warnings for
 potentially omitted regions and always states the detector's limitations.
 
-**Important:** the current EPUB exporter still does not embed figures or tables
-within reflowed text pages. A model may miss regions altogether, and even a
-whole-page image does not establish correct caption or reading-order semantics.
-DOCX currently omits page images too; JSON export reports those page indexes in
-`docx_omitted_page_images`. Manually compare representative and suspect pages to
-the source. This feature does not resolve issue #246, certify image completeness,
-or replace a reader/EPUBCheck acceptance test.
+**Confirmed inline figures (schema v20):** the EPUB exporter embeds a crop inside
+reflowed text only when a human confirmed it with `confirm-figure` after
+inspecting a `layout-preview` PNG (issue #246). Model reports alone never embed:
+
+```bash
+scribeforge layout-preview --store Book.scribeforge --project 1 --page 17 \
+  --run 42 --block 0 --out figure-review.png
+# review figure-review.png against the source page, then:
+scribeforge confirm-figure --store Book.scribeforge --project 1 --page 17 \
+  --run 42 --block 0 --crop figure-review.png \
+  --confirmation-token '<confirmation_token from the preview JSON>' \
+  --anchor-pair 3 --caption 'Figure 2' --reason 'checked against scan' --json
+```
+
+`--anchor-pair N` places the figure before aligned pair N on that page
+(pair count = after the last accepted line). The token binds verification,
+run, block, source digest, crop digest and box; confirmation refuses a stale
+verification, a changed raster, a crop file that is not the previewed PNG, a
+token/argument mismatch, or an anchor past the page's pairs. Re-confirmation
+is append-only history; the newest row per observation wins. Schema v20 adds
+the `figure_confirmations` table. Back up before upgrading: older ScribeForge
+versions cannot open a v20 store.
+
+During `export`, assembly re-hashes the current page raster and the stored crop
+against the confirmation, resolves each anchor to a reading position among
+accepted lines, and fails closed (`PageImageError`) if either digest changed.
+EPUB renders `<figure class="inline-figure">` (with `<figcaption>` when a
+caption was given) exactly once at that position; `export --json` lists them
+under `inline_figures`, and `export-check` validates reading order. DOCX still
+embeds nothing: JSON reports omitted inline figures in
+`docx_omitted_inline_figures` alongside `docx_omitted_page_images`.
+
+A model may miss regions altogether, and confirming one crop does not certify
+that no further illustration exists on the page; layout warnings only clear
+when every reported region on that page is confirmed and embedded. This does
+not replace a reader/EPUBCheck acceptance test or certify image completeness.
 
 ### Inspecting an original-frame observation
 
@@ -462,7 +491,8 @@ Use the actual project ID, zero-based physical page index, run ID and block inde
 from the project's evidence; the numbers above are examples only. The output
 must be a new `.png` path; an existing file is never replaced. The command
 returns JSON with the verification/run/block identity, original/frame digest,
-normalized box, half-open pixel box, and preview digest. Save that JSON separately
+normalized box, half-open pixel box, preview digest, the aligned pair count for
+anchoring, and the `confirmation_token` consumed by `confirm-figure`. Save that JSON separately
 if it is useful, taking care not to overwrite existing files. These previews may
 contain copyrighted or sensitive text/images and are not automatically deleted.
 
@@ -478,8 +508,10 @@ changes its verification or raster: a saved PNG is only a snapshot.
 
 A model's box may include text, miss part of a figure or combine multiple figures.
 The preview is **not** an approved crop, caption, reading-order decision, or an
-EPUB embedding mechanism. No visual completeness is inferred from its creation;
-issue #246 remains open. Preprocessed frames cannot safely be mapped to original
+EPUB embedding mechanism. No visual completeness is inferred from its creation:
+embedding still requires the separate `confirm-figure` step above, and issue
+#246's full acceptance (multiple sample books, EPUBCheck, real readers) remains
+open. Preprocessed frames cannot safely be mapped to original
 pixels without a recorded and verified geometric transform, so they are refused
 rather than guessed.
 
@@ -540,7 +572,8 @@ original verified source. Then the importer compares every existing page index
 with the actual source count and records it only if they match; it does not
 rerender completed pages. For an incomplete legacy import, verified resume
 records the count before continuing. Back up the project before upgrading:
-older ScribeForge releases cannot open projects upgraded to schema v19. An inconsistent
+older ScribeForge releases cannot open projects upgraded to the current schema
+(v20 for inline figure confirmations). An inconsistent
 completed project is not silently repaired; restore a verified backup or create
 a new project, keeping the old one and its decisions. Legacy projects with no
 import job remain supported with an unknown extent; export is not proof that

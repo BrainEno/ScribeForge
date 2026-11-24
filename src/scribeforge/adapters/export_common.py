@@ -5,7 +5,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scribeforge.domain.content import VerifiedBook, VerifiedImage
+from scribeforge.domain.content import VerifiedBook, VerifiedImage, VerifiedInlineFigure
 from scribeforge.domain.export_normalization import NormalizationPolicy
 
 XML_DECL = '<?xml version="1.0" encoding="UTF-8"?>'
@@ -44,8 +44,8 @@ _LANGUAGE_TAG = re.compile(r"^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
 _XML_INVALID = re.compile(r"[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 
 
-def epub_image_name(image: VerifiedImage) -> str:
-    """Archive path of one page raster, relative to the package root."""
+def epub_image_name(image: VerifiedImage | VerifiedInlineFigure) -> str:
+    """Archive path of one embedded raster, relative to the package root."""
 
     return f"OEBPS/{IMAGES_DIR}/{image.file_name}"
 
@@ -95,6 +95,9 @@ def validate_book_text(book: VerifiedBook, *, author: str | None) -> None:
     require_xml_text(book.title, context="book title")
     for image in book.images:
         require_xml_text(image.alt, context=f"page {image.page_index} image caption")
+    for figure in book.inline_figures:
+        require_xml_text(figure.alt, context=f"page {figure.page_index} inline figure alt")
+        require_xml_text(figure.caption, context=f"page {figure.page_index} inline figure caption")
     if author is not None:
         require_xml_text(author, context="author")
     for page in book.pages:

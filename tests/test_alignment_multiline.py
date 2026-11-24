@@ -370,7 +370,7 @@ def test_v14_upgrade_preserves_pair_indexes_source_lines_and_human_decision(
     restored = upgraded.load_verification(verification_id)
     decision = upgraded.latest_decision(project_id, 0, 0)
 
-    assert SQLiteStore.SCHEMA_VERSION == 19
+    assert SQLiteStore.SCHEMA_VERSION == 20
     assert restored.id == verification_id
     assert upgraded.latest_verification_id(project_id, 0) == verification_id
     assert restored.alignment.pairs[0].primary_line_indexes == (0,)
@@ -385,7 +385,7 @@ def test_v14_upgrade_preserves_pair_indexes_source_lines_and_human_decision(
     assert decision.selected_text == "人工保留的文字"
     assert decision.actor == "human"
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         assert connection.execute(
             "SELECT side, member_index, line_index FROM alignment_line_members "
             "ORDER BY side, member_index"

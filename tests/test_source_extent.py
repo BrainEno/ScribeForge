@@ -76,7 +76,7 @@ def test_migrate_v17_leaves_old_extent_unknown_and_preserves_evidence(tmp_path: 
     assert store.source_page_count(project) is None
     assert store.list_pages(project) == before
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 20
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -104,7 +104,7 @@ def test_failed_v18_migration_is_atomic(tmp_path: Path) -> None:
         )
     SQLiteStore(path).initialize()
     with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 20
 
 
 def test_interrupted_import_retains_verified_extent_and_resumes(tmp_path: Path) -> None:

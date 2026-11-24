@@ -101,6 +101,14 @@ def _text_digest(book: VerifiedBook) -> str:
         "image_captions": [
             {"page_index": image.page_index, "caption": image.caption} for image in book.images
         ],
+        "inline_figure_captions": [
+            {
+                "page_index": figure.page_index,
+                "confirmation_id": figure.confirmation_id,
+                "caption": figure.caption,
+            }
+            for figure in book.inline_figures
+        ],
     }
     encoded = json.dumps(
         document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -298,11 +306,32 @@ def derive_normalized_book(
         images.append(replace(image, caption=caption))
         changes.extend(image_changes)
 
+    inline_figures = []
+    for figure in book.inline_figures:
+        if selected is NormalizationPolicy.CANONICAL_VARIANTS:
+            caption, figure_changes = _canonical_text(
+                figure.caption,
+                location="inline_figure",
+                page_index=figure.page_index,
+            )
+        else:
+            assert converter is not None
+            caption, figure_changes = _converted_text(
+                figure.caption,
+                converter=converter,
+                converter_name=converter_name,
+                location="inline_figure",
+                page_index=figure.page_index,
+            )
+        inline_figures.append(replace(figure, caption=caption))
+        changes.extend(figure_changes)
+
     normalized_book = replace(
         book,
         pages=tuple(pages),
         chapters=tuple(chapters),
         images=tuple(images),
+        inline_figures=tuple(inline_figures),
     )
     report = NormalizationReport(
         selected,

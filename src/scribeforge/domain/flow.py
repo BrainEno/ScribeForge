@@ -30,11 +30,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from scribeforge.domain.content import VerifiedBook, VerifiedImage, VerifiedPage
+from scribeforge.domain.content import (
+    VerifiedBook,
+    VerifiedImage,
+    VerifiedInlineFigure,
+    VerifiedPage,
+)
 from scribeforge.domain.paragraphs import (
     LineRole,
     Paragraph,
     TextLine,
+    assemble_paragraphs,
     ends_sentence,
     join_lines,
     measure_page,
@@ -59,6 +65,10 @@ class FlowParagraph:
     start_page: int
     end_page: int
     printed_label: str = ""
+    #: Zero-based line index within the start page where this paragraph begins.
+    #: Only pages that carry confirmed inline figures need the finer anchor; other
+    #: pages keep the default and render their figures at page boundaries.
+    start_line: int = 0
 
     def __post_init__(self) -> None:
         if self.end_page < self.start_page:
@@ -84,6 +94,9 @@ class FlowDocument:
     #: Pictures that belong to this document, in page order. A cover lands at the
     #: front of the front-matter document; a plate lands where the page turn was.
     images: tuple[VerifiedImage, ...] = ()
+    #: Confirmed inline illustrations and the paragraph index before which each
+    #: one renders. An index equal to ``len(paragraphs)`` means end of document.
+    inline_figures: tuple[tuple[int, VerifiedInlineFigure], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,25 +207,88 @@ def _group_pages(book: VerifiedBook) -> list[tuple[str, int, tuple[int, ...]]] |
     return grouped
 
 
-def _build_paragraphs(
+def _page_inline_figures(book: VerifiedBook) -> dict[int, tuple[VerifiedInlineFigure, ...]]:
+    grouped: dict[int, list[VerifiedInlineFigure]] = {}
+    for figure in book.inline_figures:
+        grouped.setdefault(figure.page_index, []).append(figure)
+    return {
+        page_index: tuple(
+            sorted(items, key=lambda item: (item.reading_position, item.confirmation_id))
+        )
+        for page_index, items in grouped.items()
+    }
+
+
+def _assemble_segment(page: VerifiedPage, lines: tuple[TextLine, ...]) -> list[Paragraph]:
+    if not any(line.text.strip() for line in lines):
+        return []
+    return [block for block in assemble_paragraphs(lines, page.direction) if block.text.strip()]
+
+
+def _build_page_blocks(
+    page: VerifiedPage, figures: tuple[VerifiedInlineFigure, ...]
+) -> list[Paragraph | VerifiedInlineFigure]:
+    """Page content in reading order, interleaving confirmed figures.
+
+    Figure anchors are line indexes chosen by a person. Splitting the accepted
+    lines at those anchors keeps the figure between the exact paragraphs the
+    reviewer saw, without reflowing or rewriting any text.
+    """
+    lines = page.text_lines()
+    if not figures:
+        return [block for block in _page_blocks(page) if block.text.strip()]
+    items: list[Paragraph | VerifiedInlineFigure] = []
+    cursor = 0
+    for figure in figures:
+        position = min(max(figure.reading_position, 0), len(lines))
+        if position < cursor:
+            raise ValueError("inline figure anchors are not in reading order")
+        segment = lines[cursor:position]
+        items.extend(_assemble_segment(page, segment))
+        items.append(figure)
+        cursor = position
+    items.extend(_assemble_segment(page, lines[cursor:]))
+    return items
+
+
+def _build_document(
     book: VerifiedBook, page_indexes: tuple[int, ...]
-) -> tuple[FlowParagraph, ...]:
-    """Collect a document's paragraphs, joining the ones a page turn interrupted."""
+) -> tuple[tuple[FlowParagraph, ...], tuple[tuple[int, VerifiedInlineFigure], ...]]:
+    """Collect paragraphs and inline-figure anchors for one document."""
 
     spans = _page_spans(book)
+    figures_by_page = _page_inline_figures(book)
     paragraphs: list[FlowParagraph] = []
+    placements: list[tuple[int, VerifiedInlineFigure]] = []
     for page_index in page_indexes:
         page = spans[page_index]
-        blocks = [block for block in _page_blocks(page) if block.text.strip()]
-        if not blocks:
+        page_figures = figures_by_page.get(page_index, ())
+        content = _build_page_blocks(page, page_figures)
+        if not content:
             continue
-        for position, block in enumerate(blocks):
+        # A page with an inline figure never joins across the page turn: the
+        # figure is a deliberate break in the reading stream.
+        figure_page = bool(page_figures)
+        previous_figure_page = page_index > 0 and bool(figures_by_page.get(page_index - 1))
+        first_text_index = next(
+            (i for i, item in enumerate(content) if isinstance(item, Paragraph)),
+            None,
+        )
+        for position, item in enumerate(content):
+            if isinstance(item, VerifiedInlineFigure):
+                placements.append((len(paragraphs), item))
+                continue
+            assert isinstance(item, Paragraph)
+            global_position = len(paragraphs)
+            is_first_text = position == first_text_index
             open_previous = (
                 paragraphs
+                and is_first_text
+                and not figure_page
+                and not previous_figure_page
                 and paragraphs[-1].role is LineRole.BODY
                 and paragraphs[-1].end_page == page_index - 1
-                and block.role is LineRole.BODY
-                and position == 0
+                and item.role is LineRole.BODY
                 and _previous_page_ended_the_paragraph(spans[page_index - 1])
                 and _next_page_continues_the_paragraph(page)
             )
@@ -220,22 +296,42 @@ def _build_paragraphs(
                 previous = paragraphs[-1]
                 paragraphs[-1] = FlowParagraph(
                     role=previous.role,
-                    text=join_lines(previous.text, block.text),
+                    text=join_lines(previous.text, item.text),
                     start_page=previous.start_page,
                     end_page=page_index,
                     printed_label=previous.printed_label,
+                    start_line=previous.start_line,
                 )
                 continue
             paragraphs.append(
                 FlowParagraph(
-                    role=block.role,
-                    text=block.text,
+                    role=item.role,
+                    text=item.text,
                     start_page=page_index,
                     end_page=page_index,
                     printed_label=page.printed_label,
+                    start_line=0 if not figure_page else _line_offset(page, item),
                 )
             )
-    return tuple(paragraphs)
+            del global_position
+    return tuple(paragraphs), tuple(placements)
+
+
+def _line_offset(page: VerifiedPage, block: Paragraph) -> int:
+    """Best-effort start line of a paragraph on a figure page.
+
+    Paragraphs are assembled from reading-order lines; the first line whose text
+    is a prefix of the paragraph gives the anchor needed to place figures. When
+    geometry cannot disambiguate, zero keeps the figure before the page text
+    rather than inventing a position.
+    """
+    lines = [line.text.strip() for line in page.text_lines() if line.text.strip()]
+    joined = ""
+    for index, line in enumerate(lines):
+        joined = join_lines(joined, line) if joined else line
+        if joined == block.text or block.text.startswith(joined):
+            return index
+    return 0
 
 
 def build_flow(book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> BookFlow:
@@ -264,6 +360,7 @@ def build_flow(book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> BookFlow:
 
     documents: list[FlowDocument] = []
     for index, (title, level, page_indexes) in enumerate(groups):
+        document_paragraphs, inline_placements = _build_document(book, page_indexes)
         if chapter_layout:
             item_id = f"doc-{index}"
             file_name = f"doc-{index + 1:06d}.xhtml"
@@ -280,7 +377,7 @@ def build_flow(book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> BookFlow:
                 file_name=file_name,
                 title=document_title,
                 pages=page_indexes,
-                paragraphs=_build_paragraphs(book, page_indexes),
+                paragraphs=document_paragraphs,
                 level=level,
                 page_labels=tuple(
                     (page_index, spans[page_index].printed_label) for page_index in page_indexes
@@ -290,6 +387,7 @@ def build_flow(book: VerifiedBook, *, layout: str = AUTO_LAYOUT) -> BookFlow:
                     for page_index in page_indexes
                     for image in images_by_page.get(page_index, ())
                 ),
+                inline_figures=inline_placements,
             )
         )
     return BookFlow(tuple(documents), CHAPTER_LAYOUT if chapter_layout else PAGE_LAYOUT)

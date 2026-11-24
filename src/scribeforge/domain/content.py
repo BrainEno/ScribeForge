@@ -97,6 +97,50 @@ class VerifiedImage:
 
 
 @dataclass(frozen=True, slots=True)
+class VerifiedInlineFigure:
+    """A human-confirmed illustration cropped from a page that also has text.
+
+    Unlike :class:`VerifiedImage`, this never mirrors the whole raster: only the
+    recorded crop ships, and only after a person bound it to the current source
+    digest, OCR observation and reading anchor (issue #246). ``caption`` is an
+    explicit editorial label entered at confirmation time; it is not inferred
+    from nearby OCR and is never mixed into accepted page text.
+    """
+
+    page_index: int
+    file_name: str
+    media_type: str
+    sha256: str
+    data: bytes = field(repr=False)
+    alt: str
+    caption: str = ""
+    #: Number of exported lines that precede this figure on its page. The value
+    #: is derived from the confirmation's aligned-pair anchor at assembly time.
+    reading_position: int = 0
+    confirmation_id: int = 0
+    anchor_pair_index: int = 0
+    run_id: int = 0
+    block_index: int = 0
+
+    def __post_init__(self) -> None:
+        if self.media_type not in set(IMAGE_MEDIA_TYPES.values()):
+            raise ValueError(f"unsupported inline image media type: {self.media_type!r}")
+        if PurePosixPath(self.file_name).parent != PurePosixPath("."):
+            raise ValueError("an embedded inline figure file name must be a bare name")
+        if not self.data:
+            raise ValueError("an embedded inline figure must carry bytes")
+        if self.reading_position < 0 or self.anchor_pair_index < 0:
+            raise ValueError("inline figure anchors must be non-negative")
+        if self.confirmation_id < 1 or self.run_id < 1 or self.block_index < 0:
+            raise ValueError("an inline figure must cite its confirmation and OCR observation")
+        actual = hashlib.sha256(self.data).hexdigest()
+        if actual != self.sha256:
+            raise ValueError(
+                f"inline figure digest {self.sha256[:12]}… does not match the confirmed bytes"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedPage:
     """One verified page: its source index and accepted lines in reading order.
 
@@ -189,9 +233,13 @@ class VerifiedBook:
     acceptance: AcceptanceSummary = field(default_factory=AcceptanceSummary)
     #: Pages that are pictures: the cover and any confirmed plate. Ordered by page.
     images: tuple[VerifiedImage, ...] = ()
+    #: Confirmed inline illustrations on pages whose accepted text is reflowed.
+    #: Ordered by page, then reading position, then confirmation id.
+    inline_figures: tuple[VerifiedInlineFigure, ...] = ()
 
     def __post_init__(self) -> None:
         pages = {page.page_index for page in self.pages}
+        page_lines = {page.page_index: len(page.lines) for page in self.pages}
         seen: set[int] = set()
         for image in self.images:
             if image.page_index not in pages:
@@ -199,6 +247,36 @@ class VerifiedBook:
             if image.page_index in seen:
                 raise ValueError(f"page {image.page_index} carries two images")
             seen.add(image.page_index)
+        file_names = {image.file_name for image in self.images}
+        inline_seen: set[tuple[int, int]] = set()
+        for figure in self.inline_figures:
+            if figure.page_index not in pages:
+                raise ValueError(
+                    f"inline figure for page {figure.page_index} is not part of the book"
+                )
+            if figure.page_index in seen:
+                raise ValueError(
+                    f"page {figure.page_index} cannot be both a whole-page image and inline"
+                )
+            if figure.file_name in file_names:
+                raise ValueError(f"duplicate embedded image file name {figure.file_name!r}")
+            file_names.add(figure.file_name)
+            if figure.reading_position > page_lines[figure.page_index]:
+                raise ValueError(
+                    f"inline figure on page {figure.page_index} is anchored past its text"
+                )
+            key = (figure.page_index, figure.confirmation_id)
+            if key in inline_seen:
+                raise ValueError(
+                    f"page {figure.page_index} repeats confirmation {figure.confirmation_id}"
+                )
+            inline_seen.add(key)
+        ordered = [
+            (figure.page_index, figure.reading_position, figure.confirmation_id)
+            for figure in self.inline_figures
+        ]
+        if ordered != sorted(ordered):
+            raise ValueError("inline figures must be ordered by page and reading position")
         for page in self.pages:
             if page.lines and page.page_index in seen:
                 matched: VerifiedImage | None = next(

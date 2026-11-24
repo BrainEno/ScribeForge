@@ -19,12 +19,14 @@ class LayoutPreview {
     required this.previewSha256,
     required this.pixelBox,
     required this.frameSize,
+    required this.confirmationToken,
+    required this.alignedPairCount,
   });
   final Uint8List bytes, contextBytes;
   final List<int> contextSize;
   final String contextSha256;
-  final int verificationId;
-  final String engine, sourceSha256, previewSha256;
+  final int verificationId, alignedPairCount;
+  final String engine, sourceSha256, previewSha256, confirmationToken;
   final List<int> pixelBox, frameSize;
 }
 
@@ -123,7 +125,11 @@ class LayoutPreviewService {
           json['engine'] is! String ||
           (json['engine'] as String).isEmpty ||
           !_hash(json['source_sha256']) ||
-          !_hash(json['preview_sha256'])) {
+          !_hash(json['preview_sha256']) ||
+          json['confirmation_token'] is! String ||
+          !(json['confirmation_token'] as String).startsWith('fig:') ||
+          json['aligned_pair_count'] is! int ||
+          (json['aligned_pair_count'] as int) < 1) {
         throw const FormatException('预览响应与所选证据不匹配。');
       }
       final size = _ints(json['frame_size'], 2);
@@ -179,6 +185,8 @@ class LayoutPreviewService {
         previewSha256: json['preview_sha256'] as String,
         pixelBox: box,
         frameSize: size,
+        confirmationToken: json['confirmation_token'] as String,
+        alignedPairCount: json['aligned_pair_count'] as int,
       );
     } finally {
       try {
