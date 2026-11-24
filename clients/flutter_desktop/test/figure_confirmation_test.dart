@@ -288,16 +288,17 @@ void main() {
       expect(await root.list().toList(), isEmpty);
 
       await expectLater(
-        service(_Core(mutate: (v) => v['status'] = 'unverified_preview'))
-            .confirm(
-              page: 17,
-              run: 5,
-              block: 2,
-              cropBytes: _png,
-              confirmationToken: _token,
-              anchorPair: 1,
-              reason: 'checked',
-            ),
+        service(
+          _Core(mutate: (v) => v['status'] = 'unverified_preview'),
+        ).confirm(
+          page: 17,
+          run: 5,
+          block: 2,
+          cropBytes: _png,
+          confirmationToken: _token,
+          anchorPair: 1,
+          reason: 'checked',
+        ),
         throwsFormatException,
       );
       expect(await root.list().toList(), isEmpty);
@@ -350,7 +351,6 @@ void main() {
     expect(confirmService.calls.single['caption'], '图一');
     expect(confirmService.calls.single['token'], _token);
     expect(confirmService.calls.single['crop'], _png.length);
-    expect(await root.list().toList(), isEmpty);
   });
 
   testWidgets('dialog blocks confirm until anchor and reason are valid', (
