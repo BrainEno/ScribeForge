@@ -15,6 +15,9 @@ from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.pipeline.adjudication import ReviewDetail, record_human_decision, review_detail
 from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.ui.viewmodel import (
+    LibraryEntry,
+    LibraryFilter,
+    filter_library,
     load_detail,
     load_jobs,
     load_library,
@@ -24,6 +27,7 @@ from scribeforge.ui.viewmodel import (
     render_conflict_side,
     render_detail,
     resolve_review_row,
+    search_library,
 )
 
 
@@ -111,6 +115,43 @@ def test_load_library_summarizes_each_project(tmp_path: Path) -> None:
     assert (entry.project_id, entry.title, entry.source_uri) == (project_id, "Book", "book.pdf")
     assert (entry.page_count, entry.review_queued, entry.failed_jobs) == (1, 1, 1)
     assert entry.summary == "Book — 1 page(s), 1 queued for review, 1 failed job(s)"
+
+
+def test_search_library_matches_title_or_source_without_mutating_entries() -> None:
+    entries = (
+        LibraryEntry(1, "古籍目录", "C:/Scans/volume-one.pdf", 3, 0, 0),
+        LibraryEntry(2, "Travel diary", "D:/Books/diary.pdf", 8, 1, 0),
+    )
+
+    assert search_library(entries, " VOLUME-") == (entries[0],)
+    assert search_library(entries, "TRAVEL") == (entries[1],)
+    assert search_library(entries, "   ") is entries
+    assert search_library(entries, "missing") == ()
+
+
+def test_filter_library_narrows_projects_by_attention_state_and_search() -> None:
+    entries = (
+        LibraryEntry(1, "Book A", "a.pdf", 4, 2, 0),
+        LibraryEntry(2, "Book B", "b.pdf", 5, 0, 1),
+        LibraryEntry(3, "Book C", "c.pdf", 6, 0, 0),
+        LibraryEntry(4, "Book D", "d.pdf", 1, 1, 1),
+    )
+
+    assert tuple(
+        item.project_id for item in filter_library(entries, "", LibraryFilter.NEEDS_REVIEW)
+    ) == (
+        1,
+        4,
+    )
+    assert tuple(item.project_id for item in filter_library(entries, "", LibraryFilter.FAILED)) == (
+        2,
+        4,
+    )
+    assert tuple(item.project_id for item in filter_library(entries, "", LibraryFilter.CLEAR)) == (
+        3,
+    )
+    assert filter_library(entries, "book d", LibraryFilter.FAILED) == (entries[3],)
+    assert filter_library(entries, "missing", LibraryFilter.ALL) == ()
 
 
 def test_load_jobs_labels_the_scope_and_the_failure(tmp_path: Path) -> None:
