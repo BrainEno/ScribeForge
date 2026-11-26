@@ -176,9 +176,7 @@ def load_library(store: SQLiteStore) -> tuple[LibraryEntry, ...]:
     return tuple(entries)
 
 
-def search_library(
-    entries: tuple[LibraryEntry, ...], query: str
-) -> tuple[LibraryEntry, ...]:
+def search_library(entries: tuple[LibraryEntry, ...], query: str) -> tuple[LibraryEntry, ...]:
     """Filter cached library entries by title or source path, case-insensitively.
 
     Matching uses ordinary Unicode case folding and leaves the persisted entry
