@@ -32,6 +32,10 @@ _RELATIONSHIPS_NS = {"r": "http://schemas.openxmlformats.org/package/2006/relati
 _WORD_NS_URI = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _WORD_NS = {"w": _WORD_NS_URI}
 _DC_NS = {"dc": "http://purl.org/dc/elements/1.1/"}
+_WORD_DRAW_NS = {
+    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+}
 
 
 class ExportIntegrityError(ValueError):
@@ -571,6 +575,22 @@ def check_docx(data: bytes, book: VerifiedBook) -> None:
         _require("word/document.xml" in names, "missing word/document.xml")
         document = _parse(archive, "word/document.xml")
         page_texts: list[list[str]] = [[]]
+        actual_figure_digests: list[str] = []
+        actual_captions: list[str] = []
+        relationship_targets: dict[str, str] = {}
+        if "word/_rels/document.xml.rels" in names:
+            relationships = _parse(archive, "word/_rels/document.xml.rels")
+            for relationship in relationships.findall("r:Relationship", _RELATIONSHIPS_NS):
+                relationship_id = relationship.get("Id") or ""
+                target = relationship.get("Target") or ""
+                relationship_targets[relationship_id] = posixpath.normpath(
+                    posixpath.join("word", target)
+                )
+        flow_documents = {
+            page_index: flow_document
+            for flow_document in build_flow(book, layout="page").documents
+            for page_index in flow_document.pages
+        }
         for paragraph in document.findall("w:body/w:p", _WORD_NS):
             if any(
                 br.get(f"{{{_WORD_NS_URI}}}type") == "page"
@@ -578,17 +598,54 @@ def check_docx(data: bytes, book: VerifiedBook) -> None:
             ):
                 page_texts.append([])
                 continue
+            blips = paragraph.findall(".//a:blip", _WORD_DRAW_NS)
+            if blips:
+                for blip in blips:
+                    relationship_id = blip.get(f"{{{_WORD_DRAW_NS['r']}}}embed") or ""
+                    image_target = relationship_targets.get(relationship_id)
+                    _require(
+                        image_target is not None and image_target in names,
+                        f"image relationship {relationship_id!r} is missing",
+                    )
+                    assert image_target is not None
+                    actual_figure_digests.append(
+                        hashlib.sha256(archive.read(image_target)).hexdigest()
+                    )
+                continue
+            style = paragraph.find("w:pPr/w:pStyle", _WORD_NS)
+            if style is not None and style.get(f"{{{_WORD_NS_URI}}}val") == "Caption":
+                actual_captions.append(
+                    "".join(token.text or "" for token in paragraph.iter(f"{{{_WORD_NS_URI}}}t"))
+                )
+                continue
             page_texts[-1].append(
                 "".join(token.text or "" for token in paragraph.iter(f"{{{_WORD_NS_URI}}}t"))
             )
-        expected = [list(page.paragraphs()) for page in book.pages]
+        expected = [
+            [paragraph.text for paragraph in flow_documents[page.page_index].paragraphs]
+            if any(figure.page_index == page.page_index for figure in book.inline_figures)
+            else list(page.paragraphs())
+            for page in book.pages
+        ]
+        expected_figures = sorted(
+            book.inline_figures,
+            key=lambda figure: (figure.page_index, figure.reading_position, figure.confirmation_id),
+        )
+        _require(
+            actual_figure_digests == [figure.sha256 for figure in expected_figures],
+            "embedded inline figures differ from confirmed image evidence",
+        )
+        _require(
+            actual_captions == [figure.caption for figure in expected_figures if figure.caption],
+            "inline figure captions differ from confirmed captions",
+        )
         _require(
             len(page_texts) == len(expected),
             f"document has {len(page_texts)} page(s), expected {len(expected)}",
         )
-        for page, actual in zip(book.pages, page_texts):
+        for page, actual, expected_page in zip(book.pages, page_texts, expected):
             _require(
-                actual == list(page.paragraphs()),
+                actual == expected_page,
                 f"page {page.page_index} text differs from the verified book",
             )
         _require_no_text_lost(book)

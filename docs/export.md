@@ -142,8 +142,13 @@ an EPUB reader is not required to support (only PNG and JPEG are accepted) refus
 the export with the page number and the reason: silently shipping a book without
 its cover is the failure this path exists to prevent.
 
-DOCX stays text-only; `export` prints a warning naming how many page images the
-DOCX file does not carry.
+DOCX carries confirmed inline illustrations and their explicitly entered captions
+at the same page/paragraph anchors as the EPUB. The crop bytes are embedded without
+re-encoding and are checked against their confirmation digest and the generated
+Word relationship. Whole-page raster images (covers and plates) are still omitted
+from DOCX; `export` prints a warning naming how many such page images the DOCX
+file does not carry. DOCX remains page-oriented and does not apply EPUB chapter
+reflow.
 
 ## Repair before export
 
