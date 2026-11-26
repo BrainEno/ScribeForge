@@ -3120,7 +3120,7 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
                     }
                     for figure in book.inline_figures
                 ]
-                if suffix == ".epub"
+                if suffix in {".epub", ".docx"}
                 else []
             ),
             "cover_image": (
@@ -3238,12 +3238,12 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             )
         else:
             print(
-                "warning: DOCX export writes text only, so "
+                "warning: DOCX export omits whole-page images, so "
                 f"{len(book.images)} page image(s) are not in this file",
                 file=sys.stderr,
             )
     if book.inline_figures:
-        if suffix == ".epub":
+        if suffix in {".epub", ".docx"}:
             print(
                 f"confirmed inline figures: {len(book.inline_figures)} embedded "
                 "at their recorded reading anchors",
@@ -3251,8 +3251,8 @@ def _export(args: argparse.Namespace, out: TextIO) -> int:
             )
         else:
             print(
-                "warning: DOCX export writes text only, so "
-                f"{len(book.inline_figures)} confirmed inline figure(s) are not in this file",
+                "warning: this export format omits confirmed inline figures, so "
+                f"{len(book.inline_figures)} figure(s) are not in this file",
                 file=sys.stderr,
             )
     if book.chapters:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import xml.etree.ElementTree as ET
 import zipfile
@@ -7,9 +8,10 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from scribeforge.adapters.docx import build_docx, write_docx
-from scribeforge.domain.content import VerifiedBook, VerifiedPage
+from scribeforge.domain.content import VerifiedBook, VerifiedInlineFigure, VerifiedPage
 
 _MODIFIED = datetime(2026, 10, 20, 12, 0, 0, tzinfo=UTC)
 _WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -32,6 +34,29 @@ def _book() -> VerifiedBook:
             VerifiedPage(1, ("二",)),
         ),
     )
+
+
+def _inline_book(caption: str = "A verified caption") -> tuple[VerifiedBook, bytes]:
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (32, 16), "navy").save(image_buffer, format="PNG")
+    image_bytes = image_buffer.getvalue()
+    figure = VerifiedInlineFigure(
+        page_index=0,
+        file_name="source-crop.png",
+        media_type="image/png",
+        sha256=hashlib.sha256(image_bytes).hexdigest(),
+        data=image_bytes,
+        alt="A small diagram",
+        caption=caption,
+        reading_position=1,
+        confirmation_id=17,
+        anchor_pair_index=1,
+        run_id=9,
+        block_index=0,
+    )
+    return VerifiedBook(
+        "Illustrated", (VerifiedPage(0, ("Before", "After")),), inline_figures=(figure,)
+    ), image_bytes
 
 
 def _archive(data: bytes) -> zipfile.ZipFile:
@@ -116,6 +141,61 @@ def test_document_preserves_text_in_reading_order() -> None:
     document = _parse(archive, "word/document.xml")
 
     assert _paragraphs(document) == ['鸦x < y & "z"', "<break>", "二"]
+
+
+def test_docx_embeds_confirmed_inline_figure_and_relationship_with_digest() -> None:
+    book, image_bytes = _inline_book()
+    data = build_docx(
+        book,
+        identifier="urn:scribeforge:illustrated",
+        language="en",
+        modified=_MODIFIED,
+    )
+
+    with _archive(data) as archive:
+        names = set(archive.namelist())
+        assert "word/media/inline-000001-000017.png" in names
+        assert archive.read("word/media/inline-000001-000017.png") == image_bytes
+        relationships = _parse(archive, "word/_rels/document.xml.rels")
+        relation = relationships.find("r:Relationship", _REL)
+        assert relation is not None
+        assert relation.get("Target") == "media/inline-000001-000017.png"
+        document = _parse(archive, "word/document.xml")
+        drawing = document.find(
+            ".//{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}docPr"
+        )
+        assert drawing is not None
+        assert drawing.get("descr") == "A small diagram"
+        assert (
+            len(document.findall(".//{http://schemas.openxmlformats.org/drawingml/2006/main}blip"))
+            == 1
+        )
+        assert _paragraphs(document) == ["Before", "", "A verified caption", "After"]
+        content_types = _parse(archive, "[Content_Types].xml")
+        png_type = next(
+            item
+            for item in content_types.findall("ct:Default", _CT)
+            if item.get("Extension") == "png"
+        )
+        assert png_type.get("ContentType") == "image/png"
+
+
+def test_docx_inline_figure_without_caption_does_not_add_editorial_text() -> None:
+    book, _image_bytes = _inline_book(caption="")
+
+    with _archive(
+        build_docx(
+            book, identifier="urn:scribeforge:illustrated", language="en", modified=_MODIFIED
+        )
+    ) as archive:
+        document = _parse(archive, "word/document.xml")
+        captions = [
+            paragraph
+            for paragraph in document.findall("w:body/w:p", _W)
+            if paragraph.find("w:pPr/w:pStyle", _W) is not None
+            and paragraph.find("w:pPr/w:pStyle", _W).get(f"{{{_WORD_NS}}}val") == "Caption"
+        ]
+        assert captions == []
 
 
 def test_document_breaks_between_pages() -> None:

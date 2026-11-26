@@ -3317,7 +3317,7 @@ def test_export_warns_that_docx_does_not_carry_page_images(
     captured = capsys.readouterr()
     assert code == 0
     assert "page images: 1 embedded" not in captured.out
-    assert "DOCX export writes text only" in captured.err
+    assert "DOCX export omits whole-page images" in captured.err
     assert run(["export", "--store", str(store_dir), "--out", str(out_path), "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["images"] == 0
