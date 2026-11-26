@@ -21,7 +21,9 @@ from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.ui.viewmodel import (
     DiffPresentation,
     LibraryEntry,
+    LibraryFilter,
     ReviewRow,
+    filter_library,
     load_jobs,
     load_library,
     load_pair_view,
@@ -29,7 +31,6 @@ from scribeforge.ui.viewmodel import (
     render_conflict_side,
     render_detail,
     resolve_review_row,
-    search_library,
 )
 
 
@@ -64,6 +65,15 @@ class ScribeForgeWindow:
         search.pack(fill="x", pady=(2, 4))
         search.insert(0, "")
         search.bind("<KeyRelease>", self._filter_library)
+        self.library_filter = tk.StringVar(value="All projects")
+        status_filter = ttk.Combobox(
+            library_frame,
+            textvariable=self.library_filter,
+            values=("All projects", "Needs review", "Failed jobs", "No pending work"),
+            state="readonly",
+        )
+        status_filter.pack(fill="x", pady=(0, 4))
+        status_filter.bind("<<ComboboxSelected>>", self._filter_library)
         self.library = ttk.Treeview(
             library_frame,
             columns=("pages", "queued", "failed"),
@@ -263,7 +273,15 @@ class ScribeForgeWindow:
         self._projects.clear()
         if reload_catalog:
             self._library_entries = load_library(self._store)
-        entries = search_library(self._library_entries, self.library_search.get())
+        entries = filter_library(
+            self._library_entries,
+            self.library_search.get(),
+            {
+                "Needs review": LibraryFilter.NEEDS_REVIEW,
+                "Failed jobs": LibraryFilter.FAILED,
+                "No pending work": LibraryFilter.CLEAR,
+            }.get(self.library_filter.get(), LibraryFilter.ALL),
+        )
         for entry in entries:
             item = self.library.insert(
                 "",
@@ -273,6 +291,10 @@ class ScribeForgeWindow:
             )
             self._projects[item] = entry.project_id
         if not entries:
+            if self._library_entries:
+                self.status.configure(text="no projects match the current search and filter")
+                self._set_detail("No matching projects; clear or change the library filters.")
+                return
             self.jobs.delete(0, "end")
             self.review.delete(*self.review.get_children())
             self._queue.clear()
@@ -288,7 +310,9 @@ class ScribeForgeWindow:
         )
         self.library.selection_set(selected)
         self.library.focus(selected)
-        self._show_project(self._projects[selected])
+        selected_project_id = self._projects[selected]
+        if reload_catalog or selected_project_id != preferred_project_id:
+            self._show_project(selected_project_id)
 
     def _filter_library(self, _event: tk.Event[Any] | None = None) -> None:
         """Refresh the visible catalog when the search text changes."""

@@ -16,6 +16,8 @@ from scribeforge.pipeline.adjudication import ReviewDetail, record_human_decisio
 from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.ui.viewmodel import (
     LibraryEntry,
+    LibraryFilter,
+    filter_library,
     load_detail,
     load_jobs,
     load_library,
@@ -125,6 +127,31 @@ def test_search_library_matches_title_or_source_without_mutating_entries() -> No
     assert search_library(entries, "TRAVEL") == (entries[1],)
     assert search_library(entries, "   ") is entries
     assert search_library(entries, "missing") == ()
+
+
+def test_filter_library_narrows_projects_by_attention_state_and_search() -> None:
+    entries = (
+        LibraryEntry(1, "Book A", "a.pdf", 4, 2, 0),
+        LibraryEntry(2, "Book B", "b.pdf", 5, 0, 1),
+        LibraryEntry(3, "Book C", "c.pdf", 6, 0, 0),
+        LibraryEntry(4, "Book D", "d.pdf", 1, 1, 1),
+    )
+
+    assert tuple(
+        item.project_id for item in filter_library(entries, "", LibraryFilter.NEEDS_REVIEW)
+    ) == (
+        1,
+        4,
+    )
+    assert tuple(item.project_id for item in filter_library(entries, "", LibraryFilter.FAILED)) == (
+        2,
+        4,
+    )
+    assert tuple(item.project_id for item in filter_library(entries, "", LibraryFilter.CLEAR)) == (
+        3,
+    )
+    assert filter_library(entries, "book d", LibraryFilter.FAILED) == (entries[3],)
+    assert filter_library(entries, "missing", LibraryFilter.ALL) == ()
 
 
 def test_load_jobs_labels_the_scope_and_the_failure(tmp_path: Path) -> None:

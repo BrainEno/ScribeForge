@@ -8,6 +8,7 @@ the same `SQLiteStore` and adjudication API the CLI uses.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from scribeforge.domain.alignment import AlignmentConflict, ConflictKind
@@ -176,6 +177,15 @@ def load_library(store: SQLiteStore) -> tuple[LibraryEntry, ...]:
     return tuple(entries)
 
 
+class LibraryFilter(Enum):
+    """Optional work-state filter for the project library."""
+
+    ALL = "all"
+    NEEDS_REVIEW = "needs_review"
+    FAILED = "failed"
+    CLEAR = "clear"
+
+
 def search_library(entries: tuple[LibraryEntry, ...], query: str) -> tuple[LibraryEntry, ...]:
     """Filter cached library entries by title or source path, case-insensitively.
 
@@ -190,6 +200,22 @@ def search_library(entries: tuple[LibraryEntry, ...], query: str) -> tuple[Libra
         for entry in entries
         if needle in entry.title.casefold() or needle in entry.source_uri.casefold()
     )
+
+
+def filter_library(
+    entries: tuple[LibraryEntry, ...],
+    query: str,
+    status: LibraryFilter = LibraryFilter.ALL,
+) -> tuple[LibraryEntry, ...]:
+    """Search the catalog and optionally narrow it to work needing attention."""
+    matches = search_library(entries, query)
+    if status is LibraryFilter.ALL:
+        return matches
+    if status is LibraryFilter.NEEDS_REVIEW:
+        return tuple(entry for entry in matches if entry.review_queued > 0)
+    if status is LibraryFilter.FAILED:
+        return tuple(entry for entry in matches if entry.failed_jobs > 0)
+    return tuple(entry for entry in matches if entry.review_queued == 0 and entry.failed_jobs == 0)
 
 
 def load_jobs(store: SQLiteStore, project_id: int) -> tuple[JobRow, ...]:
