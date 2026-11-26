@@ -20,6 +20,7 @@ from scribeforge.pipeline.adjudication import ReviewDetail
 from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.ui.viewmodel import (
     DiffPresentation,
+    LibraryEntry,
     ReviewRow,
     load_jobs,
     load_library,
@@ -40,7 +41,7 @@ class ScribeForgeWindow:
         self._store = store
         self._crops_dir = crops_dir
         self._projects: dict[str, int] = {}
-        self._library_entries = ()
+        self._library_entries: tuple[LibraryEntry, ...] = ()
         self._queue: dict[str, ReviewRow] = {}
         self._project_id: int | None = None
         self._current_row: ReviewRow | None = None
