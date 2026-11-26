@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import 'l10n/desktop_strings.dart';
 import 'screens/unified_workspace.dart';
 import 'theme/scribe_theme.dart';
 
@@ -18,6 +20,20 @@ class ScribeForgeDesktopApp extends StatelessWidget {
     title: 'ScribeForge Desktop',
     debugShowCheckedModeBanner: false,
     theme: ScribeTheme.light,
+    localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+      DesktopStrings.delegate,
+    ],
+    supportedLocales: DesktopStrings.supportedLocales,
+    localeResolutionCallback: (deviceLocale, supportedLocales) {
+      final languageCode = deviceLocale?.languageCode;
+      return supportedLocales.firstWhere(
+        (locale) => locale.languageCode == languageCode,
+        orElse: () => const Locale('zh'),
+      );
+    },
     home: const UnifiedWorkspace(),
   );
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/desktop_strings.dart';
 import '../theme/scribe_theme.dart';
 
 class WorkspaceDestination {
@@ -48,6 +49,7 @@ class WorkspaceShell extends StatelessWidget {
     final extended = !compact && size.width >= 1040;
     final selected = destinations[selectedIndex];
     final theme = Theme.of(context);
+    final strings = DesktopStrings.of(context);
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 56,
@@ -56,7 +58,7 @@ class WorkspaceShell extends StatelessWidget {
             ? PopupMenuButton<int>(
                 key: const ValueKey('workspace-destination-menu'),
                 icon: const Icon(Icons.menu),
-                tooltip: '切换工作台页面',
+                tooltip: strings.compactNavigationTooltip,
                 initialValue: selectedIndex,
                 onSelected: onSelect,
                 itemBuilder: (_) => _compactItems(),
