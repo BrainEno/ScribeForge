@@ -1,8 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:scribeforge_desktop/screens/unified_workspace.dart';
+import 'package:scribeforge_desktop/models/next_step_guidance.dart';
 
 void main() {
   group('nextStepGuidance', () {
+    test('actions expose their matching button labels', () {
+      expect(NextStepAction.none.buttonLabel, '');
+      expect(NextStepAction.configureBackend.buttonLabel, '去设置');
+      expect(NextStepAction.initEnvironment.buttonLabel, '下载并配置');
+      expect(NextStepAction.importBook.buttonLabel, '去导入');
+      expect(NextStepAction.resumeLastProject.buttonLabel, '继续上次项目');
+      expect(NextStepAction.relinkSource.buttonLabel, '去关联源文件');
+      expect(NextStepAction.goProcess.buttonLabel, '去处理');
+      expect(NextStepAction.goReview.buttonLabel, '去复核');
+      expect(NextStepAction.goExport.buttonLabel, '去导出');
+    });
+
     NextStepGuidance guidance({
       bool backendChecked = true,
       bool backendLaunchFailed = false,
