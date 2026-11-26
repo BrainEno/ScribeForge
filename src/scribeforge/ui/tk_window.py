@@ -28,6 +28,7 @@ from scribeforge.ui.viewmodel import (
     render_conflict_side,
     render_detail,
     resolve_review_row,
+    search_library,
 )
 
 
@@ -39,6 +40,7 @@ class ScribeForgeWindow:
         self._store = store
         self._crops_dir = crops_dir
         self._projects: dict[str, int] = {}
+        self._library_entries = ()
         self._queue: dict[str, ReviewRow] = {}
         self._project_id: int | None = None
         self._current_row: ReviewRow | None = None
@@ -56,6 +58,11 @@ class ScribeForgeWindow:
 
         library_frame = ttk.Frame(panes)
         ttk.Label(library_frame, text="Library").pack(anchor="w")
+        self.library_search = tk.StringVar()
+        search = ttk.Entry(library_frame, textvariable=self.library_search)
+        search.pack(fill="x", pady=(2, 4))
+        search.insert(0, "")
+        search.bind("<KeyRelease>", self._filter_library)
         self.library = ttk.Treeview(
             library_frame,
             columns=("pages", "queued", "failed"),
@@ -248,12 +255,14 @@ class ScribeForgeWindow:
         root.bind("d", lambda event: self._shortcut_focus("secondary"))
         root.bind("<Control-Return>", lambda event: self._shortcut_save())
 
-    def refresh(self) -> None:
+    def refresh(self, *, reload_catalog: bool = True) -> None:
         """Reload the library, preserving the currently selected project."""
         preferred_project_id = self._project_id
         self.library.delete(*self.library.get_children())
         self._projects.clear()
-        entries = load_library(self._store)
+        if reload_catalog:
+            self._library_entries = load_library(self._store)
+        entries = search_library(self._library_entries, self.library_search.get())
         for entry in entries:
             item = self.library.insert(
                 "",
@@ -279,6 +288,10 @@ class ScribeForgeWindow:
         self.library.selection_set(selected)
         self.library.focus(selected)
         self._show_project(self._projects[selected])
+
+    def _filter_library(self, _event: tk.Event[Any] | None = None) -> None:
+        """Refresh the visible catalog when the search text changes."""
+        self.refresh(reload_catalog=False)
 
     def _show_project(self, project_id: int) -> None:
         self._project_id = project_id

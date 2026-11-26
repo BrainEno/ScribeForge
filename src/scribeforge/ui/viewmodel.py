@@ -176,6 +176,24 @@ def load_library(store: SQLiteStore) -> tuple[LibraryEntry, ...]:
     return tuple(entries)
 
 
+def search_library(
+    entries: tuple[LibraryEntry, ...], query: str
+) -> tuple[LibraryEntry, ...]:
+    """Filter cached library entries by title or source path, case-insensitively.
+
+    Matching uses ordinary Unicode case folding and leaves the persisted entry
+    untouched. An empty query returns the original tuple, preserving order.
+    """
+    needle = query.strip().casefold()
+    if not needle:
+        return entries
+    return tuple(
+        entry
+        for entry in entries
+        if needle in entry.title.casefold() or needle in entry.source_uri.casefold()
+    )
+
+
 def load_jobs(store: SQLiteStore, project_id: int) -> tuple[JobRow, ...]:
     """List a project's jobs in the order they were created."""
 

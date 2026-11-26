@@ -15,9 +15,11 @@ from scribeforge.domain.risk import PairRisk, ReviewCandidate, RiskReason
 from scribeforge.pipeline.adjudication import ReviewDetail, record_human_decision, review_detail
 from scribeforge.storage.sqlite import SQLiteStore
 from scribeforge.ui.viewmodel import (
+    LibraryEntry,
     load_detail,
     load_jobs,
     load_library,
+    search_library,
     load_pair_view,
     load_review_rows,
     page_image_path,
@@ -111,6 +113,18 @@ def test_load_library_summarizes_each_project(tmp_path: Path) -> None:
     assert (entry.project_id, entry.title, entry.source_uri) == (project_id, "Book", "book.pdf")
     assert (entry.page_count, entry.review_queued, entry.failed_jobs) == (1, 1, 1)
     assert entry.summary == "Book — 1 page(s), 1 queued for review, 1 failed job(s)"
+
+
+def test_search_library_matches_title_or_source_without_mutating_entries() -> None:
+    entries = (
+        LibraryEntry(1, "古籍目录", "C:/Scans/volume-one.pdf", 3, 0, 0),
+        LibraryEntry(2, "Travel diary", "D:/Books/diary.pdf", 8, 1, 0),
+    )
+
+    assert search_library(entries, " VOLUME-") == (entries[0],)
+    assert search_library(entries, "TRAVEL") == (entries[1],)
+    assert search_library(entries, "   ") is entries
+    assert search_library(entries, "missing") == ()
 
 
 def test_load_jobs_labels_the_scope_and_the_failure(tmp_path: Path) -> None:
