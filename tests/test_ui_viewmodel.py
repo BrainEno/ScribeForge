@@ -19,13 +19,13 @@ from scribeforge.ui.viewmodel import (
     load_detail,
     load_jobs,
     load_library,
-    search_library,
     load_pair_view,
     load_review_rows,
     page_image_path,
     render_conflict_side,
     render_detail,
     resolve_review_row,
+    search_library,
 )
 
 
