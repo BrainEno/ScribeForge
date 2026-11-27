@@ -65,18 +65,20 @@ class DesktopStringsDelegate extends LocalizationsDelegate<DesktopStrings> {
   const DesktopStringsDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      DesktopStrings.supportedLocales.any((item) => item.languageCode == locale.languageCode);
+  bool isSupported(Locale locale) => DesktopStrings.supportedLocales.any(
+    (item) => item.languageCode == locale.languageCode,
+  );
 
   @override
-  Future<DesktopStrings> load(Locale locale) => SynchronousFuture<DesktopStrings>(
-    DesktopStrings(
-      DesktopStrings.supportedLocales.firstWhere(
-        (item) => item.languageCode == locale.languageCode,
-        orElse: () => const Locale('zh'),
-      ),
-    ),
-  );
+  Future<DesktopStrings> load(Locale locale) =>
+      SynchronousFuture<DesktopStrings>(
+        DesktopStrings(
+          DesktopStrings.supportedLocales.firstWhere(
+            (item) => item.languageCode == locale.languageCode,
+            orElse: () => const Locale('zh'),
+          ),
+        ),
+      );
 
   @override
   bool shouldReload(DesktopStringsDelegate old) => false;
