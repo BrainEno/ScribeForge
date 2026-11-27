@@ -312,43 +312,43 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
     return _settingsLoading || _settingsReadError != null
         ? _buildSettingsRecovery()
         : WorkspaceShell(
-          destinations: _destinations(strings),
-          selectedIndex: _selectedIndex,
-          onSelect: (index) => setState(() => _selectedIndex = index),
-          actions: <Widget>[
-            IconButton(
-              key: const ValueKey('help-button'),
-              icon: const Icon(Icons.help_outline),
-              tooltip: strings.helpTooltip,
-              onPressed: () => showWorkspaceHelpDialog(context),
-            ),
-            if (_busy)
-              const Padding(
-                padding: EdgeInsets.all(8),
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            if (_error != null)
+            destinations: _destinations(strings),
+            selectedIndex: _selectedIndex,
+            onSelect: (index) => setState(() => _selectedIndex = index),
+            actions: <Widget>[
               IconButton(
-                icon: const Icon(Icons.close, size: 20),
-                tooltip: strings.closeErrorTooltip,
-                onPressed: () => setState(() => _error = null),
+                key: const ValueKey('help-button'),
+                icon: const Icon(Icons.help_outline),
+                tooltip: strings.helpTooltip,
+                onPressed: () => showWorkspaceHelpDialog(context),
               ),
-          ],
-          notices: <Widget>[_buildNoticeBar(), _buildNextStepBar()],
-          pages: <Widget>[
-            _buildLibraryPage(),
-            _buildProcessPage(),
-            _buildReviewPage(),
-            _buildCandidateComparisonPage(),
-            _buildExportPage(),
-            _buildProjectSafetyPage(),
-            this._buildSettingsPage(),
-          ],
-        );
+              if (_busy)
+                const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              if (_error != null)
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  tooltip: strings.closeErrorTooltip,
+                  onPressed: () => setState(() => _error = null),
+                ),
+            ],
+            notices: <Widget>[_buildNoticeBar(), _buildNextStepBar()],
+            pages: <Widget>[
+              _buildLibraryPage(),
+              _buildProcessPage(),
+              _buildReviewPage(),
+              _buildCandidateComparisonPage(),
+              _buildExportPage(),
+              _buildProjectSafetyPage(),
+              this._buildSettingsPage(),
+            ],
+          );
   }
 
   Widget _buildSettingsRecovery() {
