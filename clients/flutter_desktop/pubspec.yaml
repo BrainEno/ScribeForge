@@ -10,6 +10,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   archive: ^4.5.2
   crypto: ^3.0.7
   file_picker: ^13.1.0

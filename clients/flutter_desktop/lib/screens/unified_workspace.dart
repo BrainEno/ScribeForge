@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
+import '../l10n/desktop_strings.dart';
 import '../models/export_readiness.dart';
 import '../models/next_step_guidance.dart';
 import '../models/processing_report.dart';
@@ -193,15 +194,16 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   _reviewControllers = {};
   final _supersededDrafts = SupersededReviewDrafts();
 
-  static const _destinations = <WorkspaceDestination>[
-    WorkspaceDestination('书籍', Icons.library_books),
-    WorkspaceDestination('处理', Icons.auto_awesome),
-    WorkspaceDestination('复核', Icons.fact_check_outlined),
-    WorkspaceDestination('候选比较', Icons.compare_arrows),
-    WorkspaceDestination('导出', Icons.output),
-    WorkspaceDestination('项目安全', Icons.shield_outlined),
-    WorkspaceDestination('设置', Icons.settings),
-  ];
+  List<WorkspaceDestination> _destinations(DesktopStrings strings) =>
+      <WorkspaceDestination>[
+        WorkspaceDestination(strings.books, Icons.library_books),
+        WorkspaceDestination(strings.process, Icons.auto_awesome),
+        WorkspaceDestination(strings.review, Icons.fact_check_outlined),
+        WorkspaceDestination(strings.candidates, Icons.compare_arrows),
+        WorkspaceDestination(strings.export, Icons.output),
+        WorkspaceDestination(strings.safety, Icons.shield_outlined),
+        WorkspaceDestination(strings.settings, Icons.settings),
+      ];
 
   @override
   void initState() {
@@ -305,47 +307,49 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
   // ----------------------------------------------------------------- status
 
   @override
-  Widget build(BuildContext context) =>
-      _settingsLoading || _settingsReadError != null
-      ? _buildSettingsRecovery()
-      : WorkspaceShell(
-          destinations: _destinations,
-          selectedIndex: _selectedIndex,
-          onSelect: (index) => setState(() => _selectedIndex = index),
-          actions: <Widget>[
-            IconButton(
-              key: const ValueKey('help-button'),
-              icon: const Icon(Icons.help_outline),
-              tooltip: '使用帮助',
-              onPressed: () => showWorkspaceHelpDialog(context),
-            ),
-            if (_busy)
-              const Padding(
-                padding: EdgeInsets.all(8),
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            if (_error != null)
+  Widget build(BuildContext context) {
+    final strings = DesktopStrings.of(context);
+    return _settingsLoading || _settingsReadError != null
+        ? _buildSettingsRecovery()
+        : WorkspaceShell(
+            destinations: _destinations(strings),
+            selectedIndex: _selectedIndex,
+            onSelect: (index) => setState(() => _selectedIndex = index),
+            actions: <Widget>[
               IconButton(
-                icon: const Icon(Icons.close, size: 20),
-                tooltip: '关闭错误提示',
-                onPressed: () => setState(() => _error = null),
+                key: const ValueKey('help-button'),
+                icon: const Icon(Icons.help_outline),
+                tooltip: strings.helpTooltip,
+                onPressed: () => showWorkspaceHelpDialog(context),
               ),
-          ],
-          notices: <Widget>[_buildNoticeBar(), _buildNextStepBar()],
-          pages: <Widget>[
-            _buildLibraryPage(),
-            _buildProcessPage(),
-            _buildReviewPage(),
-            _buildCandidateComparisonPage(),
-            _buildExportPage(),
-            _buildProjectSafetyPage(),
-            this._buildSettingsPage(),
-          ],
-        );
+              if (_busy)
+                const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              if (_error != null)
+                IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  tooltip: strings.closeErrorTooltip,
+                  onPressed: () => setState(() => _error = null),
+                ),
+            ],
+            notices: <Widget>[_buildNoticeBar(), _buildNextStepBar()],
+            pages: <Widget>[
+              _buildLibraryPage(),
+              _buildProcessPage(),
+              _buildReviewPage(),
+              _buildCandidateComparisonPage(),
+              _buildExportPage(),
+              _buildProjectSafetyPage(),
+              this._buildSettingsPage(),
+            ],
+          );
+  }
 
   Widget _buildSettingsRecovery() {
     final error = _settingsLoading ? null : _settingsReadError;
@@ -467,13 +471,14 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
 
   Widget _buildNextStepBar() {
     final guidance = _nextStep();
+    final strings = DesktopStrings.of(context);
     if (guidance.action == NextStepAction.none) return const SizedBox.shrink();
     return _workspaceStrip(
       icon: Icons.arrow_forward_rounded,
       background: ScribePalette.mist,
       foreground: ScribePalette.forest,
       message: Text(
-        '下一步：${guidance.message}',
+        '${strings.nextStepPrefix}${guidance.message}',
         key: const ValueKey('next-step-message'),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
@@ -483,7 +488,7 @@ class _UnifiedWorkspaceState extends State<UnifiedWorkspace> {
         onPressed: _busy || _backendBusy
             ? null
             : () => unawaited(_runNextStepAction(guidance.action)),
-        child: Text(guidance.action.buttonLabel),
+        child: Text(strings.actionButton(guidance.action.name)),
       ),
     );
   }
